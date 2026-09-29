@@ -1,9 +1,11 @@
 import { LogOutIcon } from 'lucide-react'
+import { useEffect, useRef } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 
 import { useDashboard } from '@/api/hooks/dashboard'
 import { useHealth } from '@/api/hooks/health'
 import { RingLogo } from '@/components/RingLogo'
+import type { RingHandle } from '@/components/ring/types'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/contexts/AuthContext'
@@ -23,6 +25,7 @@ import {
   SidebarMenuSubButton,
   SidebarMenuSubItem,
   SidebarRail,
+  useSidebar,
 } from '@/components/ui/sidebar'
 import { cn } from '@/lib/utils'
 import { NAV_DASHBOARD, NAV_GROUPS } from '@/lib/nav'
@@ -98,14 +101,31 @@ function AppSidebarFooter() {
   )
 }
 
+// Lampo di luce quando la sidebar si apre o si chiude.
+function SidebarRing() {
+  const { state } = useSidebar()
+  const ring = useRef<RingHandle>(null)
+  const previous = useRef(state)
+  useEffect(() => {
+    if (previous.current !== state) ring.current?.collapse(state === 'collapsed')
+    previous.current = state
+  }, [state])
+  return <RingLogo size={32} handleRef={ring} />
+}
+
 export function AppSidebar() {
   const location = useLocation()
   return (
     <Sidebar collapsible="icon">
-      <SidebarHeader className="px-4 py-4 group-data-[collapsible=icon]:hidden">
+      {/* L'anello resta visibile anche a sidebar chiusa; sparisce solo il nome.
+          Stesso margine sinistro aperta e chiusa (8px: nella barra chiusa da
+          48px un anello da 32px resta centrato), così non si sposta. */}
+      <SidebarHeader className="px-2 py-3">
         <span className="flex items-center gap-2">
-          <RingLogo />
-          <span className="truncate text-base font-semibold tracking-tight">Nazgarr</span>
+          <SidebarRing />
+          <span className="truncate text-base font-semibold tracking-tight group-data-[collapsible=icon]:hidden">
+            Nazgarr
+          </span>
         </span>
       </SidebarHeader>
       <SidebarContent>

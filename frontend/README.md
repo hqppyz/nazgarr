@@ -17,6 +17,16 @@ Dopo ogni modifica agli endpoint del backend, rigenera i tipi TypeScript dallo s
 npm run gen-types
 ```
 
+## Logo (anello 3D)
+
+L'anello della sidebar e del login è in WebGL (`src/components/ring/WebGLRing.tsx`, Three.js + GSAP), caricato a parte. Quando manca WebGL o è attivo "riduci movimento", si vede `public/ring.png`, che è lo stesso anello fotografato. Dopo ogni modifica all'anello va rigenerata:
+
+```bash
+npm run render:ring   # serve Chrome/Chromium installato (CHROME_PATH per indicarlo)
+```
+
+Anteprima: `npm run dev` e poi `/ring-lab.html` (con `?solo` per l'anello grande da solo, `?glow` per vederlo acceso).
+
 ## Test
 
 ```bash

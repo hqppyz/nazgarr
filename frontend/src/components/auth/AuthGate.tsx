@@ -17,7 +17,7 @@ function CenteredCard({ title, description, children }: { title: string; descrip
       <Card className="w-full max-w-sm">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <RingLogo className="size-7" />
+            <RingLogo size={36} />
             {title}
           </CardTitle>
           <CardDescription>{description}</CardDescription>

@@ -217,6 +217,10 @@ function MetricCard({
   )
 }
 
+// Un backend più vecchio del frontend (es. un container non aggiornato) può
+// non mandare i campi nuovi: 0 invece di far cadere tutta la dashboard.
+const num = (value: number | null | undefined) => value ?? 0
+
 function MetricCards({ data }: { data: Dashboard }) {
   const previous = data.previous
   return (
@@ -226,27 +230,27 @@ function MetricCards({ data }: { data: Dashboard }) {
         dot={STATUS_STYLES.seeding.dot}
         value={
           <p className="text-3xl font-semibold tabular-nums">
-            {data.health_pct.toFixed(1)}
+            {num(data.health_pct).toFixed(1)}
             <span className="ml-0.5 text-base font-normal text-muted-foreground">%</span>
           </p>
         }
         subline={t('dashboard.seedingOfTotal', {
-          seeding: formatBytes(data.seeding_media_size),
-          total: formatBytes(data.total_media_size),
+          seeding: formatBytes(num(data.seeding_media_size)),
+          total: formatBytes(num(data.total_media_size)),
         })}
-        trend={trendOf(data.health_pct, previous?.health_snapshot, false)}
+        trend={trendOf(num(data.health_pct), previous?.health_snapshot, false)}
         description={t('dashboard.hardlinkedDescription')}
         action={{ label: t('dashboard.viewOrphanedMedia'), to: '/library/folder?status=orphan_media', icon: Link2Icon }}
       />
       <MetricCard
         title={t('dashboard.orphanedTorrents')}
         dot={STATUS_STYLES.orphan.dot}
-        value={<BigValue value={formatBytes(data.orphan_torrent_bytes)} />}
+        value={<BigValue value={formatBytes(num(data.orphan_torrent_bytes))} />}
         subline={t('dashboard.orphanedSubline', {
-          count: data.orphan_torrent_count.toLocaleString(),
-          size: formatBytes(data.orphan_not_in_library_bytes),
+          count: num(data.orphan_torrent_count).toLocaleString(),
+          size: formatBytes(num(data.orphan_not_in_library_bytes)),
         })}
-        trend={trendOf(data.orphan_torrent_bytes, previous?.orphan_torrent_bytes, true)}
+        trend={trendOf(num(data.orphan_torrent_bytes), previous?.orphan_torrent_bytes, true)}
         description={t('dashboard.orphanedDescription')}
         action={{ label: t('dashboard.viewOrphanedTorrents'), to: '/torrent/folder?status=orphan_torrent', icon: Trash2Icon }}
       />
@@ -255,25 +259,25 @@ function MetricCards({ data }: { data: Dashboard }) {
         dot={STATUS_STYLES.ignored.dot}
         // Gli stessi numeri della vista (per torrent, esclusi fuori) quando è
         // calcolata; prima, il conto per file come ripiego.
-        value={<BigValue value={formatBytes(data.not_imported_bytes ?? data.ignored_bytes)} />}
+        value={<BigValue value={formatBytes(data.not_imported_bytes ?? num(data.ignored_bytes))} />}
         subline={
           data.not_imported_torrents != null
             ? t('dashboard.torrentsCount', { count: data.not_imported_torrents.toLocaleString() })
-            : t('dashboard.filesCount', { count: data.ignored_count.toLocaleString() })
+            : t('dashboard.filesCount', { count: num(data.ignored_count).toLocaleString() })
         }
-        trend={trendOf(data.ignored_bytes, previous?.ignored_bytes, true)}
+        trend={trendOf(num(data.ignored_bytes), previous?.ignored_bytes, true)}
         description={t('dashboard.notImportedDescription')}
         action={{ label: t('dashboard.viewNotImported'), to: '/torrent/not-imported', icon: FileSearchIcon }}
       />
       <MetricCard
         title={t('dashboard.duplicates')}
         dot={STATUS_STYLES.duplicate.dot}
-        value={<BigValue value={formatBytes(data.duplicate_wasted_bytes)} />}
+        value={<BigValue value={formatBytes(num(data.duplicate_wasted_bytes))} />}
         subline={t('dashboard.duplicatesSubline', {
-          count: data.duplicate_files.toLocaleString(),
-          hardlinks: data.duplicate_hardlink_groups.toLocaleString(),
+          count: num(data.duplicate_files).toLocaleString(),
+          hardlinks: num(data.duplicate_hardlink_groups).toLocaleString(),
         })}
-        trend={trendOf(data.duplicate_wasted_bytes, previous?.duplicate_wasted_bytes, true)}
+        trend={trendOf(num(data.duplicate_wasted_bytes), previous?.duplicate_wasted_bytes, true)}
         description={t('dashboard.duplicatesDescription')}
         action={{ label: t('dashboard.viewDuplicates'), to: '/library/folder?status=duplicates', icon: CopyIcon }}
       />

@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { lazy, Suspense, type ReactNode } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 
 import { AppLayout } from '@/components/layout/AppLayout'
@@ -34,6 +34,8 @@ const overrides: Record<string, ReactNode> = {
   '/config': <ConfigurationPage />,
 }
 
+const RingLabPage = lazy(() => import('@/pages/lab/RingLabPage'))
+
 const ALL_ITEMS = [NAV_DASHBOARD, ...NAV_GROUPS.flatMap((group) => group.items)]
 
 function App() {
@@ -42,6 +44,16 @@ function App() {
       <Route element={<AppLayout />}>
         <Route index element={<Navigate to={NAV_DASHBOARD.to} replace />} />
         <Route path="/library" element={<LibraryDefaultView />} />
+        {/* Prototipo del logo (branch feature/ring-logo): fuori dalla navigazione,
+            caricato a parte perché porta con sé Three.js. */}
+        <Route
+          path="/lab/ring"
+          element={
+            <Suspense fallback={<p className="text-sm text-muted-foreground">Loading…</p>}>
+              <RingLabPage />
+            </Suspense>
+          }
+        />
         {ALL_ITEMS.map((item) => (
           <Route key={item.to} path={item.to} element={overrides[item.to] ?? <ComingSoon title={item.title} />} />
         ))}

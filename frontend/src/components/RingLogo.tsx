@@ -1,25 +1,68 @@
+import { lazy, Suspense, useState, type Ref } from 'react'
+
+import type { RingHandle } from '@/components/ring/types'
 import { cn } from '@/lib/utils'
 
-// L'anello dorato del logo (stesso disegno di public/favicon.svg), inline
-// per non dipendere da una richiesta in più.
-export function RingLogo({ className }: { className?: string }) {
+// L'anello del logo. Tre casi:
+// - di norma l'anello 3D in WebGL (components/ring/WebGLRing.tsx), caricato a
+//   parte perché porta con sé Three.js: fino al primo fotogramma si vede
+//   l'immagine statica, che è lo stesso anello fotografato;
+// - con "riduci movimento" o senza WebGL, solo l'immagine statica.
+// L'immagine (public/ring.png) si rigenera con `npm run render:ring` quando
+// cambia l'anello (scripts/render-ring.mjs).
+const WebGLRing = lazy(() => import('@/components/ring/WebGLRing').then((m) => ({ default: m.WebGLRing })))
+
+export const RING_STATIC_SRC = '/ring.png'
+
+function canAnimate(): boolean {
+  if (typeof window === 'undefined') return false
+  if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return false
+  try {
+    const canvas = document.createElement('canvas')
+    return !!(canvas.getContext('webgl2') ?? canvas.getContext('webgl'))
+  } catch {
+    return false
+  }
+}
+
+let animated: boolean | null = null
+
+export function RingLogo({
+  size = 28,
+  className,
+  handleRef,
+  hoverable = true,
+}: {
+  size?: number
+  className?: string
+  handleRef?: Ref<RingHandle>
+  hoverable?: boolean
+}) {
+  animated ??= canAnimate()
+  const [ready, setReady] = useState(false)
+  const still = (
+    <img
+      src={RING_STATIC_SRC}
+      width={size}
+      height={size}
+      alt=""
+      draggable={false}
+      className={cn('pointer-events-none select-none', animated && 'absolute inset-0')}
+    />
+  )
+  if (!animated) {
+    return (
+      <span className={cn('inline-block shrink-0', className)} style={{ width: size, height: size }} role="img" aria-label="Nazgarr">
+        {still}
+      </span>
+    )
+  }
   return (
-    <svg viewBox="0 0 64 64" className={cn('size-6 shrink-0', className)} aria-hidden="true">
-      <defs>
-        <linearGradient id="ring-gold" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stopColor="#fff2b3" />
-          <stop offset="0.35" stopColor="#f2c14e" />
-          <stop offset="0.7" stopColor="#c9891a" />
-          <stop offset="1" stopColor="#8a5a0b" />
-        </linearGradient>
-        <linearGradient id="ring-inner" x1="1" y1="0" x2="0" y2="1">
-          <stop offset="0" stopColor="#7a4d08" />
-          <stop offset="1" stopColor="#e0a93a" />
-        </linearGradient>
-      </defs>
-      <ellipse cx="32" cy="32" rx="26" ry="22" fill="none" stroke="url(#ring-gold)" strokeWidth="9" />
-      <ellipse cx="32" cy="32" rx="21.5" ry="17.5" fill="none" stroke="url(#ring-inner)" strokeWidth="1.5" opacity="0.8" />
-      <path d="M14 22 A26 22 0 0 1 30 10.5" fill="none" stroke="#fffbe6" strokeWidth="2.2" strokeLinecap="round" opacity="0.85" />
-    </svg>
+    <span className={cn('relative inline-block shrink-0', className)} style={{ width: size, height: size }}>
+      {!ready && still}
+      <Suspense fallback={null}>
+        <WebGLRing size={size} handleRef={handleRef} hoverable={hoverable} onReady={() => setReady(true)} />
+      </Suspense>
+    </span>
   )
 }
