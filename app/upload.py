@@ -144,8 +144,11 @@ def prepare(
 
     template = Template(profile.description_template or "{{ mediainfo }}")
     rendered = template.render(mediainfo=job.mediainfo_text or "", screenshot_urls=screenshot_urls, notes="")
+    # Intestazione in cima e firma in fondo, entrambe facoltative
+    # (Configuration > Upload).
     header = settings_repo.get_setting(session, "upload_description_header")
-    job.description_rendered = f"{header}\n\n{rendered}" if header else rendered
+    signature = settings_repo.get_setting(session, "upload_description_signature")
+    job.description_rendered = "\n\n".join(part for part in (header, rendered, signature) if part)
 
     job.status = "ready"
     session.commit()

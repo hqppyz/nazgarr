@@ -141,6 +141,23 @@ def test_prepare_prepends_description_header_when_configured(db_session, tmp_pat
     assert result.description_rendered.startswith("[b]Encoded by me[/b]\n\n")
 
 
+def test_prepare_appends_signature_after_template(db_session, tmp_path, monkeypatch):
+    from app import settings_repo
+
+    settings_repo.set_setting(db_session, "upload_description_header", "HEADER")
+    settings_repo.set_setting(db_session, "upload_description_signature", "[i]Uploaded with Nazgarr[/i]")
+
+    tracker = _tracker(db_session)
+    profile = upload_profiles.create_upload_profile(db_session, tracker, "itt")
+    job = upload.create_draft(db_session, _video(tmp_path), tracker, resolver=None)
+    monkeypatch.setattr(upload.screenshots, "generate_screenshots", lambda *a, **k: [])
+
+    result = upload.prepare(db_session, job, tracker, profile, _FakeImageHostChain(), str(tmp_path / "data"))
+
+    assert result.description_rendered.startswith("HEADER\n\n")
+    assert result.description_rendered.endswith("\n\n[i]Uploaded with Nazgarr[/i]")
+
+
 def test_prepare_raises_without_announce_url(db_session, tmp_path):
     tracker = _tracker(db_session, announce_url=None)
     profile = upload_profiles.create_upload_profile(db_session, tracker, "itt")

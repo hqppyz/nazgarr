@@ -31,31 +31,46 @@ function TonemapSwitch() {
   )
 }
 
-function DescriptionHeaderField() {
-  const { data } = useSetting('upload_description_header')
-  const setSetting = useSetSetting('upload_description_header')
+// Testo fisso aggiunto alla descrizione generata dal template del tracker:
+// l'intestazione in cima, la firma in fondo (app/upload.py prepare).
+// Salvataggio esplicito: un textarea in autosave salverebbe a ogni tasto.
+function DescriptionTextField({
+  settingKey,
+  label,
+  help,
+  saveLabel,
+  savedMessage,
+}: {
+  settingKey: string
+  label: string
+  help: string
+  saveLabel: string
+  savedMessage: string
+}) {
+  const { data } = useSetting(settingKey)
+  const setSetting = useSetSetting(settingKey)
   const [draft, setDraft] = useState<string | null>(null)
   const value = draft ?? data?.value ?? ''
 
   return (
     <div className="grid gap-1.5">
-      <Label>{t('uploadSettings.descriptionHeaderLabel')}</Label>
-      <p className="text-xs text-muted-foreground">{t('uploadSettings.descriptionHeaderHelp')}</p>
-      <Textarea rows={3} className="font-mono text-xs" value={value} onChange={(e) => setDraft(e.target.value)} />
+      <Label htmlFor={settingKey}>{label}</Label>
+      <p className="text-xs text-muted-foreground">{help}</p>
+      <Textarea id={settingKey} rows={3} className="font-mono text-xs" value={value} onChange={(e) => setDraft(e.target.value)} />
       <button
         type="button"
         className="w-fit text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
         onClick={() =>
           setSetting.mutate(value, {
             onSuccess: () => {
-              toast.success(t('uploadSettings.descriptionHeaderSaved'))
+              toast.success(savedMessage)
               setDraft(null)
             },
             onError: (error) => toast.error(t('common.saveFailed', { message: error.message })),
           })
         }
       >
-        {t('uploadSettings.saveHeaderButton')}
+        {saveLabel}
       </button>
     </div>
   )
@@ -85,12 +100,26 @@ export function UploadSettingsSection() {
         <CardHeader>
           <CardTitle>{t('uploadSettings.descriptionTitle')}</CardTitle>
         </CardHeader>
-        <CardContent>
-          <DescriptionHeaderField />
+        <CardContent className="grid gap-6">
+          <DescriptionTextField
+            settingKey="upload_description_header"
+            label={t('uploadSettings.descriptionHeaderLabel')}
+            help={t('uploadSettings.descriptionHeaderHelp')}
+            saveLabel={t('uploadSettings.saveHeaderButton')}
+            savedMessage={t('uploadSettings.descriptionHeaderSaved')}
+          />
+          <DescriptionTextField
+            settingKey="upload_description_signature"
+            label={t('uploadSettings.signatureLabel')}
+            help={t('uploadSettings.signatureHelp')}
+            saveLabel={t('uploadSettings.saveSignatureButton')}
+            savedMessage={t('uploadSettings.signatureSaved')}
+          />
         </CardContent>
       </Card>
 
-      <Card className="max-w-4xl">
+      {/* A tutta larghezza sotto le due colonne: priorità e API key affiancate. */}
+      <Card className="[column-span:all]">
         <CardHeader>
           <CardTitle>{t('uploadSettings.imageHostsTitle')}</CardTitle>
           <CardDescription>{t('uploadSettings.imageHostsDescription')}</CardDescription>
