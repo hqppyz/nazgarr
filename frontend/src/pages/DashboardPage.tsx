@@ -244,8 +244,14 @@ function MetricCards({ data }: { data: Dashboard }) {
       <MetricCard
         title={t('dashboard.notImported')}
         dot={STATUS_STYLES.ignored.dot}
-        value={<BigValue value={formatBytes(data.ignored_bytes)} />}
-        subline={t('dashboard.filesCount', { count: data.ignored_count.toLocaleString() })}
+        // Gli stessi numeri della vista (per torrent, esclusi fuori) quando è
+        // calcolata; prima, il conto per file come ripiego.
+        value={<BigValue value={formatBytes(data.not_imported_bytes ?? data.ignored_bytes)} />}
+        subline={
+          data.not_imported_torrents != null
+            ? t('dashboard.torrentsCount', { count: data.not_imported_torrents.toLocaleString() })
+            : t('dashboard.filesCount', { count: data.ignored_count.toLocaleString() })
+        }
         trend={trendOf(data.ignored_bytes, previous?.ignored_bytes, true)}
         description={t('dashboard.notImportedDescription')}
         action={{ label: t('dashboard.viewNotImported'), to: '/torrent/not-imported', icon: FileSearchIcon }}

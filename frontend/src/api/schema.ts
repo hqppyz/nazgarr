@@ -992,6 +992,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/torrents/not-imported/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Refresh Not Imported
+         * @description Ricalcola subito, senza aspettare uno scan: rilegge la history di
+         *     Radarr/Sonarr e i dati già indicizzati. Sola lettura su file e client.
+         */
+        post: operations["refresh_not_imported_api_torrents_not_imported_refresh_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/schedule": {
         parameters: {
             query?: never;
@@ -1459,6 +1480,10 @@ export interface components {
              * @default 0
              */
             duplicate_hardlink_groups: number;
+            /** Not Imported Torrents */
+            not_imported_torrents?: number | null;
+            /** Not Imported Bytes */
+            not_imported_bytes?: number | null;
             /** Pending Review */
             pending_review: number;
             /** Failed */
@@ -2062,15 +2087,33 @@ export interface components {
             added_at: string | null;
             /** State */
             state: string;
+            /**
+             * Excluded
+             * @default false
+             */
+            excluded: boolean;
         };
         /** NotImportedResponse */
         NotImportedResponse: {
             /** Classified */
             classified: boolean;
+            /** Computed At */
+            computed_at?: string | null;
+            /** With Arr */
+            with_arr?: boolean | null;
+            /** Skipped At */
+            skipped_at?: string | null;
+            /** Skipped Reason */
+            skipped_reason?: string | null;
             /** Summary */
             summary: {
                 [key: string]: components["schemas"]["CategorySummary"];
             };
+            /**
+             * Excluded Count
+             * @default 0
+             */
+            excluded_count: number;
             /** Torrents */
             torrents: components["schemas"]["NotImportedItem"][];
         };
@@ -4809,6 +4852,26 @@ export interface operations {
         };
     };
     list_not_imported_api_torrents_not_imported_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotImportedResponse"];
+                };
+            };
+        };
+    };
+    refresh_not_imported_api_torrents_not_imported_refresh_post: {
         parameters: {
             query?: never;
             header?: never;

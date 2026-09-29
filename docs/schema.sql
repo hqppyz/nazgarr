@@ -437,6 +437,7 @@ CREATE TABLE IF NOT EXISTS not_imported_torrent (
     total_bytes                INTEGER NOT NULL,
     video_bytes                INTEGER NOT NULL,
     file_count                 INTEGER NOT NULL,
+    excluded                   BOOLEAN,         -- main video (or every file) excluded: hidden by default
     run_id                     INTEGER REFERENCES run_log(id) ON DELETE SET NULL
 );
 

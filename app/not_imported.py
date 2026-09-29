@@ -22,11 +22,13 @@ Ricalcolata a fine scansione, solo con dati affidabili (scan e
 indicizzazione riusciti, come app/file_changes.py).
 """
 
+import json
 import logging
 import os
 import re
 import unicodedata
 from collections import defaultdict
+from datetime import UTC, datetime
 
 import guessit
 from sqlalchemy.orm import Session
@@ -47,6 +49,7 @@ from app.models import (
     SeedFile,
 )
 from app.scan_state import is_current, latest_scan_by_disk
+from app.settings_repo import get_setting, set_setting
 
 logger = logging.getLogger(__name__)
 
@@ -138,8 +141,30 @@ def _classify_torrent(library: _Library, arr_index, main_abs: str, main_size: in
     return "never_imported", "Radarr/Sonarr have no record of importing it", None, content, None
 
 
+STATUS_SETTING = "not_imported_status"
+
+
+def _save_status(session: Session, **status) -> None:
+    """Quando è stata calcolata l'ultima volta, o perché l'ultima scansione
+    l'ha saltata: la vista lo mostra invece di restare vuota senza motivo."""
+    previous = load_status(session)
+    set_setting(session, STATUS_SETTING, json.dumps({**previous, **status}, default=str))
+
+
+def load_status(session: Session) -> dict:
+    try:
+        return json.loads(get_setting(session, STATUS_SETTING) or "{}")
+    except ValueError:
+        return {}
+
+
+def mark_skipped(session: Session, reason: str) -> None:
+    _save_status(session, skipped_at=datetime.now(UTC).isoformat(), skipped_reason=reason)
+
+
 def classify_not_imported(session: Session, arr_index, run: RunLog | None = None) -> dict[str, int]:
     library = _Library(session)
+    exclusions = load_exclusions(session)
     linked_seed_ids = {sf_id for sfs in media_links(session).values() for sf_id, _ in sfs}
     latest_seed = latest_scan_by_disk(session, SeedFile)
     seeds = {sf.id: sf for sf in session.query(SeedFile).all() if is_current(sf, latest_seed)}
@@ -172,7 +197,12 @@ def classify_not_imported(session: Session, arr_index, run: RunLog | None = None
             category, detail, matched_by, content, replacement = _classify_torrent(
                 library, arr_index, main_abs, seed.size_bytes, main.path_in_torrent
             )
-        counts[category] += 1
+        if main is not None:
+            excluded = exclusions.is_excluded(seeds[main.seed_file_id].relative_path)
+        else:
+            excluded = all(exclusions.is_excluded(seeds[f.seed_file_id].relative_path) for f in on_disk)
+        if not excluded:
+            counts[category] += 1
         rows.append({
             "client_torrent_id": torrent.id, "category": category, "detail": detail, "matched_by": matched_by,
             "content_type": content[0] if content else None, "tmdb_id": content[1] if content else None,
@@ -180,11 +210,13 @@ def classify_not_imported(session: Session, arr_index, run: RunLog | None = None
             "main_path": main.path_in_torrent if main else None,
             "replaced_by_media_file_id": replacement.id if replacement else None,
             "total_bytes": total, "video_bytes": video_bytes, "file_count": len(files),
-            "run_id": run.id if run else None,
+            "excluded": excluded, "run_id": run.id if run else None,
         })
 
     session.query(NotImportedTorrent).delete(synchronize_session=False)
     bulk_insert(session, NotImportedTorrent.__table__, rows)
     session.commit()
+    _save_status(session, computed_at=datetime.now(UTC).isoformat(), with_arr=arr_index is not None,
+                 skipped_at=None, skipped_reason=None)
     logger.info("Not imported: %d torrent (%s)", len(rows), ", ".join(f"{k} {v}" for k, v in counts.items() if v))
     return counts

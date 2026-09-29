@@ -519,6 +519,9 @@ class NotImportedTorrent(Base):
     total_bytes: Mapped[int] = mapped_column(nullable=False)
     video_bytes: Mapped[int] = mapped_column(nullable=False)
     file_count: Mapped[int] = mapped_column(nullable=False)
+    # Video principale (o, senza video, ogni file) escluso da Configuration >
+    # Exclusions: nascosto di default e fuori dai conteggi, come nel resto.
+    excluded: Mapped[bool | None]
     run_id: Mapped[int | None] = mapped_column(ForeignKey("run_log.id", ondelete="SET NULL"))
 
     client_torrent: Mapped["ClientTorrent"] = relationship()

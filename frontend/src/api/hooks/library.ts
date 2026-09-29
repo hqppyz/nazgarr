@@ -106,3 +106,19 @@ export function useNotImported() {
     queryFn: () => unwrap(api.GET('/api/torrents/not-imported')),
   })
 }
+
+export function useRefreshNotImported() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => unwrap(api.POST('/api/torrents/not-imported/refresh')),
+    onMutate: () => ({ activityId: pushActivity({ status: 'running', title: t('notImported.recomputing') }) }),
+    onError: (error, _v, context) => {
+      if (context) updateActivity(context.activityId, { status: 'error', title: t('notImported.recomputeFailed'), detail: error.message })
+    },
+    onSuccess: (data, _v, context) => {
+      queryClient.setQueryData(['library', 'not-imported'], data)
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      if (context) updateActivity(context.activityId, { status: 'success', title: t('notImported.recomputed') })
+    },
+  })
+}

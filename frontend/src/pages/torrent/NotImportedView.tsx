@@ -1,16 +1,19 @@
-import { ArrowRightIcon, SearchIcon } from 'lucide-react'
+import { ArrowRightIcon, EyeOffIcon, Loader2Icon, RefreshCwIcon, SearchIcon } from 'lucide-react'
 import { useMemo, useState } from 'react'
 
 import type { Schemas } from '@/api/client'
-import { useNotImported } from '@/api/hooks/library'
+import { useNotImported, useRefreshNotImported } from '@/api/hooks/library'
 import { LibrarySummaryCards } from '@/components/LibrarySummaryCards'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { Toggle } from '@/components/ui/toggle'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { t } from '@/lib/i18n'
 import { formatBytes, type StateSummary, type StatusOption } from '@/lib/library-filters'
 import { NOT_IMPORTED_STYLES } from '@/lib/status-styles'
+import { parseApiDate, relativeFromNow } from '@/lib/time'
 import { cn } from '@/lib/utils'
 import { ItemDetailSheet, type OpenItem } from '@/pages/library/ItemDetailSheet'
 
@@ -57,7 +60,9 @@ function CategoryBadge({ category }: { category: string }) {
 // azioni, se arriveranno, passeranno dalla coda di approvazione.
 export function NotImportedView() {
   const { data, isPending } = useNotImported()
+  const refresh = useRefreshNotImported()
   const [category, setCategory] = useState('all')
+  const [showExcluded, setShowExcluded] = useState(false)
   const [search, setSearch] = useState('')
   const [openItem, setOpenItem] = useState<OpenItem | null>(null)
 
@@ -75,31 +80,57 @@ export function NotImportedView() {
     const query = search.trim().toLowerCase()
     return (data?.torrents ?? []).filter(
       (tor) =>
+        (showExcluded || !tor.excluded) &&
         (category === 'all' || tor.category === category) &&
         (!query || tor.name.toLowerCase().includes(query) || (contentLabel(tor) ?? '').toLowerCase().includes(query)),
     )
-  }, [data, category, search])
+  }, [data, category, search, showExcluded])
 
   if (isPending) return <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
 
   return (
     <div className="grid gap-4">
-      <div className="grid gap-1">
-        <h1 className="text-lg font-semibold">{t('notImported.title')}</h1>
-        <p className="max-w-3xl text-sm text-muted-foreground">{t('notImported.description')}</p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="grid gap-1">
+          <h1 className="text-lg font-semibold">{t('notImported.title')}</h1>
+          <p className="max-w-3xl text-sm text-muted-foreground">{t('notImported.description')}</p>
+          <p className="text-xs text-muted-foreground" title={data?.computed_at ? parseApiDate(data.computed_at).toLocaleString() : undefined}>
+            {data?.computed_at
+              ? t(data.with_arr ? 'notImported.computedWithArr' : 'notImported.computedWithoutArr', {
+                  when: relativeFromNow(data.computed_at),
+                })
+              : t('notImported.neverComputed')}
+          </p>
+          {data?.skipped_reason && (
+            <p className="text-xs text-amber-600 dark:text-amber-400">
+              {t('notImported.skipped', { reason: data.skipped_reason, when: relativeFromNow(data.skipped_at) })}
+            </p>
+          )}
+        </div>
+        <Button variant="outline" size="sm" disabled={refresh.isPending} onClick={() => refresh.mutate()}>
+          {refresh.isPending ? <Loader2Icon className="size-4 animate-spin" /> : <RefreshCwIcon className="size-4" />}
+          {t('notImported.recompute')}
+        </Button>
       </div>
       <LibrarySummaryCards statusOptions={OPTIONS} summary={summary} activeStatus={category} onSelect={setCategory} />
       {category !== 'all' && (
         <p className="text-sm text-muted-foreground">{t(`notImported.help.${category}`)}</p>
       )}
-      <div className="relative max-w-md">
-        <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder={t('notImported.searchPlaceholder')}
-          className="pl-8"
-        />
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="relative min-w-56 max-w-md flex-1">
+          <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder={t('notImported.searchPlaceholder')}
+            className="pl-8"
+          />
+        </div>
+        {/* Come nelle viste a cartella: gli esclusi fuori dai conteggi, visibili a toggle premuto. */}
+        <Toggle variant="outline" size="sm" pressed={showExcluded} onPressedChange={setShowExcluded}>
+          <EyeOffIcon />
+          {t('library.showExcluded')} {data?.excluded_count ? `(${data.excluded_count})` : ''}
+        </Toggle>
       </div>
       <Card className="py-0">
         <CardContent className="p-0">
@@ -125,7 +156,7 @@ export function NotImportedView() {
                   return (
                     <TableRow
                       key={tor.client_torrent_id}
-                      className={cn(openable && 'cursor-pointer')}
+                      className={cn(openable && 'cursor-pointer', tor.excluded && 'opacity-60')}
                       onClick={openable ? () => setOpenItem({ contentType: tor.content_type!, tmdbId: tor.tmdb_id! }) : undefined}
                     >
                       <TableCell title={tor.name}>
@@ -137,7 +168,14 @@ export function NotImportedView() {
                         </span>
                       </TableCell>
                       <TableCell title={tor.detail ?? undefined}>
-                        <CategoryBadge category={tor.category} />
+                        <div className="flex flex-wrap gap-1">
+                          <CategoryBadge category={tor.category} />
+                          {tor.excluded && (
+                            <Badge variant="outline" className="h-auto py-0 font-mono text-[length:var(--text-xxs)] leading-4">
+                              {t('library.excluded')}
+                            </Badge>
+                          )}
+                        </div>
                       </TableCell>
                       <TableCell title={tor.replaced_by?.relative_path}>
                         {tor.replaced_by ? (

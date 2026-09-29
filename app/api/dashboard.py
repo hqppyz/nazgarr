@@ -10,9 +10,9 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app import health
+from app import health, not_imported
 from app.deps import get_session
-from app.models import FileChange, RunLog
+from app.models import FileChange, NotImportedTorrent, RunLog
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
@@ -41,6 +41,10 @@ class DashboardResponse(BaseModel):
     duplicate_wasted_bytes: int = 0
     duplicate_files: int = 0
     duplicate_hardlink_groups: int = 0
+    # Dalla vista Not imported (per torrent, esclusi fuori) quando calcolata:
+    # la card mostra gli stessi numeri della vista. None = non ancora calcolata.
+    not_imported_torrents: int | None = None
+    not_imported_bytes: int | None = None
     pending_review: int
     failed: int
     unmatched: int
@@ -132,8 +136,12 @@ def get_dashboard(disk_id: int | None = None, session: Session = Depends(get_ses
         .order_by(RunLog.id.desc()).limit(2).all()
     )
     previous = finished[1] if len(finished) > 1 else None
+    rows = session.query(NotImportedTorrent.total_bytes).filter(NotImportedTorrent.excluded.isnot(True)).all()
+    computed = bool(rows) or not_imported.load_status(session).get("computed_at") is not None
     return DashboardResponse(
         **snapshot, last_run=_last_run_summary(session),
+        not_imported_torrents=len(rows) if computed else None,
+        not_imported_bytes=sum(r[0] for r in rows) if computed else None,
         previous=TrendPoint(
             run_id=previous.id, finished_at=previous.finished_at, health_snapshot=previous.health_snapshot,
             orphan_torrent_bytes=previous.orphan_torrent_bytes, ignored_bytes=previous.ignored_bytes,

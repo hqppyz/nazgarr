@@ -116,3 +116,30 @@ def test_api_lists_torrents_with_their_replacement(db_session, tmp_path):
     assert (old.category, old.title, old.ratio) == ("superseded", "New", 2.5)
     assert old.replaced_by.relative_path.endswith("New.2160p.mkv") and old.replaced_by.quality == "2160p"
     assert body.summary["superseded"].count == 2
+
+
+def test_excluded_torrents_are_flagged_and_left_out_of_the_totals(db_session, tmp_path):
+    from app import settings_repo
+    from app.api.torrents import list_not_imported
+
+    index = _setup(db_session, tmp_path)
+    settings_repo.set_setting(db_session, "exclusion_patterns", "*Random*")
+    not_imported.classify_not_imported(db_session, index)
+
+    body = list_not_imported(session=db_session)
+    random = next(t for t in body.torrents if t.info_hash == "h-random")
+    # Esclusi: Random (pattern) e il torrent del solo info.nfo (preset di default *.nfo).
+    assert random.excluded is True and body.excluded_count == 2
+    assert "never_imported" not in body.summary  # l'unico never_imported era escluso
+    assert body.classified and body.computed_at is not None and body.with_arr is True
+
+
+def test_a_skipped_scan_is_reported_until_the_next_computation(db_session, tmp_path):
+    from app.api.torrents import list_not_imported
+
+    index = _setup(db_session, tmp_path)
+    not_imported.mark_skipped(db_session, "a torrent client could not be indexed")
+    assert list_not_imported(session=db_session).skipped_reason == "a torrent client could not be indexed"
+
+    not_imported.classify_not_imported(db_session, index)
+    assert list_not_imported(session=db_session).skipped_reason is None

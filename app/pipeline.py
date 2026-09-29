@@ -401,6 +401,9 @@ def run_bulk_import(session: Session, run: RunLog, data_dir: str) -> RunLog:
         # dati affidabili (vedi app/file_changes.py).
         if scan_failed or indexing_failed:
             logger.info("Run #%s: scansione o indicizzazione incompleta, nessun confronto dei file", run.id)
+            not_imported.mark_skipped(
+                session, "a disk could not be scanned" if scan_failed else "a torrent client could not be indexed"
+            )
         else:
             try:
                 file_changes.record_changes(session, run)

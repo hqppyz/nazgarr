@@ -15,6 +15,7 @@ export const dashboard = {
   'dashboard.trendWorsening': 'Worsening',
   'dashboard.trendStable': 'Stable',
   'dashboard.filesCount': '{count} files',
+  'dashboard.torrentsCount': '{count} torrents',
 
   'dashboard.hardlinkedMedia': 'Hardlinked media',
   'dashboard.seedingOfTotal': '{seeding} of {total}',
