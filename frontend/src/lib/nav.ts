@@ -15,8 +15,8 @@ import {
 //   upload), non solo sul reseeding.
 // - Un gruppo con una sola voce si mostra come link piatto (icona +
 //   titolo del gruppo, nessun dropdown) — vedi AppSidebar.tsx. Library è
-//   l'unico gruppo rimasto con più voci (Poster/Folder view), quindi
-//   l'unico ancora collassabile.
+//   l'unico gruppo con più voci: non si espande, è un link alla vista di
+//   default (Configuration > Interface) con Folder/Poster sempre sotto.
 // "Verify from .torrent" e "Description templates" restano deliberatamente
 // fuori da questa fase (vedi piano Fase 8): il primo non ha ancora un
 // endpoint API dedicato, il secondo è già raggiungibile editando il
@@ -33,6 +33,10 @@ export interface NavGroup {
   title: string
   icon: LucideIcon
   items: NavItem[]
+  // Il gruppo è esso stesso un link (non un menu che si espande), con le
+  // voci sempre visibili sotto. Library: /library apre la vista di default
+  // scelta in Configuration > Interface.
+  to?: string
 }
 
 export interface NavLink {
@@ -47,9 +51,10 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     title: 'Library',
     icon: FolderTree,
+    to: '/library',
     items: [
-      { title: 'Poster view', to: '/library/poster' },
       { title: 'Folder view', to: '/library/folder' },
+      { title: 'Poster view', to: '/library/poster' },
     ],
   },
   {

@@ -3,6 +3,7 @@ import {
   HardDriveIcon,
   InfoIcon,
   LanguagesIcon,
+  LayoutGridIcon,
   PlugIcon,
   ScrollTextIcon,
   ShieldIcon,
@@ -16,6 +17,7 @@ import { AutoApproveSection } from '@/pages/config/AutoApproveSection'
 import { DisksSection } from '@/pages/config/DisksSection'
 import { ExclusionsSection } from '@/pages/config/ExclusionsSection'
 import { IntegrationsSection } from '@/pages/config/IntegrationsSection'
+import { InterfaceSection } from '@/pages/config/InterfaceSection'
 import { LogsSection } from '@/pages/config/LogsSection'
 import { MetadataSection } from '@/pages/config/MetadataSection'
 import { SecuritySection } from '@/pages/config/SecuritySection'
@@ -57,6 +59,10 @@ export function ConfigurationPage() {
           <ShieldIcon />
           Security
         </TabsTrigger>
+        <TabsTrigger value="interface" className="justify-start gap-2 px-3 py-2">
+          <LayoutGridIcon />
+          {t('interface.tab')}
+        </TabsTrigger>
         <TabsTrigger value="time-language" className="justify-start gap-2 px-3 py-2">
           <LanguagesIcon />
           Language & Formats
@@ -66,6 +72,9 @@ export function ConfigurationPage() {
           Logs
         </TabsTrigger>
       </TabsList>
+      <TabsContent value="interface">
+        <InterfaceSection />
+      </TabsContent>
       <TabsContent value="application">
         <ApplicationSection />
       </TabsContent>

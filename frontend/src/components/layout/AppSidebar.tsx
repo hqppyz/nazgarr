@@ -1,12 +1,10 @@
-import { ChevronRightIcon, LogOutIcon } from 'lucide-react'
-import { useState } from 'react'
+import { LogOutIcon } from 'lucide-react'
 import { Link, useLocation } from 'react-router-dom'
 
 import { useDashboard } from '@/api/hooks/dashboard'
 import { useHealth } from '@/api/hooks/health'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { Button } from '@/components/ui/button'
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { useAuth } from '@/contexts/AuthContext'
 import { t } from '@/lib/i18n'
 import {
@@ -101,17 +99,6 @@ function AppSidebarFooter() {
 
 export function AppSidebar() {
   const location = useLocation()
-  const [openGroups, setOpenGroups] = useState<Set<string>>(() => new Set(NAV_GROUPS.map((g) => g.title)))
-
-  function toggleGroup(title: string) {
-    setOpenGroups((prev) => {
-      const next = new Set(prev)
-      if (next.has(title)) next.delete(title)
-      else next.add(title)
-      return next
-    })
-  }
-
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader className="px-4 py-4 group-data-[collapsible=icon]:hidden">
@@ -168,42 +155,32 @@ export function AppSidebar() {
             )
           }
 
-          const open = openGroups.has(group.title)
+          // Gruppo con più voci: link al padre (vista di default) e voci
+          // sempre visibili sotto, niente menu da espandere.
+          const parentActive = group.items.some((item) => location.pathname === item.to)
           return (
             <SidebarGroup key={group.title} className="px-2 py-0.5">
               <SidebarGroupContent>
                 <SidebarMenu>
-                  <Collapsible open={open} onOpenChange={() => toggleGroup(group.title)}>
-                    <SidebarMenuItem>
-                      <SidebarMenuButton
-                        render={<CollapsibleTrigger className="w-full cursor-pointer" />}
-                        tooltip={group.title}
-                      >
-                        <group.icon className="size-4" />
-                        <span className="flex-1">{group.title}</span>
-                        <ChevronRightIcon
-                          className={cn(
-                            'size-4 shrink-0 transition-transform group-data-[collapsible=icon]:hidden',
-                            open && 'rotate-90'
-                          )}
-                        />
-                      </SidebarMenuButton>
-                      <CollapsibleContent>
-                        <SidebarMenuSub>
-                          {group.items.map((item) => (
-                            <SidebarMenuSubItem key={item.to}>
-                              <SidebarMenuSubButton
-                                render={<Link to={item.to} />}
-                                isActive={location.pathname === item.to}
-                              >
-                                {item.title}
-                              </SidebarMenuSubButton>
-                            </SidebarMenuSubItem>
-                          ))}
-                        </SidebarMenuSub>
-                      </CollapsibleContent>
-                    </SidebarMenuItem>
-                  </Collapsible>
+                  <SidebarMenuItem>
+                    <SidebarMenuButton
+                      render={<Link to={group.to ?? group.items[0].to} />}
+                      isActive={parentActive}
+                      tooltip={group.title}
+                    >
+                      <group.icon className="size-4" />
+                      {group.title}
+                    </SidebarMenuButton>
+                    <SidebarMenuSub>
+                      {group.items.map((item) => (
+                        <SidebarMenuSubItem key={item.to}>
+                          <SidebarMenuSubButton render={<Link to={item.to} />} isActive={location.pathname === item.to}>
+                            {item.title}
+                          </SidebarMenuSubButton>
+                        </SidebarMenuSubItem>
+                      ))}
+                    </SidebarMenuSub>
+                  </SidebarMenuItem>
                 </SidebarMenu>
               </SidebarGroupContent>
             </SidebarGroup>

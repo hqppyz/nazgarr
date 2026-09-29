@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 
 import { useLibraryDuplicates, useMediaFiles } from '@/api/hooks/library'
 import { FileBrowser } from '@/components/FileBrowser'
+import { LibraryViewSwitch } from '@/components/LibraryViewSwitch'
 import { t } from '@/lib/i18n'
 import { DUPLICATES_STATUS, fileKey, type StatusOption } from '@/lib/library-filters'
 
@@ -23,5 +24,12 @@ export function FolderView() {
 
   if (isPending) return <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
 
-  return <FileBrowser files={data ?? []} statusOptions={STATUS_OPTIONS} duplicateKeys={duplicateKeys} />
+  return (
+    <FileBrowser
+      files={data ?? []}
+      statusOptions={STATUS_OPTIONS}
+      duplicateKeys={duplicateKeys}
+      header={<LibraryViewSwitch />}
+    />
+  )
 }

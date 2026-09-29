@@ -141,19 +141,28 @@ export function ActivityStack() {
   useVerificationWatcher()
   if (activities.length === 0) return null
   return (
-    <div className="grid w-80 max-w-[calc(100vw-2rem)] gap-2">
+    // minmax(0,1fr): senza, la colonna della griglia si allarga fino alla
+    // parola più lunga (un nome di file senza spazi) e la card sborda.
+    <div className="grid w-80 max-w-[calc(100vw-2rem)] grid-cols-[minmax(0,1fr)] gap-2">
       {activities.map((activity) => (
         <div
           key={activity.id}
           role={activity.status === 'error' ? 'alert' : 'status'}
-          className="flex items-start gap-3 rounded-lg border bg-card px-4 py-3 text-sm shadow-lg"
+          className="flex min-w-0 items-start gap-3 rounded-lg border bg-card px-4 py-3 text-sm shadow-lg"
         >
           {ICONS[activity.status]}
           <div className="min-w-0 flex-1">
-            <p className="font-medium">{activity.title}</p>
+            <p className="font-medium [overflow-wrap:anywhere]">{activity.title}</p>
             {activity.detail && (
-              <p className={cn('truncate text-xs', activity.status === 'error' ? 'text-destructive' : 'text-muted-foreground')}
-                 title={activity.detail}>
+              // Fino a due righe, spezzando anche i nomi senza spazi; il testo
+              // intero resta nel tooltip.
+              <p
+                className={cn(
+                  'line-clamp-2 text-xs [overflow-wrap:anywhere]',
+                  activity.status === 'error' ? 'text-destructive' : 'text-muted-foreground',
+                )}
+                title={activity.detail}
+              >
                 {activity.detail}
               </p>
             )}

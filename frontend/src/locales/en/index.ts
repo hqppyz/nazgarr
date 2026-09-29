@@ -9,6 +9,7 @@ import { errors } from './errors'
 import { exclusions } from './exclusions'
 import { fullCheck } from './fullCheck'
 import { integrations } from './integrations'
+import { interfaceSettings } from './interface'
 import { itemDetail } from './itemDetail'
 import { layout } from './layout'
 import { library } from './library'
@@ -40,6 +41,7 @@ export const en = {
   ...exclusions,
   ...fullCheck,
   ...integrations,
+  ...interfaceSettings,
   ...itemDetail,
   ...layout,
   ...library,

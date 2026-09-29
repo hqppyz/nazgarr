@@ -1,4 +1,7 @@
 export const library = {
+  'library.folderView': 'Folder',
+  'library.posterView': 'Poster',
+  'library.notInLibrary': 'not in library',
   'library.excluded': 'excluded',
   'library.noFilesMatchFilters': 'No files match the current filters.',
   'library.movie': 'Movie',

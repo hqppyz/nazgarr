@@ -5,6 +5,7 @@ import { useLibraryItems } from '@/api/hooks/library'
 import type { Schemas } from '@/api/client'
 import { AuthedPoster } from '@/components/AuthedPoster'
 import { LibrarySummaryCards } from '@/components/LibrarySummaryCards'
+import { LibraryViewSwitch } from '@/components/LibraryViewSwitch'
 import { Input } from '@/components/ui/input'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { t } from '@/lib/i18n'
@@ -195,18 +196,21 @@ export function PosterView() {
 
   return (
     <div className="grid gap-4">
-      <Tabs
-        value={contentType}
-        onValueChange={(v) => {
-          setContentType(v as 'movie' | 'tv')
-          setVisibleCount(PAGE_SIZE)
-        }}
-      >
-        <TabsList>
-          <TabsTrigger value="movie">{t('library.movie')}</TabsTrigger>
-          <TabsTrigger value="tv">TV</TabsTrigger>
-        </TabsList>
-      </Tabs>
+      <div className="flex flex-wrap items-center gap-3">
+        <LibraryViewSwitch />
+        <Tabs
+          value={contentType}
+          onValueChange={(v) => {
+            setContentType(v as 'movie' | 'tv')
+            setVisibleCount(PAGE_SIZE)
+          }}
+        >
+          <TabsList>
+            <TabsTrigger value="movie">{t('library.movie')}</TabsTrigger>
+            <TabsTrigger value="tv">TV</TabsTrigger>
+          </TabsList>
+        </Tabs>
+      </div>
       <LibrarySummaryCards
         statusOptions={STATUS_OPTIONS}
         summary={summary}

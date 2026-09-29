@@ -20,11 +20,14 @@ export function FileBrowser({
   files,
   statusOptions,
   duplicateKeys,
+  header,
 }: {
   files: TreeFileEntry[]
   statusOptions: StatusOption[]
   // Solo Media files: senza, il filtro Duplicates non compare.
   duplicateKeys?: Set<string>
+  // Sopra le card di riepilogo, es. il selettore Folder | Poster della libreria.
+  header?: React.ReactNode
 }) {
   const [filters, setFilters] = useState<LibraryFilters>(DEFAULT_FILTERS)
   const [openItem, setOpenItem] = useState<OpenItem | null>(null)
@@ -35,6 +38,7 @@ export function FileBrowser({
 
   return (
     <div className="grid gap-4">
+      {header}
       <LibrarySummaryCards
         statusOptions={statusOptions}
         summary={summary}

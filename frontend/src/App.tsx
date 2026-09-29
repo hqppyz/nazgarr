@@ -8,6 +8,7 @@ import { ConfigurationPage } from '@/pages/config/ConfigurationPage'
 import { ReseedingPage } from '@/pages/reseeding/ReseedingPage'
 import { WorkInProgress } from '@/pages/WorkInProgress'
 import { FolderView } from '@/pages/library/FolderView'
+import { LibraryDefaultView } from '@/pages/library/LibraryDefaultView'
 import { PosterView } from '@/pages/library/PosterView'
 import { TorrentFolderView } from '@/pages/torrent/TorrentFolderView'
 import { t } from '@/lib/i18n'
@@ -38,6 +39,7 @@ function App() {
     <Routes>
       <Route element={<AppLayout />}>
         <Route index element={<Navigate to={NAV_DASHBOARD.to} replace />} />
+        <Route path="/library" element={<LibraryDefaultView />} />
         {ALL_ITEMS.map((item) => (
           <Route key={item.to} path={item.to} element={overrides[item.to] ?? <ComingSoon title={item.title} />} />
         ))}

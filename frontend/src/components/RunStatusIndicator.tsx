@@ -9,7 +9,7 @@ import {
   SquareIcon,
   XIcon,
 } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import { useRuns } from '@/api/hooks/runs'
@@ -27,9 +27,26 @@ import {
 import { cn } from '@/lib/utils'
 import { parseApiDate } from '@/lib/time'
 
-const FLASH_DURATION_MS = 12_000
-const FLASH_DURATION_WITH_ERRORS_MS = 30_000
 const EXPANDED_STORAGE_KEY = 'runStatus.expanded'
+// L'ultima scansione chiusa a mano (X): il riepilogo di una scansione finita
+// resta finché l'utente non lo chiude, anche dopo una ricarica della pagina.
+const DISMISSED_STORAGE_KEY = 'runStatus.dismissedRunId'
+
+function readDismissed(): number {
+  try {
+    return Number(localStorage.getItem(DISMISSED_STORAGE_KEY)) || 0
+  } catch {
+    return 0
+  }
+}
+
+function writeDismissed(runId: number) {
+  try {
+    localStorage.setItem(DISMISSED_STORAGE_KEY, String(runId))
+  } catch {
+    // senza storage il riepilogo si chiude comunque, solo per questa sessione
+  }
+}
 
 function readExpanded(): boolean {
   try {
@@ -78,8 +95,14 @@ function CurrentPhase({ run, step, now }: { run: RunResponse; step: Step; now: n
   const pct = percent(p?.done, p?.total)
   const eta = etaSeconds(p, now)
   return (
-    <div className="grid gap-1 pl-5">
-      {run.phase_detail && <p className="truncate text-xs text-muted-foreground">{run.phase_detail}</p>}
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-1 pl-5">
+      {run.phase_detail && (
+        // Es. "Verifying <nome del torrent>": fino a due righe, spezzando anche
+        // i nomi senza spazi, il testo intero nel tooltip.
+        <p className="line-clamp-2 text-xs text-muted-foreground [overflow-wrap:anywhere]" title={run.phase_detail}>
+          {run.phase_detail}
+        </p>
+      )}
       {p && p.total != null && p.total > 0 ? (
         <>
           <Progress value={pct ?? 0} />
@@ -104,9 +127,9 @@ function CurrentPhase({ run, step, now }: { run: RunResponse; step: Step; now: n
 
 function Stepper({ run, now }: { run: RunResponse; now: number }) {
   return (
-    <ol className="grid gap-1.5">
+    <ol className="grid grid-cols-[minmax(0,1fr)] gap-1.5">
       {runSteps(run).map((step) => (
-        <li key={step.phase} className="grid gap-1">
+        <li key={step.phase} className="grid grid-cols-[minmax(0,1fr)] gap-1">
           <div className="flex items-center gap-2 text-xs">
             <StepIcon state={step.state} />
             <span
@@ -138,35 +161,24 @@ function compactLine(run: RunResponse, active: boolean): string {
 }
 
 // Vive nel layout globale (AppLayout), non in una singola pagina: sopravvive
-// al cambio view mentre una run è in corso. wasActiveRef distingue "una run
-// che stavamo seguendo è appena finita" (mostra il riepilogo) da "l'ultima
-// run nello storico era già finita da prima che questo componente
-// montasse" (niente). Avanzamento per fase da app/run_progress.py.
+// al cambio view mentre una run è in corso. A scansione finita il riepilogo
+// resta visibile finché l'utente non lo chiude (X), anche se la scansione è
+// finita a pagina chiusa: l'id chiuso è ricordato nel browser.
+// Avanzamento per fase da app/run_progress.py.
 export function RunStatusIndicator() {
   const { data: runs } = useRuns()
   const latestRun = runs?.[0]
   const isActive = latestRun != null && latestRun.finished_at == null
 
-  const [completedFlash, setCompletedFlash] = useState<RunResponse | null>(null)
+  const [dismissedRunId, setDismissedRunId] = useState(readDismissed)
   const [expanded, setExpanded] = useState(readExpanded)
-  const wasActiveRef = useRef(false)
   const now = useNow(isActive)
+  const dismiss = (runId: number) => {
+    writeDismissed(runId)
+    setDismissedRunId(runId)
+  }
 
-  useEffect(() => {
-    if (isActive) {
-      wasActiveRef.current = true
-      return
-    }
-    if (wasActiveRef.current && latestRun) {
-      wasActiveRef.current = false
-      setCompletedFlash(latestRun)
-      const duration = latestRun.errors > 0 ? FLASH_DURATION_WITH_ERRORS_MS : FLASH_DURATION_MS
-      const timer = setTimeout(() => setCompletedFlash(null), duration)
-      return () => clearTimeout(timer)
-    }
-  }, [isActive, latestRun])
-
-  const run = isActive ? latestRun : completedFlash
+  const run = isActive || (latestRun != null && latestRun.id > dismissedRunId) ? latestRun : undefined
   if (!run) return null
 
   const stopped = !isActive && run.cancelled
@@ -223,7 +235,7 @@ export function RunStatusIndicator() {
         {!isActive && (
           <button
             type="button"
-            onClick={() => setCompletedFlash(null)}
+            onClick={() => dismiss(run.id)}
             className="shrink-0 text-muted-foreground hover:text-foreground"
             aria-label={t('runStatus.dismiss')}
           >
@@ -233,7 +245,7 @@ export function RunStatusIndicator() {
       </div>
 
       {expanded && (
-        <div className="grid gap-3 border-t px-4 py-3">
+        <div className="grid grid-cols-[minmax(0,1fr)] gap-3 border-t px-4 py-3">
           <Stepper run={run} now={now} />
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t pt-2 text-xs text-muted-foreground tabular-nums">
             <span>{t('runStatus.candidates', { count: formatCount(run.matches_found) })}</span>

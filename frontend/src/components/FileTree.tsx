@@ -178,6 +178,13 @@ export function FileTree({ files, expandAll = false, duplicateKeys, onOpenFile }
                     <>
                       <StateBadge state={file.state} compact />
                       {file.stopped && <StoppedBadge compact />}
+                      {file.state === "orphan_torrent" && file.linked_paths.length === 0 && (
+                        // Né in seed né in libreria: nessuna identità, quindi mai cercato
+                        // sui tracker; di solito spazio che si può recuperare.
+                        <StatusBadge status="unmatched" compact>
+                          {t("library.notInLibrary")}
+                        </StatusBadge>
+                      )}
                       {duplicateKeys?.has(fileKey(file)) && (
                         <StatusBadge status="duplicate" compact>
                           {t("library.duplicate")}
