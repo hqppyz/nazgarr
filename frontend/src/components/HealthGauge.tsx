@@ -8,7 +8,17 @@ const SWEEP = 270
 const CIRCUMFERENCE = 2 * Math.PI * RADIUS
 const ARC = (CIRCUMFERENCE * SWEEP) / 360
 
-export function HealthGauge({ value, className, children }: { value: number; className?: string; children?: React.ReactNode }) {
+export function HealthGauge({
+  value,
+  color,
+  className,
+  children,
+}: {
+  value: number
+  color?: string // colore della fascia di salute; di default il colore primario
+  className?: string
+  children?: React.ReactNode
+}) {
   const clamped = Math.max(0, Math.min(100, value))
   const size = 2 * (RADIUS + STROKE)
   // Parte da in basso a sinistra (135°) e gira in senso orario.
@@ -22,7 +32,8 @@ export function HealthGauge({ value, className, children }: { value: number; cla
         <circle {...circle} className="stroke-muted" strokeDasharray={`${ARC} ${CIRCUMFERENCE}`} />
         <circle
           {...circle}
-          className="stroke-primary transition-[stroke-dasharray] duration-700"
+          className={cn('transition-[stroke-dasharray] duration-700', !color && 'stroke-primary')}
+          style={color ? { stroke: color } : undefined}
           strokeDasharray={`${(ARC * clamped) / 100} ${CIRCUMFERENCE}`}
         />
       </svg>

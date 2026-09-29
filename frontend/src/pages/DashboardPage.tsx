@@ -22,6 +22,7 @@ import { type ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent } f
 import { ToggleGroupItem, ToggleGroupSingle } from '@/components/ui/toggle-group'
 import { t } from '@/lib/i18n'
 import { formatBytes } from '@/lib/library-filters'
+import { dailyHealth, healthLabel } from '@/lib/health'
 import { STATUS_STYLES } from '@/lib/status-styles'
 import { parseApiDate } from '@/lib/time'
 import { cn } from '@/lib/utils'
@@ -38,20 +39,13 @@ const WINDOWS = [
   { value: 'all', days: null },
 ] as const
 
-function healthLabel(value: number): { label: string; dot: string } {
-  if (value >= 90) return { label: t('dashboard.healthGreat'), dot: 'bg-emerald-500' }
-  if (value >= 75) return { label: t('dashboard.healthGood'), dot: 'bg-sky-500' }
-  if (value >= 50) return { label: t('dashboard.healthFair'), dot: 'bg-amber-500' }
-  return { label: t('dashboard.healthPoor'), dot: 'bg-red-500' }
-}
-
 function daysAgo(value: string | null | undefined): number | null {
   if (!value) return null
   return Math.max(0, Math.round((Date.now() - parseApiDate(value).getTime()) / 86_400_000))
 }
 
 function HealthCard({ data, history }: { data: Dashboard; history: HistoryPoint[] | undefined }) {
-  const { label, dot } = healthLabel(data.health_pct)
+  const { label, dot, color } = healthLabel(data.health_pct)
   // history è dalla più recente: il confronto è con la prima della finestra.
   const oldest = history && history.length > 1 ? history[history.length - 1] : null
   const delta = oldest ? data.health_pct - oldest.health_snapshot : null
@@ -62,7 +56,7 @@ function HealthCard({ data, history }: { data: Dashboard; history: HistoryPoint[
         <CardTitle>{t('dashboard.libraryHealth')}</CardTitle>
       </CardHeader>
       <CardContent className="grid gap-4">
-        <HealthGauge value={data.health_pct}>
+        <HealthGauge value={data.health_pct} color={color}>
           <span className="text-5xl font-semibold tabular-nums">{Math.round(data.health_pct)}</span>
           <span className="font-mono text-xs text-muted-foreground">/ 100</span>
           <span className="mt-1 flex items-center gap-1.5 text-sm font-medium">
@@ -84,18 +78,16 @@ function HealthCard({ data, history }: { data: Dashboard; history: HistoryPoint[
   )
 }
 
-const chartConfig = {
-  health: { label: t('dashboard.healthHistory'), color: 'var(--primary)' },
-} satisfies ChartConfig
-
-function formatChartDate(value: string) {
-  if (!value) return ''
-  return parseApiDate(value).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+function formatDay(value: number) {
+  return new Date(value).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 }
 
-function HistoryChart({ history }: { history: HistoryPoint[] | undefined }) {
-  const chartData = [...(history ?? [])].reverse().map((h) => ({ date: h.finished_at ?? '', health: h.health_snapshot }))
+function HistoryChart({ history, current }: { history: HistoryPoint[] | undefined; current: number }) {
+  const chartData = dailyHealth(history ?? [])
   const min = Math.min(...chartData.map((d) => d.health), 100)
+  const chartConfig = {
+    health: { label: t('dashboard.healthHistory'), color: healthLabel(current).color },
+  } satisfies ChartConfig
   return (
     <Card className="lg:col-span-2">
       <CardHeader>
@@ -114,7 +106,17 @@ function HistoryChart({ history }: { history: HistoryPoint[] | undefined }) {
                 </linearGradient>
               </defs>
               <CartesianGrid vertical={false} strokeDasharray="3 3" />
-              <XAxis dataKey="date" tickLine={false} axisLine={false} tickMargin={8} minTickGap={32} tickFormatter={formatChartDate} />
+              <XAxis
+                dataKey="day"
+                type="number"
+                scale="time"
+                domain={['dataMin', 'dataMax']}
+                tickLine={false}
+                axisLine={false}
+                tickMargin={8}
+                minTickGap={32}
+                tickFormatter={formatDay}
+              />
               <YAxis
                 domain={[Math.max(0, Math.floor(min / 10) * 10 - 10), 100]}
                 tickLine={false}
@@ -122,7 +124,14 @@ function HistoryChart({ history }: { history: HistoryPoint[] | undefined }) {
                 width={32}
                 tickCount={4}
               />
-              <ChartTooltip content={<ChartTooltipContent labelFormatter={(value) => formatChartDate(String(value))} indicator="dot" />} />
+              <ChartTooltip
+                content={
+                  <ChartTooltipContent
+                    labelFormatter={(_value, payload) => formatDay(Number(payload?.[0]?.payload?.day))}
+                    indicator="dot"
+                  />
+                }
+              />
               <Area dataKey="health" type="monotone" fill="url(#fillHealth)" stroke="var(--color-health)" />
             </AreaChart>
           </ChartContainer>
@@ -299,7 +308,7 @@ export function DashboardPage() {
 
       <div className="grid gap-6 lg:grid-cols-3">
         <HealthCard data={data} history={history} />
-        <HistoryChart history={history} />
+        <HistoryChart history={history} current={data.health_pct} />
       </div>
 
       <MetricCards data={data} />
