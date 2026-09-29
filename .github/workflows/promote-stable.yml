@@ -76,8 +76,6 @@ jobs:
           if ! docker buildx imagetools inspect "$source" >/dev/null 2>&1; then
             source="ghcr.io/lktorrentz/gauntletarr:$VERSION"
           fi
-          # latest prima, stable per ultimo: GHCR mostra per primo l'ultimo tag
-          # applicato, quindi nell'elenco compare stable, poi latest.
           docker buildx imagetools create -t "$image:latest" -t "$image:stable" "$source"
           docker buildx imagetools inspect "$image:stable"
 

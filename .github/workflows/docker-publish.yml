@@ -84,10 +84,8 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          # Ordine voluto: GHCR mostra per primo l'ultimo tag applicato, e i tag
-          # vengono applicati in quest'ordine. Così nell'elenco: nightly, poi la
-          # versione, poi lo sha (stable/latest li aggiunge dopo la promozione,
-          # e finiscono in cima).
+          # L'ordine in cui GHCR mostra i tag di una versione lo decide GHCR
+          # (verificato: non segue quello di applicazione), non si controlla da qui.
           tags: |
             type=sha,format=short
             type=raw,value=${{ steps.version.outputs.version }}
