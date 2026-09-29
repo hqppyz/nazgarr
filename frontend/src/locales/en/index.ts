@@ -3,6 +3,7 @@ import { application } from './application'
 import { auth } from './auth'
 import { changes } from './changes'
 import { common } from './common'
+import { config } from './config'
 import { dashboard } from './dashboard'
 import { disks } from './disks'
 import { errors } from './errors'
@@ -36,6 +37,7 @@ export const en = {
   ...auth,
   ...changes,
   ...common,
+  ...config,
   ...dashboard,
   ...disks,
   ...errors,

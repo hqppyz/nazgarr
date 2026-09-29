@@ -5,7 +5,7 @@ import { t } from '@/lib/i18n'
 
 export function MetadataSection() {
   return (
-    <div className="grid gap-6 md:grid-cols-2">
+    <>
       <Card>
         <CardHeader className="flex flex-row gap-3">
           <ServiceLogo src="/logos/tmdb.svg" alt="TMDB" />
@@ -41,6 +41,6 @@ export function MetadataSection() {
           />
         </CardContent>
       </Card>
-    </div>
+    </>
   )
 }

@@ -9,6 +9,13 @@ export const integrations = {
   'integrations.rematchHelp': 'Default: 7. Use 0 to search every orphan on every scan.',
   'integrations.autoApproveThresholdsDescription':
     'A match at or above its threshold is marked as recommended in the review queue. Nothing is ever executed without your approval unless you turn on automatic execution below.',
+  'integrations.executionTitle': 'Execution',
+  'integrations.executionDescription':
+    'What happens when a match is approved: how its data is checked, and whether recommended matches run on their own.',
+  'integrations.skipRecheckLabel': "Skip the client's recheck when Nazgarr verified 100%",
+  'integrations.skipRecheckHelp':
+    "Off by default. When the full check has just verified every piece, with no extra file missing and the same info hash, the torrent is added to the client as already complete, without reading all the data a second time. In every other case the client rechecks as usual. There is a short window between the check and the add in which a file change would go unnoticed.",
+  'integrations.skipRecheckNeedsVerify': 'Needs "Verify every piece before executing" to be on.',
   'integrations.verifyLabel': 'Verify every piece before executing',
   'integrations.verifyHelp':
     "On by default. When you approve a match, all of the torrent's pieces are checked against your files first, exactly like the client's recheck, and hardlinks and the torrent are added only if it will pass. Nothing is touched when the check fails. It reads the whole content, so large files take a few minutes. Turn it off to execute right away and rely on the sampled pieces checked during matching.",

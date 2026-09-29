@@ -606,6 +606,9 @@ class SeedJob(Base):
     hardlink_created_at: Mapped[datetime | None]
     torrent_added_at: Mapped[datetime | None]
     recheck_status: Mapped[str | None]
+    # Recheck del client saltato perché Nazgarr aveva appena verificato il 100%
+    # (opzione skip_client_recheck_when_verified, app/review.py).
+    recheck_skipped: Mapped[bool | None]
     final_status: Mapped[str] = mapped_column(nullable=False, server_default=text("'in_progress'"))
     error_message: Mapped[str | None]
     expected_missing_bytes: Mapped[int | None]

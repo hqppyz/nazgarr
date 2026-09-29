@@ -29,7 +29,7 @@ function TopHeader() {
   )
 }
 
-// Unità delle dimensioni scelte in Configuration > Language & Formats:
+// Unità delle dimensioni scelte in Configuration > Interface:
 // impostate prima che i figli vengano renderizzati, così ogni formatBytes le
 // usa; al cambio dell'impostazione il layout si ridisegna e con lui le viste.
 function useSizeUnitsSync() {

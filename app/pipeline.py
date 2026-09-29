@@ -300,8 +300,7 @@ def run_bulk_import(session: Session, run: RunLog, data_dir: str) -> RunLog:
             elif not totals.get("files_linked"):
                 t2c_problem = (
                     "no file of the torrent clients is linked to a file on disk: the client probably sees "
-                    "them under a different path, set its root path on the disk (Configuration > Mapping > "
-                    "Torrent clients)"
+                    "them under a different path, set its root path on the disk (Configuration > Clients)"
                 )
         if t2c_problem:
             logger.warning("Run #%s: matching torrent -> client saltato: %s", run.id, t2c_problem)

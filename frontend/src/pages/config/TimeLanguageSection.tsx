@@ -110,7 +110,7 @@ export function TimeLanguageSection() {
   }, [browserTimeZone])
 
   return (
-    <div className="grid max-w-xl gap-6">
+    <>
       <Card>
         <CardHeader>
           <CardTitle>{t('timeLanguage.languageTitle')}</CardTitle>
@@ -169,6 +169,6 @@ export function TimeLanguageSection() {
           <SizeUnitsField />
         </CardContent>
       </Card>
-    </div>
+    </>
   )
 }

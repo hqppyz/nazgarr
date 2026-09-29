@@ -11,7 +11,7 @@ export function InterfaceSection() {
   const value = libraryViewOf(data?.value)
 
   return (
-    <div className="grid max-w-xl gap-6">
+    <>
       <Card>
         <CardHeader>
           <CardTitle>{t('interface.libraryViewTitle')}</CardTitle>
@@ -32,6 +32,6 @@ export function InterfaceSection() {
           </Select>
         </CardContent>
       </Card>
-    </div>
+    </>
   )
 }

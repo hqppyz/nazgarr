@@ -34,6 +34,8 @@ export const reseeding = {
   'reseeding.added': 'Added',
   'reseeding.status': 'Status',
   'reseeding.retry': 'Retry',
+  'reseeding.recheckSkipped': 'no client recheck',
+  'reseeding.recheckSkippedHint': 'Nazgarr verified every piece first, so the client added it as complete without rechecking.',
   'reseeding.executionError': 'Why it failed',
   'reseeding.noExecutions': 'No executions here.',
   'reseeding.direction.media_to_torrent': 'library → torrent',

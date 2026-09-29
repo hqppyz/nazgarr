@@ -1,0 +1,18 @@
+export const config = {
+  'config.groupGeneral': 'General',
+  'config.groupLibrary': 'Library',
+  'config.groupTorrent': 'Torrent',
+  'config.groupReseeding': 'Reseeding',
+  'config.groupSystem': 'System',
+  'config.tabApplication': 'Application',
+  'config.tabInterface': 'Interface',
+  'config.tabSecurity': 'Security',
+  'config.tabStorage': 'Storage',
+  'config.tabExclusions': 'Exclusions',
+  'config.tabIntegrations': 'Integrations',
+  'config.tabClients': 'Clients',
+  'config.tabTrackers': 'Trackers',
+  'config.tabMatching': 'Matching & approval',
+  'config.tabUpload': 'Upload',
+  'config.tabLogs': 'Logs',
+} as const

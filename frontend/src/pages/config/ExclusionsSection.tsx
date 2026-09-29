@@ -145,9 +145,9 @@ function CustomPatternsCard() {
 
 export function ExclusionsSection() {
   return (
-    <div className="grid max-w-xl gap-6">
+    <>
       <PresetsCard />
       <CustomPatternsCard />
-    </div>
+    </>
   )
 }

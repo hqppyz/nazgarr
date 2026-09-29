@@ -1,9 +1,12 @@
-import { RefreshCwIcon } from 'lucide-react'
+import { BugIcon, ExternalLinkIcon, GitPullRequestIcon, RefreshCwIcon, TagIcon } from 'lucide-react'
 
 import { useAppInfo, useUpdateCheck } from '@/api/hooks/system'
+import { GitHubMark } from '@/components/GitHubMark'
+import { RingLogo } from '@/components/RingLogo'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { t } from '@/lib/i18n'
+import { GITHUB_REPO, GITHUB_URL, PROJECT_LICENSE } from '@/lib/project'
 import { cn } from '@/lib/utils'
 import { parseApiDate } from '@/lib/time'
 
@@ -28,57 +31,101 @@ function InfoRow({ label, value }: { label: string; value: string }) {
   )
 }
 
+function ContributeCard() {
+  const links = [
+    { label: t('application.viewOnGitHub'), href: GITHUB_URL, icon: GitHubMark },
+    { label: t('application.reportBug'), href: `${GITHUB_URL}/issues/new`, icon: BugIcon },
+    { label: t('application.howToContribute'), href: `${GITHUB_URL}#contributing`, icon: GitPullRequestIcon },
+    { label: t('application.releases'), href: `${GITHUB_URL}/releases`, icon: TagIcon },
+  ]
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <GitHubMark className="size-5" />
+          {t('application.contributeTitle')}
+        </CardTitle>
+        <CardDescription>{t('application.contributeDescription')}</CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-4">
+        <div className="grid gap-1 text-sm">
+          <InfoRow label={t('application.repository')} value={GITHUB_REPO} />
+          <InfoRow label={t('application.license')} value={PROJECT_LICENSE} />
+        </div>
+        <div className="grid gap-2 sm:grid-cols-2">
+          {links.map(({ label, href, icon: Icon }) => (
+            <Button
+              key={href}
+              variant="outline"
+              className="justify-start"
+              render={<a href={href} target="_blank" rel="noreferrer" />}
+            >
+              <Icon className="size-4" />
+              {label}
+              <ExternalLinkIcon className="ml-auto size-3.5 text-muted-foreground" />
+            </Button>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
 export function ApplicationSection() {
   const { data: info } = useAppInfo()
   const { data: updateCheck, isFetching, refetch } = useUpdateCheck(false)
 
   return (
-    <div className="grid max-w-xl gap-6">
+    <>
+      {/* Card principale: logo, cos'è Nazgarr, build in esecuzione e aggiornamenti. */}
       <Card>
-        <CardHeader>
-          <CardTitle>{t('application.buildTitle')}</CardTitle>
-          <CardDescription>{t('application.buildDescription')}</CardDescription>
+        <CardHeader className="flex flex-row items-center gap-4">
+          <RingLogo size={64} />
+          <div className="grid gap-1">
+            <CardTitle className="text-lg">Nazgarr</CardTitle>
+            <CardDescription>{t('application.tagline')}</CardDescription>
+          </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="grid gap-4">
           {info && (
-            <>
+            <div>
               <InfoRow label={t('application.version')} value={info.version} />
               <InfoRow label={t('application.commit')} value={info.commit ?? '—'} />
               <InfoRow label={t('application.pythonVersion')} value={info.python_version} />
               <InfoRow label={t('application.platform')} value={info.platform} />
               <InfoRow label={t('application.uptime')} value={formatUptime(info.started_at)} />
-            </>
+            </div>
           )}
+          <div className="grid gap-2 rounded-md border p-3 text-sm">
+            <div className="flex items-center justify-between gap-3">
+              <span className="font-medium">{t('application.updatesTitle')}</span>
+              <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching}>
+                <RefreshCwIcon className={cn('size-4', isFetching && 'animate-spin')} />
+                {t('application.checkForUpdates')}
+              </Button>
+            </div>
+            {updateCheck && (
+              <div>
+                {updateCheck.note ? (
+                  <p className="text-muted-foreground">{updateCheck.note}</p>
+                ) : updateCheck.update_available ? (
+                  <p className="font-medium">
+                    {t('application.updateAvailable', { version: updateCheck.latest_version ?? '' })}
+                  </p>
+                ) : (
+                  <p className="text-muted-foreground">{t('application.upToDate')}</p>
+                )}
+                {updateCheck.channel && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {updateCheck.channel === 'stable' ? t('application.channelStable') : t('application.channelTest')}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
         </CardContent>
       </Card>
-
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle>{t('application.updatesTitle')}</CardTitle>
-          <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching}>
-            <RefreshCwIcon className={cn('size-4', isFetching && 'animate-spin')} />
-            {t('application.checkForUpdates')}
-          </Button>
-        </CardHeader>
-        {updateCheck && (
-          <CardContent className="text-sm">
-            {updateCheck.note ? (
-              <p className="text-muted-foreground">{updateCheck.note}</p>
-            ) : updateCheck.update_available ? (
-              <p className="font-medium">
-                {t('application.updateAvailable', { version: updateCheck.latest_version ?? '' })}
-              </p>
-            ) : (
-              <p className="text-muted-foreground">{t('application.upToDate')}</p>
-            )}
-            {updateCheck.channel && (
-              <p className="mt-1 text-xs text-muted-foreground">
-                {updateCheck.channel === 'stable' ? t('application.channelStable') : t('application.channelTest')}
-              </p>
-            )}
-          </CardContent>
-        )}
-      </Card>
-    </div>
+      <ContributeCard />
+    </>
   )
 }

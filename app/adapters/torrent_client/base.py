@@ -73,13 +73,19 @@ class TorrentClientAdapter(ABC):
     @abstractmethod
     def add_torrent(
         self, torrent_file_or_url: str, save_path: str, force_recheck: bool = True,
-        expected_info_hash: str | None = None,
+        expected_info_hash: str | None = None, skip_check_verified: bool = False,
     ) -> str:
         """Aggiunge il torrent puntando a save_path (il file già hardlinkato,
         o già presente per la direzione torrent->client di SPEC.md sezione 3).
         force_recheck deve essere True di default e non deve mai essere
         impostabile a False da nessun chiamante del motore di matching
         (Fase 4). Ritorna l'info_hash del torrent aggiunto.
+
+        skip_check_verified: l'unica eccezione al recheck del client (decisione
+        dell'utente, 2026-09-29, opzione spenta di default). Il chiamante l'ha
+        appena verificato lui al 100% (app/full_check.py), senza extra
+        mancanti e con lo stesso info hash: il client lo aggiunge già
+        completo, senza rileggerlo una seconda volta.
 
         expected_info_hash (se noto: il .torrent è già stato scaricato e
         analizzato dal matching) rende l'attesa precisa — si aspetta proprio

@@ -29,7 +29,7 @@ export interface StatusOption {
   label: string
 }
 
-// Unità delle dimensioni (Configuration > Language & Formats): decimali
+// Unità delle dimensioni (Configuration > Interface): decimali
 // (MB, GB, TB — base 1000, il default) o binarie (MiB, GiB, TiB — base
 // 1024). Impostata una volta da SizeUnitsSync in AppLayout, letta da
 // formatBytes e dai filtri di dimensione: nessun componente deve passarla.

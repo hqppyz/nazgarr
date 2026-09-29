@@ -91,7 +91,7 @@ class QuiTorrentClientAdapter(TorrentClientAdapter):
 
     def add_torrent(
         self, torrent_file_or_url: str, save_path: str, force_recheck: bool = True,
-        expected_info_hash: str | None = None,
+        expected_info_hash: str | None = None, skip_check_verified: bool = False,
     ) -> str:
         if not force_recheck:
             raise ValueError(
@@ -111,7 +111,10 @@ class QuiTorrentClientAdapter(TorrentClientAdapter):
         # campi testuali passano quindi per `files=`, con filename=None,
         # lo stesso trucco httpx/requests per forzare multipart pure quando
         # non c'è alcun file reale da allegare (caso "urls").
-        files: dict = {"savepath": (None, save_path), "skip_checking": (None, "false")}
+        files: dict = {
+            "savepath": (None, save_path),
+            "skip_checking": (None, "true" if skip_check_verified else "false"),
+        }
         if os.path.isfile(torrent_file_or_url):
             with open(torrent_file_or_url, "rb") as f:
                 torrent_bytes = f.read()
@@ -123,7 +126,8 @@ class QuiTorrentClientAdapter(TorrentClientAdapter):
         response.raise_for_status()
 
         info_hash = self._wait_for_new_hash(before_hashes, expected)
-        self._bulk_action([info_hash], "recheck")
+        if not skip_check_verified:
+            self._bulk_action([info_hash], "recheck")
         return info_hash
 
     def _wait_for_new_hash(self, before_hashes: set[str], expected: str | None = None) -> str:

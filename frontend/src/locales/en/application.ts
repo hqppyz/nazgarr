@@ -1,4 +1,15 @@
 export const application = {
+  'application.tagline':
+    'Your media library, torrent folders, the hardlinks between them, your torrent clients and your trackers, in one place.',
+  'application.contributeTitle': 'Contribute',
+  'application.contributeDescription':
+    'Nazgarr is open source. Bug reports, ideas and pull requests are welcome: everything happens on GitHub.',
+  'application.repository': 'Repository',
+  'application.license': 'License',
+  'application.viewOnGitHub': 'View on GitHub',
+  'application.reportBug': 'Report a bug',
+  'application.howToContribute': 'How to contribute',
+  'application.releases': 'Releases',
   'application.buildTitle': 'Build',
   'application.buildDescription': 'Version and runtime details.',
   'application.version': 'Version',

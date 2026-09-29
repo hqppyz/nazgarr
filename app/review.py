@@ -227,12 +227,12 @@ def _client_for_candidate(session: Session, candidate: Candidate):
     return _client_for(session, tracker.torrent_client_id if tracker is not None else None)
 
 
-def _try_execute(session: Session, review: MatchReview) -> None:
+def _try_execute(session: Session, review: MatchReview, skip_recheck: bool = False) -> None:
     adapter, torrent_client_id = _client_for_candidate(session, review.candidate)
     if adapter is None:
         return
     try:
-        execute_review(session, review, adapter, torrent_client_id)
+        execute_review(session, review, adapter, torrent_client_id, skip_recheck=skip_recheck)
     except ExecutionError:
         logger.exception(
             "Esecuzione immediata fallita per review %s (visibile tra le esecuzioni fallite, ritenta da lì)",
@@ -245,11 +245,36 @@ def _try_execute(session: Session, review: MatchReview) -> None:
 VERIFY_SETTING = "verify_before_execute"
 
 
+SKIP_RECHECK_SETTING = "skip_client_recheck_when_verified"
+
+
+def skip_recheck_enabled(session: Session) -> bool:
+    """Spenta di default. Accesa, e solo con la verifica completa accesa, un
+    torrent verificato al 100% dal controllo di Nazgarr entra nel client
+    senza il suo recheck (unica eccezione alla regola "sempre un recheck
+    reale", decisione dell'utente del 2026-09-29, vedi CLAUDE.md)."""
+    return (
+        (get_setting(session, SKIP_RECHECK_SETTING) or "").lower() == "true"
+        and verify_before_execute_enabled(session)
+    )
+
+
+def fully_verified(result, candidate) -> bool:
+    """Il controllo dà il 100% dei piece, senza extra da scaricare (nessun
+    piece illeggibile) e sul torrent giusto: solo così il recheck del client
+    si può saltare. Con un extra mancante il client DEVE fare il recheck e
+    scaricarlo, altrimenti lo crederebbe completo."""
+    return (
+        result.pieces > 0 and result.ok == result.pieces and result.mismatched == 0 and result.unreadable == 0
+        and (not candidate.info_hash or candidate.info_hash.lower() == result.info_hash.lower())
+    )
+
+
 def verify_before_execute_enabled(session: Session) -> bool:
     """Attiva di default (decisione dell'utente): prima di creare hardlink o
     aggiungere un torrent, il controllo completo dei piece (app/full_check.py)
     deve dire che il recheck del client riuscirà. Si spegne da
-    Configuration > Mapping per chi preferisce la velocità."""
+    Configuration > Matching & approval per chi preferisce la velocità."""
     return (get_setting(session, VERIFY_SETTING) or "true").lower() != "false"
 
 
@@ -306,7 +331,8 @@ def _after_verification(session: Session, state, result, decided_by: str) -> Non
         state.execution = "skipped"
         return
     state.stage = "executing"
-    approve(session, review, decided_by=decided_by)
+    skip = skip_recheck_enabled(session) and fully_verified(result, review.candidate)
+    approve(session, review, decided_by=decided_by, skip_recheck=skip)
     seed_job = (
         session.query(SeedJob).filter_by(candidate_id=review.candidate_id).order_by(SeedJob.id.desc()).first()
     )
@@ -329,7 +355,9 @@ def reset_interrupted_verifications(session: Session) -> int:
     return len(rows)
 
 
-def approve(session: Session, review: MatchReview, decided_by: str = "user") -> MatchReview:
+def approve(
+    session: Session, review: MatchReview, decided_by: str = "user", skip_recheck: bool = False,
+) -> MatchReview:
     """Approva e prova subito l'esecuzione (hardlink+seed, o solo add al
     client) se un client torrent è configurato. Un fallimento
     dell'esecuzione non annulla l'approvazione: resta approved con il
@@ -338,7 +366,10 @@ def approve(session: Session, review: MatchReview, decided_by: str = "user") -> 
     review.decided_by = decided_by
     review.decided_at = datetime.now(UTC)
     session.commit()
-    _try_execute(session, review)
+    if skip_recheck:
+        _try_execute(session, review, skip_recheck=True)
+    else:
+        _try_execute(session, review)
     return review
 
 
@@ -413,7 +444,7 @@ AUTO_EXECUTE_SETTING = "auto_execute_above_threshold"
 
 def auto_execute_enabled(session: Session) -> bool:
     """Spenta di default, e resta spenta finché l'utente non la accende
-    esplicitamente (Configuration > Mapping). Decisione dell'utente: niente
+    esplicitamente (Configuration > Matching & approval). Decisione dell'utente: niente
     che modifichi file o client (hardlink, torrent aggiunti) parte senza
     una sua approvazione. Sopra soglia una review è solo "consigliata"
     (status auto_approved) e aspetta in coda come le altre."""
@@ -437,17 +468,19 @@ def execute_auto_approved(session: Session, progress=NULL_PROGRESS) -> dict[str,
     verify = verify_before_execute_enabled(session)
     executed = 0
     for review in reviews:
-        if verify and not _verify_now(session, review, progress):
+        verified = _verify_now(session, review, progress) if verify else None
+        if verify and not verified:
             progress.advance()
             continue
-        approve(session, review, decided_by="system")
+        skip = verified is not None and skip_recheck_enabled(session) and fully_verified(verified, review.candidate)
+        approve(session, review, decided_by="system", skip_recheck=skip)
         executed += 1
         progress.advance()
         progress.result(executed=1)
     return {"executed": executed, "waiting": 0}
 
 
-def _verify_now(session: Session, review: MatchReview, progress) -> bool:
+def _verify_now(session: Session, review: MatchReview, progress):
     """Esecuzione automatica con la verifica attiva: lo stesso controllo
     completo, qui nella run (già in background) invece che nel worker."""
     progress.detail(f"Verifying {review.candidate.name}")
@@ -456,12 +489,12 @@ def _verify_now(session: Session, review: MatchReview, progress) -> bool:
     except Exception as exc:
         review.verify_status, review.verify_detail = "failed", f"The check could not run: {exc}"
         session.commit()
-        return False
+        return None
     passed, reason = full_check.verdict(result)
     review.verify_status = "passed" if passed else "failed"
     review.verify_detail = f"{result.ok} of {result.pieces} pieces verified" if passed else reason
     session.commit()
-    return passed
+    return result if passed else None
 
 
 def list_ready_for_review(session: Session) -> list[MatchReview]:

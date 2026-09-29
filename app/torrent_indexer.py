@@ -209,7 +209,7 @@ def store_client_torrents(
         logger.warning(
             "Client %r: %d file indicizzati, nessuno collegato a un file su disco — il client li vede sotto "
             "percorsi diversi (es. %r, radici dei dischi %r): associa il disco al client con l'override della "
-            "radice (Configuration > Mapping > Torrent clients)",
+            "radice (Configuration > Clients)",
             torrent_client.label, len(file_rows),
             os.path.join(sample.save_path, sample.files[0].path_in_torrent) if sample else None,
             [root_path_by_disk_id.get(d.id) or d.root_path for d in disks],

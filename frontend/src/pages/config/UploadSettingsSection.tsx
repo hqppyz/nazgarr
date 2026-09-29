@@ -63,8 +63,8 @@ function DescriptionHeaderField() {
 
 export function UploadSettingsSection() {
   return (
-    <div className="grid gap-6">
-      <Card className="max-w-xl">
+    <>
+      <Card>
         <CardHeader>
           <CardTitle>{t('uploadSettings.screenshotsTitle')}</CardTitle>
           <CardDescription>{t('uploadSettings.screenshotsDescription')}</CardDescription>
@@ -81,7 +81,7 @@ export function UploadSettingsSection() {
         </CardContent>
       </Card>
 
-      <Card className="max-w-xl">
+      <Card>
         <CardHeader>
           <CardTitle>{t('uploadSettings.descriptionTitle')}</CardTitle>
         </CardHeader>
@@ -109,6 +109,6 @@ export function UploadSettingsSection() {
           </div>
         </CardContent>
       </Card>
-    </div>
+    </>
   )
 }

@@ -74,7 +74,7 @@ class QBittorrentAdapter(TorrentClientAdapter):
 
     def add_torrent(
         self, torrent_file_or_url: str, save_path: str, force_recheck: bool = True,
-        expected_info_hash: str | None = None,
+        expected_info_hash: str | None = None, skip_check_verified: bool = False,
     ) -> str:
         if not force_recheck:
             raise ValueError(
@@ -91,11 +91,12 @@ class QBittorrentAdapter(TorrentClientAdapter):
         self._client.torrents_add(
             urls=torrent_file_or_url,
             save_path=save_path,
-            is_skip_checking=False,
+            is_skip_checking=skip_check_verified,
             use_auto_torrent_management=False,
         )
         info_hash = self._wait_for_new_hash(before_hashes, expected)
-        self._client.torrents_recheck(torrent_hashes=info_hash)
+        if not skip_check_verified:
+            self._client.torrents_recheck(torrent_hashes=info_hash)
         return info_hash
 
     def _wait_for_new_hash(self, before_hashes: set[str], expected: str | None = None) -> str:

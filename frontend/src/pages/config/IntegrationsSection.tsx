@@ -552,7 +552,7 @@ export function IntegrationsSection() {
   const testSonarrInstance = useTestSonarrInstance()
 
   return (
-    <div className="grid gap-6">
+    <>
       <ArrInstancesCard
         title="Radarr"
         logoSrc="/logos/radarr.svg"
@@ -578,6 +578,6 @@ export function IntegrationsSection() {
         testConnectionMutation={testSonarrConnection}
         testInstanceMutation={testSonarrInstance}
       />
-    </div>
+    </>
   )
 }

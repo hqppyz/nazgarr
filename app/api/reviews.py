@@ -79,6 +79,7 @@ class SeedJobResponse(BaseModel):
     # non è più nel client (review.seed_job_display_status).
     display_status: str | None = None
     recheck_status: str | None
+    recheck_skipped: bool = False  # recheck del client saltato: Nazgarr aveva verificato il 100%
     error_message: str | None
     hardlink_created_at: datetime | None = None
     torrent_added_at: datetime | None = None
@@ -97,7 +98,8 @@ class SeedJobResponse(BaseModel):
             torrent_client=client.label if client else None,
             final_status=sj.final_status,
             display_status=review.seed_job_display_status(sj, in_client or set()),
-            recheck_status=sj.recheck_status, error_message=sj.error_message,
+            recheck_status=sj.recheck_status, recheck_skipped=bool(sj.recheck_skipped),
+            error_message=sj.error_message,
             hardlink_created_at=sj.hardlink_created_at, torrent_added_at=sj.torrent_added_at,
         )
 

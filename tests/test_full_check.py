@@ -146,7 +146,7 @@ def _review(db_session, candidate):
 def _approve_and_wait(db_session, candidate, monkeypatch, executed):
     from app import review
 
-    monkeypatch.setattr(review, "_try_execute", lambda session, r: executed.append(r.id))
+    monkeypatch.setattr(review, "_try_execute", lambda session, r, skip_recheck=False: executed.append(r.id))
     r = _review(db_session, candidate)
     content = _torrent("Movie", FILES)
     from sqlalchemy.orm import sessionmaker
@@ -196,9 +196,42 @@ def test_with_the_setting_off_approve_executes_right_away(db_session, tmp_path, 
     _, candidate = _setup(db_session, tmp_path, FILES)
     settings_repo.set_setting(db_session, review.VERIFY_SETTING, "false")
     executed = []
-    monkeypatch.setattr(review, "_try_execute", lambda session, r: executed.append(r.id))
+    monkeypatch.setattr(review, "_try_execute", lambda session, r, skip_recheck=False: executed.append(r.id))
     r = _review(db_session, candidate)
 
     review.request_approval(db_session, r, lambda: db_session)
 
     assert (r.status, r.verify_status, executed) == ("approved", None, [r.id])
+
+
+def _approve_recording_skip(db_session, candidate, monkeypatch, skip_setting):
+    from sqlalchemy.orm import sessionmaker
+
+    from app import review, settings_repo
+
+    if skip_setting:
+        settings_repo.set_setting(db_session, review.SKIP_RECHECK_SETTING, "true")
+    calls = []
+    monkeypatch.setattr(review, "_try_execute", lambda session, r, skip_recheck=False: calls.append(skip_recheck))
+    content = _torrent("Movie", FILES)
+    review.request_approval(db_session, _review(db_session, candidate), sessionmaker(bind=db_session.get_bind()),
+                            fetch_torrent=lambda _: content)
+    full_check._executor.submit(lambda: None).result()
+    return calls
+
+
+def test_the_client_recheck_is_skipped_only_when_enabled_and_verified_100_percent(db_session, tmp_path, monkeypatch):
+    _, candidate = _setup(db_session, tmp_path, FILES)
+    assert _approve_recording_skip(db_session, candidate, monkeypatch, skip_setting=False) == [False]
+
+
+def test_with_the_option_on_a_full_verification_skips_the_client_recheck(db_session, tmp_path, monkeypatch):
+    _, candidate = _setup(db_session, tmp_path, FILES)
+    assert _approve_recording_skip(db_session, candidate, monkeypatch, skip_setting=True) == [True]
+
+
+def test_a_missing_extra_always_needs_the_client_recheck(db_session, tmp_path, monkeypatch):
+    # L'nfo manca in locale: il controllo passa, ma il client deve scaricarlo.
+    _, candidate = _setup(db_session, tmp_path, {"Movie.2001.mkv": FILES["Movie.2001.mkv"]})
+    assert _approve_recording_skip(db_session, candidate, monkeypatch, skip_setting=True) == [False]
+

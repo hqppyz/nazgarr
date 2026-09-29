@@ -489,6 +489,7 @@ CREATE TABLE IF NOT EXISTS seed_job (
     hardlink_created_at         TIMESTAMP,
     torrent_added_at            TIMESTAMP,
     recheck_status               TEXT CHECK (recheck_status IN ('pending','ok','failed')),
+    recheck_skipped              BOOLEAN,   -- client recheck skipped: Nazgarr verified 100% first (opt-in). Additive.
     final_status                 TEXT NOT NULL DEFAULT 'in_progress'
                                  CHECK (final_status IN ('in_progress','seeding','failed','rolled_back')),
     error_message                TEXT,

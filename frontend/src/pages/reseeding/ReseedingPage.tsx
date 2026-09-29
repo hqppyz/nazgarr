@@ -213,6 +213,11 @@ function ExecutionRow({ job }: { job: SeedJob }) {
       <TableCell>
         <div className="flex items-center gap-1.5">
           <StateBadge state={job.display_status ?? job.final_status} compact />
+          {job.recheck_skipped && (
+            <span className="text-[length:var(--text-xxs)] text-muted-foreground" title={t('reseeding.recheckSkippedHint')}>
+              {t('reseeding.recheckSkipped')}
+            </span>
+          )}
           {job.error_message && (
             <ErrorsPopover count={1} messages={[job.error_message]} title={t('reseeding.executionError')} />
           )}

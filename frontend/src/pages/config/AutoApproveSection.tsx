@@ -1,4 +1,3 @@
-
 import { useSetSetting, useSetting } from '@/api/hooks/settings'
 import { SettingField } from '@/components/SettingField'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -14,54 +13,86 @@ const AUTO_EXECUTE_KEY = 'auto_execute_above_threshold'
 // Attiva di default (app/review.py verify_before_execute_enabled): mai
 // salvata = attiva.
 const VERIFY_KEY = 'verify_before_execute'
+// Spenta di default (app/review.py skip_recheck_enabled): l'unica eccezione
+// al recheck del client, solo insieme alla verifica completa.
+const SKIP_RECHECK_KEY = 'skip_client_recheck_when_verified'
 
-function VerifySwitch() {
-  const { data } = useSetting(VERIFY_KEY)
-  const setSetting = useSetSetting(VERIFY_KEY)
-  const enabled = (data?.value ?? 'true').toLowerCase() !== 'false'
+function SettingSwitch({
+  settingKey,
+  defaultOn,
+  label,
+  help,
+  disabled = false,
+  first = false,
+}: {
+  settingKey: string
+  defaultOn: boolean
+  label: string
+  help: string
+  disabled?: boolean
+  first?: boolean
+}) {
+  const { data } = useSetting(settingKey)
+  const setSetting = useSetSetting(settingKey)
+  const value = (data?.value ?? '').toLowerCase()
+  const enabled = value === '' ? defaultOn : value === 'true'
   return (
-    <div className="flex items-start gap-3 border-t pt-4">
+    <div className={first ? 'flex items-start gap-3' : 'flex items-start gap-3 border-t pt-4'}>
       <Switch
-        id="verify-before-execute"
-        checked={enabled}
-        disabled={setSetting.isPending}
-        onCheckedChange={(on) => setSetting.mutate(on ? 'true' : 'false', autosaveFeedback(t('integrations.verifyLabel')))}
+        id={settingKey}
+        checked={enabled && !disabled}
+        disabled={disabled || setSetting.isPending}
+        onCheckedChange={(on) => setSetting.mutate(on ? 'true' : 'false', autosaveFeedback(label))}
         className="mt-0.5"
       />
       <div className="grid gap-1">
-        <Label htmlFor="verify-before-execute">{t('integrations.verifyLabel')}</Label>
-        <p className="text-xs text-muted-foreground">{t('integrations.verifyHelp')}</p>
+        <Label htmlFor={settingKey} className={disabled ? 'text-muted-foreground' : undefined}>
+          {label}
+        </Label>
+        <p className="text-xs text-muted-foreground">{help}</p>
       </div>
     </div>
   )
 }
 
-function AutoExecuteSwitch() {
-  const { data } = useSetting(AUTO_EXECUTE_KEY)
-  const setSetting = useSetSetting(AUTO_EXECUTE_KEY)
-  const enabled = (data?.value ?? '').toLowerCase() === 'true'
+function ExecutionCard() {
+  const { data: verify } = useSetting(VERIFY_KEY)
+  const verifyOn = (verify?.value ?? 'true').toLowerCase() !== 'false'
   return (
-    <div className="flex items-start gap-3 border-t pt-4">
-      <Switch
-        id="auto-execute"
-        checked={enabled}
-        disabled={setSetting.isPending}
-        onCheckedChange={(on) =>
-          setSetting.mutate(on ? 'true' : 'false', autosaveFeedback(t('integrations.autoExecuteLabel')))
-        }
-        className="mt-0.5"
-      />
-      <div className="grid gap-1">
-        <Label htmlFor="auto-execute">{t('integrations.autoExecuteLabel')}</Label>
-        <p className="text-xs text-muted-foreground">{t('integrations.autoExecuteHelp')}</p>
-      </div>
-    </div>
+    <Card>
+      <CardHeader>
+        <CardTitle>{t('integrations.executionTitle')}</CardTitle>
+        <CardDescription>{t('integrations.executionDescription')}</CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-4">
+        <SettingSwitch
+          settingKey={VERIFY_KEY}
+          defaultOn
+          first
+          label={t('integrations.verifyLabel')}
+          help={t('integrations.verifyHelp')}
+        />
+        <SettingSwitch
+          settingKey={SKIP_RECHECK_KEY}
+          defaultOn={false}
+          disabled={!verifyOn}
+          label={t('integrations.skipRecheckLabel')}
+          help={verifyOn ? t('integrations.skipRecheckHelp') : t('integrations.skipRecheckNeedsVerify')}
+        />
+        <SettingSwitch
+          settingKey={AUTO_EXECUTE_KEY}
+          defaultOn={false}
+          label={t('integrations.autoExecuteLabel')}
+          help={t('integrations.autoExecuteHelp')}
+        />
+      </CardContent>
+    </Card>
   )
 }
 
 export function AutoApproveSection() {
   return (
-    <div className="grid max-w-xl gap-6">
+    <>
       <Card>
         <CardHeader>
           <CardTitle>{t('integrations.autoApproveThresholdsTitle')}</CardTitle>
@@ -82,10 +113,9 @@ export function AutoApproveSection() {
             type="number"
             placeholder="0.98"
           />
-          <VerifySwitch />
-          <AutoExecuteSwitch />
         </CardContent>
       </Card>
+      <ExecutionCard />
       <Card>
         <CardHeader>
           <CardTitle>{t('integrations.rematchTitle')}</CardTitle>
@@ -101,6 +131,6 @@ export function AutoApproveSection() {
           />
         </CardContent>
       </Card>
-    </div>
+    </>
   )
 }

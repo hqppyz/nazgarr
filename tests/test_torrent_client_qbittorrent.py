@@ -134,3 +134,12 @@ def test_list_torrents_treats_empty_category_and_tracker_as_none():
 
     assert t.category is None
     assert t.tracker_url is None
+
+
+def test_a_torrent_verified_100_percent_by_nazgarr_skips_the_client_recheck_only_on_request():
+    client = FakeQbtClient(torrents=[FakeTorrent(hash="existing")])
+
+    _adapter(client).add_torrent("magnet:?xt=...", save_path="/torrents/movie", skip_check_verified=True)
+
+    assert client.added_calls[0]["is_skip_checking"] is True
+    assert client.rechecked == []

@@ -32,7 +32,7 @@ export function SecuritySection() {
   }
 
   return (
-    <div className="grid max-w-xl gap-6">
+    <>
       <Card>
         <CardHeader>
           <CardTitle>{t('security.title')}</CardTitle>
@@ -81,6 +81,6 @@ export function SecuritySection() {
           <CardDescription>{t('security.twoFactorDescription')}</CardDescription>
         </CardHeader>
       </Card>
-    </div>
+    </>
   )
 }

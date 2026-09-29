@@ -2408,6 +2408,11 @@ export interface components {
             display_status?: string | null;
             /** Recheck Status */
             recheck_status: string | null;
+            /**
+             * Recheck Skipped
+             * @default false
+             */
+            recheck_skipped: boolean;
             /** Error Message */
             error_message: string | null;
             /** Hardlink Created At */
