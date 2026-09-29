@@ -25,6 +25,7 @@ import { timeLanguage } from './timeLanguage'
 import { torrent } from './torrent'
 import { torrentClients } from './torrentClients'
 import { trackers } from './trackers'
+import { naming } from './naming'
 import { upload } from './upload'
 import { uploadSettings } from './uploadSettings'
 
@@ -59,6 +60,7 @@ export const en = {
   ...torrent,
   ...torrentClients,
   ...trackers,
+  ...naming,
   ...upload,
   ...uploadSettings,
 } as const

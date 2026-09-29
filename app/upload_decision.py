@@ -18,7 +18,14 @@ from app import upload_jobs
 from app.adapter_factory import TmdbApiKeyMissingError
 from app.models import TrackerUploadProfile, UploadJob, UploadTarget
 from app.upload_jobs import UploadJobError
-from app.upload_naming import DETECTED_FIELDS, build_name, detect, release_values, rules_from_convention
+from app.upload_naming import (
+    DETECTED_FIELDS,
+    VARIABLES,
+    build_name,
+    detect,
+    release_values,
+    rules_from_convention,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -203,3 +210,33 @@ def approve(session: Session, job: UploadJob, decisions: list[dict]) -> None:
         )
         upload_jobs.log_event(session, job, "job_queued", position=job.queue_position)
     session.commit()
+
+
+def preview_names(session: Session, rules: dict) -> dict:
+    """Anteprima delle regole di naming nell'editor del profilo: il nome per
+    ogni template, sull'ultimo upload già analizzato (valori veri) o, se
+    non ce n'è, su un esempio fisso."""
+    job = (
+        session.query(UploadJob)
+        .filter(UploadJob.tmdb_id.isnot(None), UploadJob.analysis_json.isnot(None))
+        .order_by(UploadJob.id.desc())
+        .first()
+    )
+    if job is not None:
+        analysis = json.loads(job.analysis_json or "{}")
+        language = rules.get("title_language")
+        local_title = (analysis.get("titles") or {}).get(language) if language else None
+        values = release_values(
+            job, name_detected(job), analysis.get("mediainfo"), json.loads(job.overrides_json or "{}"), rules,
+            local_title,
+        )
+        sample = {"kind": "job", "label": job.title or job.relative_path}
+    else:
+        # L'esempio è un film: niente stagione né episodio nel nome.
+        values = {**VARIABLES, "season": None, "episode": None}
+        sample = {"kind": "example", "label": None}
+    templates = rules.get("templates") or {}
+    names = {key: build_name(rules, {**values, "type": key if key != "default" else values.get("type")})
+             for key in templates}
+    variables = {key: values.get(key) for key in VARIABLES}
+    return {"sample": sample, "variables": variables, "names": names}

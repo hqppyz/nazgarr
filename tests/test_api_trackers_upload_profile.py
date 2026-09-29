@@ -105,3 +105,19 @@ def test_naming_rules_edit_marks_them_customized_and_update_restores_bundled(cli
 
     restored = client.post(f"/api/trackers/{tracker_id}/upload-profile/naming/update").json()
     assert restored["naming_customized"] is False and restored["naming_rules"] == rules
+
+
+def test_naming_preview_uses_an_example_without_uploads(client):
+    tracker_id = client.post("/api/trackers", json={
+        "label": "ITT", "adapter_type": "unit3d", "base_url": "https://itt.example", "api_token": "x",
+    }).json()["id"]
+    created = client.post(f"/api/trackers/{tracker_id}/upload-profile", json={"profile_key": "itt"}).json()
+    rules = created["naming_rules"]
+
+    preview = client.post(f"/api/trackers/{tracker_id}/upload-profile/naming/preview", json={"naming_rules": {
+        **rules, "templates": {**rules["templates"], "REMUX": "{title} {year} {resolution} {audio_codec} {group}"},
+    }}).json()
+
+    assert preview["sample"]["kind"] == "example"
+    assert preview["names"]["REMUX"] == "Dune: Part Two 2024 2160p TrueHD-GRP"
+    assert preview["variables"]["audio_all"] == "TrueHD 7.1 Atmos DD+ 5.1"

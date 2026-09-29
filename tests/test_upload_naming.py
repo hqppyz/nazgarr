@@ -25,8 +25,9 @@ def test_itt_remux_name_from_mediainfo_with_the_italian_title():
     values = release_values(_job(), detected, MEDIAINFO, {}, ITT_RULES, local_title="17 Again - Ritorno al liceo")
 
     assert values["video_codec"] == "VC-1"
-    assert values["audio"] == "TrueHD 5.1 DD 5.1 DD 5.1"
-    assert values["audio_languages"] == "ITA ENG"
+    assert (values["audio"], values["audio_all"]) == ("TrueHD 5.1", "TrueHD 5.1 DD 5.1 DD 5.1")
+    assert (values["audio_codec"], values["audio_channels"], values["audio_atmos"]) == ("TrueHD", "5.1", None)
+    assert (values["audio_languages"], values["subs_languages"], values["bit_depth"]) == ("ITA ENG", "ENG ITA", "8bit")
     assert build_name(ITT_RULES, values) == (
         "17 Again - Ritorno al liceo 2009 1080p REMUX VU VC-1 ITA ENG TrueHD 5.1 DD 5.1 DD 5.1-MaTiTa"
     )

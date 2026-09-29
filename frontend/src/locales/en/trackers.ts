@@ -45,7 +45,7 @@ export const trackers = {
     'Nazgarr ships version {version} of these rules (the tracker changed them): yours are kept until you switch.',
   'trackers.namingUseNew': 'Use the new rules',
   'trackers.namingRulesHelp':
-    'One template per release type (REMUX, WEBDL, WEBRIP, ENCODE, HDTV, DVDRIP, BRRIP, default) with {title} {local_title} {year} {season} {edition} {repack} {resolution} {service} {source} {type} {hdr} {video_codec} {audio} {audio_languages} {subs} {group}, plus title, title_language, audio (main/all), audio_languages, sdr_label, subs_label, separator. Editing them stops automatic updates.',
+    'The variables are the same for every tracker; here you only choose their order and form. Changing the rules stops automatic updates from Nazgarr: a newer version is then only offered.',
   'trackers.defaultAnonymous': 'Anonymous by default',
   'trackers.defaultPersonalRelease': 'Personal release by default',
   'trackers.deleteProfile': 'Delete profile',

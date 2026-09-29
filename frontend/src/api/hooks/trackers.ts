@@ -93,3 +93,26 @@ export function useUpdateNamingFromBundled(trackerId: number) {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['trackers', trackerId, 'upload-profile'] }),
   })
 }
+
+export interface NamingPreview {
+  sample: { kind: 'job' | 'example'; label: string | null }
+  variables: Record<string, string | null>
+  names: Record<string, string>
+}
+
+// Anteprima delle regole di naming ancora da salvare (debounce a carico del chiamante).
+export function useNamingPreview(trackerId: number, rules: Record<string, unknown> | null) {
+  return useQuery({
+    queryKey: ['trackers', trackerId, 'naming-preview', rules],
+    queryFn: async () =>
+      (await unwrap(
+        api.POST('/api/trackers/{tracker_id}/upload-profile/naming/preview', {
+          params: { path: { tracker_id: trackerId } },
+          body: { naming_rules: rules! },
+        }),
+      )) as unknown as NamingPreview,
+    enabled: rules !== null,
+    placeholderData: (previous) => previous,
+    retry: false,
+  })
+}

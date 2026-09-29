@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app import upload_profiles
+from app import upload_decision, upload_profiles
 from app.api_errors import coded_detail, from_coded_error
 from app.deps import get_session
 from app.models import Tracker, TrackerUploadProfile
@@ -248,6 +248,18 @@ def update_naming_rules(tracker_id: int, session: Session = Depends(get_session)
     except upload_profiles.ProfileNotFoundError as exc:
         raise HTTPException(status_code=400, detail=from_coded_error(exc)) from exc
     return UploadProfileResponse.from_model(profile)
+
+
+class NamingPreviewRequest(BaseModel):
+    naming_rules: dict
+
+
+@router.post("/{tracker_id}/upload-profile/naming/preview")
+def preview_naming_rules(tracker_id: int, body: NamingPreviewRequest, session: Session = Depends(get_session)) -> dict:
+    """Le regole in modifica (non ancora salvate) applicate a un upload
+    reale o a un esempio: un nome per template e il valore di ogni variabile."""
+    _get_upload_profile_or_404(session, tracker_id)
+    return upload_decision.preview_names(session, body.naming_rules)
 
 
 @router.delete("/{tracker_id}/upload-profile", status_code=204)

@@ -10,9 +10,8 @@ Due metà:
   release, come vuole il tracker, più poche opzioni (titolo locale, come
   scrivere audio e lingue, etichetta SDR, separatore).
 
-Segnaposto dei template: {title} {local_title} {year} {season} {edition}
-{repack} {resolution} {service} {source} {type} {hdr} {video_codec}
-{audio} {audio_languages} {subs} {group}. Un segnaposto senza valore
+Segnaposto dei template: VARIABLES qui sotto, le stesse per ogni tracker.
+Un segnaposto senza valore
 sparisce con gli spazi rimasti; {season} si aggiunge da solo dopo titolo e
 anno per le serie se il template non lo prevede; il gruppo si attacca alla
 fine con group_separator. Il nome resta una proposta, sempre modificabile.
@@ -24,6 +23,17 @@ import re
 import guessit
 
 from app.upload_dupes import traits_of
+
+# Le variabili dei template, uguali per tutti i tracker, con un esempio:
+# servono all'editor delle regole (chip da inserire e anteprima).
+VARIABLES = {
+    "title": "Dune: Part Two", "local_title": "Dune - Parte due", "year": "2024", "season": "S02",
+    "episode": "E03", "edition": "Extended", "repack": "REPACK", "resolution": "2160p", "source": "UHD BluRay",
+    "type": "REMUX", "service": "ATVP", "video_codec": "HEVC", "hdr": "DV HDR", "bit_depth": "10bit",
+    "audio": "TrueHD 7.1 Atmos", "audio_codec": "TrueHD", "audio_channels": "7.1", "audio_atmos": "Atmos",
+    "audio_all": "TrueHD 7.1 Atmos DD+ 5.1", "audio_languages": "ITA ENG", "subs_languages": "ITA ENG",
+    "subs": "SUBS", "group": "GRP",
+}
 
 # Campi che l'utente può correggere nei "Detected details".
 DETECTED_FIELDS = (
@@ -37,8 +47,8 @@ DEFAULT_RULES = {
     "templates": {"default": DEFAULT_TEMPLATE},
     "title": "original",  # original | local | local_original (titolo originale seguito da quello locale)
     "title_language": None,  # es. "it": titolo TMDB in quella lingua per {local_title}
-    "audio": "main",  # main (la traccia principale) | all (ogni traccia non di commento)
     "audio_languages": {"style": "none"},  # none | all | primary_first (+ primary, multi_from)
+    "subs_languages": {"style": "all"},  # come audio_languages, per {subs_languages}
     "subs_label": None,  # es. "SUBS": scritto se ci sono sottotitoli
     "sdr_label": None,  # es. "SDR": scritto al posto dell'HDR quando non c'è
     "separator": " ",
@@ -216,35 +226,44 @@ def _audio_codec_key(track: dict) -> str | None:
     return fmt or None
 
 
-def _audio_label(track: dict, codecs: dict) -> str | None:
+def _audio_parts(track: dict, codecs: dict) -> tuple[str | None, str | None, str | None]:
+    """(codec, canali, "Atmos") di una traccia, come si scrivono nei nomi."""
     key = _audio_codec_key(track)
-    if key is None:
-        return None
-    label = codecs.get(key, key)
+    codec = codecs.get(key, key) if key else None
     channels = track.get("channels")
+    layout_channels = None
     if channels:
         layout = str(track.get("channel_layout") or "")
         lfe = "LFE" in layout if layout else channels >= 6
-        label += f" {channels - 1}.1" if lfe else f" {channels}.0"
+        layout_channels = f"{channels - 1}.1" if lfe else f"{channels}.0"
     features = f"{track.get('format_additional_features') or ''} {track.get('commercial_name') or ''}"
-    if "Atmos" in features or "JOC" in features or "16-ch" in features:
-        label += " Atmos"
-    return label
+    atmos = "Atmos" if ("Atmos" in features or "JOC" in features or "16-ch" in features) else None
+    return codec, layout_channels, atmos
+
+
+def _audio_label(track: dict, codecs: dict) -> str | None:
+    codec, channels, atmos = _audio_parts(track, codecs)
+    if codec is None:
+        return None
+    return " ".join(part for part in (codec, channels, atmos) if part)
 
 
 def _is_commentary(track: dict) -> bool:
     return "comment" in str(track.get("title") or "").lower()
 
 
-def _audio_value(tracks: list[dict], rules: dict) -> str | None:
+def _audio_values(tracks: list[dict], rules: dict) -> dict:
     codecs = {**DEFAULT_AUDIO_CODECS, **(rules.get("audio_codecs") or {})}
     usable = [t for t in tracks if not _is_commentary(t)]
     if not usable:
-        return None
-    if rules.get("audio") == "all":
-        return " ".join(label for label in (_audio_label(t, codecs) for t in usable) if label) or None
+        return {}
     main = next((t for t in usable if t.get("default")), usable[0])
-    return _audio_label(main, codecs)
+    codec, channels, atmos = _audio_parts(main, codecs)
+    every = " ".join(label for label in (_audio_label(t, codecs) for t in usable) if label) or None
+    return {
+        "audio": every if rules.get("audio") == "all" else _audio_label(main, codecs),  # "all": regole v1
+        "audio_codec": codec, "audio_channels": channels, "audio_atmos": atmos, "audio_all": every,
+    }
 
 
 def _lang3(language: str) -> str:
@@ -252,8 +271,8 @@ def _lang3(language: str) -> str:
     return _LANG3.get(code, code.upper()[:3])
 
 
-def _languages_value(tracks: list[dict], rules: dict) -> str | None:
-    config = rules.get("audio_languages") or {"style": "none"}
+def _languages_value(tracks: list[dict], config: dict | None) -> str | None:
+    config = config or {"style": "none"}
     style = config.get("style", "none")
     if style == "none":
         return None
@@ -294,17 +313,25 @@ def release_values(
     values = {key: detected.get(key) for key in DETECTED_FIELDS}
     video = (mediainfo or {}).get("video") or {}
     tracks = (mediainfo or {}).get("audio") or []
+    subtitles = (mediainfo or {}).get("subtitles") or []
     release = overrides.get("type") or values["type"] or "ENCODE"
     if video:
         values["resolution"] = _mi_resolution(video) or values["resolution"]
         values["video_codec"] = _mi_video_codec(video, release) or values["video_codec"]
         values["hdr"] = _mi_hdr(video)
+        values["bit_depth"] = f"{video['bit_depth']}bit" if video.get("bit_depth") else None
     if tracks:
-        values["audio"] = _audio_value(tracks, rules) or values["audio"]
-        values["audio_languages"] = _languages_value(tracks, rules)
+        audio = _audio_values(tracks, rules)
+        values.update({k: v for k, v in audio.items() if k != "audio"})
+        values["audio"] = audio.get("audio") or values["audio"]
+        values["audio_languages"] = _languages_value(tracks, rules.get("audio_languages"))
+    # Senza MediaInfo le tracce le dice solo il nome della release.
+    values["audio_all"] = values.get("audio_all") or values.get("audio")
+    if subtitles:
+        values["subs_languages"] = _languages_value(subtitles, rules.get("subs_languages") or {"style": "all"})
     if not values.get("hdr") and rules.get("sdr_label"):
         values["hdr"] = rules["sdr_label"]
-    values["subs"] = rules.get("subs_label") if (mediainfo or {}).get("subtitles") else None
+    values["subs"] = rules.get("subs_label") if subtitles else None
     for key in DETECTED_FIELDS:
         if overrides.get(key) not in (None, ""):
             values[key] = overrides[key]
@@ -319,6 +346,7 @@ def release_values(
     values["year"] = overrides.get("year") or job.year
     seasons = json.loads(job.seasons_json or "[]")
     values["season"] = season_token(job.kind or "movie", seasons, job.episode) if job.content_type == "tv" else None
+    values["episode"] = f"E{job.episode:02d}" if job.kind == "episode" and job.episode is not None else None
     return values
 
 

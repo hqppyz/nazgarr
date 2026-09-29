@@ -9,6 +9,7 @@ import {
   useUpdateUploadProfile,
   useUploadProfile,
 } from '@/api/hooks/trackers'
+import { NamingRulesEditor, type NamingRules } from '@/components/NamingRulesEditor'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
@@ -48,7 +49,7 @@ export function UploadProfileDialog({
   const [typeMapDraft, setTypeMapDraft] = useState<string | null>(null)
   const [resolutionMapDraft, setResolutionMapDraft] = useState<string | null>(null)
   const [descriptionTemplateDraft, setDescriptionTemplateDraft] = useState<string | null>(null)
-  const [namingRulesDraft, setNamingRulesDraft] = useState<string | null>(null)
+  const [namingRulesDraft, setNamingRulesDraft] = useState<NamingRules | null>(null)
   const updateNaming = useUpdateNamingFromBundled(trackerId)
   const [bundledKey, setBundledKey] = useState('')
 
@@ -56,8 +57,10 @@ export function UploadProfileDialog({
   const typeMap = typeMapDraft ?? (profile ? jsonField(profile.type_id_map) : '{}')
   const resolutionMap = resolutionMapDraft ?? (profile ? jsonField(profile.resolution_id_map) : '{}')
   const descriptionTemplate = descriptionTemplateDraft ?? profile?.description_template ?? ''
-  const namingRules =
-    namingRulesDraft ?? (profile?.naming_rules ? JSON.stringify(profile.naming_rules, null, 2) : '')
+  const namingRules: NamingRules =
+    namingRulesDraft ??
+    (profile?.naming_rules as NamingRules | null | undefined) ??
+    (profile?.naming_convention ? { templates: { default: profile.naming_convention } } : {})
 
   function parseOrToast(label: string, raw: string): Record<string, number> | null {
     try {
@@ -73,15 +76,9 @@ export function UploadProfileDialog({
     const type_id_map = parseOrToast('type_id_map', typeMap)
     const resolution_id_map = parseOrToast('resolution_id_map', resolutionMap)
     if (!category_id_map || !type_id_map || !resolution_id_map) return
-    let naming_rules: Record<string, unknown> | undefined
-    if (namingRules.trim()) {
-      try {
-        naming_rules = JSON.parse(namingRules) as Record<string, unknown>
-      } catch {
-        toast.error(t('trackers.invalidJson', { label: t('trackers.namingRules') }))
-        return
-      }
-    }
+    // Solo se toccate: salvarle le segna come modificate (niente più
+    // aggiornamenti automatici dal codice).
+    const naming_rules = namingRulesDraft ?? undefined
     updateProfile.mutate(
       { category_id_map, type_id_map, resolution_id_map, description_template: descriptionTemplate, naming_rules },
       {
@@ -99,7 +96,7 @@ export function UploadProfileDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>{t('trackers.uploadProfileTitle', { trackerLabel })}</DialogTitle>
         </DialogHeader>
@@ -184,12 +181,11 @@ export function UploadProfileDialog({
                 </div>
               )}
               <p className="text-xs text-muted-foreground">{t('trackers.namingRulesHelp')}</p>
-              <Textarea
-                rows={10}
-                className="font-mono text-xs"
+              <NamingRulesEditor
+                key={profile.naming_version ?? 0}
+                trackerId={trackerId}
                 value={namingRules}
-                placeholder={'{"templates": {"default": "{title} ({year}) {season} {resolution} {source} {video_codec} {audio} {group}"}}'}
-                onChange={(e) => setNamingRulesDraft(e.target.value)}
+                onChange={setNamingRulesDraft}
               />
             </div>
             <div className="grid gap-1.5">

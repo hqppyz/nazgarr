@@ -640,6 +640,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/trackers/{tracker_id}/upload-profile/naming/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview Naming Rules
+         * @description Le regole in modifica (non ancora salvate) applicate a un upload
+         *     reale o a un esempio: un nome per template e il valore di ogni variabile.
+         */
+        post: operations["preview_naming_rules_api_trackers__tracker_id__upload_profile_naming_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/radarr-instances": {
         parameters: {
             query?: never;
@@ -2220,6 +2241,13 @@ export interface components {
             path: string;
             /** Created */
             created: boolean;
+        };
+        /** NamingPreviewRequest */
+        NamingPreviewRequest: {
+            /** Naming Rules */
+            naming_rules: {
+                [key: string]: unknown;
+            };
         };
         /** NotImportedItem */
         NotImportedItem: {
@@ -4614,6 +4642,43 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UploadProfileResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_naming_rules_api_trackers__tracker_id__upload_profile_naming_preview_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tracker_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NamingPreviewRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
                 };
             };
             /** @description Validation Error */
