@@ -27,7 +27,6 @@ import { InterfaceSection } from '@/pages/config/InterfaceSection'
 import { LogsSection } from '@/pages/config/LogsSection'
 import { MetadataSection } from '@/pages/config/MetadataSection'
 import { SecuritySection } from '@/pages/config/SecuritySection'
-import { TimeLanguageSection } from '@/pages/config/TimeLanguageSection'
 import { TorrentClientsSection } from '@/pages/config/TorrentClientsSection'
 import { TrackersSection } from '@/pages/config/TrackersSection'
 import { UploadSettingsSection } from '@/pages/config/UploadSettingsSection'
@@ -36,9 +35,11 @@ import { UploadSettingsSection } from '@/pages/config/UploadSettingsSection'
 // Reseeding, Sistema). Il tab aperto sta nell'URL (?tab=…), così un link da
 // un'altra pagina porta dritto al tab giusto.
 //
-// Layout: le card piccole si affiancano (due colonne da lg), le tabelle e
-// le liste larghe restano a tutta larghezza.
-const PAIRS = 'grid items-start gap-6 lg:grid-cols-2'
+// Layout: le card piccole in due colonne "masonry" (colonne CSS, da lg):
+// ogni colonna impila le sue card, così altezze diverse non lasciano buchi
+// come farebbe una griglia a righe. Le tabelle e le liste larghe restano a
+// tutta larghezza.
+const PAIRS = 'gap-6 lg:columns-2 [&>*]:mb-6 [&>*]:break-inside-avoid'
 const STACK = 'grid gap-6'
 
 interface Tab {
@@ -54,18 +55,7 @@ const GROUPS: { title: string; tabs: Tab[] }[] = [
     title: t('config.groupGeneral'),
     tabs: [
       { value: 'application', label: t('config.tabApplication'), icon: InfoIcon, layout: PAIRS, content: <ApplicationSection /> },
-      {
-        value: 'interface',
-        label: t('config.tabInterface'),
-        icon: LayoutGridIcon,
-        layout: PAIRS,
-        content: (
-          <>
-            <InterfaceSection />
-            <TimeLanguageSection />
-          </>
-        ),
-      },
+      { value: 'interface', label: t('config.tabInterface'), icon: LayoutGridIcon, layout: PAIRS, content: <InterfaceSection /> },
       { value: 'security', label: t('config.tabSecurity'), icon: ShieldIcon, layout: PAIRS, content: <SecuritySection /> },
     ],
   },
