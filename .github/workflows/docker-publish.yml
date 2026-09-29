@@ -23,10 +23,6 @@ concurrency:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
-  # Rename del progetto (Gauntletarr -> Nazgarr): le stesse immagini anche sul
-  # nome vecchio, così chi non ha ancora cambiato repository continua a
-  # ricevere gli aggiornamenti. Da togliere dopo la prossima stable.
-  LEGACY_IMAGE: ghcr.io/lktorrentz/gauntletarr
 
 jobs:
   build-and-push:
@@ -112,21 +108,6 @@ jobs:
           # con le sole piattaforme vere (amd64, arm64).
           provenance: false
           sbom: false
-
-      - name: Mirror to the legacy image name
-        # Copia server-side degli stessi manifest, nessuna nuova build. Mai
-        # bloccante: se il vecchio pacchetto non è più scrivibile, il rilascio
-        # sul nome nuovo è già fatto.
-        continue-on-error: true
-        env:
-          TAGS: ${{ steps.meta.outputs.tags }}
-          VERSION: ${{ steps.version.outputs.version }}
-        run: |
-          set -euo pipefail
-          image="${REGISTRY}/${IMAGE_NAME,,}"
-          args=()
-          for tag in $TAGS; do args+=(-t "$LEGACY_IMAGE:${tag##*:}"); done
-          docker buildx imagetools create "${args[@]}" "$image:$VERSION"
 
       # Solo dopo un'immagine pubblicata: un tag esiste sempre anche su GHCR.
       - name: Tag and release
