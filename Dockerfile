@@ -1,7 +1,11 @@
 # Stage 1: build del frontend (Fase 8, docs/SPEC.md §10-11) - Node resta
 # solo in questo stage, mai nell'immagine finale (nessun runtime Node in
 # produzione, solo i file statici prodotti da `vite build`).
-FROM node:22-slim AS frontend-build
+# --platform=$BUILDPLATFORM: il frontend sono solo file statici, identici per
+# ogni architettura. Si costruisce una volta sola, nativo sulla macchina di
+# build, e lo stesso dist va in tutte le immagini: prima l'arm64 lo ricostruiva
+# emulato (QEMU), ~3 minuti in più a ogni build.
+FROM --platform=$BUILDPLATFORM node:22-slim AS frontend-build
 
 WORKDIR /frontend
 
