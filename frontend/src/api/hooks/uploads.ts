@@ -62,7 +62,12 @@ export function useDeleteUpload() {
   return useMutation({
     mutationFn: (uploadId: number) =>
       unwrap(api.DELETE('/api/uploads/{upload_id}', { params: { path: { upload_id: uploadId } } })),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['uploads'] }),
+    // Il dettaglio del job eliminato va tolto, non ricaricato: un refetch
+    // darebbe 404 e smonterebbe la pagina prima della navigazione.
+    onSuccess: (_, uploadId) => {
+      queryClient.removeQueries({ queryKey: ['uploads', uploadId] })
+      return queryClient.invalidateQueries({ queryKey: ['uploads'], exact: true })
+    },
   })
 }
 

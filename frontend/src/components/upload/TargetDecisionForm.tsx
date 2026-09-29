@@ -66,10 +66,10 @@ export function TargetDecisionForm({
   const set = (patch: Partial<Omit<TargetDraft, 'touched'>>) => onChange(editDraft(draft, patch))
 
   return (
-    <div className="grid gap-4 rounded-md border bg-muted/30 p-3">
+    <div className="grid min-w-0 gap-4 rounded-md border bg-muted/30 p-3">
       <div className="flex flex-wrap items-center gap-3">
-        <Label className="text-xs">{t('upload.decision.action')}</Label>
         <ToggleGroupSingle
+          aria-label={t('upload.decision.action')}
           value={draft.action}
           onValueChange={(value) => set({ action: value as TargetDraft['action'] })}
           variant="outline"
@@ -86,7 +86,7 @@ export function TargetDecisionForm({
 
       {draft.action === 'upload' && (
         <>
-          <div className="grid gap-1">
+          <div className="grid min-w-0 gap-1">
             <Label htmlFor={`name-${target.id}`} className="text-xs">
               {t('upload.decision.name')}
             </Label>
@@ -107,7 +107,7 @@ export function TargetDecisionForm({
               </button>
             )}
           </div>
-          <div className="grid gap-3 sm:grid-cols-3">
+          <div className="grid gap-3 sm:grid-cols-3 lg:max-w-3xl">
             <IdSelect
               label={t('upload.decision.category')}
               map={target.category_id_map}

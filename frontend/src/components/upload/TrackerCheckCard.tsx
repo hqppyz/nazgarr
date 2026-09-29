@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { t } from '@/lib/i18n'
 import { formatBytes } from '@/lib/library-filters'
+import { dupeUrl } from '@/lib/upload'
 import { cn } from '@/lib/utils'
 
 interface Dupe {
@@ -57,7 +58,12 @@ function Verification({ dupe }: { dupe: Dupe }) {
   return <span className="text-red-600 dark:text-red-400">{t('upload.dupes.verifyError', { reason: v.reason })}</span>
 }
 
-// Un tracker del job: il dupe check con il verdetto di ogni risultato, il
+function SectionLabel({ children }: { children: ReactNode }) {
+  return <p className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">{children}</p>
+}
+
+// Un tracker del job: il dupe check con il verdetto di ogni risultato (una
+// riga ciascuno: verdetto, nome e motivi, dimensione, link e azione), il
 // full hash check sulle release "identical" e (children) la decisione.
 export function TrackerCheckCard({
   job,
@@ -74,12 +80,19 @@ export function TrackerCheckCard({
   const canVerify = job.status === 'awaiting_decision' && target.status === 'awaiting_decision'
 
   return (
-    <Card>
+    <Card className="min-w-0">
       <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
-        <CardTitle className="flex items-center gap-2 text-base">
-          {target.tracker_label}
-          <UploadStatusBadge status={target.status} />
-        </CardTitle>
+        <div className="grid min-w-0 gap-0.5">
+          <CardTitle className="flex flex-wrap items-center gap-2 text-base">
+            {target.tracker_label}
+            <UploadStatusBadge status={target.status} />
+          </CardTitle>
+          <span className="text-xs text-muted-foreground">
+            {target.torrent_client_label
+              ? t('upload.seedsOn', { client: target.torrent_client_label })
+              : t('upload.noClient')}
+          </span>
+        </div>
         {target.suggested_action && (
           <span className="flex items-center gap-2 text-xs text-muted-foreground">
             {t('upload.dupes.suggested')}
@@ -87,64 +100,82 @@ export function TrackerCheckCard({
           </span>
         )}
       </CardHeader>
-      <CardContent className="grid gap-4">
-        {target.error_message === 'dupe_check_failed' && (
-          <p className="text-sm text-amber-600 dark:text-amber-400">{t('upload.dupes.checkFailed')}</p>
-        )}
-        {target.error_message !== 'dupe_check_failed' && dupes.length === 0 && target.status !== 'checking' && (
-          <p className="text-sm text-muted-foreground">{t('upload.dupes.none')}</p>
-        )}
-        {dupes.length > 0 && (
-          <ul className="grid gap-1.5">
-            {dupes.map((dupe) => (
-              <li
-                key={dupe.torrent_id_remote}
-                className={cn(
-                  'grid gap-1 rounded-md border px-3 py-2 text-xs',
-                  dupe.verdict === 'different' && 'opacity-70',
-                )}
-              >
-                <div className="flex flex-wrap items-center gap-2">
-                  <Badge variant="outline" className={VERDICT_STYLE[dupe.verdict]}>
-                    {t(`upload.dupes.verdict.${dupe.verdict}`)}
-                  </Badge>
-                  <span className="min-w-0 flex-1 truncate font-mono" title={dupe.name}>
-                    {dupe.name}
-                  </span>
-                  <span className="text-muted-foreground tabular-nums">{formatBytes(dupe.size_bytes)}</span>
-                </div>
-                {(dupe.reasons.length > 0 || dupe.verdict === 'identical') && (
-                  <div className="flex flex-wrap items-center gap-2 text-muted-foreground">
-                    {dupe.reasons.map((reason) => t(`upload.dupes.reason.${reason}`)).join(' · ')}
-                    <Verification dupe={dupe} />
-                    {dupe.verdict === 'identical' && !dupe.verification && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-7"
-                        disabled={!canVerify || verify.isPending}
-                        onClick={() =>
-                          verify.mutate(
-                            { targetId: target.id, torrentIdRemote: dupe.torrent_id_remote },
-                            { onError: (error) => toast.error(error.message) },
-                          )
-                        }
-                      >
-                        {verifying ? (
-                          <LoaderCircleIcon className="size-3.5 animate-spin" />
-                        ) : (
-                          <ShieldCheckIcon className="size-3.5" />
-                        )}
-                        {verifying ? t('upload.dupes.verifying') : t('upload.dupes.verify')}
-                      </Button>
+      <CardContent className="grid min-w-0 gap-5">
+        <div className="grid min-w-0 gap-2">
+          <SectionLabel>{t('upload.dupes.onTracker')}</SectionLabel>
+          {target.error_message === 'dupe_check_failed' && (
+            <p className="text-sm text-amber-600 dark:text-amber-400">{t('upload.dupes.checkFailed')}</p>
+          )}
+          {target.error_message !== 'dupe_check_failed' && dupes.length === 0 && target.status !== 'checking' && (
+            <p className="text-sm text-muted-foreground">{t('upload.dupes.none')}</p>
+          )}
+          {dupes.length > 0 && (
+            <ul className="grid min-w-0 divide-y rounded-md border">
+              {dupes.map((dupe) => {
+                const url = dupeUrl(target, dupe.torrent_id_remote)
+                return (
+                  <li
+                    key={dupe.torrent_id_remote}
+                    className={cn(
+                      'grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 px-3 py-2 text-xs',
+                      dupe.verdict === 'different' && 'opacity-70',
                     )}
-                  </div>
-                )}
-              </li>
-            ))}
-          </ul>
+                  >
+                    <Badge variant="outline" className={cn('justify-self-start', VERDICT_STYLE[dupe.verdict])}>
+                      {t(`upload.dupes.verdict.${dupe.verdict}`)}
+                    </Badge>
+                    <div className="grid min-w-0">
+                      {url ? (
+                        <a href={url} target="_blank" rel="noreferrer" className="truncate font-mono hover:underline" title={dupe.name}>
+                          {dupe.name}
+                        </a>
+                      ) : (
+                        <span className="truncate font-mono" title={dupe.name}>{dupe.name}</span>
+                      )}
+                      {(dupe.reasons.length > 0 || dupe.verification) && (
+                        <span className="truncate text-muted-foreground">
+                          {dupe.reasons.map((reason) => t(`upload.dupes.reason.${reason}`)).join(' · ')}
+                          {dupe.reasons.length > 0 && dupe.verification && ' · '}
+                          <Verification dupe={dupe} />
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="text-muted-foreground tabular-nums">{formatBytes(dupe.size_bytes)}</span>
+                      {dupe.verdict === 'identical' && !dupe.verification && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7"
+                          disabled={!canVerify || verify.isPending}
+                          onClick={() =>
+                            verify.mutate(
+                              { targetId: target.id, torrentIdRemote: dupe.torrent_id_remote },
+                              { onError: (error) => toast.error(error.message) },
+                            )
+                          }
+                        >
+                          {verifying ? (
+                            <LoaderCircleIcon className="size-3.5 animate-spin" />
+                          ) : (
+                            <ShieldCheckIcon className="size-3.5" />
+                          )}
+                          {verifying ? t('upload.dupes.verifying') : t('upload.dupes.verify')}
+                        </Button>
+                      )}
+                    </div>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+        </div>
+        {children && (
+          <div className="grid min-w-0 gap-2">
+            <SectionLabel>{t('upload.decision.yourDecision')}</SectionLabel>
+            {children}
+          </div>
         )}
-        {children}
       </CardContent>
     </Card>
   )

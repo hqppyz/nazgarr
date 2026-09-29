@@ -75,10 +75,31 @@ export function OverridesPanel({ job }: { job: UploadJob }) {
               </span>
             )}
           </CollapsibleTrigger>
-          <CardDescription>{t('upload.overrides.description')}</CardDescription>
+          {/* Chiuso: i valori usati per il nome come tag, quelli cambiati a mano
+              in evidenza. Aperto: i campi per correggerli. */}
+          <div className="flex flex-wrap gap-1.5 pt-1">
+            {[...DETECTED_FIELDS, 'year' as const].map((key) => {
+              const override = typeof saved[key] === 'string' ? (saved[key] as string) : ''
+              const value = override || (key === 'year' ? (job.year != null ? String(job.year) : null) : detected[key])
+              if (!value) return null
+              return (
+                <span
+                  key={key}
+                  title={t(`upload.overrides.field.${key}`)}
+                  className={cn(
+                    'rounded border px-1.5 py-0.5 font-mono text-[11px]',
+                    override ? 'border-primary/50 bg-primary/10 text-primary' : 'bg-muted text-muted-foreground',
+                  )}
+                >
+                  {value}
+                </span>
+              )
+            })}
+          </div>
         </CardHeader>
         <CollapsibleContent>
           <CardContent className="grid gap-5">
+            <CardDescription>{t('upload.overrides.description')}</CardDescription>
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
               {DETECTED_FIELDS.map((key) => field(key, detected[key]))}
               {field('year', job.year != null ? String(job.year) : null)}

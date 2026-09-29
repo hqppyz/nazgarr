@@ -1,4 +1,5 @@
 import { ArrowLeftIcon, FileVideoIcon, FolderIcon, LoaderCircleIcon } from 'lucide-react'
+import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { toast } from 'sonner'
 
@@ -12,6 +13,14 @@ import { UploadStatusBadge } from '@/components/upload/UploadStatusBadge'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { t } from '@/lib/i18n'
 import { eventMessage } from '@/lib/upload'
 
@@ -21,11 +30,12 @@ function JobHeader({ job }: { job: UploadJob }) {
   const navigate = useNavigate()
   const cancel = useCancelUpload()
   const remove = useDeleteUpload()
+  const [confirmDelete, setConfirmDelete] = useState(false)
   const final = FINAL_STATES.includes(job.status)
   const working = WORKER_STATES.includes(job.status)
   return (
-    <div className="flex flex-wrap items-start justify-between gap-3">
-      <div className="grid min-w-0 gap-1">
+    <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
+      <div className="grid min-w-0 flex-1 gap-1">
         <button
           type="button"
           onClick={() => navigate('/upload')}
@@ -34,14 +44,14 @@ function JobHeader({ job }: { job: UploadJob }) {
           <ArrowLeftIcon className="size-3" />
           {t('upload.backToList')}
         </button>
-        <h1 className="flex flex-wrap items-center gap-2 text-lg font-semibold">
+        <h1 className="flex min-w-0 flex-wrap items-center gap-2 text-lg font-semibold break-words">
           {job.title ? `${job.title}${job.year ? ` (${job.year})` : ''}` : t('upload.untitled')}
           {job.kind && <Badge variant="outline">{t(`upload.kind.${job.kind}`)}</Badge>}
           <UploadStatusBadge status={job.status} />
         </h1>
-        <p className="flex items-center gap-1.5 truncate font-mono text-xs text-muted-foreground" title={job.source_path}>
+        <p className="flex min-w-0 items-center gap-1.5 font-mono text-xs text-muted-foreground" title={job.source_path}>
           {job.is_dir ? <FolderIcon className="size-3.5 shrink-0" /> : <FileVideoIcon className="size-3.5 shrink-0" />}
-          {job.relative_path}
+          <span className="truncate">{job.relative_path}</span>
         </p>
       </div>
       <div className="flex gap-2">
@@ -49,7 +59,12 @@ function JobHeader({ job }: { job: UploadJob }) {
           <Button
             variant="outline"
             disabled={cancel.isPending}
-            onClick={() => cancel.mutate(job.id, { onError: (error) => toast.error(error.message) })}
+            onClick={() =>
+              cancel
+                .mutateAsync(job.id)
+                .then(() => navigate('/upload?tab=history'))
+                .catch((error: Error) => toast.error(error.message))
+            }
           >
             {t('upload.cancelJob')}
           </Button>
@@ -59,17 +74,37 @@ function JobHeader({ job }: { job: UploadJob }) {
             variant="ghost"
             className="text-destructive"
             disabled={remove.isPending}
-            onClick={() =>
-              remove.mutate(job.id, {
-                onSuccess: () => navigate('/upload'),
-                onError: (error) => toast.error(error.message),
-              })
-            }
+            onClick={() => setConfirmDelete(true)}
           >
             {t('upload.deleteJob')}
           </Button>
         )}
       </div>
+      <Dialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('upload.deleteConfirmTitle')}</DialogTitle>
+            <DialogDescription>{t('upload.deleteConfirmDescription')}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setConfirmDelete(false)}>
+              {t('common.cancel')}
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={remove.isPending}
+              onClick={() =>
+                remove
+                  .mutateAsync(job.id)
+                  .then(() => navigate('/upload'))
+                  .catch((error: Error) => toast.error(error.message))
+              }
+            >
+              {t('upload.deleteJob')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
@@ -120,7 +155,7 @@ export function UploadJobPage() {
   if (isError || !job) return <p className="text-sm text-destructive">{error?.message}</p>
 
   return (
-    <div className="grid gap-4">
+    <div className="grid min-w-0 gap-4 [&>*]:min-w-0">
       <JobHeader job={job} />
       <JobBody job={job} />
       <Card>

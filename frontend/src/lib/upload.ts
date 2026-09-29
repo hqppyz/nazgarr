@@ -116,3 +116,8 @@ export function draftProblem(draft: TargetDraft): string | null {
   if (draft.action === 'reseed' && !draft.reseed_torrent_id) return 'upload.decision.problem.reseed'
   return null
 }
+
+// Pagina di un torrent sul tracker (UNIT3D: /torrents/<id>).
+export function dupeUrl(target: { tracker_base_url: string | null }, torrentId: string) {
+  return target.tracker_base_url ? `${target.tracker_base_url}/torrents/${torrentId}` : null
+}

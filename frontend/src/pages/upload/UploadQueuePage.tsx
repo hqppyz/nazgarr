@@ -1,6 +1,6 @@
 import { ArrowDownIcon, ArrowUpIcon, PlusIcon } from 'lucide-react'
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 
 import { posterUrl } from '@/api/hooks/metadata'
@@ -152,6 +152,7 @@ export function UploadQueuePage() {
   const { data, isPending } = useUploads()
   const navigate = useNavigate()
   const [openId, setOpenId] = useState<number | null>(null)
+  const [params] = useSearchParams()
 
   const jobs = data ?? []
   const active = jobs
@@ -177,7 +178,7 @@ export function UploadQueuePage() {
         {isPending ? (
           <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
         ) : (
-          <Tabs defaultValue={active.length > 0 || history.length === 0 ? 'active' : 'history'}>
+          <Tabs defaultValue={params.get('tab') ?? (active.length > 0 || history.length === 0 ? 'active' : 'history')}>
             <TabsList>
               <TabsTrigger value="active">{t('upload.history.activeTab', { count: active.length })}</TabsTrigger>
               <TabsTrigger value="history">{t('upload.history.historyTab', { count: history.length })}</TabsTrigger>

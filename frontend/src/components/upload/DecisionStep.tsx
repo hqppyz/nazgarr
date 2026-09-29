@@ -54,7 +54,7 @@ export function DecisionStep({ job }: { job: UploadJob }) {
   }
 
   return (
-    <div className="grid gap-4">
+    <div className="grid min-w-0 gap-4 [&>*]:min-w-0">
       <AnalysisSummary job={job} />
       <OverridesPanel key={JSON.stringify(job.overrides)} job={job} />
       {drafts.map(({ target, draft }) => (

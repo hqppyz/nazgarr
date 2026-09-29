@@ -3137,8 +3137,12 @@ export interface components {
             tracker_id: number;
             /** Tracker Label */
             tracker_label: string;
+            /** Tracker Base Url */
+            tracker_base_url: string | null;
             /** Torrent Client Id */
             torrent_client_id: number | null;
+            /** Torrent Client Label */
+            torrent_client_label: string | null;
             /** Status */
             status: string;
             /** Suggested Action */

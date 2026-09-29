@@ -51,7 +51,7 @@ export function NewUploadPage() {
   }
 
   return (
-    <div className="grid max-w-4xl gap-4">
+    <div className="grid min-w-0 gap-4">
       <Card>
         <CardHeader>
           <CardTitle>{t('upload.newUpload')}</CardTitle>

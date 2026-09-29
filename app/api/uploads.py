@@ -80,7 +80,9 @@ class UploadTargetResponse(BaseModel):
     id: int
     tracker_id: int
     tracker_label: str
+    tracker_base_url: str | None  # per i link ai torrent del dupe check (UNIT3D: /torrents/<id>)
     torrent_client_id: int | None
+    torrent_client_label: str | None
     status: str
     suggested_action: str | None
     action: str | None
@@ -106,7 +108,10 @@ class UploadTargetResponse(BaseModel):
     def from_model(cls, t: UploadTarget) -> "UploadTargetResponse":
         profile = object_session(t).get(TrackerUploadProfile, t.tracker_id)
         return cls(
-            id=t.id, tracker_id=t.tracker_id, tracker_label=t.tracker.label, torrent_client_id=t.torrent_client_id,
+            id=t.id, tracker_id=t.tracker_id, tracker_label=t.tracker.label,
+            tracker_base_url=t.tracker.base_url.rstrip("/") if t.tracker.base_url else None,
+            torrent_client_id=t.torrent_client_id,
+            torrent_client_label=t.torrent_client.label if t.torrent_client else None,
             status=t.status, suggested_action=t.suggested_action, action=t.action,
             dupes=_loads(t.dupes_json, []), reseed_torrent_id=t.reseed_torrent_id,
             proposed_name=t.proposed_name, approved_name=t.approved_name,

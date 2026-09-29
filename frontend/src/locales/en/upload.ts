@@ -29,6 +29,9 @@ export const upload = {
   'upload.cancelJob': 'Cancel',
   'upload.deleteJob': 'Delete',
   'upload.activity': 'Activity',
+  'upload.deleteConfirmTitle': 'Delete this upload?',
+  'upload.deleteConfirmDescription':
+    'It disappears from the queue and the history. Nothing is removed from the trackers, the clients or the disk.',
   'upload.failedTitle': 'Something went wrong',
 
   'upload.picker.title': 'Choose the source',
@@ -127,6 +130,8 @@ export const upload = {
   'upload.action.skip': 'Skip',
 
   'upload.dupes.suggested': 'Suggested:',
+  'upload.dupes.onTracker': 'Already on the tracker',
+  'upload.decision.yourDecision': 'Your decision',
   'upload.dupes.none': 'Nothing like this on the tracker yet.',
   'upload.dupes.checkFailed':
     "The tracker didn't answer: the dupe check is missing for this tracker, decide knowing that.",
