@@ -115,3 +115,29 @@ export function useVerifyTarget(uploadId: number) {
     onSuccess: (job) => queryClient.setQueryData(['uploads', uploadId], job),
   })
 }
+
+export function useUpdateOverrides(uploadId: number) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (overrides: Record<string, unknown>) =>
+      unwrap(
+        api.PUT('/api/uploads/{upload_id}/overrides', {
+          params: { path: { upload_id: uploadId } },
+          body: { overrides },
+        }),
+      ),
+    onSuccess: (job) => queryClient.setQueryData(['uploads', uploadId], job),
+  })
+}
+
+export function useApproveUpload(uploadId: number) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (targets: Schemas['TargetDecision'][]) =>
+      unwrap(api.POST('/api/uploads/{upload_id}/approve', { params: { path: { upload_id: uploadId } }, body: { targets } })),
+    onSuccess: (job) => {
+      queryClient.setQueryData(['uploads', uploadId], job)
+      queryClient.invalidateQueries({ queryKey: ['uploads'] })
+    },
+  })
+}

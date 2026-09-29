@@ -288,3 +288,27 @@ def test_verify_endpoint_rejects_unknown_target_or_dupe(client, tmp_path, setup)
     assert resp.status_code == 404
     resp = client.post(f"/api/uploads/{job_id}/targets/{target_id}/verify", json={"torrent_id_remote": "1"})
     assert resp.json()["detail"]["code"] == "upload_dupe_not_found"
+
+
+def test_overrides_and_approve_through_the_api(client, tmp_path, setup):
+    job_id = _awaiting_match(client, tmp_path, setup, "Movie.Name.2024.1080p.WEB-DL.H.264-GRP.mkv",
+                             ["Movie.Name.2024.1080p.WEB-DL.H.264-GRP.mkv"])
+    client.post(f"/api/uploads/{job_id}/match", json={"content_type": "movie", "tmdb_id": 1, "kind": "movie"})
+
+    detail = client.put(f"/api/uploads/{job_id}/overrides", json={"overrides": {"group": "ME"}}).json()
+    target = detail["targets"][0]
+    assert target["proposed_name"].endswith("-ME")
+    assert target["type_id_map"] == {}
+
+    resp = client.post(f"/api/uploads/{job_id}/approve", json={"targets": [
+        {"target_id": target["id"], "action": "upload", "name": "Movie Name (2024)", "category_id": 1, "type_id": 4,
+         "resolution_id": 3, "flags": {"anonymous": False}},
+    ]})
+    assert resp.status_code == 200, resp.text
+    session = client.app.state.session_factory()
+    try:
+        job = session.get(UploadJob, job_id)
+        assert "target_approved" in [e.code for e in job.events]
+        assert job.targets[0].approved_name == "Movie Name (2024)"
+    finally:
+        session.close()

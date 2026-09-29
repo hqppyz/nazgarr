@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest'
 
-import { eventMessage, fromForcedIds, missingEpisodes, toForcedIds } from '@/lib/upload'
+import {
+  draftProblem,
+  editDraft,
+  effectiveDraft,
+  eventMessage,
+  fromForcedIds,
+  missingEpisodes,
+  toForcedIds,
+} from '@/lib/upload'
 
 describe('missingEpisodes', () => {
   it('lists the episodes TMDB expects that are not in the source', () => {
@@ -30,5 +38,28 @@ describe('eventMessage', () => {
       'Match confirmed: Dune (2021).',
     )
     expect(eventMessage({ code: 'no_video_files', params: {} })).toBe('No video file found in the source.')
+  })
+})
+
+const source = {
+  suggested_action: 'upload', proposed_name: 'Movie (2024) 1080p-GRP', category_id: 1, type_id: 4, resolution_id: 3,
+  flags: { anonymous: false }, reseed_torrent_id: null, dupes: [{ torrent_id_remote: '9', verdict: 'identical' }],
+}
+
+describe('decision drafts', () => {
+  it('follows the proposed values until the user touches a field', () => {
+    const edited = editDraft(effectiveDraft(undefined, source), { name: 'Mine' })
+    const refreshed = effectiveDraft(edited, { ...source, proposed_name: 'Movie (2024) 1080p-ME', type_id: 5 })
+    expect(refreshed.name).toBe('Mine')
+    expect(refreshed.type_id).toBe(5)
+    expect(refreshed.reseed_torrent_id).toBe('9')
+  })
+
+  it('explains what is missing', () => {
+    const draft = effectiveDraft(undefined, source)
+    expect(draftProblem(draft)).toBeNull()
+    expect(draftProblem({ ...draft, type_id: null })).toBe('upload.decision.problem.ids')
+    expect(draftProblem({ ...draft, action: 'reseed', reseed_torrent_id: null })).toBe('upload.decision.problem.reseed')
+    expect(draftProblem({ ...draft, action: 'skip', name: '' })).toBeNull()
   })
 })

@@ -1224,6 +1224,47 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/uploads/{upload_id}/overrides": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Update Overrides
+         * @description Correzioni ai valori rilevati: rifà nomi e id proposti per ogni tracker.
+         */
+        put: operations["update_overrides_api_uploads__upload_id__overrides_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/uploads/{upload_id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve Upload
+         * @description Secondo punto di approvazione, la conferma umana obbligatoria di
+         *     docs/SPEC.md §9: da qui il worker porta il job fino in fondo.
+         */
+        post: operations["approve_upload_api_uploads__upload_id__approve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/metadata/search": {
         parameters: {
             query?: never;
@@ -2622,6 +2663,27 @@ export interface components {
             /** Basic Auth Password */
             basic_auth_password?: string | null;
         };
+        /** TargetDecision */
+        TargetDecision: {
+            /** Target Id */
+            target_id: number;
+            /** Action */
+            action: string;
+            /** Name */
+            name?: string | null;
+            /** Flags */
+            flags?: {
+                [key: string]: boolean;
+            } | null;
+            /** Category Id */
+            category_id?: number | null;
+            /** Type Id */
+            type_id?: number | null;
+            /** Resolution Id */
+            resolution_id?: number | null;
+            /** Reseed Torrent Id */
+            reseed_torrent_id?: string | null;
+        };
         /** TokenResponse */
         TokenResponse: {
             /** Access Token */
@@ -2788,6 +2850,11 @@ export interface components {
             note?: string | null;
             /** Channel */
             channel?: string | null;
+        };
+        /** UploadApproveRequest */
+        UploadApproveRequest: {
+            /** Targets */
+            targets: components["schemas"]["TargetDecision"][];
         };
         /** UploadCreateRequest */
         UploadCreateRequest: {
@@ -2963,6 +3030,13 @@ export interface components {
             /** Episode */
             episode?: number | null;
         };
+        /** UploadOverridesRequest */
+        UploadOverridesRequest: {
+            /** Overrides */
+            overrides: {
+                [key: string]: unknown;
+            };
+        };
         /** UploadProfileCreateRequest */
         UploadProfileCreateRequest: {
             /** Profile Key */
@@ -3066,6 +3140,18 @@ export interface components {
             error_message: string | null;
             /** Finished At */
             finished_at: string | null;
+            /** Category Id Map */
+            category_id_map: {
+                [key: string]: number;
+            };
+            /** Type Id Map */
+            type_id_map: {
+                [key: string]: number;
+            };
+            /** Resolution Id Map */
+            resolution_id_map: {
+                [key: string]: number;
+            };
         };
         /** UploadTrackerResponse */
         UploadTrackerResponse: {
@@ -5562,6 +5648,76 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["UploadVerifyRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadJobDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_overrides_api_uploads__upload_id__overrides_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                upload_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UploadOverridesRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadJobDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    approve_upload_api_uploads__upload_id__approve_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                upload_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UploadApproveRequest"];
             };
         };
         responses: {

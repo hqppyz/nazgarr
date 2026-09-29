@@ -11,14 +11,14 @@ from datetime import datetime
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, object_session
 
-from app import upload_identify, upload_jobs, upload_verify
+from app import upload_decision, upload_identify, upload_jobs, upload_verify
 from app.adapter_factory import TmdbApiKeyMissingError
 from app.api_errors import coded_detail, from_coded_error
 from app.deps import get_session
 from app.fs_scope import ScopeViolation
-from app.models import Disk, TorrentClient, UploadEvent, UploadJob, UploadTarget
+from app.models import Disk, TorrentClient, TrackerUploadProfile, UploadEvent, UploadJob, UploadTarget
 from app.upload_jobs import UploadJobError
 
 logger = logging.getLogger(__name__)
@@ -49,6 +49,25 @@ class UploadMatchRequest(BaseModel):
     episode: int | None = None
 
 
+class UploadOverridesRequest(BaseModel):
+    overrides: dict
+
+
+class TargetDecision(BaseModel):
+    target_id: int
+    action: str  # upload | reseed | skip
+    name: str | None = None
+    flags: dict[str, bool] | None = None
+    category_id: int | None = None
+    type_id: int | None = None
+    resolution_id: int | None = None
+    reseed_torrent_id: str | None = None
+
+
+class UploadApproveRequest(BaseModel):
+    targets: list[TargetDecision]
+
+
 class UploadVerifyRequest(BaseModel):
     torrent_id_remote: str
 
@@ -77,9 +96,14 @@ class UploadTargetResponse(BaseModel):
     torrent_id_remote: str | None
     error_message: str | None
     finished_at: datetime | None
+    # Le mappe del profilo, per scegliere categoria/tipo/risoluzione a mano.
+    category_id_map: dict[str, int]
+    type_id_map: dict[str, int]
+    resolution_id_map: dict[str, int]
 
     @classmethod
     def from_model(cls, t: UploadTarget) -> "UploadTargetResponse":
+        profile = object_session(t).get(TrackerUploadProfile, t.tracker_id)
         return cls(
             id=t.id, tracker_id=t.tracker_id, tracker_label=t.tracker.label, torrent_client_id=t.torrent_client_id,
             status=t.status, suggested_action=t.suggested_action, action=t.action,
@@ -88,6 +112,9 @@ class UploadTargetResponse(BaseModel):
             flags=_loads(t.flags_json, {}), category_id=t.category_id, type_id=t.type_id,
             resolution_id=t.resolution_id, info_hash=t.info_hash, torrent_id_remote=t.torrent_id_remote,
             error_message=t.error_message, finished_at=t.finished_at,
+            category_id_map=_loads(profile.category_id_map_json if profile else None, {}),
+            type_id_map=_loads(profile.type_id_map_json if profile else None, {}),
+            resolution_id_map=_loads(profile.resolution_id_map_json if profile else None, {}),
         )
 
 
@@ -310,4 +337,30 @@ def verify_target(
     except UploadJobError as exc:
         raise HTTPException(status_code=400, detail=from_coded_error(exc)) from exc
     session.refresh(job)
+    return UploadJobDetail.from_model(job)
+
+
+@router.put("/{upload_id}/overrides", response_model=UploadJobDetail)
+def update_overrides(upload_id: int, body: UploadOverridesRequest, session: Session = Depends(get_session)):
+    """Correzioni ai valori rilevati: rifà nomi e id proposti per ogni tracker."""
+    job = _get_job_or_404(session, upload_id)
+    try:
+        upload_decision.update_overrides(session, job, body.overrides)
+    except UploadJobError as exc:
+        raise HTTPException(status_code=400, detail=from_coded_error(exc)) from exc
+    return UploadJobDetail.from_model(job)
+
+
+@router.post("/{upload_id}/approve", response_model=UploadJobDetail)
+def approve_upload(
+    upload_id: int, body: UploadApproveRequest, request: Request, session: Session = Depends(get_session)
+):
+    """Secondo punto di approvazione, la conferma umana obbligatoria di
+    docs/SPEC.md §9: da qui il worker porta il job fino in fondo."""
+    job = _get_job_or_404(session, upload_id)
+    try:
+        upload_decision.approve(session, job, [d.model_dump() for d in body.targets])
+    except UploadJobError as exc:
+        raise HTTPException(status_code=400, detail=from_coded_error(exc)) from exc
+    _worker(request).kick(job.id, job.status)
     return UploadJobDetail.from_model(job)

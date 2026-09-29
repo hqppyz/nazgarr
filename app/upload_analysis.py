@@ -20,7 +20,7 @@ import time
 
 from sqlalchemy.orm import Session
 
-from app import adapter_factory, arr, mediainfo_util, upload_jobs
+from app import adapter_factory, arr, mediainfo_util, upload_decision, upload_jobs
 from app.file_types import is_video
 from app.models import (
     ClientTorrent,
@@ -233,6 +233,7 @@ def handle(session: Session, job: UploadJob, worker) -> None:
     job.stage = "trackers"
     session.commit()
     _check_trackers(session, job, summary_of(job, files))
+    upload_decision.propose(session, job)
 
     if upload_jobs.transition(session, job, "analyzing", "awaiting_decision", stage=None):
         upload_jobs.log_event(session, job, "analysis_done")

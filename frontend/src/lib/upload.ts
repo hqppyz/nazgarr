@@ -48,3 +48,71 @@ export function eventMessage(event: { code: string; params: Record<string, unkno
   const message = t(key, event.params)
   return message === key ? t(`errors.${event.code}`, event.params) : message
 }
+
+// Bozza della decisione per un tracker, al secondo punto di approvazione.
+// touched: i campi che l'utente ha cambiato a mano; gli altri seguono i
+// valori proposti dal backend, che cambiano quando si salvano gli override.
+export interface TargetDraft {
+  action: 'upload' | 'reseed' | 'skip'
+  name: string
+  category_id: number | null
+  type_id: number | null
+  resolution_id: number | null
+  flags: Record<string, boolean>
+  reseed_torrent_id: string | null
+  touched: (keyof Omit<TargetDraft, 'touched'>)[]
+}
+
+interface DraftSource {
+  suggested_action: string | null
+  proposed_name: string | null
+  category_id: number | null
+  type_id: number | null
+  resolution_id: number | null
+  flags: Record<string, unknown>
+  reseed_torrent_id: string | null
+  dupes: unknown[]
+}
+
+export function initialDraft(target: DraftSource): TargetDraft {
+  const identical = (target.dupes as { torrent_id_remote: string; verdict: string }[]).filter(
+    (d) => d.verdict === 'identical',
+  )
+  const suggested = target.suggested_action
+  return {
+    action: suggested === 'reseed' || suggested === 'skip' ? suggested : 'upload',
+    name: target.proposed_name ?? '',
+    category_id: target.category_id,
+    type_id: target.type_id,
+    resolution_id: target.resolution_id,
+    flags: Object.fromEntries(Object.entries(target.flags).map(([k, v]) => [k, v === true])),
+    reseed_torrent_id: target.reseed_torrent_id ?? identical[0]?.torrent_id_remote ?? null,
+    touched: [],
+  }
+}
+
+/** La bozza da mostrare: i campi toccati dall'utente, il resto proposto. */
+export function effectiveDraft(edits: Partial<TargetDraft> | undefined, target: DraftSource): TargetDraft {
+  const fresh = initialDraft(target)
+  if (!edits) return fresh
+  const out: TargetDraft = { ...fresh, touched: edits.touched ?? [] }
+  for (const key of out.touched) (out as unknown as Record<string, unknown>)[key] = edits[key]
+  return out
+}
+
+export function editDraft(draft: TargetDraft, patch: Partial<Omit<TargetDraft, 'touched'>>): TargetDraft {
+  const touched = new Set(draft.touched)
+  for (const key of Object.keys(patch)) touched.add(key as keyof Omit<TargetDraft, 'touched'>)
+  return { ...draft, ...patch, touched: [...touched] }
+}
+
+export function draftProblem(draft: TargetDraft): string | null {
+  if (draft.action === 'upload') {
+    if (!draft.name.trim()) return 'upload.decision.problem.name'
+    if (draft.category_id == null || draft.type_id == null || draft.resolution_id == null) {
+      return 'upload.decision.problem.ids'
+    }
+  }
+  if (draft.action === 'reseed' && !draft.reseed_torrent_id) return 'upload.decision.problem.reseed'
+  return null
+}
