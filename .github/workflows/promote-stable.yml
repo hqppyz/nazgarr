@@ -71,7 +71,12 @@ jobs:
         run: |
           set -euo pipefail
           image="${REGISTRY}/${IMAGE_NAME,,}"
-          docker buildx imagetools create -t "$image:stable" -t "$image:latest" "$image:$VERSION"
+          source="$image:$VERSION"
+          # Versioni pubblicate prima del rename esistono solo col nome vecchio.
+          if ! docker buildx imagetools inspect "$source" >/dev/null 2>&1; then
+            source="ghcr.io/lktorrentz/gauntletarr:$VERSION"
+          fi
+          docker buildx imagetools create -t "$image:stable" -t "$image:latest" "$source"
           docker buildx imagetools inspect "$image:stable"
 
       - name: Mirror stable to the legacy image name
@@ -83,7 +88,7 @@ jobs:
           set -euo pipefail
           image="${REGISTRY}/${IMAGE_NAME,,}"
           legacy=ghcr.io/lktorrentz/gauntletarr
-          docker buildx imagetools create -t "$legacy:stable" -t "$legacy:latest" "$image:$VERSION"
+          docker buildx imagetools create -t "$legacy:stable" -t "$legacy:latest" "$image:stable"
 
       - name: Mark the release as stable
         env:
