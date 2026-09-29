@@ -84,10 +84,14 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          # Ordine voluto: GHCR mostra per primo l'ultimo tag applicato, e i tag
+          # vengono applicati in quest'ordine. Così nell'elenco: nightly, poi la
+          # versione, poi lo sha (stable/latest li aggiunge dopo la promozione,
+          # e finiscono in cima).
           tags: |
-            type=raw,value=nightly,enable={{is_default_branch}}
-            type=raw,value=${{ steps.version.outputs.version }}
             type=sha,format=short
+            type=raw,value=${{ steps.version.outputs.version }}
+            type=raw,value=nightly,enable={{is_default_branch}}
           labels: |
             org.opencontainers.image.version=${{ steps.version.outputs.version }}
 
