@@ -9,10 +9,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { t } from '@/lib/i18n'
 
 const STATUS_VARIANT: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
-  draft: 'outline',
-  ready: 'secondary',
-  uploading: 'secondary',
-  uploaded: 'default',
+  awaiting_match: 'outline',
+  awaiting_decision: 'outline',
+  done: 'default',
+  partial: 'secondary',
   failed: 'destructive',
 }
 
@@ -35,7 +35,7 @@ export function UploadQueuePage() {
             <TableRow>
               <TableHead>File</TableHead>
               <TableHead>{t('upload.status')}</TableHead>
-              <TableHead>torrent_id_remote</TableHead>
+              <TableHead>Tracker</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -48,11 +48,11 @@ export function UploadQueuePage() {
             )}
             {data?.map((job) => (
               <TableRow key={job.id} className="cursor-pointer" onClick={() => navigate(`/upload/${job.id}`)}>
-                <TableCell className="max-w-md truncate font-mono text-xs">{job.source_path}</TableCell>
+                <TableCell className="max-w-md truncate font-mono text-xs">{job.relative_path}</TableCell>
                 <TableCell>
                   <Badge variant={STATUS_VARIANT[job.status] ?? 'outline'}>{job.status}</Badge>
                 </TableCell>
-                <TableCell className="text-xs text-muted-foreground">{job.torrent_id_remote ?? '—'}</TableCell>
+                <TableCell className="text-xs text-muted-foreground">{job.targets.map((target) => target.tracker_label).join(', ')}</TableCell>
               </TableRow>
             ))}
             {data?.length === 0 && (

@@ -26,6 +26,7 @@ from app.api.uploads import router as uploads_router
 from app.config import load_settings
 from app.frontend import mount_frontend
 from app.logging_config import add_file_handler, configure_logging
+from app.upload_worker import UploadWorker
 from app.version import __commit__, __version__
 
 configure_logging()
@@ -40,6 +41,7 @@ async def lifespan(app: FastAPI):
     db.migrate_legacy_media_path_id(engine)
     db.repair_dangling_media_file_legacy_fk(engine)
     db.migrate_legacy_run_log_phase_check(engine)
+    db.migrate_legacy_upload_job(engine)
     db.apply_schema(engine)
     db.migrate_schema(engine)
     session_factory = db.make_session_factory(engine)
@@ -54,10 +56,13 @@ async def lifespan(app: FastAPI):
 
     app.state.scheduler = scheduler.build_scheduler(session_factory, settings.data_dir)
     app.state.scheduler.start()
+    app.state.upload_worker = UploadWorker(session_factory, settings.data_dir)
+    app.state.upload_worker.resume()
     try:
         yield
     finally:
         app.state.scheduler.shutdown(wait=False)
+        app.state.upload_worker.shutdown()
 
 
 app = FastAPI(title="Nazgarr", lifespan=lifespan)

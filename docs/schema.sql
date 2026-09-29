@@ -520,27 +520,86 @@ CREATE TABLE IF NOT EXISTS tracker_upload_profile (
                                              -- reference only — never re-read at runtime after the copy
 );
 
+-- Upload flow v2 (SPEC.md §9 "Upload flow v2"): one job = one source (a file
+-- or a folder) towards N trackers. The Phase 6 single-tracker upload_job is
+-- dropped by app/db.py::migrate_legacy_upload_job (no data worth keeping).
 CREATE TABLE IF NOT EXISTS upload_job (
     id                      INTEGER PRIMARY KEY,
-    media_file_id           INTEGER REFERENCES media_file(id),
-        -- nullable: the file may never have gone through the existing scan (direct file-browser selection)
-    source_path             TEXT NOT NULL,   -- absolute path chosen, independent of media_file_id
-    tracker_id              INTEGER NOT NULL REFERENCES tracker(id),
-    status                  TEXT NOT NULL DEFAULT 'draft'
-                            CHECK (status IN ('draft','ready','uploading','uploaded','failed')),
-    torrent_path            TEXT,            -- .torrent created locally (torf)
+    disk_id                 INTEGER REFERENCES disk(id) ON DELETE SET NULL,
+    relative_path           TEXT NOT NULL,   -- as chosen in the browser, relative to the disk root
+    source_path             TEXT NOT NULL,   -- absolute path, resolved through app/fs_scope.py
+    is_dir                  BOOLEAN NOT NULL DEFAULT 0,
+    kind                    TEXT CHECK (kind IN ('movie','episode','season_pack','complete_pack')),
+        -- null until identified; season/complete pack only for folders
+    status                  TEXT NOT NULL DEFAULT 'identifying'
+                            CHECK (status IN ('identifying','awaiting_match','analyzing','awaiting_decision',
+                                              'queued','running','done','partial','failed','cancelled')),
+        -- awaiting_match / awaiting_decision are the two human gates; the worker
+        -- (app/upload_worker.py) moves every other state forward on its own
+    stage                   TEXT,            -- current step inside a worker state, for the progress display
+    progress_done           INTEGER,
+    progress_total          INTEGER,
+    queue_position          INTEGER,         -- order among 'queued' jobs, lower first
+    content_type            TEXT CHECK (content_type IN ('movie','tv')),
+    tmdb_id                 INTEGER,
+    imdb_id                 TEXT,
+    tvdb_id                 INTEGER,
+    mal_id                  INTEGER,
+    title                   TEXT,
+    year                    INTEGER,
+    poster_path             TEXT,            -- TMDB relative path (e.g. "/abc.jpg")
+    seasons_json            TEXT,            -- confirmed season numbers, e.g. [2] or [1,2,3]
+    episode                 INTEGER,         -- only for kind = 'episode'
+    forced_ids_json         TEXT,            -- ids the user forced at creation {"tmdb": ..., "imdb": ...}
+    overrides_json          TEXT,            -- "Detected details" / "Advanced" overrides
+    layout_json             TEXT,            -- what's inside the source (app/upload_source.py): videos, seasons, episodes
+    candidates_json         TEXT,            -- identification candidates shown at the first gate
+    analysis_json           TEXT,            -- client / Radarr-Sonarr findings
+    mediainfo_text          TEXT,
+    screenshot_urls_json    TEXT,
+    error_message           TEXT,
+    created_at              TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at              TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    finished_at             TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS upload_target (
+    id                      INTEGER PRIMARY KEY,
+    job_id                  INTEGER NOT NULL REFERENCES upload_job(id) ON DELETE CASCADE,
+    tracker_id              INTEGER NOT NULL REFERENCES tracker(id) ON DELETE CASCADE,
+    torrent_client_id       INTEGER REFERENCES torrent_client(id) ON DELETE SET NULL,
+        -- where the torrent will seed: the tracker's client by default
+    status                  TEXT NOT NULL DEFAULT 'pending'
+                            CHECK (status IN ('pending','checking','awaiting_decision','approved','verifying',
+                                              'preparing','uploading','seeding','done','skipped','failed')),
+    suggested_action        TEXT CHECK (suggested_action IN ('upload','reseed','skip')),
+    action                  TEXT CHECK (action IN ('upload','reseed','skip')),  -- the user's choice at gate 2
+    dupes_json              TEXT,            -- filtered dupe-check results
+    proposed_name           TEXT,
+    approved_name           TEXT,
+    flags_json              TEXT,            -- {"anonymous": ..., "personal_release": ..., "internal": ..., "stream": ...}
+    category_id             INTEGER,
+    type_id                 INTEGER,
+    resolution_id           INTEGER,
+    description_rendered    TEXT,
+    torrent_path            TEXT,
     info_hash               TEXT,
-    mediainfo_text           TEXT,
-    screenshot_urls_json      TEXT,           -- list of public URLs (ImageHostAdapter)
-    description_rendered      TEXT,
-    tmdb_id                  INTEGER,
-    imdb_id                  TEXT,
-    category_id               INTEGER,        -- resolved from the profile, editable before submission
-    type_id                   INTEGER,
-    resolution_id              INTEGER,
-    torrent_id_remote          TEXT,           -- outcome, known only once the upload succeeds
-    error_message               TEXT,
-    created_at                   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    torrent_id_remote       TEXT,
+    error_message           TEXT,
+    finished_at             TIMESTAMP,
+    UNIQUE(job_id, tracker_id)
+);
+
+-- Append-only log of every step of a job, for live monitoring and history.
+-- code + params_json instead of a sentence, so the frontend translates it.
+CREATE TABLE IF NOT EXISTS upload_event (
+    id                      INTEGER PRIMARY KEY,
+    job_id                  INTEGER NOT NULL REFERENCES upload_job(id) ON DELETE CASCADE,
+    target_id               INTEGER REFERENCES upload_target(id) ON DELETE CASCADE,
+    created_at              TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    level                   TEXT NOT NULL DEFAULT 'info' CHECK (level IN ('info','warning','error')),
+    code                    TEXT NOT NULL,
+    params_json             TEXT
 );
 
 -- Indexes on the most-queried foreign keys (SQLite doesn't index them on
@@ -556,5 +615,7 @@ CREATE INDEX IF NOT EXISTS idx_match_review_seed_file_id ON match_review(seed_fi
 CREATE INDEX IF NOT EXISTS idx_seed_job_candidate_id ON seed_job(candidate_id);
 CREATE INDEX IF NOT EXISTS idx_seed_job_source_media_file_id ON seed_job(source_media_file_id);
 CREATE INDEX IF NOT EXISTS idx_seed_job_source_seed_file_id ON seed_job(source_seed_file_id);
-CREATE INDEX IF NOT EXISTS idx_upload_job_tracker_id ON upload_job(tracker_id);
+CREATE INDEX IF NOT EXISTS idx_upload_job_status ON upload_job(status);
+CREATE INDEX IF NOT EXISTS idx_upload_target_job_id ON upload_target(job_id);
+CREATE INDEX IF NOT EXISTS idx_upload_event_job_id ON upload_event(job_id);
 CREATE INDEX IF NOT EXISTS idx_file_change_run_id ON file_change(run_id);

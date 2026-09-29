@@ -438,35 +438,131 @@ class TrackerUploadProfile(Base):
     tracker: Mapped["Tracker"] = relationship()
 
 
+UPLOAD_JOB_STATUSES = (
+    "identifying", "awaiting_match", "analyzing", "awaiting_decision",
+    "queued", "running", "done", "partial", "failed", "cancelled",
+)
+UPLOAD_TARGET_STATUSES = (
+    "pending", "checking", "awaiting_decision", "approved", "verifying",
+    "preparing", "uploading", "seeding", "done", "skipped", "failed",
+)
+
+
+def _in_check(column: str, values: tuple[str, ...]) -> str:
+    return f"{column} IN ({','.join(repr(v) for v in values)})"
+
+
 class UploadJob(Base):
+    """Vedi docs/schema.sql e docs/SPEC.md §9 "Upload flow v2": la sorgente
+    (file o cartella) di un upload verso N tracker, uno per UploadTarget."""
+
     __tablename__ = "upload_job"
     __table_args__ = (
+        CheckConstraint(_in_check("status", UPLOAD_JOB_STATUSES), name="ck_upload_job_status"),
         CheckConstraint(
-            "status IN ('draft','ready','uploading','uploaded','failed')", name="ck_upload_job_status"
+            "kind IN ('movie','episode','season_pack','complete_pack')", name="ck_upload_job_kind"
         ),
+        CheckConstraint("content_type IN ('movie','tv')", name="ck_upload_job_content_type"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    media_file_id: Mapped[int | None] = mapped_column(ForeignKey("media_file.id"))
+    disk_id: Mapped[int | None] = mapped_column(ForeignKey("disk.id", ondelete="SET NULL"))
+    relative_path: Mapped[str] = mapped_column(nullable=False)
     source_path: Mapped[str] = mapped_column(nullable=False)
-    tracker_id: Mapped[int] = mapped_column(ForeignKey("tracker.id"), nullable=False)
-    status: Mapped[str] = mapped_column(nullable=False, server_default=text("'draft'"))
-    torrent_path: Mapped[str | None]
-    info_hash: Mapped[str | None]
-    mediainfo_text: Mapped[str | None]
-    screenshot_urls_json: Mapped[str | None]
-    description_rendered: Mapped[str | None]
+    is_dir: Mapped[bool] = mapped_column(nullable=False, server_default=text("0"))
+    kind: Mapped[str | None]
+    status: Mapped[str] = mapped_column(nullable=False, server_default=text("'identifying'"))
+    stage: Mapped[str | None]
+    progress_done: Mapped[int | None]
+    progress_total: Mapped[int | None]
+    queue_position: Mapped[int | None]
+    content_type: Mapped[str | None]
     tmdb_id: Mapped[int | None]
     imdb_id: Mapped[str | None]
+    tvdb_id: Mapped[int | None]
+    mal_id: Mapped[int | None]
+    title: Mapped[str | None]
+    year: Mapped[int | None]
+    poster_path: Mapped[str | None]
+    seasons_json: Mapped[str | None]
+    episode: Mapped[int | None]
+    forced_ids_json: Mapped[str | None]
+    overrides_json: Mapped[str | None]
+    layout_json: Mapped[str | None]
+    candidates_json: Mapped[str | None]
+    analysis_json: Mapped[str | None]
+    mediainfo_text: Mapped[str | None]
+    screenshot_urls_json: Mapped[str | None]
+    error_message: Mapped[str | None]
+    created_at: Mapped[datetime | None] = mapped_column(server_default=text("CURRENT_TIMESTAMP"))
+    updated_at: Mapped[datetime | None] = mapped_column(
+        server_default=text("CURRENT_TIMESTAMP"), onupdate=text("CURRENT_TIMESTAMP")
+    )
+    finished_at: Mapped[datetime | None]
+
+    disk: Mapped["Disk | None"] = relationship()
+    targets: Mapped[list["UploadTarget"]] = relationship(
+        back_populates="job", cascade="all, delete-orphan", order_by="UploadTarget.id"
+    )
+    events: Mapped[list["UploadEvent"]] = relationship(
+        back_populates="job", cascade="all, delete-orphan", order_by="UploadEvent.id"
+    )
+
+
+class UploadTarget(Base):
+    """Un tracker di un UploadJob: azione scelta (upload/reseed/skip), nome,
+    flag, dupe-check ed esito, indipendenti da quelli degli altri tracker."""
+
+    __tablename__ = "upload_target"
+    __table_args__ = (
+        CheckConstraint(_in_check("status", UPLOAD_TARGET_STATUSES), name="ck_upload_target_status"),
+        CheckConstraint("suggested_action IN ('upload','reseed','skip')", name="ck_upload_target_suggested"),
+        CheckConstraint("action IN ('upload','reseed','skip')", name="ck_upload_target_action"),
+        UniqueConstraint("job_id", "tracker_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    job_id: Mapped[int] = mapped_column(ForeignKey("upload_job.id", ondelete="CASCADE"), nullable=False)
+    tracker_id: Mapped[int] = mapped_column(ForeignKey("tracker.id", ondelete="CASCADE"), nullable=False)
+    torrent_client_id: Mapped[int | None] = mapped_column(ForeignKey("torrent_client.id", ondelete="SET NULL"))
+    status: Mapped[str] = mapped_column(nullable=False, server_default=text("'pending'"))
+    suggested_action: Mapped[str | None]
+    action: Mapped[str | None]
+    dupes_json: Mapped[str | None]
+    proposed_name: Mapped[str | None]
+    approved_name: Mapped[str | None]
+    flags_json: Mapped[str | None]
     category_id: Mapped[int | None]
     type_id: Mapped[int | None]
     resolution_id: Mapped[int | None]
+    description_rendered: Mapped[str | None]
+    torrent_path: Mapped[str | None]
+    info_hash: Mapped[str | None]
     torrent_id_remote: Mapped[str | None]
     error_message: Mapped[str | None]
-    created_at: Mapped[datetime | None] = mapped_column(server_default=text("CURRENT_TIMESTAMP"))
+    finished_at: Mapped[datetime | None]
 
+    job: Mapped["UploadJob"] = relationship(back_populates="targets")
     tracker: Mapped["Tracker"] = relationship()
-    media_file: Mapped["MediaFile | None"] = relationship()
+    torrent_client: Mapped["TorrentClient | None"] = relationship()
+
+
+class UploadEvent(Base):
+    """Registro append-only dei passi di un UploadJob: code + params, mai una
+    frase, così il frontend lo traduce (stesso principio dei CodedError)."""
+
+    __tablename__ = "upload_event"
+    __table_args__ = (CheckConstraint("level IN ('info','warning','error')", name="ck_upload_event_level"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    job_id: Mapped[int] = mapped_column(ForeignKey("upload_job.id", ondelete="CASCADE"), nullable=False)
+    target_id: Mapped[int | None] = mapped_column(ForeignKey("upload_target.id", ondelete="CASCADE"))
+    created_at: Mapped[datetime] = mapped_column(nullable=False, server_default=text("CURRENT_TIMESTAMP"))
+    level: Mapped[str] = mapped_column(nullable=False, server_default=text("'info'"))
+    code: Mapped[str] = mapped_column(nullable=False)
+    params_json: Mapped[str | None]
+
+    job: Mapped["UploadJob"] = relationship(back_populates="events")
 
 
 class MatchReview(Base):

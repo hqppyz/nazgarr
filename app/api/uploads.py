@@ -1,211 +1,214 @@
-"""API del modulo Upload (docs/SPEC.md §9, Fase 6). Selezione file tramite
-lo stesso file browser scoped per-disco già usato altrove (app/fs_scope.py,
-mai un path assoluto passato direttamente dal client)."""
+"""API del flusso di upload v2 (docs/SPEC.md §9 "Upload flow v2"). La
+sorgente si sceglie con lo stesso file browser scoped per disco già usato
+altrove (app/fs_scope.py, mai un path assoluto passato dal client); il
+lavoro vero lo fa il worker (app/upload_worker.py), l'API crea i job, li
+mostra e registra le decisioni dell'utente ai due punti di approvazione."""
 
 import json
 import logging
-import os
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app import adapter_factory, upload
-from app.adapter_factory import ImageHostConfigError, TmdbApiKeyMissingError
-from app.adapters.tracker.base import UploadError
+from app import upload_jobs
 from app.api_errors import coded_detail, from_coded_error
 from app.deps import get_session
-from app.fs_scope import ScopeViolation, resolve_scoped
-from app.models import Disk, TorrentClient, Tracker, TrackerUploadProfile, UploadJob
-from app.upload import UploadPreparationError
+from app.fs_scope import ScopeViolation
+from app.models import Disk, UploadEvent, UploadJob, UploadTarget
+from app.upload_jobs import UploadJobError
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/uploads", tags=["uploads"])
 
 
+class ForcedIds(BaseModel):
+    tmdb: str | None = None  # "123", "movie/123", "tv/123" o un URL TMDB
+    imdb: str | None = None
+    tvdb: int | None = None
+    mal: int | None = None
+
+
 class UploadCreateRequest(BaseModel):
     disk_id: int
     relative_path: str
-    tracker_id: int
+    tracker_ids: list[int] | None = None  # None = tutti i tracker con un profilo di upload
+    forced_ids: ForcedIds | None = None
+    overrides: dict | None = None
 
 
-class UploadPatchRequest(BaseModel):
-    category_id: int | None = None
-    type_id: int | None = None
-    resolution_id: int | None = None
-    tmdb_id: int | None = None
-    imdb_id: str | None = None
-    description_rendered: str | None = None
-
-
-class UploadConfirmRequest(BaseModel):
-    torrent_client_id: int
-
-
-class DupeCandidateResponse(BaseModel):
-    torrent_id_remote: str
-    name: str
-    size_bytes: int
-
-
-class UploadResponse(BaseModel):
+class UploadTargetResponse(BaseModel):
     id: int
-    source_path: str
     tracker_id: int
+    tracker_label: str
+    torrent_client_id: int | None
     status: str
-    tmdb_id: int | None
-    imdb_id: str | None
+    suggested_action: str | None
+    action: str | None
+    dupes: list[dict]
+    proposed_name: str | None
+    approved_name: str | None
+    flags: dict
     category_id: int | None
     type_id: int | None
     resolution_id: int | None
     info_hash: str | None
-    mediainfo_text: str | None
-    screenshot_urls: list[str]
-    description_rendered: str | None
     torrent_id_remote: str | None
     error_message: str | None
+    finished_at: datetime | None
 
     @classmethod
-    def from_model(cls, j: UploadJob) -> "UploadResponse":
+    def from_model(cls, t: UploadTarget) -> "UploadTargetResponse":
         return cls(
-            id=j.id, source_path=j.source_path, tracker_id=j.tracker_id, status=j.status, tmdb_id=j.tmdb_id,
-            imdb_id=j.imdb_id, category_id=j.category_id, type_id=j.type_id, resolution_id=j.resolution_id,
-            info_hash=j.info_hash, mediainfo_text=j.mediainfo_text,
-            screenshot_urls=json.loads(j.screenshot_urls_json) if j.screenshot_urls_json else [],
-            description_rendered=j.description_rendered, torrent_id_remote=j.torrent_id_remote,
-            error_message=j.error_message,
+            id=t.id, tracker_id=t.tracker_id, tracker_label=t.tracker.label, torrent_client_id=t.torrent_client_id,
+            status=t.status, suggested_action=t.suggested_action, action=t.action,
+            dupes=_loads(t.dupes_json, []), proposed_name=t.proposed_name, approved_name=t.approved_name,
+            flags=_loads(t.flags_json, {}), category_id=t.category_id, type_id=t.type_id,
+            resolution_id=t.resolution_id, info_hash=t.info_hash, torrent_id_remote=t.torrent_id_remote,
+            error_message=t.error_message, finished_at=t.finished_at,
         )
 
 
-def _get_upload_or_404(session: Session, upload_id: int) -> UploadJob:
+class UploadEventResponse(BaseModel):
+    id: int
+    target_id: int | None
+    created_at: datetime
+    level: str
+    code: str
+    params: dict
+
+    @classmethod
+    def from_model(cls, e: UploadEvent) -> "UploadEventResponse":
+        return cls(
+            id=e.id, target_id=e.target_id, created_at=e.created_at, level=e.level, code=e.code,
+            params=_loads(e.params_json, {}),
+        )
+
+
+class UploadJobSummary(BaseModel):
+    id: int
+    disk_id: int | None
+    relative_path: str
+    is_dir: bool
+    kind: str | None
+    status: str
+    stage: str | None
+    progress_done: int | None
+    progress_total: int | None
+    queue_position: int | None
+    content_type: str | None
+    tmdb_id: int | None
+    title: str | None
+    year: int | None
+    poster_path: str | None
+    seasons: list[int]
+    episode: int | None
+    error_message: str | None
+    created_at: datetime | None
+    finished_at: datetime | None
+    targets: list[UploadTargetResponse]
+
+    @classmethod
+    def fields_from(cls, j: UploadJob) -> dict:
+        return dict(
+            id=j.id, disk_id=j.disk_id, relative_path=j.relative_path, is_dir=j.is_dir, kind=j.kind,
+            status=j.status, stage=j.stage, progress_done=j.progress_done, progress_total=j.progress_total,
+            queue_position=j.queue_position, content_type=j.content_type, tmdb_id=j.tmdb_id, title=j.title,
+            year=j.year, poster_path=j.poster_path, seasons=_loads(j.seasons_json, []), episode=j.episode,
+            error_message=j.error_message, created_at=j.created_at, finished_at=j.finished_at,
+            targets=[UploadTargetResponse.from_model(t) for t in j.targets],
+        )
+
+    @classmethod
+    def from_model(cls, j: UploadJob) -> "UploadJobSummary":
+        return cls(**cls.fields_from(j))
+
+
+class UploadJobDetail(UploadJobSummary):
+    source_path: str
+    imdb_id: str | None
+    tvdb_id: int | None
+    mal_id: int | None
+    forced_ids: dict
+    overrides: dict
+    layout: dict | None
+    candidates: list[dict]
+    analysis: dict | None
+    mediainfo_text: str | None
+    screenshot_urls: list[str]
+    events: list[UploadEventResponse]
+
+    @classmethod
+    def from_model(cls, j: UploadJob) -> "UploadJobDetail":
+        return cls(
+            **cls.fields_from(j),
+            source_path=j.source_path, imdb_id=j.imdb_id, tvdb_id=j.tvdb_id, mal_id=j.mal_id,
+            forced_ids=_loads(j.forced_ids_json, {}), overrides=_loads(j.overrides_json, {}),
+            layout=_loads(j.layout_json, None), candidates=_loads(j.candidates_json, []),
+            analysis=_loads(j.analysis_json, None), mediainfo_text=j.mediainfo_text,
+            screenshot_urls=_loads(j.screenshot_urls_json, []),
+            events=[UploadEventResponse.from_model(e) for e in j.events],
+        )
+
+
+def _loads(raw: str | None, default):
+    return json.loads(raw) if raw else default
+
+
+def _get_job_or_404(session: Session, upload_id: int) -> UploadJob:
     job = session.get(UploadJob, upload_id)
     if job is None:
         raise HTTPException(status_code=404, detail=coded_detail("upload_job_not_found", id=upload_id))
     return job
 
 
-def _get_tracker_or_404(session: Session, tracker_id: int) -> Tracker:
-    tracker = session.get(Tracker, tracker_id)
-    if tracker is None:
-        raise HTTPException(status_code=404, detail=coded_detail("tracker_not_found", id=tracker_id))
-    return tracker
+def _worker(request: Request):
+    return request.app.state.upload_worker
 
 
-@router.get("", response_model=list[UploadResponse])
+@router.get("", response_model=list[UploadJobSummary])
 def list_uploads(session: Session = Depends(get_session)):
-    return [UploadResponse.from_model(j) for j in session.query(UploadJob).order_by(UploadJob.id.desc()).all()]
+    jobs = session.query(UploadJob).order_by(UploadJob.id.desc()).all()
+    return [UploadJobSummary.from_model(j) for j in jobs]
 
 
-@router.get("/{upload_id}", response_model=UploadResponse)
+@router.get("/{upload_id}", response_model=UploadJobDetail)
 def get_upload(upload_id: int, session: Session = Depends(get_session)):
-    return UploadResponse.from_model(_get_upload_or_404(session, upload_id))
+    return UploadJobDetail.from_model(_get_job_or_404(session, upload_id))
 
 
-@router.post("", response_model=UploadResponse, status_code=201)
-def create_upload(body: UploadCreateRequest, session: Session = Depends(get_session)):
+@router.post("", response_model=UploadJobDetail, status_code=201)
+def create_upload(body: UploadCreateRequest, request: Request, session: Session = Depends(get_session)):
     disk = session.get(Disk, body.disk_id)
     if disk is None:
         raise HTTPException(status_code=404, detail=coded_detail("disk_not_found", id=body.disk_id))
-    tracker = _get_tracker_or_404(session, body.tracker_id)
     try:
-        source_path = resolve_scoped(disk.root_path, body.relative_path)
-    except ScopeViolation as exc:
-        raise HTTPException(status_code=400, detail=from_coded_error(exc)) from exc
-    if not os.path.isfile(source_path):
-        raise HTTPException(status_code=400, detail=coded_detail("not_a_file", path=body.relative_path))
-
-    try:
-        resolver = adapter_factory.build_media_resolver(session)
-    except TmdbApiKeyMissingError:
-        resolver = None  # identificazione opzionale a questo punto, mai bloccante (docs/SPEC.md §6)
-
-    job = upload.create_draft(session, source_path, tracker, resolver)
-    return UploadResponse.from_model(job)
-
-
-@router.post("/{upload_id}/prepare", response_model=UploadResponse)
-def prepare_upload(upload_id: int, request: Request, session: Session = Depends(get_session)):
-    job = _get_upload_or_404(session, upload_id)
-    tracker = _get_tracker_or_404(session, job.tracker_id)
-    profile = session.get(TrackerUploadProfile, tracker.id)
-    if profile is None:
-        raise HTTPException(status_code=400, detail=coded_detail("tracker_no_upload_profile", tracker=tracker.label))
-    try:
-        image_host_chain = adapter_factory.build_image_host_chain(session)
-    except ImageHostConfigError as exc:
-        raise HTTPException(status_code=400, detail=from_coded_error(exc)) from exc
-
-    data_dir = request.app.state.settings.data_dir
-    try:
-        job = upload.prepare(session, job, tracker, profile, image_host_chain, data_dir)
-    except UploadPreparationError as exc:
-        raise HTTPException(status_code=400, detail=from_coded_error(exc)) from exc
-    return UploadResponse.from_model(job)
-
-
-@router.patch("/{upload_id}", response_model=UploadResponse)
-def patch_upload(upload_id: int, body: UploadPatchRequest, session: Session = Depends(get_session)):
-    job = _get_upload_or_404(session, upload_id)
-    for field in ("category_id", "type_id", "resolution_id", "tmdb_id", "imdb_id", "description_rendered"):
-        value = getattr(body, field)
-        if value is not None:
-            setattr(job, field, value)
-    session.commit()
-    return UploadResponse.from_model(job)
-
-
-@router.get("/{upload_id}/dupe-check", response_model=list[DupeCandidateResponse])
-def dupe_check(upload_id: int, session: Session = Depends(get_session)):
-    job = _get_upload_or_404(session, upload_id)
-    if job.tmdb_id is None:
-        raise HTTPException(status_code=400, detail=coded_detail("upload_missing_tmdb_id"))
-    tracker = _get_tracker_or_404(session, job.tracker_id)
-    tracker_adapter = adapter_factory.build_tracker_adapter(tracker)
-    try:
-        candidates = upload.dupe_check(job.tmdb_id, tracker_adapter)
-    except UploadError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
-    return [
-        DupeCandidateResponse(torrent_id_remote=c.torrent_id_remote, name=c.name, size_bytes=c.size_bytes)
-        for c in candidates
-    ]
-
-
-@router.post("/{upload_id}/confirm", response_model=UploadResponse)
-def confirm_upload(upload_id: int, body: UploadConfirmRequest, session: Session = Depends(get_session)):
-    """Conferma umana obbligatoria (docs/SPEC.md §9 punto 8) — l'unico
-    endpoint che invia davvero l'upload al tracker (passo 9) e, a esito
-    riuscito, aggiunge il .torrent al client locale per seedare subito
-    (passo 10, force_recheck=True invariato, mai skip_checking)."""
-    job = _get_upload_or_404(session, upload_id)
-    if job.status != "ready":
-        raise HTTPException(
-            status_code=400, detail=coded_detail("upload_job_wrong_status", status=job.status)
+        job = upload_jobs.create_job(
+            session, disk, body.relative_path, body.tracker_ids,
+            body.forced_ids.model_dump() if body.forced_ids else None, body.overrides,
         )
-    tracker = _get_tracker_or_404(session, job.tracker_id)
-    profile = session.get(TrackerUploadProfile, tracker.id)
-    if profile is None:
-        raise HTTPException(status_code=400, detail=coded_detail("tracker_no_upload_profile", tracker=tracker.label))
-    tracker_adapter = adapter_factory.build_tracker_adapter(tracker)
-
-    try:
-        job = upload.submit(session, job, tracker_adapter, profile)
-    except UploadPreparationError as exc:
+    except (ScopeViolation, UploadJobError) as exc:
         raise HTTPException(status_code=400, detail=from_coded_error(exc)) from exc
-    except UploadError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    _worker(request).kick(job.id, job.status)
+    return UploadJobDetail.from_model(job)
 
-    torrent_client = session.get(TorrentClient, body.torrent_client_id)
-    if torrent_client is None:
-        raise HTTPException(status_code=404, detail=coded_detail("torrent_client_not_found", id=body.torrent_client_id))
+
+@router.post("/{upload_id}/cancel", response_model=UploadJobDetail)
+def cancel_upload(upload_id: int, session: Session = Depends(get_session)):
+    job = _get_job_or_404(session, upload_id)
     try:
-        client_adapter = adapter_factory.build_torrent_client_adapter(torrent_client)
-        import os
+        upload_jobs.cancel_job(session, job)
+    except UploadJobError as exc:
+        raise HTTPException(status_code=400, detail=from_coded_error(exc)) from exc
+    return UploadJobDetail.from_model(job)
 
-        client_adapter.add_torrent(job.torrent_path, save_path=os.path.dirname(job.source_path), force_recheck=True)
-    except Exception:
-        logger.exception(
-            "Upload %s riuscito sul tracker ma add_torrent al client fallito: va aggiunto manualmente", job.id
-        )
-    return UploadResponse.from_model(job)
+
+@router.delete("/{upload_id}", status_code=204)
+def delete_upload(upload_id: int, session: Session = Depends(get_session)):
+    job = _get_job_or_404(session, upload_id)
+    try:
+        upload_jobs.delete_job(session, job)
+    except UploadJobError as exc:
+        raise HTTPException(status_code=400, detail=from_coded_error(exc)) from exc

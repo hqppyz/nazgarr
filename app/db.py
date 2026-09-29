@@ -398,6 +398,23 @@ def migrate_legacy_run_log_phase_check(engine: Engine) -> None:
         raw_conn.close()
 
 
+def migrate_legacy_upload_job(engine: Engine) -> None:
+    """Flusso di upload v2 (docs/SPEC.md §9): upload_job non è più "un file
+    verso un tracker" ma la sorgente di N upload_target. La tabella della
+    Fase 6 (riconoscibile dalla colonna tracker_id) viene eliminata, senza
+    copiare niente: decisione dell'utente, nessun upload reale da tenere.
+    Nessun'altra tabella la referenzia, quindi un DROP basta; va chiamata
+    prima di apply_schema(), che poi crea la forma nuova."""
+    inspector = inspect(engine)
+    if not inspector.has_table("upload_job"):
+        return
+    if "tracker_id" not in {col["name"] for col in inspector.get_columns("upload_job")}:
+        return
+    logger.warning("Migrazione: upload_job della Fase 6 eliminata, sostituita dal flusso di upload v2")
+    with engine.begin() as conn:
+        conn.execute(text("DROP TABLE upload_job"))
+
+
 def apply_schema(engine: Engine, schema_path: Path = SCHEMA_PATH) -> None:
     schema_sql = schema_path.read_text()
     raw_conn = engine.raw_connection()

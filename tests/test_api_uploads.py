@@ -1,217 +1,135 @@
-from app import adapter_factory, upload
-from app.adapters.tracker.base import TorrentCandidate, UploadError
-from app.models import Disk, Tracker
+import json
+
+import pytest
+
+from app import adapter_factory
+from app.adapters.media_resolver.base import ResolvedMedia
+from app.models import UploadJob
+from app.upload_worker import UploadWorker
+from tests.upload_helpers import InlineExecutor, make_disk, make_tracker, write_video
 
 
-def _session(client):
-    return client.app.state.session_factory()
+class _FakeResolver:
+    SOURCE = "filename_parser"
+
+    def __init__(self, resolved=None):
+        self.resolved = resolved
+        self.calls = []
+
+    def resolve(self, file_path):
+        self.calls.append(file_path)
+        return self.resolved
 
 
-def _setup_disk_and_tracker(client, tmp_path, *, announce_url="https://tracker.example/announce"):
-    media_dir = tmp_path / "media"
-    media_dir.mkdir()
-    video = media_dir / "Movie.2024.1080p.WEB.mkv"
-    video.write_bytes(b"x" * 20000)
+@pytest.fixture
+def setup(client, tmp_path, monkeypatch):
+    """Disco, un tracker con profilo e un worker che gira nel thread del test."""
+    session = client.app.state.session_factory()
+    disk = make_disk(session, tmp_path)
+    tracker = make_tracker(session)
+    ids = disk.id, tracker.id
+    session.close()
+    client.app.state.upload_worker = UploadWorker(
+        client.app.state.session_factory, str(tmp_path / "data"),
+        light_executor=InlineExecutor(), heavy_executor=InlineExecutor(),
+    )
+    resolver = _FakeResolver()
+    monkeypatch.setattr(adapter_factory, "build_media_resolver", lambda session: resolver)
+    return {"disk_id": ids[0], "tracker_id": ids[1], "resolver": resolver}
 
-    session = _session(client)
+
+def test_create_movie_upload_identifies_and_stops_at_the_match_gate(client, tmp_path, setup):
+    video = write_video(tmp_path / "media" / "Movie.Name.2024.1080p.WEB.mkv")
+    setup["resolver"].resolved = ResolvedMedia(
+        tmdb_id=603, content_type="movie", title="Movie Name", year=2024, poster_path="/p.jpg"
+    )
+
+    resp = client.post("/api/uploads", json={"disk_id": setup["disk_id"], "relative_path": "media/" + video.name})
+
+    assert resp.status_code == 201, resp.text
+    detail = client.get(f"/api/uploads/{resp.json()['id']}").json()
+    assert detail["status"] == "awaiting_match"
+    assert detail["kind"] == "movie"
+    assert detail["candidates"] == [{
+        "tmdb_id": 603, "content_type": "movie", "title": "Movie Name", "year": 2024, "poster_path": "/p.jpg",
+        "imdb_id": None, "source": "filename_parser",
+    }]
+    assert setup["resolver"].calls == [str(video)]
+    assert [t["tracker_id"] for t in detail["targets"]] == [setup["tracker_id"]]
+    assert [e["code"] for e in detail["events"]] == ["job_created", "identify_started", "identify_done"]
+
+
+def test_create_season_pack_folder(client, tmp_path, setup):
+    for ep in (1, 2):
+        write_video(tmp_path / "Show.S01.1080p-GRP" / f"Show.S01E0{ep}.1080p-GRP.mkv")
+
+    resp = client.post("/api/uploads", json={"disk_id": setup["disk_id"], "relative_path": "Show.S01.1080p-GRP"})
+
+    detail = client.get(f"/api/uploads/{resp.json()['id']}").json()
+    assert detail["status"] == "awaiting_match"
+    assert detail["is_dir"] is True
+    assert detail["kind"] == "season_pack"
+    assert detail["seasons"] == [1]
+    assert detail["layout"]["episodes_by_season"] == {"1": [1, 2]}
+    assert detail["candidates"] == []
+
+
+def test_folder_without_videos_fails_with_a_coded_error(client, tmp_path, setup):
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "a.txt").write_text("x")
+
+    resp = client.post("/api/uploads", json={"disk_id": setup["disk_id"], "relative_path": "docs"})
+
+    detail = client.get(f"/api/uploads/{resp.json()['id']}").json()
+    assert detail["status"] == "failed"
+    assert detail["error_message"] == "no_video_files"
+
+
+def test_create_rejects_path_outside_disk(client, setup):
+    resp = client.post("/api/uploads", json={"disk_id": setup["disk_id"], "relative_path": "../../etc/passwd"})
+
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["code"] == "path_outside_scope"
+
+
+def test_create_rejects_missing_source_and_unknown_disk(client, setup):
+    resp = client.post("/api/uploads", json={"disk_id": setup["disk_id"], "relative_path": "nope.mkv"})
+    assert resp.json()["detail"]["code"] == "upload_source_not_found"
+
+    resp = client.post("/api/uploads", json={"disk_id": 999, "relative_path": "x"})
+    assert resp.status_code == 404
+
+
+def test_cancel_list_and_delete(client, tmp_path, setup):
+    write_video(tmp_path / "Movie.2024.mkv")
+    job_id = client.post(
+        "/api/uploads", json={"disk_id": setup["disk_id"], "relative_path": "Movie.2024.mkv"}
+    ).json()["id"]
+
+    listed = client.get("/api/uploads").json()
+    assert [j["id"] for j in listed] == [job_id]
+    assert listed[0]["targets"][0]["tracker_label"] == "t"
+
+    assert client.post(f"/api/uploads/{job_id}/cancel").json()["status"] == "cancelled"
+    assert client.post(f"/api/uploads/{job_id}/cancel").status_code == 400
+    assert client.delete(f"/api/uploads/{job_id}").status_code == 204
+    assert client.get(f"/api/uploads/{job_id}").status_code == 404
+
+
+def test_resolver_error_fails_the_job_but_not_the_request(client, tmp_path, setup):
+    write_video(tmp_path / "Movie.2024.mkv")
+
+    def boom(file_path):
+        raise RuntimeError("tmdb down")
+
+    setup["resolver"].resolve = boom
+    resp = client.post("/api/uploads", json={"disk_id": setup["disk_id"], "relative_path": "Movie.2024.mkv"})
+
+    assert resp.status_code == 201
+    session = client.app.state.session_factory()
     try:
-        disk = Disk(label="d", root_path=str(tmp_path))
-        session.add(disk)
-        session.commit()
-        tracker = Tracker(
-            label="t", adapter_type="unit3d", base_url="https://tracker.example", api_token="x",
-            announce_url=announce_url,
-        )
-        session.add(tracker)
-        session.commit()
-        return disk.id, tracker.id
+        job = session.get(UploadJob, resp.json()["id"])
+        assert job.status == "failed"
+        assert json.loads(job.events[-1].params_json)["error"] == "tmdb down"
     finally:
         session.close()
-
-
-class _FakeImageHostChain:
-    def upload(self, image_path: str) -> str:
-        return "https://img.example/x.png"
-
-
-class _FakeTrackerAdapter:
-    def __init__(self, candidates=None, torrent_id="4242"):
-        self._candidates = candidates or []
-        self._torrent_id = torrent_id
-
-    def search_by_tmdb(self, tmdb_id):
-        return self._candidates
-
-    def upload_torrent(self, fields, torrent_path):
-        return self._torrent_id
-
-
-class _FakeTorrentClientAdapter:
-    def __init__(self):
-        self.add_calls = []
-
-    def add_torrent(self, torrent_file_or_url, save_path, force_recheck=True, expected_info_hash=None):
-        self.add_calls.append((torrent_file_or_url, save_path, force_recheck))
-        return "deadbeef"
-
-
-def test_create_upload_draft(client, tmp_path):
-    disk_id, tracker_id = _setup_disk_and_tracker(client, tmp_path)
-
-    response = client.post(
-        "/api/uploads",
-        json={"disk_id": disk_id, "relative_path": "media/Movie.2024.1080p.WEB.mkv", "tracker_id": tracker_id},
-    )
-
-    assert response.status_code == 201
-    body = response.json()
-    assert body["status"] == "draft"
-    assert body["tracker_id"] == tracker_id
-
-
-def test_create_upload_rejects_path_outside_disk(client, tmp_path):
-    disk_id, tracker_id = _setup_disk_and_tracker(client, tmp_path)
-
-    response = client.post(
-        "/api/uploads", json={"disk_id": disk_id, "relative_path": "../outside.mkv", "tracker_id": tracker_id}
-    )
-
-    assert response.status_code == 400
-
-
-def test_create_upload_rejects_directory(client, tmp_path):
-    disk_id, tracker_id = _setup_disk_and_tracker(client, tmp_path)
-
-    response = client.post(
-        "/api/uploads", json={"disk_id": disk_id, "relative_path": "media", "tracker_id": tracker_id}
-    )
-
-    assert response.status_code == 400
-
-
-def test_prepare_without_profile_returns_400(client, tmp_path):
-    disk_id, tracker_id = _setup_disk_and_tracker(client, tmp_path)
-    created = client.post(
-        "/api/uploads",
-        json={"disk_id": disk_id, "relative_path": "media/Movie.2024.1080p.WEB.mkv", "tracker_id": tracker_id},
-    ).json()
-
-    response = client.post(f"/api/uploads/{created['id']}/prepare")
-
-    assert response.status_code == 400
-
-
-def test_prepare_success(client, tmp_path, monkeypatch):
-    disk_id, tracker_id = _setup_disk_and_tracker(client, tmp_path)
-    client.post(f"/api/trackers/{tracker_id}/upload-profile", json={"profile_key": "itt"})
-    created = client.post(
-        "/api/uploads",
-        json={"disk_id": disk_id, "relative_path": "media/Movie.2024.1080p.WEB.mkv", "tracker_id": tracker_id},
-    ).json()
-
-    monkeypatch.setattr(
-        upload.screenshots, "generate_screenshots", lambda video_path, output_dir, count=4, tonemap=False: []
-    )
-    monkeypatch.setattr(adapter_factory, "build_image_host_chain", lambda session: _FakeImageHostChain())
-
-    response = client.post(f"/api/uploads/{created['id']}/prepare")
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["status"] == "ready"
-    assert body["category_id"] == 1
-
-
-def test_confirm_requires_ready_status(client, tmp_path):
-    disk_id, tracker_id = _setup_disk_and_tracker(client, tmp_path)
-    created = client.post(
-        "/api/uploads",
-        json={"disk_id": disk_id, "relative_path": "media/Movie.2024.1080p.WEB.mkv", "tracker_id": tracker_id},
-    ).json()
-
-    response = client.post(f"/api/uploads/{created['id']}/confirm", json={"torrent_client_id": 1})
-
-    assert response.status_code == 400
-
-
-def test_confirm_success_uploads_and_adds_to_client(client, tmp_path, monkeypatch):
-    disk_id, tracker_id = _setup_disk_and_tracker(client, tmp_path)
-    client.post(f"/api/trackers/{tracker_id}/upload-profile", json={"profile_key": "itt"})
-    created = client.post(
-        "/api/uploads",
-        json={"disk_id": disk_id, "relative_path": "media/Movie.2024.1080p.WEB.mkv", "tracker_id": tracker_id},
-    ).json()
-    monkeypatch.setattr(
-        upload.screenshots, "generate_screenshots", lambda video_path, output_dir, count=4, tonemap=False: []
-    )
-    monkeypatch.setattr(adapter_factory, "build_image_host_chain", lambda session: _FakeImageHostChain())
-    client.post(f"/api/uploads/{created['id']}/prepare")
-    client.patch(f"/api/uploads/{created['id']}", json={"tmdb_id": 157336})
-
-    fake_tracker_adapter = _FakeTrackerAdapter()
-    fake_client_adapter = _FakeTorrentClientAdapter()
-    monkeypatch.setattr(adapter_factory, "build_tracker_adapter", lambda tracker: fake_tracker_adapter)
-    monkeypatch.setattr(adapter_factory, "build_torrent_client_adapter", lambda torrent_client: fake_client_adapter)
-
-    session = _session(client)
-    try:
-        from app.models import TorrentClient
-
-        torrent_client = TorrentClient(label="c", adapter_type="qbittorrent", base_url="https://c.example")
-        session.add(torrent_client)
-        session.commit()
-        torrent_client_id = torrent_client.id
-    finally:
-        session.close()
-
-    response = client.post(
-        f"/api/uploads/{created['id']}/confirm", json={"torrent_client_id": torrent_client_id}
-    )
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["status"] == "uploaded"
-    assert body["torrent_id_remote"] == "4242"
-    assert len(fake_client_adapter.add_calls) == 1
-
-
-def test_dupe_check_returns_candidates(client, tmp_path, monkeypatch):
-    disk_id, tracker_id = _setup_disk_and_tracker(client, tmp_path)
-    created = client.post(
-        "/api/uploads",
-        json={"disk_id": disk_id, "relative_path": "media/Movie.2024.1080p.WEB.mkv", "tracker_id": tracker_id},
-    ).json()
-    client.patch(f"/api/uploads/{created['id']}", json={"tmdb_id": 157336})
-
-    candidate = TorrentCandidate(
-        torrent_id_remote="1", info_hash=None, name="Existing.2024.mkv", size_bytes=123,
-        file_list=None, mediainfo_unique_id=None,
-    )
-    monkeypatch.setattr(
-        adapter_factory, "build_tracker_adapter", lambda tracker: _FakeTrackerAdapter(candidates=[candidate])
-    )
-
-    response = client.get(f"/api/uploads/{created['id']}/dupe-check")
-
-    assert response.status_code == 200
-    assert response.json() == [{"torrent_id_remote": "1", "name": "Existing.2024.mkv", "size_bytes": 123}]
-
-
-def test_dupe_check_maps_tracker_error_to_502(client, tmp_path, monkeypatch):
-    disk_id, tracker_id = _setup_disk_and_tracker(client, tmp_path)
-    created = client.post(
-        "/api/uploads",
-        json={"disk_id": disk_id, "relative_path": "media/Movie.2024.1080p.WEB.mkv", "tracker_id": tracker_id},
-    ).json()
-    client.patch(f"/api/uploads/{created['id']}", json={"tmdb_id": 157336})
-
-    class _FailingTrackerAdapter:
-        def search_by_tmdb(self, tmdb_id):
-            raise UploadError("Richiesta al tracker UNIT3D fallita: connessione rifiutata")
-
-    monkeypatch.setattr(adapter_factory, "build_tracker_adapter", lambda tracker: _FailingTrackerAdapter())
-
-    response = client.get(f"/api/uploads/{created['id']}/dupe-check")
-
-    assert response.status_code == 502
-    assert "tracker" in response.json()["detail"].lower()

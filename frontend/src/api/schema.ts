@@ -1120,14 +1120,14 @@ export interface paths {
         get: operations["get_upload_api_uploads__upload_id__get"];
         put?: never;
         post?: never;
-        delete?: never;
+        /** Delete Upload */
+        delete: operations["delete_upload_api_uploads__upload_id__delete"];
         options?: never;
         head?: never;
-        /** Patch Upload */
-        patch: operations["patch_upload_api_uploads__upload_id__patch"];
+        patch?: never;
         trace?: never;
     };
-    "/api/uploads/{upload_id}/prepare": {
+    "/api/uploads/{upload_id}/cancel": {
         parameters: {
             query?: never;
             header?: never;
@@ -1136,48 +1136,8 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Prepare Upload */
-        post: operations["prepare_upload_api_uploads__upload_id__prepare_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/uploads/{upload_id}/dupe-check": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Dupe Check */
-        get: operations["dupe_check_api_uploads__upload_id__dupe_check_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/uploads/{upload_id}/confirm": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Confirm Upload
-         * @description Conferma umana obbligatoria (docs/SPEC.md §9 punto 8) — l'unico
-         *     endpoint che invia davvero l'upload al tracker (passo 9) e, a esito
-         *     riuscito, aggiunge il .torrent al client locale per seedare subito
-         *     (passo 10, force_recheck=True invariato, mai skip_checking).
-         */
-        post: operations["confirm_upload_api_uploads__upload_id__confirm_post"];
+        /** Cancel Upload */
+        post: operations["cancel_upload_api_uploads__upload_id__cancel_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1649,15 +1609,6 @@ export interface components {
             /** New Torrent Rel Path */
             new_torrent_rel_path?: string | null;
         };
-        /** DupeCandidateResponse */
-        DupeCandidateResponse: {
-            /** Torrent Id Remote */
-            torrent_id_remote: string;
-            /** Name */
-            name: string;
-            /** Size Bytes */
-            size_bytes: number;
-        };
         /** DuplicateFile */
         DuplicateFile: {
             /** Media File Id */
@@ -1743,6 +1694,17 @@ export interface components {
             unreadable: number;
             /** First Bad Offset */
             first_bad_offset: number | null;
+        };
+        /** ForcedIds */
+        ForcedIds: {
+            /** Tmdb */
+            tmdb?: string | null;
+            /** Imdb */
+            imdb?: string | null;
+            /** Tvdb */
+            tvdb?: number | null;
+            /** Mal */
+            mal?: number | null;
         };
         /** FullCheckRequest */
         FullCheckRequest: {
@@ -2694,34 +2656,163 @@ export interface components {
             /** Channel */
             channel?: string | null;
         };
-        /** UploadConfirmRequest */
-        UploadConfirmRequest: {
-            /** Torrent Client Id */
-            torrent_client_id: number;
-        };
         /** UploadCreateRequest */
         UploadCreateRequest: {
             /** Disk Id */
             disk_id: number;
             /** Relative Path */
             relative_path: string;
-            /** Tracker Id */
-            tracker_id: number;
+            /** Tracker Ids */
+            tracker_ids?: number[] | null;
+            forced_ids?: components["schemas"]["ForcedIds"] | null;
+            /** Overrides */
+            overrides?: {
+                [key: string]: unknown;
+            } | null;
         };
-        /** UploadPatchRequest */
-        UploadPatchRequest: {
-            /** Category Id */
-            category_id?: number | null;
-            /** Type Id */
-            type_id?: number | null;
-            /** Resolution Id */
-            resolution_id?: number | null;
+        /** UploadEventResponse */
+        UploadEventResponse: {
+            /** Id */
+            id: number;
+            /** Target Id */
+            target_id: number | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Level */
+            level: string;
+            /** Code */
+            code: string;
+            /** Params */
+            params: {
+                [key: string]: unknown;
+            };
+        };
+        /** UploadJobDetail */
+        UploadJobDetail: {
+            /** Id */
+            id: number;
+            /** Disk Id */
+            disk_id: number | null;
+            /** Relative Path */
+            relative_path: string;
+            /** Is Dir */
+            is_dir: boolean;
+            /** Kind */
+            kind: string | null;
+            /** Status */
+            status: string;
+            /** Stage */
+            stage: string | null;
+            /** Progress Done */
+            progress_done: number | null;
+            /** Progress Total */
+            progress_total: number | null;
+            /** Queue Position */
+            queue_position: number | null;
+            /** Content Type */
+            content_type: string | null;
             /** Tmdb Id */
-            tmdb_id?: number | null;
+            tmdb_id: number | null;
+            /** Title */
+            title: string | null;
+            /** Year */
+            year: number | null;
+            /** Poster Path */
+            poster_path: string | null;
+            /** Seasons */
+            seasons: number[];
+            /** Episode */
+            episode: number | null;
+            /** Error Message */
+            error_message: string | null;
+            /** Created At */
+            created_at: string | null;
+            /** Finished At */
+            finished_at: string | null;
+            /** Targets */
+            targets: components["schemas"]["UploadTargetResponse"][];
+            /** Source Path */
+            source_path: string;
             /** Imdb Id */
-            imdb_id?: string | null;
-            /** Description Rendered */
-            description_rendered?: string | null;
+            imdb_id: string | null;
+            /** Tvdb Id */
+            tvdb_id: number | null;
+            /** Mal Id */
+            mal_id: number | null;
+            /** Forced Ids */
+            forced_ids: {
+                [key: string]: unknown;
+            };
+            /** Overrides */
+            overrides: {
+                [key: string]: unknown;
+            };
+            /** Layout */
+            layout: {
+                [key: string]: unknown;
+            } | null;
+            /** Candidates */
+            candidates: {
+                [key: string]: unknown;
+            }[];
+            /** Analysis */
+            analysis: {
+                [key: string]: unknown;
+            } | null;
+            /** Mediainfo Text */
+            mediainfo_text: string | null;
+            /** Screenshot Urls */
+            screenshot_urls: string[];
+            /** Events */
+            events: components["schemas"]["UploadEventResponse"][];
+        };
+        /** UploadJobSummary */
+        UploadJobSummary: {
+            /** Id */
+            id: number;
+            /** Disk Id */
+            disk_id: number | null;
+            /** Relative Path */
+            relative_path: string;
+            /** Is Dir */
+            is_dir: boolean;
+            /** Kind */
+            kind: string | null;
+            /** Status */
+            status: string;
+            /** Stage */
+            stage: string | null;
+            /** Progress Done */
+            progress_done: number | null;
+            /** Progress Total */
+            progress_total: number | null;
+            /** Queue Position */
+            queue_position: number | null;
+            /** Content Type */
+            content_type: string | null;
+            /** Tmdb Id */
+            tmdb_id: number | null;
+            /** Title */
+            title: string | null;
+            /** Year */
+            year: number | null;
+            /** Poster Path */
+            poster_path: string | null;
+            /** Seasons */
+            seasons: number[];
+            /** Episode */
+            episode: number | null;
+            /** Error Message */
+            error_message: string | null;
+            /** Created At */
+            created_at: string | null;
+            /** Finished At */
+            finished_at: string | null;
+            /** Targets */
+            targets: components["schemas"]["UploadTargetResponse"][];
         };
         /** UploadProfileCreateRequest */
         UploadProfileCreateRequest: {
@@ -2778,20 +2869,34 @@ export interface components {
             /** Default Personal Release */
             default_personal_release?: boolean | null;
         };
-        /** UploadResponse */
-        UploadResponse: {
+        /** UploadTargetResponse */
+        UploadTargetResponse: {
             /** Id */
             id: number;
-            /** Source Path */
-            source_path: string;
             /** Tracker Id */
             tracker_id: number;
+            /** Tracker Label */
+            tracker_label: string;
+            /** Torrent Client Id */
+            torrent_client_id: number | null;
             /** Status */
             status: string;
-            /** Tmdb Id */
-            tmdb_id: number | null;
-            /** Imdb Id */
-            imdb_id: string | null;
+            /** Suggested Action */
+            suggested_action: string | null;
+            /** Action */
+            action: string | null;
+            /** Dupes */
+            dupes: {
+                [key: string]: unknown;
+            }[];
+            /** Proposed Name */
+            proposed_name: string | null;
+            /** Approved Name */
+            approved_name: string | null;
+            /** Flags */
+            flags: {
+                [key: string]: unknown;
+            };
             /** Category Id */
             category_id: number | null;
             /** Type Id */
@@ -2800,16 +2905,12 @@ export interface components {
             resolution_id: number | null;
             /** Info Hash */
             info_hash: string | null;
-            /** Mediainfo Text */
-            mediainfo_text: string | null;
-            /** Screenshot Urls */
-            screenshot_urls: string[];
-            /** Description Rendered */
-            description_rendered: string | null;
             /** Torrent Id Remote */
             torrent_id_remote: string | null;
             /** Error Message */
             error_message: string | null;
+            /** Finished At */
+            finished_at: string | null;
         };
         /** ValidationError */
         ValidationError: {
@@ -5058,7 +5159,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["UploadResponse"][];
+                    "application/json": components["schemas"]["UploadJobSummary"][];
                 };
             };
         };
@@ -5082,7 +5183,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["UploadResponse"];
+                    "application/json": components["schemas"]["UploadJobDetail"];
                 };
             };
             /** @description Validation Error */
@@ -5113,7 +5214,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["UploadResponse"];
+                    "application/json": components["schemas"]["UploadJobDetail"];
                 };
             };
             /** @description Validation Error */
@@ -5127,7 +5228,7 @@ export interface operations {
             };
         };
     };
-    patch_upload_api_uploads__upload_id__patch: {
+    delete_upload_api_uploads__upload_id__delete: {
         parameters: {
             query?: never;
             header?: never;
@@ -5136,20 +5237,14 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["UploadPatchRequest"];
-            };
-        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
-            200: {
+            204: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content: {
-                    "application/json": components["schemas"]["UploadResponse"];
-                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {
@@ -5162,7 +5257,7 @@ export interface operations {
             };
         };
     };
-    prepare_upload_api_uploads__upload_id__prepare_post: {
+    cancel_upload_api_uploads__upload_id__cancel_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -5179,73 +5274,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["UploadResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    dupe_check_api_uploads__upload_id__dupe_check_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                upload_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DupeCandidateResponse"][];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    confirm_upload_api_uploads__upload_id__confirm_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                upload_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["UploadConfirmRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["UploadResponse"];
+                    "application/json": components["schemas"]["UploadJobDetail"];
                 };
             };
             /** @description Validation Error */
