@@ -51,14 +51,18 @@ export function AuthedPoster({
   tmdbId,
   hasPoster,
   className,
+  url,
 }: {
   contentType: string
   tmdbId: number
   hasPoster: boolean
   className?: string
+  // Un altro endpoint al posto della cache della libreria: i candidati di un
+  // upload passano da /api/metadata/posters, che li scarica se mancano.
+  url?: string
 }) {
   const { ref, src, failed } = useAuthedImage(
-    `/api/library/posters/${contentType === 'tv' ? 'tv' : 'movie'}/${tmdbId}.jpg`,
+    url ?? `/api/library/posters/${contentType === 'tv' ? 'tv' : 'movie'}/${tmdbId}.jpg`,
     hasPoster,
   )
   return (

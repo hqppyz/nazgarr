@@ -1109,6 +1109,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/uploads/trackers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Upload Trackers
+         * @description I tracker selezionabili per un upload (abilitati, con un profilo) e il
+         *     client che userebbero: quello del tracker o, senza, il primo abilitato.
+         */
+        get: operations["list_upload_trackers_api_uploads_trackers_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/uploads/{upload_id}": {
         parameters: {
             query?: never;
@@ -1138,6 +1159,95 @@ export interface paths {
         put?: never;
         /** Cancel Upload */
         post: operations["cancel_upload_api_uploads__upload_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/uploads/{upload_id}/match": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Confirm Match
+         * @description Primo punto di approvazione: il contenuto giusto, e per le serie
+         *     stagione ed episodio. Da qui il worker analizza da solo.
+         */
+        post: operations["confirm_match_api_uploads__upload_id__match_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/uploads/{upload_id}/reidentify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reidentify Upload */
+        post: operations["reidentify_upload_api_uploads__upload_id__reidentify_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/metadata/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Search */
+        get: operations["search_api_metadata_search_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/metadata/{content_type}/{tmdb_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Details */
+        get: operations["details_api_metadata__content_type___tmdb_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/metadata/posters/{content_type}/{tmdb_id}.jpg": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Poster */
+        get: operations["poster_api_metadata_posters__content_type___tmdb_id__jpg_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1278,6 +1388,8 @@ export interface components {
             name: string;
             /** Is Dir */
             is_dir: boolean;
+            /** Size Bytes */
+            size_bytes?: number | null;
         };
         /** BrowseResponse */
         BrowseResponse: {
@@ -2814,6 +2926,22 @@ export interface components {
             /** Targets */
             targets: components["schemas"]["UploadTargetResponse"][];
         };
+        /** UploadMatchRequest */
+        UploadMatchRequest: {
+            /** Content Type */
+            content_type: string;
+            /** Tmdb Id */
+            tmdb_id: number;
+            /** Kind */
+            kind: string;
+            /**
+             * Seasons
+             * @default []
+             */
+            seasons: number[];
+            /** Episode */
+            episode?: number | null;
+        };
         /** UploadProfileCreateRequest */
         UploadProfileCreateRequest: {
             /** Profile Key */
@@ -2869,6 +2997,10 @@ export interface components {
             /** Default Personal Release */
             default_personal_release?: boolean | null;
         };
+        /** UploadReidentifyRequest */
+        UploadReidentifyRequest: {
+            forced_ids?: components["schemas"]["ForcedIds"] | null;
+        };
         /** UploadTargetResponse */
         UploadTargetResponse: {
             /** Id */
@@ -2911,6 +3043,17 @@ export interface components {
             error_message: string | null;
             /** Finished At */
             finished_at: string | null;
+        };
+        /** UploadTrackerResponse */
+        UploadTrackerResponse: {
+            /** Id */
+            id: number;
+            /** Label */
+            label: string;
+            /** Torrent Client Id */
+            torrent_client_id: number | null;
+            /** Torrent Client Label */
+            torrent_client_label: string | null;
         };
         /** ValidationError */
         ValidationError: {
@@ -5197,6 +5340,26 @@ export interface operations {
             };
         };
     };
+    list_upload_trackers_api_uploads_trackers_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadTrackerResponse"][];
+                };
+            };
+        };
+    };
     get_upload_api_uploads__upload_id__get: {
         parameters: {
             query?: never;
@@ -5275,6 +5438,179 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UploadJobDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    confirm_match_api_uploads__upload_id__match_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                upload_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UploadMatchRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadJobDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reidentify_upload_api_uploads__upload_id__reidentify_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                upload_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UploadReidentifyRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadJobDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    search_api_metadata_search_get: {
+        parameters: {
+            query: {
+                content_type: string;
+                query: string;
+                year?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    }[];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    details_api_metadata__content_type___tmdb_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                content_type: string;
+                tmdb_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    poster_api_metadata_posters__content_type___tmdb_id__jpg_get: {
+        parameters: {
+            query?: {
+                path?: string | null;
+            };
+            header?: never;
+            path: {
+                content_type: string;
+                tmdb_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */

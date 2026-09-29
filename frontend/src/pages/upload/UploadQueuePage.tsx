@@ -2,20 +2,14 @@ import { PlusIcon } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 
 import { useUploads } from '@/api/hooks/uploads'
-import { Badge } from '@/components/ui/badge'
+import { UploadStatusBadge } from '@/components/upload/UploadStatusBadge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { t } from '@/lib/i18n'
 
-const STATUS_VARIANT: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
-  awaiting_match: 'outline',
-  awaiting_decision: 'outline',
-  done: 'default',
-  partial: 'secondary',
-  failed: 'destructive',
-}
-
+// Elenco semplice dei job: la coda e lo storico con i dettagli arrivano
+// con l'ultimo step del flusso v2 (docs/ROADMAP.md Phase 9).
 export function UploadQueuePage() {
   const { data, isPending } = useUploads()
   const navigate = useNavigate()
@@ -33,9 +27,9 @@ export function UploadQueuePage() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>File</TableHead>
-              <TableHead>{t('upload.status')}</TableHead>
-              <TableHead>Tracker</TableHead>
+              <TableHead>{t('upload.columnContent')}</TableHead>
+              <TableHead>{t('upload.columnStatus')}</TableHead>
+              <TableHead>{t('upload.trackers')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -48,11 +42,18 @@ export function UploadQueuePage() {
             )}
             {data?.map((job) => (
               <TableRow key={job.id} className="cursor-pointer" onClick={() => navigate(`/upload/${job.id}`)}>
-                <TableCell className="max-w-md truncate font-mono text-xs">{job.relative_path}</TableCell>
-                <TableCell>
-                  <Badge variant={STATUS_VARIANT[job.status] ?? 'outline'}>{job.status}</Badge>
+                <TableCell className="max-w-md">
+                  <p className="truncate text-sm font-medium">
+                    {job.title ? `${job.title}${job.year ? ` (${job.year})` : ''}` : t('upload.untitled')}
+                  </p>
+                  <p className="truncate font-mono text-xs text-muted-foreground">{job.relative_path}</p>
                 </TableCell>
-                <TableCell className="text-xs text-muted-foreground">{job.targets.map((target) => target.tracker_label).join(', ')}</TableCell>
+                <TableCell>
+                  <UploadStatusBadge status={job.status} />
+                </TableCell>
+                <TableCell className="text-xs text-muted-foreground">
+                  {job.targets.map((target) => target.tracker_label).join(', ')}
+                </TableCell>
               </TableRow>
             ))}
             {data?.length === 0 && (

@@ -78,3 +78,17 @@ def test_update_disk_media_rel_path_and_new_torrent_rel_path(client):
     body = response.json()
     assert body["media_rel_path"] == "media"
     assert body["new_torrent_rel_path"] == "torrents/new"
+
+
+def test_browse_lists_file_sizes(client):
+    disk_dir = client.scan_root / "disk1"
+    (disk_dir / "Show").mkdir(parents=True)
+    (disk_dir / "movie.mkv").write_bytes(b"x" * 42)
+    disk_id = client.post("/api/disks", json={"label": "Disk 1", "root_path": str(disk_dir)}).json()["id"]
+
+    entries = client.get(f"/api/disks/{disk_id}/browse").json()["entries"]
+
+    assert entries == [
+        {"name": "movie.mkv", "is_dir": False, "size_bytes": 42},
+        {"name": "Show", "is_dir": True, "size_bytes": None},
+    ]

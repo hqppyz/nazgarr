@@ -29,6 +29,7 @@ router = APIRouter(prefix="/api/disks", tags=["disks"])
 class BrowseEntry(BaseModel):
     name: str
     is_dir: bool
+    size_bytes: int | None = None  # solo per i file
 
 
 class BrowseResponse(BaseModel):
@@ -186,6 +187,17 @@ def available_mounts(request: Request, session: Session = Depends(get_session)):
     return AvailableMountsResponse(scan_root=scan_root, mounts=list_available_mounts(scan_root, used_paths))
 
 
+def _browse_entry(entry: os.DirEntry) -> BrowseEntry:
+    is_dir = entry.is_dir()
+    size = None
+    if not is_dir:
+        try:
+            size = entry.stat().st_size
+        except OSError:
+            pass  # link rotto o file sparito nel frattempo: nessuna dimensione
+    return BrowseEntry(name=entry.name, is_dir=is_dir, size_bytes=size)
+
+
 @router.get("/{disk_id}/browse", response_model=BrowseResponse)
 def browse(disk_id: int, path: str = "", session: Session = Depends(get_session)):
     disk = _get_disk_or_404(session, disk_id)
@@ -194,10 +206,7 @@ def browse(disk_id: int, path: str = "", session: Session = Depends(get_session)
     if not os.path.isdir(candidate):
         raise HTTPException(status_code=404, detail=coded_detail("path_not_found", path=path))
 
-    entries = sorted(
-        (BrowseEntry(name=e.name, is_dir=e.is_dir()) for e in os.scandir(candidate)),
-        key=lambda e: e.name.lower(),
-    )
+    entries = sorted((_browse_entry(e) for e in os.scandir(candidate)), key=lambda e: e.name.lower())
     return BrowseResponse(
         disk_id=disk.id,
         current_path=_relative_to_root(disk.root_path, candidate),

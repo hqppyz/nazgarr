@@ -202,3 +202,73 @@ def reset_interrupted(session: Session) -> list[int]:
         .order_by(UploadJob.id)
         .all()
     ]
+
+
+TV_KINDS = ("episode", "season_pack", "complete_pack")
+
+
+def confirm_match(
+    session: Session,
+    job: UploadJob,
+    *,
+    content_type: str,
+    tmdb_id: int,
+    kind: str,
+    seasons: list[int],
+    episode: int | None,
+    details: dict | None,
+    forced: dict,
+) -> None:
+    """Primo punto di approvazione: l'utente conferma il contenuto (e per le
+    serie stagione/episodio). details = full_details di TMDB, None senza
+    chiave TMDB. Gli id forzati dall'utente vincono su quelli di TMDB.
+    Porta il job in 'analyzing'; il chiamante sveglia il worker."""
+    if job.status != "awaiting_match":
+        raise UploadJobError("upload_job_wrong_status", status=job.status)
+    if content_type == "movie" and kind != "movie":
+        raise UploadJobError("upload_kind_mismatch", kind=kind, content_type=content_type)
+    if content_type == "tv":
+        if kind not in TV_KINDS:
+            raise UploadJobError("upload_kind_mismatch", kind=kind, content_type=content_type)
+        if not seasons:
+            raise UploadJobError("upload_season_required")
+        if kind in ("episode", "season_pack") and len(seasons) != 1:
+            raise UploadJobError("upload_single_season_required", kind=kind)
+        if kind == "episode" and episode is None:
+            raise UploadJobError("upload_episode_required")
+    if kind in ("season_pack", "complete_pack") and not job.is_dir:
+        raise UploadJobError("upload_pack_requires_folder")
+
+    details = details or {}
+    values = dict(
+        content_type=content_type, tmdb_id=tmdb_id, kind=kind,
+        seasons_json=json.dumps(sorted(set(seasons)) if content_type == "tv" else []),
+        episode=episode if kind == "episode" else None,
+        imdb_id=forced.get("imdb") or details.get("imdb_id"),
+        tvdb_id=forced.get("tvdb") or details.get("tvdb_id"),
+        mal_id=forced.get("mal"),
+    )
+    for key in ("title", "year", "poster_path"):
+        if details.get(key) is not None:
+            values[key] = details[key]
+    if not transition(session, job, "awaiting_match", "analyzing", **values):
+        raise UploadJobError("upload_job_wrong_status", status=job.status)
+    log_event(
+        session, job, "match_confirmed", title=job.title, year=job.year, tmdb_id=tmdb_id, kind=kind,
+        seasons=json.loads(job.seasons_json or "[]"), episode=job.episode,
+    )
+    session.commit()
+
+
+def reidentify(session: Session, job: UploadJob, forced_ids: dict | None) -> None:
+    """Rifà l'identificazione con altri id forzati: dal punto di match, o da
+    un job fallito mentre identificava."""
+    if job.status not in ("awaiting_match", "failed") or (job.status == "failed" and job.tmdb_id is not None):
+        raise UploadJobError("upload_job_wrong_status", status=job.status)
+    if not transition(
+        session, job, job.status, "identifying",
+        forced_ids_json=json.dumps(_clean_forced_ids(forced_ids)), error_message=None, finished_at=None,
+    ):
+        raise UploadJobError("upload_job_wrong_status", status=job.status)
+    log_event(session, job, "reidentify_requested")
+    session.commit()

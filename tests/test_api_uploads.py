@@ -1,12 +1,22 @@
-import json
+import os
 
 import pytest
 
-from app import adapter_factory
+from app import adapter_factory, upload_identify
 from app.adapters.media_resolver.base import ResolvedMedia
+from app.api import metadata as metadata_api
 from app.models import UploadJob
+from app.poster_cache import poster_file
 from app.upload_worker import UploadWorker
-from tests.upload_helpers import InlineExecutor, make_disk, make_tracker, write_video
+from tests.upload_helpers import (
+    FakeTMDB,
+    InlineExecutor,
+    make_client,
+    make_disk,
+    make_tracker,
+    tmdb_result,
+    write_video,
+)
 
 
 class _FakeResolver:
@@ -50,10 +60,9 @@ def test_create_movie_upload_identifies_and_stops_at_the_match_gate(client, tmp_
     detail = client.get(f"/api/uploads/{resp.json()['id']}").json()
     assert detail["status"] == "awaiting_match"
     assert detail["kind"] == "movie"
-    assert detail["candidates"] == [{
-        "tmdb_id": 603, "content_type": "movie", "title": "Movie Name", "year": 2024, "poster_path": "/p.jpg",
-        "imdb_id": None, "source": "filename_parser",
-    }]
+    assert [(c["tmdb_id"], c["title"], c["source"]) for c in detail["candidates"]] == [
+        (603, "Movie Name", "filename_parser")
+    ]
     assert setup["resolver"].calls == [str(video)]
     assert [t["tracker_id"] for t in detail["targets"]] == [setup["tracker_id"]]
     assert [e["code"] for e in detail["events"]] == ["job_created", "identify_started", "identify_done"]
@@ -116,7 +125,7 @@ def test_cancel_list_and_delete(client, tmp_path, setup):
     assert client.get(f"/api/uploads/{job_id}").status_code == 404
 
 
-def test_resolver_error_fails_the_job_but_not_the_request(client, tmp_path, setup):
+def test_resolver_error_does_not_block_identification(client, tmp_path, setup):
     write_video(tmp_path / "Movie.2024.mkv")
 
     def boom(file_path):
@@ -126,10 +135,136 @@ def test_resolver_error_fails_the_job_but_not_the_request(client, tmp_path, setu
     resp = client.post("/api/uploads", json={"disk_id": setup["disk_id"], "relative_path": "Movie.2024.mkv"})
 
     assert resp.status_code == 201
+    detail = client.get(f"/api/uploads/{resp.json()['id']}").json()
+    assert detail["status"] == "awaiting_match"
+    assert detail["candidates"] == []
+
+
+def _awaiting_match(client, tmp_path, setup, relative_path, files):
+    for f in files:
+        write_video(tmp_path / f)
+    job_id = client.post(
+        "/api/uploads", json={"disk_id": setup["disk_id"], "relative_path": relative_path,
+                              "forced_ids": {"imdb": "tt0944947", "mal": 5}},
+    ).json()["id"]
+    assert client.get(f"/api/uploads/{job_id}").json()["status"] == "awaiting_match"
+    return job_id
+
+
+def test_confirm_match_stores_ids_and_moves_on(client, tmp_path, setup, monkeypatch):
+    files = ["Show.S02/Show.S02E01.mkv", "Show.S02/Show.S02E02.mkv"]
+    job_id = _awaiting_match(client, tmp_path, setup, "Show.S02", files)
+    fake = FakeTMDB(details={("tv", 1399): {
+        **tmdb_result(1399, "Game of Thrones", 2011, "tv", "/got.jpg"), "imdb_id": "tt-from-tmdb", "tvdb_id": 121361,
+    }})
+    monkeypatch.setattr(upload_identify, "tmdb_client", lambda session: fake)
+
+    resp = client.post(f"/api/uploads/{job_id}/match", json={
+        "content_type": "tv", "tmdb_id": 1399, "kind": "season_pack", "seasons": [2],
+    })
+
+    assert resp.status_code == 200, resp.text
     session = client.app.state.session_factory()
     try:
-        job = session.get(UploadJob, resp.json()["id"])
-        assert job.status == "failed"
-        assert json.loads(job.events[-1].params_json)["error"] == "tmdb down"
+        job = session.get(UploadJob, job_id)
+        assert (job.tmdb_id, job.imdb_id, job.tvdb_id, job.mal_id) == (1399, "tt0944947", 121361, 5)
+        assert (job.title, job.year, job.poster_path, job.seasons_json) == ("Game of Thrones", 2011, "/got.jpg", "[2]")
+        assert job.events[-2].code == "match_confirmed"
+        # L'analisi non c'è ancora in questo step: il worker non resta appeso.
+        assert job.status == "failed" and job.error_message == "upload_step_not_available"
     finally:
         session.close()
+
+
+@pytest.mark.parametrize(("body", "code"), [
+    ({"content_type": "movie", "tmdb_id": 1, "kind": "season_pack", "seasons": [1]}, "upload_kind_mismatch"),
+    ({"content_type": "tv", "tmdb_id": 1, "kind": "season_pack", "seasons": []}, "upload_season_required"),
+    ({"content_type": "tv", "tmdb_id": 1, "kind": "season_pack", "seasons": [1, 2]}, "upload_single_season_required"),
+    ({"content_type": "tv", "tmdb_id": 1, "kind": "episode", "seasons": [1]}, "upload_episode_required"),
+])
+def test_confirm_match_validates_kind_and_seasons(client, tmp_path, setup, body, code):
+    files = ["Show.S01/Show.S01E01.mkv", "Show.S01/Show.S01E02.mkv"]
+    job_id = _awaiting_match(client, tmp_path, setup, "Show.S01", files)
+
+    resp = client.post(f"/api/uploads/{job_id}/match", json=body)
+
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["code"] == code
+
+
+def test_packs_need_a_folder(client, tmp_path, setup):
+    job_id = _awaiting_match(client, tmp_path, setup, "Show.S01E01.mkv", ["Show.S01E01.mkv"])
+
+    resp = client.post(f"/api/uploads/{job_id}/match", json={
+        "content_type": "tv", "tmdb_id": 1, "kind": "season_pack", "seasons": [1],
+    })
+
+    assert resp.json()["detail"]["code"] == "upload_pack_requires_folder"
+
+
+def test_reidentify_with_forced_ids(client, tmp_path, setup, monkeypatch):
+    job_id = _awaiting_match(client, tmp_path, setup, "Movie.2024.mkv", ["Movie.2024.mkv"])
+    fake = FakeTMDB(details={("movie", 603): tmdb_result(603, "The Matrix", 1999)})
+    monkeypatch.setattr(upload_identify, "tmdb_client", lambda session: fake)
+
+    resp = client.post(f"/api/uploads/{job_id}/reidentify", json={"forced_ids": {"tmdb": "movie/603"}})
+
+    assert resp.status_code == 200
+    detail = client.get(f"/api/uploads/{job_id}").json()
+    assert detail["status"] == "awaiting_match"
+    assert detail["forced_ids"] == {"tmdb": "movie/603"}
+    assert [c["tmdb_id"] for c in detail["candidates"]] == [603]
+
+
+def test_metadata_search_details_and_poster(client, tmp_path, monkeypatch):
+    fake = FakeTMDB(
+        search={("movie", "Matrix", None): [tmdb_result(603, "The Matrix", 1999, poster_path="/m.jpg")]},
+        details={("movie", 603): {**tmdb_result(603, "The Matrix", 1999, poster_path="/m.jpg"), "genres": ["SF"]}},
+    )
+    monkeypatch.setattr(upload_identify, "tmdb_client", lambda session: fake)
+    downloads = []
+
+    def fake_download(posters_dir, content_type, tmdb_id, poster_path):
+        downloads.append(poster_path)
+        path = poster_file(posters_dir, content_type, tmdb_id)
+        os.makedirs(posters_dir, exist_ok=True)
+        with open(path, "wb") as f:
+            f.write(b"jpg")
+        return path
+
+    monkeypatch.setattr(metadata_api, "download_poster", fake_download)
+
+    assert [r["tmdb_id"] for r in client.get("/api/metadata/search?content_type=movie&query=Matrix").json()] == [603]
+    assert client.get("/api/metadata/movie/603").json()["genres"] == ["SF"]
+    assert client.get("/api/metadata/search?content_type=book&query=x").status_code == 400
+
+    # Con il path dal candidato non serve chiedere i dettagli; un path che
+    # non è un nome file TMDB viene ignorato.
+    assert client.get("/api/metadata/posters/movie/603.jpg?path=/m.jpg").content == b"jpg"
+    assert client.get("/api/metadata/posters/movie/603.jpg").status_code == 200  # dalla cache
+    fake.details[("tv", 603)] = tmdb_result(603, "Other", 2000, "tv", poster_path=None)
+    resp = client.get("/api/metadata/posters/tv/603.jpg?path=http://evil/x.jpg")
+    assert resp.status_code == 404
+    assert resp.json()["detail"]["code"] == "poster_not_available"
+    assert ("details", "tv", 603) in fake.calls
+    assert downloads == ["/m.jpg"]
+
+
+def test_metadata_without_tmdb_key(client):
+    resp = client.get("/api/metadata/search?content_type=movie&query=x")
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["code"] == "tmdb_api_key_missing"
+
+
+def test_upload_trackers_lists_only_trackers_with_a_profile_and_their_client(client):
+    session = client.app.state.session_factory()
+    try:
+        qbit_id = make_client(session, "qbit").id
+        tracker_id = make_tracker(session, "with").id
+        make_tracker(session, "without", with_profile=False)
+    finally:
+        session.close()
+
+    assert client.get("/api/uploads/trackers").json() == [
+        {"id": tracker_id, "label": "with", "torrent_client_id": qbit_id, "torrent_client_label": "qbit"}
+    ]

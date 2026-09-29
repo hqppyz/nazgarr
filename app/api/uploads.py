@@ -8,15 +8,17 @@ import json
 import logging
 from datetime import datetime
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app import upload_jobs
+from app import upload_identify, upload_jobs
+from app.adapter_factory import TmdbApiKeyMissingError
 from app.api_errors import coded_detail, from_coded_error
 from app.deps import get_session
 from app.fs_scope import ScopeViolation
-from app.models import Disk, UploadEvent, UploadJob, UploadTarget
+from app.models import Disk, TorrentClient, UploadEvent, UploadJob, UploadTarget
 from app.upload_jobs import UploadJobError
 
 logger = logging.getLogger(__name__)
@@ -37,6 +39,18 @@ class UploadCreateRequest(BaseModel):
     tracker_ids: list[int] | None = None  # None = tutti i tracker con un profilo di upload
     forced_ids: ForcedIds | None = None
     overrides: dict | None = None
+
+
+class UploadMatchRequest(BaseModel):
+    content_type: str  # movie | tv
+    tmdb_id: int
+    kind: str  # movie | episode | season_pack | complete_pack
+    seasons: list[int] = []
+    episode: int | None = None
+
+
+class UploadReidentifyRequest(BaseModel):
+    forced_ids: ForcedIds | None = None
 
 
 class UploadTargetResponse(BaseModel):
@@ -174,6 +188,28 @@ def list_uploads(session: Session = Depends(get_session)):
     return [UploadJobSummary.from_model(j) for j in jobs]
 
 
+class UploadTrackerResponse(BaseModel):
+    id: int
+    label: str
+    torrent_client_id: int | None  # dove andrà in seed il torrent generato
+    torrent_client_label: str | None
+
+
+@router.get("/trackers", response_model=list[UploadTrackerResponse])
+def list_upload_trackers(session: Session = Depends(get_session)):
+    """I tracker selezionabili per un upload (abilitati, con un profilo) e il
+    client che userebbero: quello del tracker o, senza, il primo abilitato."""
+    out = []
+    for tracker in upload_jobs.upload_trackers(session):
+        client_id = upload_jobs.default_client_id(session, tracker)
+        client = session.get(TorrentClient, client_id) if client_id is not None else None
+        out.append(UploadTrackerResponse(
+            id=tracker.id, label=tracker.label, torrent_client_id=client_id,
+            torrent_client_label=client.label if client is not None else None,
+        ))
+    return out
+
+
 @router.get("/{upload_id}", response_model=UploadJobDetail)
 def get_upload(upload_id: int, session: Session = Depends(get_session)):
     return UploadJobDetail.from_model(_get_job_or_404(session, upload_id))
@@ -212,3 +248,42 @@ def delete_upload(upload_id: int, session: Session = Depends(get_session)):
         upload_jobs.delete_job(session, job)
     except UploadJobError as exc:
         raise HTTPException(status_code=400, detail=from_coded_error(exc)) from exc
+
+
+@router.post("/{upload_id}/match", response_model=UploadJobDetail)
+def confirm_match(
+    upload_id: int, body: UploadMatchRequest, request: Request, session: Session = Depends(get_session)
+):
+    """Primo punto di approvazione: il contenuto giusto, e per le serie
+    stagione ed episodio. Da qui il worker analizza da solo."""
+    job = _get_job_or_404(session, upload_id)
+    if body.content_type not in ("movie", "tv"):
+        raise HTTPException(status_code=400, detail=coded_detail("invalid_content_type", value=body.content_type))
+    try:
+        details = upload_identify.tmdb_client(session).full_details(body.content_type, body.tmdb_id)
+    except TmdbApiKeyMissingError:
+        details = None  # solo Radarr/Sonarr: niente dettagli TMDB, bastano gli id
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=coded_detail("tmdb_error", error=str(exc))) from exc
+    try:
+        upload_jobs.confirm_match(
+            session, job, content_type=body.content_type, tmdb_id=body.tmdb_id, kind=body.kind,
+            seasons=body.seasons, episode=body.episode, details=details, forced=_loads(job.forced_ids_json, {}),
+        )
+    except UploadJobError as exc:
+        raise HTTPException(status_code=400, detail=from_coded_error(exc)) from exc
+    _worker(request).kick(job.id, job.status)
+    return UploadJobDetail.from_model(job)
+
+
+@router.post("/{upload_id}/reidentify", response_model=UploadJobDetail)
+def reidentify_upload(
+    upload_id: int, body: UploadReidentifyRequest, request: Request, session: Session = Depends(get_session)
+):
+    job = _get_job_or_404(session, upload_id)
+    try:
+        upload_jobs.reidentify(session, job, body.forced_ids.model_dump() if body.forced_ids else None)
+    except UploadJobError as exc:
+        raise HTTPException(status_code=400, detail=from_coded_error(exc)) from exc
+    _worker(request).kick(job.id, job.status)
+    return UploadJobDetail.from_model(job)

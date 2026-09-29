@@ -12,6 +12,7 @@ from app.api.dashboard import router as dashboard_router
 from app.api.disks import router as disks_router
 from app.api.full_checks import router as full_checks_router
 from app.api.library import router as library_router
+from app.api.metadata import router as metadata_router
 from app.api.radarr_instances import router as radarr_instances_router
 from app.api.reviews import router as reviews_router
 from app.api.runs import router as runs_router
@@ -93,6 +94,7 @@ app.include_router(torrents_router, dependencies=[_protected])
 app.include_router(schedule_router, dependencies=[_protected])
 app.include_router(dashboard_router, dependencies=[_protected])
 app.include_router(uploads_router, dependencies=[_protected])
+app.include_router(metadata_router, dependencies=[_protected])
 app.include_router(system_router, dependencies=[_protected])
 
 

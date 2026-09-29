@@ -22,6 +22,24 @@ def year_of(date: str | None) -> int | None:
         return None
 
 
+# Sorgenti accettate da /find: IMDB e TVDB. MAL non c'è, e resta un id
+# passato al tracker così com'è (docs/SPEC.md §15).
+FIND_SOURCES = {"imdb": "imdb_id", "tvdb": "tvdb_id"}
+
+
+def normalize_result(result: dict, content_type: str) -> dict:
+    """Un risultato TMDB nella forma dei candidati di un upload."""
+    return {
+        "tmdb_id": result["id"],
+        "content_type": content_type,
+        "title": result.get("title") or result.get("name"),
+        "original_title": result.get("original_title") or result.get("original_name"),
+        "year": year_of(result.get("release_date") or result.get("first_air_date")),
+        "poster_path": result.get("poster_path"),
+        "overview": result.get("overview") or None,
+    }
+
+
 class TMDBSearchClient(Protocol):
     """Interfaccia strutturale condivisa da TMDBClient e da
     app.tmdb_cache.CachingTMDBClient — FilenameParserResolver accetta
@@ -67,6 +85,60 @@ class TMDBClient:
         response.raise_for_status()
         return response.json().get("poster_path")
 
+    # --- Flusso di upload v2 (docs/SPEC.md §9): più candidati, id esterni, dettagli
+
+    def search_many(self, content_type: str, query: str, year: int | None = None) -> list[dict]:
+        """Tutti i risultati di una ricerca, non solo il primo: sono i
+        candidati fra cui l'utente sceglie al primo punto di approvazione."""
+        path = "/search/tv" if content_type == "tv" else "/search/movie"
+        params = {"api_key": self.api_key, "query": query}
+        if year:
+            params["first_air_date_year" if content_type == "tv" else "primary_release_year"] = year
+        response = self._client.get(path, params=params)
+        response.raise_for_status()
+        return [normalize_result(r, content_type) for r in response.json().get("results", [])]
+
+    def find(self, source: str, external_id: str) -> list[dict]:
+        """Contenuti TMDB con quell'id IMDB o TVDB (source: "imdb" | "tvdb")."""
+        response = self._client.get(
+            f"/find/{external_id}", params={"api_key": self.api_key, "external_source": FIND_SOURCES[source]}
+        )
+        response.raise_for_status()
+        body = response.json()
+        return [normalize_result(r, "movie") for r in body.get("movie_results", [])] + [
+            normalize_result(r, "tv") for r in body.get("tv_results", [])
+        ]
+
+    def full_details(self, content_type: str, tmdb_id: int) -> dict:
+        """Quello che serve per riconoscere il contenuto giusto e per
+        l'upload: trama, generi, durata, cast, id esterni e, per le serie,
+        le stagioni con il numero di episodi attesi."""
+        path = f"/{'tv' if content_type == 'tv' else 'movie'}/{tmdb_id}"
+        response = self._client.get(
+            path, params={"api_key": self.api_key, "append_to_response": "external_ids,credits"}
+        )
+        response.raise_for_status()
+        body = response.json()
+        external = body.get("external_ids") or {}
+        return {
+            **normalize_result(body, content_type),
+            "genres": [g["name"] for g in body.get("genres", [])],
+            "runtime": body.get("runtime") or next(iter(body.get("episode_run_time") or []), None),
+            "imdb_id": body.get("imdb_id") or external.get("imdb_id"),
+            "tvdb_id": external.get("tvdb_id"),
+            "cast": [c["name"] for c in (body.get("credits") or {}).get("cast", [])[:6]],
+            "original_language": body.get("original_language"),
+            "seasons": [
+                {
+                    "season_number": season["season_number"],
+                    "name": season.get("name"),
+                    "episode_count": season.get("episode_count") or 0,
+                    "air_date": season.get("air_date"),
+                }
+                for season in body.get("seasons", [])
+            ],
+        }
+
     def _search(self, path: str, query: str, extra_params: dict, year: int | None = None) -> dict | None:
         params = {"api_key": self.api_key, "query": query, **extra_params}
         response = self._client.get(path, params=params)
@@ -81,3 +153,4 @@ class TMDBClient:
                 if year_of(result.get("release_date") or result.get("first_air_date")) == year:
                     return result
         return results[0]
+

@@ -44,13 +44,25 @@ export const errors = {
 
   'errors.invalid_cron_expression': 'Invalid cron expression: {message}',
 
-  'errors.upload_job_not_found': 'upload_job {id} not found.',
-  'errors.not_a_file': 'Not a file: {path}',
-  'errors.upload_missing_tmdb_id': 'upload_job has no tmdb_id: set identification first.',
-  'errors.upload_job_wrong_status': "upload_job is in status '{status}', expected 'ready' (run /prepare first).",
-  'errors.upload_job_incomplete':
-    'upload_job incomplete: category_id/type_id/resolution_id/tmdb_id must all be resolved '
-    + '(or corrected manually) before submitting.',
+  'errors.upload_job_not_found': 'Upload {id} not found.',
+  'errors.upload_job_wrong_status': "This can't be done while the upload is in status '{status}'.",
+  'errors.upload_source_not_found': 'Source not found: {path}',
+  'errors.upload_source_is_disk_root': 'Choose a file or a folder inside the disk, not the whole disk.',
+  'errors.upload_source_unreadable': 'Could not read the source: {error}',
+  'errors.upload_tracker_not_available': 'Tracker {id} is disabled or has no upload profile.',
+  'errors.upload_no_trackers': 'Select at least one tracker with an upload profile.',
+  'errors.upload_invalid_tmdb_id': 'Not a TMDB id: {value}',
+  'errors.upload_invalid_imdb_id': 'Not an IMDB id: {value}',
+  'errors.upload_kind_mismatch': "A {content_type} can't be uploaded as '{kind}'.",
+  'errors.upload_season_required': 'Choose the season.',
+  'errors.upload_single_season_required': 'An {kind} has exactly one season.',
+  'errors.upload_episode_required': 'Choose the episode number.',
+  'errors.upload_pack_requires_folder': 'A pack needs a folder as its source, not a single file.',
+  'errors.no_video_files': 'No video file found in the source.',
+  'errors.invalid_content_type': 'Invalid content type: {value}',
+  'errors.tmdb_not_found': 'Not found on TMDB.',
+  'errors.tmdb_error': 'TMDB request failed: {error}',
+  'errors.poster_not_available': 'No poster for this content.',
 
   'errors.tmdb_api_key_missing': 'tmdb_api_key not configured in app_settings (PUT /api/settings/tmdb_api_key).',
   'errors.image_host_unknown': 'Unknown image host in image_host_priority: {key}',

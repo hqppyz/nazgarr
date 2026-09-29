@@ -58,3 +58,39 @@ export function useDeleteUpload() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['uploads'] }),
   })
 }
+
+export function useUploadTrackers() {
+  return useQuery({
+    queryKey: ['uploads', 'trackers'],
+    queryFn: () => unwrap(api.GET('/api/uploads/trackers')),
+  })
+}
+
+export function useConfirmMatch(uploadId: number) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (body: Schemas['UploadMatchRequest']) =>
+      unwrap(api.POST('/api/uploads/{upload_id}/match', { params: { path: { upload_id: uploadId } }, body })),
+    onSuccess: (job) => {
+      queryClient.setQueryData(['uploads', uploadId], job)
+      queryClient.invalidateQueries({ queryKey: ['uploads'] })
+    },
+  })
+}
+
+export function useReidentify(uploadId: number) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (forcedIds: Schemas['ForcedIds']) =>
+      unwrap(
+        api.POST('/api/uploads/{upload_id}/reidentify', {
+          params: { path: { upload_id: uploadId } },
+          body: { forced_ids: forcedIds },
+        }),
+      ),
+    onSuccess: (job) => {
+      queryClient.setQueryData(['uploads', uploadId], job)
+      queryClient.invalidateQueries({ queryKey: ['uploads'] })
+    },
+  })
+}
