@@ -211,6 +211,18 @@ export const upload = {
     'Published, but adding it to the client failed: add the torrent by hand (see the activity below).',
   'upload.result.warning.no_client': 'Published, but no client is configured for this tracker: add it by hand.',
 
+  'upload.history.activeTab': 'In progress ({count})',
+  'upload.history.historyTab': 'History ({count})',
+  'upload.history.noActive': 'Nothing in progress.',
+  'upload.history.moveUp': 'Earlier in the queue',
+  'upload.history.moveDown': 'Later in the queue',
+  'upload.history.seasons': 'Seasons',
+  'upload.history.size': 'Size',
+  'upload.history.files': '{count} file(s)',
+  'upload.history.screenshots': 'Screenshots ({count})',
+  'upload.history.description': 'Description sent to {tracker}',
+  'upload.history.openPage': 'Open the full page',
+
   // Registro eventi (app/upload_jobs.py log_event): un codice senza una
   // frase qui passa da errors.<code>.
   'upload.event.job_created': 'Upload created for {trackers}.',

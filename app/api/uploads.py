@@ -187,6 +187,7 @@ class UploadJobDetail(UploadJobSummary):
     analysis: dict | None
     mediainfo_text: str | None
     screenshot_urls: list[str]
+    descriptions: dict[int, str]  # target_id -> descrizione inviata, solo nel dettaglio (è lunga)
     events: list[UploadEventResponse]
 
     @classmethod
@@ -198,6 +199,7 @@ class UploadJobDetail(UploadJobSummary):
             layout=_loads(j.layout_json, None), candidates=_loads(j.candidates_json, []),
             analysis=_loads(j.analysis_json, None), mediainfo_text=j.mediainfo_text,
             screenshot_urls=_loads(j.screenshot_urls_json, []),
+            descriptions={t.id: t.description_rendered for t in j.targets if t.description_rendered},
             events=[UploadEventResponse.from_model(e) for e in j.events],
         )
 
@@ -230,6 +232,10 @@ def list_uploads(session: Session = Depends(get_session)):
     return [UploadJobSummary.from_model(j) for j in jobs]
 
 
+class QueueOrderRequest(BaseModel):
+    job_ids: list[int]
+
+
 class UploadTrackerResponse(BaseModel):
     id: int
     label: str
@@ -250,6 +256,14 @@ def list_upload_trackers(session: Session = Depends(get_session)):
             torrent_client_label=client.label if client is not None else None,
         ))
     return out
+
+
+@router.put("/queue", response_model=list[UploadJobSummary])
+def reorder_queue(body: QueueOrderRequest, session: Session = Depends(get_session)):
+    """Ordine della coda: il primo parte per primo quando il worker è libero."""
+    upload_jobs.reorder_queue(session, body.job_ids)
+    jobs = session.query(UploadJob).order_by(UploadJob.id.desc()).all()
+    return [UploadJobSummary.from_model(j) for j in jobs]
 
 
 @router.get("/{upload_id}", response_model=UploadJobDetail)

@@ -1130,6 +1130,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/uploads/queue": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Reorder Queue
+         * @description Ordine della coda: il primo parte per primo quando il worker è libero.
+         */
+        put: operations["reorder_queue_api_uploads_queue_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/uploads/{upload_id}": {
         parameters: {
             query?: never;
@@ -2279,6 +2299,11 @@ export interface components {
             /** Finished At */
             finished_at?: string | null;
         };
+        /** QueueOrderRequest */
+        QueueOrderRequest: {
+            /** Job Ids */
+            job_ids: number[];
+        };
         /**
          * RadarrConnectionTestRequest
          * @description Senza instance_id: usata dal dialog "Add instance" per testare prima
@@ -2970,6 +2995,10 @@ export interface components {
             mediainfo_text: string | null;
             /** Screenshot Urls */
             screenshot_urls: string[];
+            /** Descriptions */
+            descriptions: {
+                [key: string]: string;
+            };
             /** Events */
             events: components["schemas"]["UploadEventResponse"][];
         };
@@ -5476,6 +5505,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UploadTrackerResponse"][];
+                };
+            };
+        };
+    };
+    reorder_queue_api_uploads_queue_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["QueueOrderRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadJobSummary"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

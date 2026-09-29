@@ -225,3 +225,18 @@ def test_render_description_without_header_or_signature(db_session):
     profile = upload_profiles.create_upload_profile(db_session, tracker, None)
 
     assert upload.render_description(db_session, profile, "MEDIAINFO", []) == "MEDIAINFO"
+
+
+def test_reorder_queue(db_session, tmp_path):
+    make_tracker(db_session)
+    jobs = [_job(db_session, tmp_path) for _ in range(3)]
+    for i, job in enumerate(jobs, start=1):
+        upload_jobs.transition(db_session, job, "identifying", "queued", queue_position=i)
+    upload_jobs.transition(db_session, jobs[0], "queued", "running")
+
+    upload_jobs.reorder_queue(db_session, [jobs[2].id, 999, jobs[0].id])
+
+    for job in jobs:
+        db_session.refresh(job)
+    assert [j.queue_position for j in jobs] == [1, 2, 1]  # quello partito non si tocca
+    assert jobs[2].queue_position < jobs[1].queue_position

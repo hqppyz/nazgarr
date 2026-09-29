@@ -141,3 +141,11 @@ export function useApproveUpload(uploadId: number) {
     },
   })
 }
+
+export function useReorderQueue() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (jobIds: number[]) => unwrap(api.PUT('/api/uploads/queue', { body: { job_ids: jobIds } })),
+    onSuccess: (jobs) => queryClient.setQueryData(['uploads'], jobs),
+  })
+}

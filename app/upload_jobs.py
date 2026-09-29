@@ -282,3 +282,16 @@ def reidentify(session: Session, job: UploadJob, forced_ids: dict | None) -> Non
         raise UploadJobError("upload_job_wrong_status", status=job.status)
     log_event(session, job, "reidentify_requested")
     session.commit()
+
+
+def reorder_queue(session: Session, job_ids: list[int]) -> None:
+    """Nuovo ordine dei job in coda: prima quelli indicati, nell'ordine dato,
+    poi gli altri in coda nell'ordine di prima. Un job non in coda viene
+    ignorato (nel frattempo può essere partito)."""
+    queued = session.query(UploadJob).filter(UploadJob.status == "queued").order_by(UploadJob.queue_position).all()
+    by_id = {job.id: job for job in queued}
+    ordered = [by_id[i] for i in dict.fromkeys(job_ids) if i in by_id]
+    ordered += [job for job in queued if job not in ordered]
+    for position, job in enumerate(ordered, start=1):
+        job.queue_position = position
+    session.commit()
