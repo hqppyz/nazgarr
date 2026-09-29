@@ -5,6 +5,8 @@ import { toast } from 'sonner'
 import { useCancelUpload, useDeleteUpload, useUpload, WORKER_STATES, type UploadJob } from '@/api/hooks/uploads'
 import { DecisionStep } from '@/components/upload/DecisionStep'
 import { MatchStep } from '@/components/upload/MatchStep'
+import { ProgressStep } from '@/components/upload/ProgressStep'
+import { ResultStep } from '@/components/upload/ResultStep'
 import { UploadEventLog } from '@/components/upload/UploadEventLog'
 import { UploadStatusBadge } from '@/components/upload/UploadStatusBadge'
 import { Badge } from '@/components/ui/badge'
@@ -100,8 +102,12 @@ function FailedStep({ job }: { job: UploadJob }) {
 function JobBody({ job }: { job: UploadJob }) {
   if (job.status === 'awaiting_match') return <MatchStep key={job.candidates.length} job={job} />
   if (job.status === 'awaiting_decision') return <DecisionStep job={job} />
+  if (job.status === 'queued' || job.status === 'running') return <ProgressStep job={job} />
   if (WORKER_STATES.includes(job.status)) return <WorkingStep job={job} />
-  if (job.status === 'failed') return <FailedStep job={job} />
+  // Un job fallito prima di arrivare ai tracker (identificazione, analisi)
+  // ha solo l'errore; dopo l'approvazione, l'esito per tracker.
+  if (job.status === 'failed' && !job.targets.some((target) => target.action)) return <FailedStep job={job} />
+  if (['done', 'partial', 'failed'].includes(job.status)) return <ResultStep job={job} />
   return null
 }
 

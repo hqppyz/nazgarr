@@ -35,7 +35,7 @@ class ExecutionError(Exception):
     """Errore esplicito che impedisce l'esecuzione — mai un fallimento silente."""
 
 
-def _client_visible_path(session: Session, disk: Disk, torrent_client_id: int | None, local_path: str) -> str:
+def client_visible_path(session: Session, disk: Disk, torrent_client_id: int | None, local_path: str) -> str:
     """Traduce un path lato Nazgarr nel path equivalente visto DA QUESTO
     client torrent, quando i due girano in container/mount diversi per lo
     stesso disco fisico (disk_torrent_client.torrent_client_root_path per
@@ -194,7 +194,7 @@ def _execute_layout_media_to_torrent(
         session.commit()
         logger.info("Creati %d hardlink per candidate %s", len(created), candidate.id)
 
-        client_save_path = _client_visible_path(session, disk, torrent_client_id, target_root)
+        client_save_path = client_visible_path(session, disk, torrent_client_id, target_root)
         info_hash = _add_to_client(adapter, candidate, client_save_path, seed_job, skip_recheck)
         seed_job.info_hash = info_hash
         seed_job.torrent_added_at = datetime.now(UTC)
@@ -263,7 +263,7 @@ def _execute_layout_torrent_to_client(
     session.add(seed_job)
     session.commit()
     try:
-        client_save_path = _client_visible_path(session, disk, torrent_client_id, save_path_local)
+        client_save_path = client_visible_path(session, disk, torrent_client_id, save_path_local)
         info_hash = _add_to_client(adapter, candidate, client_save_path, seed_job, skip_recheck)
         seed_job.info_hash = info_hash
         seed_job.torrent_added_at = datetime.now(UTC)
@@ -361,7 +361,7 @@ def _create_hardlink_then_seed(
         session.commit()
         logger.info("Hardlink creato per candidate %s: %s", candidate.id, target_path)
 
-        client_save_path = _client_visible_path(session, disk, torrent_client_id, target_root)
+        client_save_path = client_visible_path(session, disk, torrent_client_id, target_root)
         info_hash = _add_to_client(adapter, candidate, client_save_path, seed_job, skip_recheck)
         seed_job.info_hash = info_hash
         seed_job.torrent_added_at = datetime.now(UTC)
@@ -406,7 +406,7 @@ def _execute_torrent_to_client(
 
     save_path_local = os.path.dirname(source_path)
     try:
-        client_save_path = _client_visible_path(session, disk, torrent_client_id, save_path_local)
+        client_save_path = client_visible_path(session, disk, torrent_client_id, save_path_local)
         info_hash = _add_to_client(adapter, candidate, client_save_path, seed_job, skip_recheck)
         seed_job.info_hash = info_hash
         seed_job.torrent_added_at = datetime.now(UTC)

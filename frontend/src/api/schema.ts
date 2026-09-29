@@ -1769,6 +1769,8 @@ export interface components {
             torrents_rel_path: string | null;
             /** New Torrent Rel Path */
             new_torrent_rel_path: string | null;
+            /** Upload Rel Path */
+            upload_rel_path: string | null;
             /** St Dev */
             st_dev: number | null;
         };
@@ -1782,6 +1784,8 @@ export interface components {
             torrents_rel_path?: string | null;
             /** New Torrent Rel Path */
             new_torrent_rel_path?: string | null;
+            /** Upload Rel Path */
+            upload_rel_path?: string | null;
         };
         /** DuplicateFile */
         DuplicateFile: {
@@ -3136,6 +3140,8 @@ export interface components {
             info_hash: string | null;
             /** Torrent Id Remote */
             torrent_id_remote: string | null;
+            /** Remote Url */
+            remote_url: string | null;
             /** Error Message */
             error_message: string | null;
             /** Finished At */

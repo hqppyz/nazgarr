@@ -58,6 +58,7 @@ class Disk(Base):
     media_rel_path: Mapped[str | None]
     torrents_rel_path: Mapped[str | None]
     new_torrent_rel_path: Mapped[str | None]
+    upload_rel_path: Mapped[str | None]
     created_at: Mapped[datetime | None] = mapped_column(server_default=text("CURRENT_TIMESTAMP"))
 
     @property
@@ -68,6 +69,13 @@ class Disk(Base):
         dove posizionare cose nuove: la ricerca "già in seeding" resta
         sempre sull'intero torrents_rel_path."""
         return self.new_torrent_rel_path or self.torrents_rel_path
+
+    @property
+    def effective_upload_rel_path(self) -> str | None:
+        """Dove il flusso di upload crea gli hardlink e fa seedare i torrent
+        (docs/SPEC.md §9): la cartella per gli upload se configurata,
+        altrimenti torrents_rel_path (decisione dell'utente, 2026-09-30)."""
+        return self.upload_rel_path or self.torrents_rel_path
 
 
 class Tracker(Base):

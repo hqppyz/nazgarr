@@ -198,6 +198,19 @@ export const upload = {
   'upload.decision.confirm': 'Approve',
   'upload.decision.approveFailed': 'Could not approve: {message}',
 
+  'upload.progress.hashing': 'Hashing the pieces…',
+  'upload.progress.screenshots': 'Taking and uploading the screenshots…',
+  'upload.progress.tracker': 'Working on {tracker}…',
+
+  'upload.result.done': 'Done',
+  'upload.result.partial': 'Partly done: some trackers failed',
+  'upload.result.failed': 'Nothing was published',
+  'upload.result.cancelled': 'Cancelled',
+  'upload.result.openOnTracker': 'Open on the tracker',
+  'upload.result.warning.seed_failed':
+    'Published, but adding it to the client failed: add the torrent by hand (see the activity below).',
+  'upload.result.warning.no_client': 'Published, but no client is configured for this tracker: add it by hand.',
+
   // Registro eventi (app/upload_jobs.py log_event): un codice senza una
   // frase qui passa da errors.<code>.
   'upload.event.job_created': 'Upload created for {trackers}.',
@@ -226,5 +239,17 @@ export const upload = {
   'upload.event.target_approved': 'Decision: {action}.',
   'upload.event.all_skipped': 'Every tracker skipped: nothing to do.',
   'upload.event.job_queued': 'Approved and queued (position {position}).',
+  'upload.event.execution_started': 'Execution started.',
+  'upload.event.uploaded': 'Published on the tracker (torrent {torrent}).',
+  'upload.event.not_seeded': 'Not added to the client, as asked.',
+  'upload.event.added_to_client': 'Added to {client} with a full recheck.',
+  'upload.event.no_client': 'No client configured for this tracker.',
+  'upload.event.seed_failed': 'Published, but seeding failed: {error}',
+  'upload.event.reseeded': 'Torrent {torrent} added back to the client on your files.',
+  'upload.event.upload_failed': 'Upload failed: {error}',
+  'upload.event.reseed_failed': 'Reseed failed: {error}',
+  'upload.event.job_done': 'All done.',
+  'upload.event.job_partial': 'Finished, with some trackers failed.',
+  'upload.event.job_failed': 'Finished: every tracker failed.',
   'upload.event.upload_step_not_available': 'This step ({status}) is not available yet in this version.',
 } as const

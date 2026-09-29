@@ -18,6 +18,8 @@ export const disks = {
   'disks.newHardlinkFolderLabel': 'Folder for new hardlinks (optional)',
   'disks.newHardlinkFolderColumn': 'New hardlinks',
   'disks.sameAsSeedingFolder': '= seeding folder',
+  'disks.uploadFolderLabel': 'Folder for new uploads (optional)',
+  'disks.uploadFolderColumn': 'Uploads',
   'disks.newHardlinkFolderHelp':
     'Subfolder of root_path where a NEW hardlink is created (and the client\'s save_path) — never restricts the "already seeding" search, which always covers the whole seeding folder. Empty = use the seeding folder itself.',
   'disks.mediaFolder': 'Media folder',

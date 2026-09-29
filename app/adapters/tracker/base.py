@@ -54,8 +54,8 @@ class UploadFields:
     punto 9). Shape verificata contro il codice tracker reale e funzionante
     di Upload-Assistant (src/trackers/UNIT3D.py get_data(), riferimento di
     dominio, nessun codice riusato) — sottoinsieme rilevante per questo
-    progetto: i campi UNIT3D non gestiti qui (bdinfo, mal, igdb, region_id,
-    distributor_id, featured/free/doubleup/sticky/internal) sono sempre
+    progetto: i campi UNIT3D non gestiti qui (bdinfo, igdb, region_id,
+    distributor_id, featured/free/doubleup/sticky) sono sempre
     inviati con il default "non impostato"/"0" dell'API, mai omessi (un
     campo mancante non è equivalente al suo default esplicito per ogni
     installazione UNIT3D)."""
@@ -69,10 +69,12 @@ class UploadFields:
     tmdb_id: int
     imdb_id: str = "0"
     tvdb_id: int = 0
+    mal_id: int = 0
     season_number: int | None = None
     episode_number: int | None = None
     anonymous: bool = False
     personal_release: bool = False
+    internal: bool = False  # solo per chi ha i permessi sul tracker: altrimenti lo rifiuta
     stream: bool = False
     sd: bool = False
     keywords: str = ""
@@ -267,14 +269,14 @@ class Unit3dTrackerAdapter(TrackerAdapter):
             "tmdb": str(fields.tmdb_id),
             "imdb": str(fields.imdb_id),
             "tvdb": str(fields.tvdb_id),
-            "mal": "0",
+            "mal": str(fields.mal_id),
             "igdb": "0",
             "anonymous": "1" if fields.anonymous else "0",
             "stream": "1" if fields.stream else "0",
             "sd": "1" if fields.sd else "0",
             "keywords": fields.keywords,
             "personal_release": "1" if fields.personal_release else "0",
-            "internal": "0",
+            "internal": "1" if fields.internal else "0",
             "featured": "0",
             "free": "0",
             "doubleup": "0",

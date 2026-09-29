@@ -1,0 +1,243 @@
+import json
+import os
+
+import pytest
+import torf
+
+from app import torrent_create, upload_decision, upload_execute, upload_jobs
+from app.adapters.tracker.base import UploadError
+from app.models import Disk, TrackerUploadProfile
+from app.upload_worker import UploadWorker
+from tests.upload_helpers import InlineExecutor, make_client, make_tracker, write_video
+
+KB = 1024
+
+
+class _Tracker:
+    def __init__(self, torrent_id="100", error=None, torrent_bytes=None):
+        self.torrent_id, self.error, self.torrent_bytes = torrent_id, error, torrent_bytes
+        self.uploads = []
+
+    def upload_torrent(self, fields, torrent_path):
+        if self.error:
+            raise self.error
+        self.uploads.append((fields, torrent_path))
+        return self.torrent_id
+
+    def download_torrent(self, url):
+        return self.torrent_bytes
+
+
+class _Client:
+    def __init__(self):
+        self.added = []
+
+    def add_torrent(self, torrent_file, save_path, force_recheck=True, **kwargs):
+        assert force_recheck is True  # mai skip_checking dal flusso di upload
+        self.added.append((torrent_file, save_path))
+        return torf.Torrent.read(torrent_file).infohash
+
+
+class _Chain:
+    def upload(self, path):
+        return f"https://img.example/{os.path.basename(path)}"
+
+
+@pytest.fixture
+def env(db_session, tmp_path, monkeypatch):
+    """Disco con libreria e cartella torrent, due tracker, un client, fake
+    per tracker, client, screenshot e image host."""
+    root = tmp_path / "disk"
+    (root / "torrents").mkdir(parents=True)
+    disk = Disk(label="d", root_path=str(root), media_rel_path="media", torrents_rel_path="torrents")
+    db_session.add(disk)
+    db_session.commit()
+    client_row = make_client(db_session)
+    trackers = {"a": _Tracker("100"), "b": _Tracker("200")}
+    for label in trackers:
+        tracker = make_tracker(db_session, label, torrent_client_id=client_row.id)
+        profile = db_session.get(TrackerUploadProfile, tracker.id)
+        profile.description_template = "{{ mediainfo }}{% for u in screenshot_urls %} [img]{{ u }}[/img]{% endfor %}"
+    db_session.commit()
+    client = _Client()
+    monkeypatch.setattr(upload_execute.adapter_factory, "build_tracker_adapter", lambda t: trackers[t.label])
+    monkeypatch.setattr(upload_execute.adapter_factory, "build_torrent_client_adapter", lambda row: client)
+    monkeypatch.setattr(upload_execute.adapter_factory, "build_image_host_chain", lambda session: _Chain())
+
+    def fake_screenshots(video, out_dir, count=4, tonemap=False):
+        os.makedirs(out_dir, exist_ok=True)
+        paths = [os.path.join(out_dir, f"{i}.png") for i in range(count)]
+        for p in paths:
+            open(p, "wb").close()
+        return paths
+
+    monkeypatch.setattr(upload_execute.screenshots, "generate_screenshots", fake_screenshots)
+    return {"root": root, "disk": disk, "trackers": trackers, "client": client}
+
+
+def _approved(db_session, env, relative_path, decisions, **job_values):
+    job = upload_jobs.create_job(db_session, env["disk"], relative_path)
+    upload_jobs.transition(
+        db_session, job, "identifying", "awaiting_decision", tmdb_id=603, imdb_id="tt0133093", title="The Matrix",
+        year=1999, content_type=job_values.pop("content_type", "movie"), kind=job_values.pop("kind", "movie"),
+        mediainfo_text="MI", **job_values,
+    )
+    for target in job.targets:
+        target.status = "awaiting_decision"
+    db_session.commit()
+    upload_decision.approve(db_session, job, [
+        {"target_id": t.id, **decisions[t.tracker.label]} for t in job.targets
+    ])
+    return job
+
+
+def _upload(name, **extra):
+    return {"action": "upload", "name": name, "category_id": 1, "type_id": 4, "resolution_id": 3,
+            "flags": {"anonymous": True}, **extra}
+
+
+def _run(db_session, tmp_path, job):
+    factory = lambda: db_session.__class__(bind=db_session.get_bind())  # noqa: E731
+    UploadWorker(
+        factory, str(tmp_path / "data"), light_executor=InlineExecutor(), heavy_executor=InlineExecutor(),
+        verify_executor=InlineExecutor(),
+    ).kick(job.id, job.status)
+    db_session.expire_all()
+    return job
+
+
+def test_uploads_to_every_tracker_and_seeds_from_hardlinks(db_session, tmp_path, env):
+    video = write_video(env["root"] / "media" / "The.Matrix.1999.1080p.WEB-DL.H.264-GRP.mkv", 300 * KB)
+    job = _approved(db_session, env, "media/" + video.name, {"a": _upload("Matrix A"), "b": _upload("Matrix B")})
+
+    _run(db_session, tmp_path, job)
+
+    assert job.status == "done"
+    a, b = job.targets
+    assert (a.status, a.torrent_id_remote, b.torrent_id_remote) == ("done", "100", "200")
+    # Stessi piece, un .torrent per tracker: info hash diversi.
+    ta, tb = torf.Torrent.read(a.torrent_path), torf.Torrent.read(b.torrent_path)
+    assert ta.metainfo["info"]["pieces"] == tb.metainfo["info"]["pieces"]
+    assert a.info_hash != b.info_hash
+    fields, _ = env["trackers"]["a"].uploads[0]
+    assert (fields.name, fields.imdb_id, fields.anonymous, fields.season_number) == ("Matrix A", "0133093", True, None)
+    assert "https://img.example/0.png" in fields.description
+    linked = env["root"] / "torrents" / video.name
+    assert os.path.samefile(linked, video)
+    assert env["client"].added == [(a.torrent_path, str(env["root"] / "torrents")),
+                                   (b.torrent_path, str(env["root"] / "torrents"))]
+    assert json.loads(job.screenshot_urls_json) == [f"https://img.example/{i}.png" for i in range(4)]
+
+
+def test_a_source_inside_the_seeding_folder_seeds_in_place(db_session, tmp_path, env):
+    folder = env["root"] / "torrents" / "Show.S01.1080p-GRP"
+    for e in (1, 2):
+        write_video(folder / f"Show.S01E0{e}.mkv", 200 * KB)
+    write_video(folder / "Sample" / "sample.mkv", 10 * KB)
+    job = _approved(db_session, env, "torrents/Show.S01.1080p-GRP", {"a": _upload("Show S01"), "b": {"action": "skip"}},
+                    content_type="tv", kind="season_pack", seasons_json="[1]")
+
+    _run(db_session, tmp_path, job)
+
+    assert job.status == "done"
+    torrent = torf.Torrent.read(job.targets[0].torrent_path)
+    assert sorted(str(f) for f in torrent.files) == ["Show.S01.1080p-GRP/Show.S01E01.mkv",
+                                                     "Show.S01.1080p-GRP/Show.S01E02.mkv"]
+    assert env["client"].added == [(job.targets[0].torrent_path, str(env["root"] / "torrents"))]
+    fields, _ = env["trackers"]["a"].uploads[0]
+    assert (fields.season_number, fields.episode_number) == (1, 0)
+
+
+def test_reseed_links_the_files_with_the_tracker_names(db_session, tmp_path, env):
+    video = write_video(env["root"] / "media" / "Matrix" / "matrix.mkv", 300 * KB)
+    other = tmp_path / "tracker-layout" / "The.Matrix.1999.1080p-GRP"
+    other.mkdir(parents=True)
+    os.link(video, other / "The.Matrix.1999.1080p-GRP.mkv")
+    torrent_path, _ = torrent_create.create_torrent(str(other), "https://a/announce", str(tmp_path / "t.torrent"))
+    with open(torrent_path, "rb") as f:
+        env["trackers"]["a"].torrent_bytes = f.read()
+    job = upload_jobs.create_job(db_session, env["disk"], "media/Matrix")
+    job.targets[0].dupes_json = json.dumps([{"torrent_id_remote": "7", "verdict": "identical",
+                                             "download_link": "https://a/dl/7"}])
+    db_session.commit()
+    upload_jobs.transition(db_session, job, "identifying", "awaiting_decision", tmdb_id=603, content_type="movie",
+                           kind="movie")
+    for target in job.targets:
+        target.status = "awaiting_decision"
+    db_session.commit()
+    upload_decision.approve(db_session, job, [
+        {"target_id": job.targets[0].id, "action": "reseed", "reseed_torrent_id": "7"},
+        {"target_id": job.targets[1].id, "action": "skip"},
+    ])
+
+    _run(db_session, tmp_path, job)
+
+    assert job.status == "done", [e.code for e in job.events]
+    linked = env["root"] / "torrents" / "The.Matrix.1999.1080p-GRP" / "The.Matrix.1999.1080p-GRP.mkv"
+    assert os.path.samefile(linked, video)
+    assert env["client"].added == [(job.targets[0].torrent_path, str(env["root"] / "torrents"))]
+    assert env["trackers"]["a"].uploads == []  # un reseed non pubblica niente
+
+
+def test_one_tracker_failing_leaves_the_others_going(db_session, tmp_path, env):
+    video = write_video(env["root"] / "media" / "Movie.2024.mkv", 100 * KB)
+    env["trackers"]["a"].error = UploadError("rejected: dupe")
+    job = _approved(db_session, env, "media/" + video.name, {"a": _upload("A"), "b": _upload("B")})
+
+    _run(db_session, tmp_path, job)
+
+    assert job.status == "partial"
+    a, b = job.targets
+    assert (a.status, a.error_message) == ("failed", "rejected: dupe")
+    assert b.status == "done"
+    assert "upload_failed" in [e.code for e in job.events]
+
+
+def test_no_seed_and_existing_destination(db_session, tmp_path, env):
+    video = write_video(env["root"] / "media" / "Movie.2024.mkv", 100 * KB)
+    write_video(env["root"] / "torrents" / "Movie.2024.mkv", 50 * KB)  # un altro file con lo stesso nome
+    job = _approved(db_session, env, "media/" + video.name, {"a": _upload("A"), "b": {"action": "skip"}})
+
+    _run(db_session, tmp_path, job)
+
+    # Upload riuscito, seed no: mai ripetere l'upload per un problema del client.
+    target = job.targets[0]
+    assert (job.status, target.status, target.error_message) == ("done", "done", "seed_failed")
+    assert env["client"].added == []
+
+    job2 = _approved(db_session, env, "media/" + video.name, {"a": _upload("A"), "b": {"action": "skip"}})
+    job2.overrides_json = json.dumps({"no_seed": True})
+    db_session.commit()
+    _run(db_session, tmp_path, job2)
+    assert "not_seeded" in [e.code for e in job2.events]
+
+
+def test_screenshots_failing_blocks_uploads_but_not_reseeds(db_session, tmp_path, env, monkeypatch):
+    def broken(*a, **k):
+        raise upload_execute.screenshots.ScreenshotError("ffmpeg")
+
+    monkeypatch.setattr(upload_execute.screenshots, "generate_screenshots", broken)
+    video = write_video(env["root"] / "media" / "Movie.2024.mkv", 100 * KB)
+    job = _approved(db_session, env, "media/" + video.name, {"a": _upload("A"), "b": _upload("B")})
+
+    _run(db_session, tmp_path, job)
+
+    assert job.status == "failed"
+    assert [t.error_message for t in job.targets] == ["upload_screenshots_failed"] * 2
+    assert env["trackers"]["a"].uploads == []
+
+
+def test_zero_screenshots_is_a_choice(db_session, tmp_path, env):
+    video = write_video(env["root"] / "media" / "Movie.2024.mkv", 100 * KB)
+    job = upload_jobs.create_job(db_session, env["disk"], "media/" + video.name, overrides={"screenshot_count": 0})
+    upload_jobs.transition(db_session, job, "identifying", "awaiting_decision", tmdb_id=1, content_type="movie",
+                           kind="movie")
+    for target in job.targets:
+        target.status = "awaiting_decision"
+    db_session.commit()
+    upload_decision.approve(db_session, job, [{"target_id": t.id, **_upload(t.tracker.label)} for t in job.targets])
+
+    _run(db_session, tmp_path, job)
+
+    assert job.status == "done"
+    assert json.loads(job.screenshot_urls_json) == []

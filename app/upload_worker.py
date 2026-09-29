@@ -36,9 +36,13 @@ HEAVY_STATES = ("queued", "running")
 def default_handlers() -> dict[str, Handler]:
     # Import qui: i moduli dei passi importano a loro volta il worker per
     # i tipi, e così restano sostituibili nei test senza cicli.
-    from app import upload_analysis, upload_identify
+    from app import upload_analysis, upload_execute, upload_identify
 
-    return {"identifying": upload_identify.handle, "analyzing": upload_analysis.handle}
+    return {
+        "identifying": upload_identify.handle,
+        "analyzing": upload_analysis.handle,
+        "queued": upload_execute.handle,
+    }
 
 
 class UploadWorker:

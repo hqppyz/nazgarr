@@ -27,23 +27,30 @@ logger = logging.getLogger(__name__)
 
 def build_locator(job: UploadJob, parsed: TorrentInfo):
     """Dove sta in locale ogni file del torrent del tracker: stesso percorso
-    dentro la cartella sorgente, altrimenti stesso nome e dimensione (il
-    tracker può aver messo i file in una sottocartella diversa)."""
+    dentro la cartella sorgente, poi stesso nome e dimensione (il tracker
+    può aver messo i file in una sottocartella diversa), infine la sola
+    dimensione se un solo file locale ce l'ha (il tracker ha rinominato il
+    file). Il full hash check dice poi se sono davvero gli stessi byte."""
     if not job.is_dir:
         return lambda entry: (job.source_path, "source")
 
     by_name: dict[tuple[str, int], str] = {}
+    by_size: dict[int, list[str]] = {}
     for dirpath, _dirs, filenames in os.walk(job.source_path):
         for name in filenames:
             path = os.path.join(dirpath, name)
             if os.path.isfile(path):
-                by_name.setdefault((name.lower(), os.path.getsize(path)), path)
+                size = os.path.getsize(path)
+                by_name.setdefault((name.lower(), size), path)
+                by_size.setdefault(size, []).append(path)
 
     def locate(entry: TorrentFileEntry) -> tuple[str | None, str | None]:
         direct = os.path.join(job.source_path, entry.path)
-        if os.path.isfile(direct):
+        if os.path.isfile(direct) and os.path.getsize(direct) == entry.length:
             return direct, "source"
         found = by_name.get((os.path.basename(entry.path).lower(), entry.length))
+        if found is None and len(by_size.get(entry.length, [])) == 1:
+            found = by_size[entry.length][0]
         return (found, "source") if found else (None, None)
 
     return locate

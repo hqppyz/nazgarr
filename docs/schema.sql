@@ -24,6 +24,10 @@ CREATE TABLE IF NOT EXISTS disk (
                                                          -- Does NOT narrow the "already seeding" search, which
                                                          -- always stays on the whole torrents_rel_path. If
                                                          -- null, torrents_rel_path is used unchanged.
+    upload_rel_path             TEXT,                   -- optional, relative to root_path: where a NEW UPLOAD
+                                                         -- (and a reseed decided in the upload flow) gets its
+                                                         -- hardlinks and save_path. If null, torrents_rel_path
+                                                         -- (SPEC.md §9 "Upload flow v2").
     created_at                  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 

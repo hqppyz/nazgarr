@@ -94,6 +94,7 @@ class UploadTargetResponse(BaseModel):
     resolution_id: int | None
     info_hash: str | None
     torrent_id_remote: str | None
+    remote_url: str | None  # pagina del torrent sul tracker (UNIT3D: /torrents/<id>)
     error_message: str | None
     finished_at: datetime | None
     # Le mappe del profilo, per scegliere categoria/tipo/risoluzione a mano.
@@ -111,6 +112,7 @@ class UploadTargetResponse(BaseModel):
             proposed_name=t.proposed_name, approved_name=t.approved_name,
             flags=_loads(t.flags_json, {}), category_id=t.category_id, type_id=t.type_id,
             resolution_id=t.resolution_id, info_hash=t.info_hash, torrent_id_remote=t.torrent_id_remote,
+            remote_url=_remote_url(t),
             error_message=t.error_message, finished_at=t.finished_at,
             category_id_map=_loads(profile.category_id_map_json if profile else None, {}),
             type_id_map=_loads(profile.type_id_map_json if profile else None, {}),
@@ -198,6 +200,13 @@ class UploadJobDetail(UploadJobSummary):
             screenshot_urls=_loads(j.screenshot_urls_json, []),
             events=[UploadEventResponse.from_model(e) for e in j.events],
         )
+
+
+def _remote_url(t: UploadTarget) -> str | None:
+    torrent_id = t.torrent_id_remote or (t.reseed_torrent_id if t.action == "reseed" else None)
+    if not torrent_id or not t.tracker.base_url:
+        return None
+    return f"{t.tracker.base_url.rstrip('/')}/torrents/{torrent_id}"
 
 
 def _loads(raw: str | None, default):

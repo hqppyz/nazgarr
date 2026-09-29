@@ -138,7 +138,7 @@ function RelPathCell({
 }: {
   diskId: number
   value: string | null
-  field: 'media_rel_path' | 'torrents_rel_path' | 'new_torrent_rel_path'
+  field: 'media_rel_path' | 'torrents_rel_path' | 'new_torrent_rel_path' | 'upload_rel_path'
   title: string
   emptyLabel?: string
 }) {
@@ -243,6 +243,7 @@ export function DisksSection() {
               <TableHead>{t('disks.mediaFolder')}</TableHead>
               <TableHead>{t('disks.seedingFolder')}</TableHead>
               <TableHead>{t('disks.newHardlinkFolderColumn')}</TableHead>
+              <TableHead>{t('disks.uploadFolderColumn')}</TableHead>
               <TableHead />
             </TableRow>
           </TableHeader>
@@ -280,6 +281,17 @@ export function DisksSection() {
                     emptyLabel={t('disks.sameAsSeedingFolder')}
                   />
                 </TableCell>
+                <TableCell>
+                  {/* Dove il flusso di upload crea gli hardlink e fa seedare
+                      i torrent: vuoto = la cartella di seeding. */}
+                  <RelPathCell
+                    diskId={disk.id}
+                    value={disk.upload_rel_path}
+                    field="upload_rel_path"
+                    title={t('disks.uploadFolderLabel')}
+                    emptyLabel={t('disks.sameAsSeedingFolder')}
+                  />
+                </TableCell>
                 <TableCell className="flex justify-end gap-1">
                   <VerifyButton diskId={disk.id} />
                   <EditDiskDialog disk={disk} />
@@ -291,7 +303,7 @@ export function DisksSection() {
             ))}
             {disks?.length === 0 && (
               <TableRow>
-                <TableCell colSpan={6} className="text-center text-sm text-muted-foreground">
+                <TableCell colSpan={7} className="text-center text-sm text-muted-foreground">
                   {t('disks.noDisksConfigured')}
                 </TableCell>
               </TableRow>
