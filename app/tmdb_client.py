@@ -139,6 +139,15 @@ class TMDBClient:
             ],
         }
 
+    def localized_title(self, content_type: str, tmdb_id: int, language: str) -> str | None:
+        """Il titolo in una lingua (es. "it"): per i tracker che vogliono il
+        titolo italiano nel nome della release."""
+        path = f"/{'tv' if content_type == 'tv' else 'movie'}/{tmdb_id}"
+        response = self._client.get(path, params={"api_key": self.api_key, "language": language})
+        response.raise_for_status()
+        body = response.json()
+        return body.get("title") or body.get("name")
+
     def _search(self, path: str, query: str, extra_params: dict, year: int | None = None) -> dict | None:
         params = {"api_key": self.api_key, "query": query, **extra_params}
         response = self._client.get(path, params=params)

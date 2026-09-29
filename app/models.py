@@ -438,6 +438,10 @@ class TrackerUploadProfile(Base):
     type_id_map_json: Mapped[str | None]
     resolution_id_map_json: Mapped[str | None]
     naming_convention: Mapped[str | None]
+    naming_rules_json: Mapped[str | None]
+    naming_version: Mapped[int | None]
+    naming_customized: Mapped[bool | None]
+    naming_update_available: Mapped[int | None]
     description_template: Mapped[str | None]
     default_anonymous: Mapped[bool] = mapped_column(nullable=False, server_default=text("0"))
     default_personal_release: Mapped[bool] = mapped_column(nullable=False, server_default=text("0"))

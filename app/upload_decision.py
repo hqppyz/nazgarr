@@ -9,14 +9,18 @@ la sua decisione esplicita, mai uno per default.
 """
 
 import json
+import logging
 import os
 
 from sqlalchemy.orm import Session
 
 from app import upload_jobs
+from app.adapter_factory import TmdbApiKeyMissingError
 from app.models import TrackerUploadProfile, UploadJob, UploadTarget
 from app.upload_jobs import UploadJobError
-from app.upload_naming import DETECTED_FIELDS, build_name, detect, name_values
+from app.upload_naming import DETECTED_FIELDS, build_name, detect, release_values, rules_from_convention
+
+logger = logging.getLogger(__name__)
 
 FLAG_KEYS = ("anonymous", "personal_release", "internal", "stream")
 # Override oltre ai valori rilevati: anno del nome, numero di screenshot,
@@ -39,11 +43,39 @@ def _maps(profile: TrackerUploadProfile | None) -> tuple[dict, dict, dict]:
     )
 
 
-def detected_values(job: UploadJob) -> dict:
+def name_detected(job: UploadJob) -> dict:
     """Dal nome scelto dall'analisi (torrent in hardlink, nome originale di
     Radarr/Sonarr, o il nome della sorgente: app/upload_analysis.py)."""
     source = (json.loads(job.analysis_json or "{}").get("name_source") or {}).get("name")
     return detect(source or os.path.basename(job.source_path.rstrip(os.sep)))
+
+
+def profile_rules(profile: TrackerUploadProfile | None) -> dict | None:
+    if profile is None:
+        return None
+    if profile.naming_rules_json:
+        return json.loads(profile.naming_rules_json)
+    return rules_from_convention(profile.naming_convention)
+
+
+def _local_title(session: Session, job: UploadJob, language: str, analysis: dict) -> str | None:
+    """Titolo TMDB nella lingua del tracker, una chiamata per lingua e job."""
+    titles = analysis.setdefault("titles", {})
+    if language in titles:
+        return titles[language]
+    title = None
+    if job.tmdb_id and job.content_type:
+        from app import upload_identify
+
+        try:
+            title = upload_identify.tmdb_client(session).localized_title(job.content_type, job.tmdb_id, language)
+        except TmdbApiKeyMissingError:
+            title = None
+        except Exception:
+            logger.warning("Titolo in %s non disponibile per %s", language, job.tmdb_id, exc_info=True)
+            return None  # non in cache: si riprova al prossimo cambio di override
+    titles[language] = title
+    return title
 
 
 def clean_overrides(raw: dict | None) -> dict:
@@ -70,17 +102,21 @@ def propose(session: Session, job: UploadJob) -> None:
     """Nome, id del profilo e flag proposti per ogni tracker, dai valori
     rilevati e dagli override. Rifatto a ogni cambio di override; non tocca
     mai quello che l'utente ha già approvato."""
-    detected = detected_values(job)
+    from_name = name_detected(job)
     overrides = json.loads(job.overrides_json or "{}")
-    seasons = json.loads(job.seasons_json or "[]")
-    values = name_values(job, detected, overrides, seasons)
     analysis = json.loads(job.analysis_json or "{}")
-    analysis["detected"] = detected
-    job.analysis_json = json.dumps(analysis)
+    mediainfo = analysis.get("mediainfo")
+    # I tag di "Detected details": i valori con le regole generiche, senza override.
+    generic = release_values(job, from_name, mediainfo, {}, None)
+    analysis["detected"] = {key: generic.get(key) for key in DETECTED_FIELDS}
     for target in job.targets:
         profile = _profile(session, target)
         categories, types, resolutions = _maps(profile)
-        target.proposed_name = build_name(profile.naming_convention if profile else None, values)
+        rules = profile_rules(profile) or {}
+        language = rules.get("title_language")
+        local_title = _local_title(session, job, language, analysis) if language else None
+        values = release_values(job, from_name, mediainfo, overrides, rules, local_title)
+        target.proposed_name = build_name(rules, values)
         target.category_id = categories.get(job.content_type or "movie")
         target.type_id = types.get(values.get("type") or "")
         target.resolution_id = resolutions.get(values.get("resolution") or "")
@@ -91,6 +127,7 @@ def propose(session: Session, job: UploadJob) -> None:
                 "internal": False,
                 "stream": False,
             })
+    job.analysis_json = json.dumps(analysis)
     session.commit()
 
 

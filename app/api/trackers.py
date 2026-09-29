@@ -133,6 +133,7 @@ class UploadProfileUpdateRequest(BaseModel):
     type_id_map: dict[str, int] | None = None
     resolution_id_map: dict[str, int] | None = None
     naming_convention: str | None = None
+    naming_rules: dict | None = None  # regole di naming: salvarle le segna come modificate dall'utente
     description_template: str | None = None
     default_anonymous: bool | None = None
     default_personal_release: bool | None = None
@@ -144,6 +145,10 @@ class UploadProfileResponse(BaseModel):
     type_id_map: dict[str, int]
     resolution_id_map: dict[str, int]
     naming_convention: str | None
+    naming_rules: dict | None
+    naming_version: int | None
+    naming_customized: bool
+    naming_update_available: int | None
     description_template: str | None
     default_anonymous: bool
     default_personal_release: bool
@@ -157,6 +162,10 @@ class UploadProfileResponse(BaseModel):
             type_id_map=json.loads(p.type_id_map_json) if p.type_id_map_json else {},
             resolution_id_map=json.loads(p.resolution_id_map_json) if p.resolution_id_map_json else {},
             naming_convention=p.naming_convention,
+            naming_rules=json.loads(p.naming_rules_json) if p.naming_rules_json else None,
+            naming_version=p.naming_version,
+            naming_customized=bool(p.naming_customized),
+            naming_update_available=p.naming_update_available,
             description_template=p.description_template,
             default_anonymous=p.default_anonymous,
             default_personal_release=p.default_personal_release,
@@ -216,6 +225,9 @@ def update_upload_profile(
         profile.resolution_id_map_json = json.dumps(body.resolution_id_map)
     if body.naming_convention is not None:
         profile.naming_convention = body.naming_convention
+    if body.naming_rules is not None and json.dumps(body.naming_rules) != profile.naming_rules_json:
+        profile.naming_rules_json = json.dumps(body.naming_rules)
+        profile.naming_customized = True
     if body.description_template is not None:
         profile.description_template = body.description_template
     if body.default_anonymous is not None:
@@ -223,6 +235,18 @@ def update_upload_profile(
     if body.default_personal_release is not None:
         profile.default_personal_release = body.default_personal_release
     session.commit()
+    return UploadProfileResponse.from_model(profile)
+
+
+@router.post("/{tracker_id}/upload-profile/naming/update", response_model=UploadProfileResponse)
+def update_naming_rules(tracker_id: int, session: Session = Depends(get_session)):
+    """Le regole di naming del profilo bundlato al posto di quelle modificate
+    dall'utente (l'aggiornamento offerto da naming_update_available)."""
+    profile = _get_upload_profile_or_404(session, tracker_id)
+    try:
+        upload_profiles.update_naming_from_bundled(session, profile)
+    except upload_profiles.ProfileNotFoundError as exc:
+        raise HTTPException(status_code=400, detail=from_coded_error(exc)) from exc
     return UploadProfileResponse.from_model(profile)
 
 

@@ -6,7 +6,7 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.gzip import GZipMiddleware
 from pydantic import BaseModel
 
-from app import auth, db, pipeline, review, scheduler, startup_checks
+from app import auth, db, pipeline, review, scheduler, startup_checks, upload_profiles
 from app.api.auth import router as auth_router
 from app.api.dashboard import router as dashboard_router
 from app.api.disks import router as disks_router
@@ -50,6 +50,7 @@ async def lifespan(app: FastAPI):
         startup_checks.verify_secret_key(session)
         pipeline.close_interrupted_runs(session)
         review.reset_interrupted_verifications(session)
+        upload_profiles.sync_naming_rules(session)
     app.state.settings = settings
     app.state.engine = engine
     app.state.session_factory = session_factory

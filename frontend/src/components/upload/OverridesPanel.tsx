@@ -15,7 +15,8 @@ import { cn } from '@/lib/utils'
 
 // Stessi campi di app/upload_naming.py DETECTED_FIELDS, più l'anno.
 const DETECTED_FIELDS = [
-  'type', 'resolution', 'source', 'video_codec', 'audio_codec', 'hdr', 'service', 'edition', 'repack', 'group',
+  'type', 'resolution', 'source', 'video_codec', 'audio', 'audio_languages', 'hdr', 'service', 'edition', 'repack',
+  'group',
 ] as const
 
 type Draft = Record<string, string | boolean>

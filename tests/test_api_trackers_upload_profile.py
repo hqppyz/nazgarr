@@ -89,3 +89,19 @@ def test_delete_upload_profile(client):
 
     assert response.status_code == 204
     assert client.get(f"/api/trackers/{tracker_id}/upload-profile").status_code == 404
+
+
+def test_naming_rules_edit_marks_them_customized_and_update_restores_bundled(client):
+    tracker_id = client.post("/api/trackers", json={
+        "label": "ITT", "adapter_type": "unit3d", "base_url": "https://itt.example", "api_token": "x",
+    }).json()["id"]
+    created = client.post(f"/api/trackers/{tracker_id}/upload-profile", json={"profile_key": "itt"}).json()
+    assert created["naming_version"] >= 1 and created["naming_customized"] is False
+    rules = created["naming_rules"]
+
+    edited = client.patch(f"/api/trackers/{tracker_id}/upload-profile",
+                          json={"naming_rules": {**rules, "sdr_label": "SDR"}}).json()
+    assert edited["naming_customized"] is True and edited["naming_rules"]["sdr_label"] == "SDR"
+
+    restored = client.post(f"/api/trackers/{tracker_id}/upload-profile/naming/update").json()
+    assert restored["naming_customized"] is False and restored["naming_rules"] == rules

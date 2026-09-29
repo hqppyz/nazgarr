@@ -516,7 +516,12 @@ CREATE TABLE IF NOT EXISTS tracker_upload_profile (
     category_id_map_json    TEXT,           -- {"movie": 1, "tv": 2}, real values to verify per tracker
     type_id_map_json        TEXT,           -- {"REMUX": 20, "WEBDL": 21, ...}
     resolution_id_map_json  TEXT,
-    naming_convention       TEXT,           -- release name template, TBD in Phase 6
+    naming_convention       TEXT,           -- legacy single release-name template (before naming_rules_json)
+    naming_rules_json       TEXT,           -- release-name rules (app/upload_naming.py): a template per release type
+                                            -- + options; copied from the bundled profile with its version
+    naming_version          INTEGER,        -- version of the bundled rules copied here (null = custom profile)
+    naming_customized       BOOLEAN,        -- the user edited the rules: a new bundled version is only offered
+    naming_update_available INTEGER,        -- newer bundled version waiting for the user's ok (null = none)
     description_template    TEXT,           -- Jinja2
     default_anonymous       BOOLEAN NOT NULL DEFAULT 0,
     default_personal_release BOOLEAN NOT NULL DEFAULT 0,

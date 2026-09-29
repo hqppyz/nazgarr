@@ -38,6 +38,14 @@ export const trackers = {
   'trackers.copiedFromBundled':
     'Copied from the bundled profile "{key}" — double-check the ids against your account before the first real upload.',
   'trackers.descriptionTemplate': 'Description template (Jinja2)',
+  'trackers.namingRules': 'Naming rules',
+  'trackers.namingVersion': 'version {version}',
+  'trackers.namingCustomized': 'edited by you',
+  'trackers.namingUpdateAvailable':
+    'Nazgarr ships version {version} of these rules (the tracker changed them): yours are kept until you switch.',
+  'trackers.namingUseNew': 'Use the new rules',
+  'trackers.namingRulesHelp':
+    'One template per release type (REMUX, WEBDL, WEBRIP, ENCODE, HDTV, DVDRIP, BRRIP, default) with {title} {local_title} {year} {season} {edition} {repack} {resolution} {service} {source} {type} {hdr} {video_codec} {audio} {audio_languages} {subs} {group}, plus title, title_language, audio (main/all), audio_languages, sdr_label, subs_label, separator. Editing them stops automatic updates.',
   'trackers.defaultAnonymous': 'Anonymous by default',
   'trackers.defaultPersonalRelease': 'Personal release by default',
   'trackers.deleteProfile': 'Delete profile',

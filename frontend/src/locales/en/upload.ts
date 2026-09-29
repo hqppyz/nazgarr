@@ -156,13 +156,14 @@ export const upload = {
 
   'upload.overrides.title': 'Detected details',
   'upload.overrides.description':
-    'Read from the source name. Fill a field only where the detected value (in grey) is wrong: the names below follow.',
+    'Read from the MediaInfo and the release name. Fill a field only where the detected value (in grey) is wrong: the names below follow, each with its tracker\'s rules.',
   'upload.overrides.changed': '{count} changed',
   'upload.overrides.field.type': 'Type',
   'upload.overrides.field.resolution': 'Resolution',
   'upload.overrides.field.source': 'Source',
   'upload.overrides.field.video_codec': 'Video codec',
-  'upload.overrides.field.audio_codec': 'Audio',
+  'upload.overrides.field.audio': 'Audio',
+  'upload.overrides.field.audio_languages': 'Audio languages',
   'upload.overrides.field.hdr': 'HDR',
   'upload.overrides.field.service': 'Service',
   'upload.overrides.field.edition': 'Edition',

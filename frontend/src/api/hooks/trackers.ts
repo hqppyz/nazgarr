@@ -82,3 +82,14 @@ export function useDeleteUploadProfile(trackerId: number) {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['trackers', trackerId, 'upload-profile'] }),
   })
 }
+
+export function useUpdateNamingFromBundled(trackerId: number) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () =>
+      unwrap(
+        api.POST('/api/trackers/{tracker_id}/upload-profile/naming/update', { params: { path: { tracker_id: trackerId } } }),
+      ),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['trackers', trackerId, 'upload-profile'] }),
+  })
+}

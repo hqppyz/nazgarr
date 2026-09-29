@@ -619,6 +619,27 @@ export interface paths {
         patch: operations["update_upload_profile_api_trackers__tracker_id__upload_profile_patch"];
         trace?: never;
     };
+    "/api/trackers/{tracker_id}/upload-profile/naming/update": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Update Naming Rules
+         * @description Le regole di naming del profilo bundlato al posto di quelle modificate
+         *     dall'utente (l'aggiornamento offerto da naming_update_available).
+         */
+        post: operations["update_naming_rules_api_trackers__tracker_id__upload_profile_naming_update_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/radarr-instances": {
         parameters: {
             query?: never;
@@ -3093,6 +3114,16 @@ export interface components {
             };
             /** Naming Convention */
             naming_convention: string | null;
+            /** Naming Rules */
+            naming_rules: {
+                [key: string]: unknown;
+            } | null;
+            /** Naming Version */
+            naming_version: number | null;
+            /** Naming Customized */
+            naming_customized: boolean;
+            /** Naming Update Available */
+            naming_update_available: number | null;
             /** Description Template */
             description_template: string | null;
             /** Default Anonymous */
@@ -3118,6 +3149,10 @@ export interface components {
             } | null;
             /** Naming Convention */
             naming_convention?: string | null;
+            /** Naming Rules */
+            naming_rules?: {
+                [key: string]: unknown;
+            } | null;
             /** Description Template */
             description_template?: string | null;
             /** Default Anonymous */
@@ -4540,6 +4575,37 @@ export interface operations {
                 "application/json": components["schemas"]["UploadProfileUpdateRequest"];
             };
         };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadProfileResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_naming_rules_api_trackers__tracker_id__upload_profile_naming_update_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tracker_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {

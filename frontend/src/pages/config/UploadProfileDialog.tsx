@@ -5,6 +5,7 @@ import {
   useBundledUploadProfiles,
   useCreateUploadProfile,
   useDeleteUploadProfile,
+  useUpdateNamingFromBundled,
   useUpdateUploadProfile,
   useUploadProfile,
 } from '@/api/hooks/trackers'
@@ -47,12 +48,16 @@ export function UploadProfileDialog({
   const [typeMapDraft, setTypeMapDraft] = useState<string | null>(null)
   const [resolutionMapDraft, setResolutionMapDraft] = useState<string | null>(null)
   const [descriptionTemplateDraft, setDescriptionTemplateDraft] = useState<string | null>(null)
+  const [namingRulesDraft, setNamingRulesDraft] = useState<string | null>(null)
+  const updateNaming = useUpdateNamingFromBundled(trackerId)
   const [bundledKey, setBundledKey] = useState('')
 
   const categoryMap = categoryMapDraft ?? (profile ? jsonField(profile.category_id_map) : '{}')
   const typeMap = typeMapDraft ?? (profile ? jsonField(profile.type_id_map) : '{}')
   const resolutionMap = resolutionMapDraft ?? (profile ? jsonField(profile.resolution_id_map) : '{}')
   const descriptionTemplate = descriptionTemplateDraft ?? profile?.description_template ?? ''
+  const namingRules =
+    namingRulesDraft ?? (profile?.naming_rules ? JSON.stringify(profile.naming_rules, null, 2) : '')
 
   function parseOrToast(label: string, raw: string): Record<string, number> | null {
     try {
@@ -68,14 +73,24 @@ export function UploadProfileDialog({
     const type_id_map = parseOrToast('type_id_map', typeMap)
     const resolution_id_map = parseOrToast('resolution_id_map', resolutionMap)
     if (!category_id_map || !type_id_map || !resolution_id_map) return
+    let naming_rules: Record<string, unknown> | undefined
+    if (namingRules.trim()) {
+      try {
+        naming_rules = JSON.parse(namingRules) as Record<string, unknown>
+      } catch {
+        toast.error(t('trackers.invalidJson', { label: t('trackers.namingRules') }))
+        return
+      }
+    }
     updateProfile.mutate(
-      { category_id_map, type_id_map, resolution_id_map, description_template: descriptionTemplate },
+      { category_id_map, type_id_map, resolution_id_map, description_template: descriptionTemplate, naming_rules },
       {
         onSuccess: () => {
           setCategoryMapDraft(null)
           setTypeMapDraft(null)
           setResolutionMapDraft(null)
           setDescriptionTemplateDraft(null)
+          setNamingRulesDraft(null)
         },
         onError: (error) => toast.error(t('common.saveFailed', { message: error.message })),
       },
@@ -84,7 +99,7 @@ export function UploadProfileDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>{t('trackers.uploadProfileTitle', { trackerLabel })}</DialogTitle>
         </DialogHeader>
@@ -139,6 +154,43 @@ export function UploadProfileDialog({
             <div className="grid gap-1.5">
               <Label>resolution_id_map</Label>
               <Textarea rows={5} className="font-mono text-xs" value={resolutionMap} onChange={(e) => setResolutionMapDraft(e.target.value)} />
+            </div>
+            <div className="grid gap-1.5">
+              <div className="flex items-center justify-between gap-2">
+                <Label>{t('trackers.namingRules')}</Label>
+                {profile.naming_version != null && (
+                  <span className="text-xs text-muted-foreground">
+                    {t('trackers.namingVersion', { version: profile.naming_version })}
+                    {profile.naming_customized && ` · ${t('trackers.namingCustomized')}`}
+                  </span>
+                )}
+              </div>
+              {profile.naming_update_available != null && (
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-xs">
+                  <span>{t('trackers.namingUpdateAvailable', { version: profile.naming_update_available })}</span>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={updateNaming.isPending}
+                    onClick={() =>
+                      updateNaming.mutate(undefined, {
+                        onSuccess: () => setNamingRulesDraft(null),
+                        onError: (error) => toast.error(error.message),
+                      })
+                    }
+                  >
+                    {t('trackers.namingUseNew')}
+                  </Button>
+                </div>
+              )}
+              <p className="text-xs text-muted-foreground">{t('trackers.namingRulesHelp')}</p>
+              <Textarea
+                rows={10}
+                className="font-mono text-xs"
+                value={namingRules}
+                placeholder={'{"templates": {"default": "{title} ({year}) {season} {resolution} {source} {video_codec} {audio} {group}"}}'}
+                onChange={(e) => setNamingRulesDraft(e.target.value)}
+              />
             </div>
             <div className="grid gap-1.5">
               <Label>{t('trackers.descriptionTemplate')}</Label>

@@ -45,7 +45,33 @@ upload:
     "576i": 7
     "480p": 8
     "480i": 9
-  naming_convention: "{title} ({year}) {resolution} {source} {video_codec} {audio_codec} {group}"
+  # Regole di naming (app/upload_naming.py). Versionate: alzare "version"
+  # quando il tracker cambia le sue regole. All'avvio un profilo non
+  # modificato dall'utente si aggiorna da solo; uno modificato riceve
+  # l'offerta di aggiornarsi, a meno di "force: true" (app/upload_profiles.py).
+  # Ricostruite dalle regole di ItaTorrents come le implementa
+  # Upload-Assistant (src/trackers/ITT.py, riferimento di dominio): da
+  # verificare contro il regolamento del tracker prima del primo upload.
+  naming:
+    version: 1
+    force: false
+    title: local
+    title_language: it
+    audio: all
+    audio_languages:
+      style: primary_first
+      primary: ITA
+      multi_from: 3
+    group_separator: "-"
+    templates:
+      REMUX: "{title} {year} {season} {edition} {repack} {resolution} {source} REMUX VU {hdr} {video_codec} {audio_languages} {audio} {group}"
+      WEBDL: "{title} {year} {season} {edition} {repack} {resolution} {service} WEB-DL {hdr} {video_codec} {audio_languages} {audio} {group}"
+      WEBRIP: "{title} {year} {season} {edition} {repack} {resolution} {service} WEBRip {hdr} {video_codec} {audio_languages} {audio} {group}"
+      ENCODE: "{title} {year} {season} {edition} {repack} {resolution} {hdr} {video_codec} {audio_languages} {audio} {group}"
+      HDTV: "{title} {year} {season} {edition} {repack} {resolution} {hdr} {video_codec} {audio_languages} {audio} {group}"
+      DVDRIP: "{title} {year} {season} {edition} {repack} {resolution} DVDRip {hdr} {video_codec} {audio_languages} {audio} {group}"
+      BRRIP: "{title} {year} {season} {edition} {repack} {resolution} BRRip {hdr} {video_codec} {audio_languages} {audio} {group}"
+      default: "{title} {year} {season} {resolution} {source} {hdr} {video_codec} {audio_languages} {audio} {group}"
   description_template: |
     [mediainfo]{{ mediainfo }}[/mediainfo]
 

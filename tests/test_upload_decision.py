@@ -13,9 +13,12 @@ ITT = "{title} ({year}) {resolution} {source} {video_codec} {audio_codec} {group
 def test_build_name_adds_the_season_and_drops_empty_tokens():
     values = {"title": "Severance", "year": 2022, "season": "S02", "resolution": "1080p", "source": "WEB-DL",
               "video_codec": "H.264", "audio_codec": None, "group": "NTb"}
-    assert build_name(ITT, values) == "Severance (2022) S02 1080p WEB-DL H.264-NTb"
-    assert build_name(ITT, {**values, "year": None, "group": None}) == "Severance S02 1080p WEB-DL H.264"
-    assert build_name("{title} {season} {resolution}", {**values}) == "Severance S02 1080p"
+    rules = {"templates": {"default": ITT}}
+    assert build_name(rules, values) == "Severance (2022) S02 1080p WEB-DL H.264-NTb"
+    assert build_name(rules, {**values, "year": None, "group": None}) == "Severance S02 1080p WEB-DL H.264"
+    assert build_name({"templates": {"default": "{title} {season} {resolution}"}}, values) == "Severance S02 1080p"
+    dotted = {"templates": {"WEBDL": "{title} {season} {resolution} {group}"}, "separator": "."}
+    assert build_name(dotted, {**values, "type": "WEBDL"}) == "Severance.S02.1080p-NTb"
 
 
 @pytest.mark.parametrize(("kind", "seasons", "episode", "token"), [
@@ -50,12 +53,13 @@ def decision_job(db_session, tmp_path):
 
 def test_propose_names_ids_and_flags_per_tracker(decision_job):
     itt, custom = decision_job.targets
-    assert itt.proposed_name == "Severance (2022) S02 1080p WEB-DL H.264 DDP5.1-NTb"
+    # Regole ITT: template WEB-DL, anno senza parentesi, servizio.
+    assert itt.proposed_name == "Severance 2022 S02 1080p ATVP WEB-DL H.264 DD+ 5.1-NTb"
     assert (itt.category_id, itt.type_id, itt.resolution_id) == (2, 4, 3)
     assert json.loads(itt.flags_json) == {"anonymous": False, "personal_release": False, "internal": False,
                                           "stream": False}
     # Profilo custom vuoto: il nome col formato di default, nessun id.
-    assert custom.proposed_name == "Severance (2022) S02 1080p WEB-DL H.264 DDP5.1-NTb"
+    assert custom.proposed_name == "Severance (2022) S02 1080p WEB-DL H.264 DD+ 5.1-NTb"
     assert (custom.category_id, custom.type_id, custom.resolution_id) == (None, None, None)
     assert json.loads(decision_job.analysis_json)["detected"]["service"] == "ATVP"
 
