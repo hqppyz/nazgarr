@@ -7,6 +7,7 @@ media_file.mediainfo_unique_id (vedi app/matching.py).
 """
 
 import logging
+import os
 import re
 
 from pymediainfo import MediaInfo
@@ -50,3 +51,84 @@ def extract_full_text(file_path: str) -> str | None:
         logger.exception("mediainfo (testo completo) fallito su %r", file_path)
         return None
     return text or None
+
+
+def _first(value) -> str | None:
+    """pymediainfo mette le forme "leggibili" in liste other_*: la prima."""
+    if isinstance(value, list):
+        return str(value[0]) if value else None
+    return str(value) if value not in (None, "") else None
+
+
+def _int(value) -> int | None:
+    try:
+        return int(float(str(value).split(" / ")[0]))
+    except (TypeError, ValueError):
+        return None
+
+
+def summarize(media_info: MediaInfo, file_name: str | None = None) -> dict:
+    """Le informazioni che un tracker UNIT3D mostra nella sua anteprima
+    MediaInfo (generale, video, audio, sottotitoli), in forma strutturata:
+    servono alla scheda di anteprima e ai segnaposto del nome della release
+    (app/upload_naming.py). Solo valori letti, mai calcolati a parte."""
+    general = media_info.general_tracks[0] if media_info.general_tracks else None
+    video = media_info.video_tracks[0] if media_info.video_tracks else None
+    summary: dict = {"file_name": file_name, "general": None, "video": None, "audio": [], "subtitles": []}
+    if general is not None:
+        summary["general"] = {
+            "format": general.format,
+            "duration_ms": _int(general.duration),
+            "overall_bit_rate": _int(general.overall_bit_rate),
+            "file_size": _int(general.file_size),
+        }
+    if video is not None:
+        summary["video"] = {
+            "format": video.format,
+            "format_profile": video.format_profile,
+            "codec_id": video.codec_id,
+            "bit_depth": _int(video.bit_depth),
+            "width": _int(video.width),
+            "height": _int(video.height),
+            "scan_type": video.scan_type,
+            "display_aspect_ratio": _first(video.other_display_aspect_ratio) or video.display_aspect_ratio,
+            "frame_rate": video.frame_rate,
+            "frame_rate_num": _int(video.frame_rate_num),
+            "frame_rate_den": _int(video.frame_rate_den),
+            "bit_rate": _int(video.bit_rate),
+            "hdr_format": video.hdr_format,
+            "hdr_format_compatibility": video.hdr_format_compatibility,
+            "transfer_characteristics": video.transfer_characteristics,
+            "writing_library": video.writing_library,
+            "encoding_settings": bool(video.encoding_settings),
+        }
+    for track in media_info.audio_tracks:
+        summary["audio"].append({
+            "language": track.language,
+            "title": track.title,
+            "format": track.format,
+            "commercial_name": track.commercial_name,
+            "format_additional_features": track.format_additionalfeatures,
+            "channels": _int(track.channel_s),
+            "channel_layout": track.channel_layout,
+            "bit_rate": _int(track.bit_rate),
+            "default": track.default == "Yes",
+        })
+    for track in media_info.text_tracks:
+        summary["subtitles"].append({
+            "language": track.language,
+            "title": track.title,
+            "format": track.format,
+            "forced": track.forced == "Yes",
+        })
+    return summary
+
+
+def extract_summary(file_path: str) -> dict | None:
+    """summarize() di un file locale; None se mediainfo non lo legge."""
+    try:
+        media_info = MediaInfo.parse(file_path)
+    except Exception:
+        logger.exception("mediainfo (riepilogo) fallito su %r", file_path)
+        return None
+    return summarize(media_info, os.path.basename(file_path))

@@ -227,6 +227,24 @@ export const upload = {
   'upload.history.screenshots': 'Screenshots ({count})',
   'upload.history.description': 'Description sent to {tracker}',
   'upload.history.openPage': 'Open the full page',
+  'upload.history.matchesOnTracker': 'Already on the tracker:',
+  'upload.history.created': 'Created',
+  'upload.history.finished': 'Finished',
+
+  'upload.mediainfo.expand': 'Show the full MediaInfo',
+  'upload.mediainfo.collapse': 'Hide the full MediaInfo',
+  'upload.mediainfo.copy': 'Copy',
+  'upload.mediainfo.general': 'General',
+  'upload.mediainfo.video': 'Video',
+  'upload.mediainfo.audio': 'Audio',
+  'upload.mediainfo.subtitles': 'Subtitles',
+  'upload.mediainfo.format': 'Format',
+  'upload.mediainfo.duration': 'Duration',
+  'upload.mediainfo.bitrate': 'Bit rate',
+  'upload.mediainfo.size': 'Size',
+  'upload.mediainfo.resolution': 'Resolution',
+  'upload.mediainfo.aspectRatio': 'Aspect ratio',
+  'upload.mediainfo.frameRate': 'Frame rate',
 
   // Registro eventi (app/upload_jobs.py log_event): un codice senza una
   // frase qui passa da errors.<code>.

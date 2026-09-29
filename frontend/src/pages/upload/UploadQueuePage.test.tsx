@@ -27,6 +27,7 @@ vi.mock('@/api/hooks/uploads', () => ({
   useReorderQueue: () => ({ mutate: reorder, isPending: false }),
   useUpload: () => ({ data: undefined }),
 }))
+vi.mock('@/api/hooks/metadata', () => ({ posterUrl: () => '', useMetadataDetails: () => ({ data: undefined }) }))
 vi.mock('@/components/AuthedPoster', () => ({ AuthedPoster: () => null }))
 
 afterEach(cleanup)

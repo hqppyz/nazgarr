@@ -211,6 +211,8 @@ def handle(session: Session, job: UploadJob, worker) -> None:
     except Exception:
         logger.warning("mediainfo fallito per %r", main_video, exc_info=True)
         upload_jobs.log_event(session, job, "mediainfo_failed", level="warning")
+    # Riepilogo strutturato: anteprima MediaInfo e segnaposto del nome.
+    mediainfo_summary = mediainfo_util.extract_summary(main_video)
 
     job.stage = "local"
     session.commit()
@@ -219,6 +221,7 @@ def handle(session: Session, job: UploadJob, worker) -> None:
         "file_count": len(files),
         "client_matches": _client_matches(session, files),
         "arr_grabs": _arr_grabs(session, files),
+        "mediainfo": mediainfo_summary,
     }
     job.analysis_json = json.dumps(analysis)
     if analysis["client_matches"]:

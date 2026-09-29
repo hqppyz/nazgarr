@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Mediainfo version="24.06">
+<File>
+<track type="General"><Format>Matroska</Format><Duration>6087000</Duration><Overall_bit_rate>20900000</Overall_bit_rate><File_size>15998700000</File_size></track>
+<track type="Video"><Format>VC-1</Format><Format_profile>Advanced</Format_profile><Codec_ID>V_MS/VFW/FOURCC / WVC1</Codec_ID><Bit_depth>8</Bit_depth><Width>1920</Width><Height>1080</Height><Display_aspect_ratio>1.778</Display_aspect_ratio><Other_display_aspect_ratio>16:9</Other_display_aspect_ratio><Frame_rate>23.976</Frame_rate><Frame_rate_num>24000</Frame_rate_num><Frame_rate_den>1001</Frame_rate_den><Bit_rate>17900000</Bit_rate><Scan_type>Progressive</Scan_type></track>
+<track type="Audio"><Format>MLP FBA</Format><Language>en</Language><Channel_s_>6</Channel_s_><Channel_layout>L R C LFE Ls Rs</Channel_layout><Bit_rate>1541000</Bit_rate><Default>Yes</Default></track>
+<track type="Audio"><Format>AC-3</Format><Language>en</Language><Channel_s_>6</Channel_s_><Bit_rate>640000</Bit_rate><Default>No</Default></track>
+<track type="Audio"><Format>AC-3</Format><Language>it</Language><Channel_s_>6</Channel_s_><Bit_rate>640000</Bit_rate><Default>No</Default></track>
+<track type="Text"><Format>PGS</Format><Language>en</Language><Forced>No</Forced></track>
+<track type="Text"><Format>PGS</Format><Language>it</Language><Forced>Yes</Forced></track>
+</File>
+</Mediainfo>

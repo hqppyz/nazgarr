@@ -3,6 +3,7 @@ import { toast } from 'sonner'
 
 import { useApproveUpload, type UploadJob } from '@/api/hooks/uploads'
 import { AnalysisSummary } from '@/components/upload/AnalysisSummary'
+import { MediaInfoPreview } from '@/components/upload/MediaInfoPreview'
 import { OverridesPanel } from '@/components/upload/OverridesPanel'
 import { TargetDecisionForm } from '@/components/upload/TargetDecisionForm'
 import { ActionBadge, TrackerCheckCard } from '@/components/upload/TrackerCheckCard'
@@ -17,6 +18,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { t } from '@/lib/i18n'
+import type { MediaInfoSummary } from '@/lib/mediainfo'
 import { draftProblem, effectiveDraft, type TargetDraft } from '@/lib/upload'
 
 // Secondo punto di approvazione (docs/SPEC.md §9): cosa ha trovato
@@ -56,6 +58,10 @@ export function DecisionStep({ job }: { job: UploadJob }) {
   return (
     <div className="grid min-w-0 gap-4 [&>*]:min-w-0">
       <AnalysisSummary job={job} />
+      <MediaInfoPreview
+        summary={((job.analysis as Record<string, unknown> | null)?.mediainfo ?? null) as MediaInfoSummary | null}
+        fullText={job.mediainfo_text}
+      />
       <OverridesPanel key={JSON.stringify(job.overrides)} job={job} />
       {drafts.map(({ target, draft }) => (
         <TrackerCheckCard key={target.id} job={job} target={target}>
