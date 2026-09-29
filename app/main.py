@@ -35,6 +35,7 @@ configure_logging()
 async def lifespan(app: FastAPI):
     settings = load_settings()
     add_file_handler(Path(settings.data_dir) / "logs")
+    db.migrate_legacy_db_filename(settings.data_dir)
     engine = db.make_engine(settings.db_path)
     db.migrate_legacy_media_path_id(engine)
     db.repair_dangling_media_file_legacy_fk(engine)
@@ -59,7 +60,7 @@ async def lifespan(app: FastAPI):
         app.state.scheduler.shutdown(wait=False)
 
 
-app = FastAPI(title="The Media Gauntlet*rr", lifespan=lifespan)
+app = FastAPI(title="Nazgarr", lifespan=lifespan)
 
 # /api/auth/* è l'unico router mai protetto da require_auth (altrimenti
 # nessuno potrebbe mai autenticarsi la prima volta) — vedi app/api/auth.py.

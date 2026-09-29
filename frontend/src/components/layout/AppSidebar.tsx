@@ -3,6 +3,7 @@ import { Link, useLocation } from 'react-router-dom'
 
 import { useDashboard } from '@/api/hooks/dashboard'
 import { useHealth } from '@/api/hooks/health'
+import { RingLogo } from '@/components/RingLogo'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/contexts/AuthContext'
@@ -102,7 +103,10 @@ export function AppSidebar() {
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader className="px-4 py-4 group-data-[collapsible=icon]:hidden">
-        <span className="truncate text-base font-semibold tracking-tight">The Media Gauntlet*rr</span>
+        <span className="flex items-center gap-2">
+          <RingLogo />
+          <span className="truncate text-base font-semibold tracking-tight">Nazgarr</span>
+        </span>
       </SidebarHeader>
       <SidebarContent>
         <SidebarGroup className="px-2 py-0.5">

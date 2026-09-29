@@ -8,7 +8,7 @@ del disco giusto — collegamento per path, non per inode (docs/SPEC.md
 sezione 4: più stabile, comunque riverificato a ogni poll).
 
 Un client senza dischi associati viene confrontato con tutti i dischi per
-path esatto: è il caso comune in cui client e Gauntletarr montano gli
+path esatto: è il caso comune in cui client e Nazgarr montano gli
 stessi percorsi, e non deve richiedere nessuna configurazione.
 
 Un client può vedere il filesystem da una radice diversa dalla nostra
@@ -74,7 +74,7 @@ def index_torrent_client(
     """Interroga l'adapter e popola client_torrent/client_torrent_file per
     QUESTO client, collegandoli ai seed_file dei dischi ad esso associati
     (disk_torrent_client), o di tutti i dischi se non ne ha nessuno
-    associato (stessi percorsi fra client e Gauntletarr)."""
+    associato (stessi percorsi fra client e Nazgarr)."""
     logger.debug("Client %r: chiamata adapter.list_torrents()...", torrent_client.label)
     torrents: list[ClientTorrentInfo] = (
         adapter.list_torrents(on_progress=on_progress) if on_progress is not None else adapter.list_torrents()
@@ -171,7 +171,7 @@ def store_client_torrents(
     disks = [session.get(Disk, link.disk_id) for link in links]
     if not disks:
         # Nessuna associazione esplicita: il caso comune (TRaSH Guides) è che
-        # client e Gauntletarr vedano gli stessi percorsi, quindi i file del
+        # client e Nazgarr vedano gli stessi percorsi, quindi i file del
         # client si cercano su tutti i dischi per path esatto. L'associazione
         # serve solo a limitare i dischi o a dare una radice diversa.
         disks = session.query(Disk).all()

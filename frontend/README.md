@@ -1,4 +1,4 @@
-# Frontend — The Media Gauntlet\*rr
+# Frontend — Nazgarr
 
 React + TypeScript + Vite + Tailwind CSS + shadcn/ui. Vedi `docs/SPEC.md` §10-11 per le decisioni di design e il [README principale](../README.md) per il quadro generale del progetto.
 

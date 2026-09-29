@@ -9,4 +9,4 @@ def test_health(client):
     body = response.json()
     assert body["status"] == "ok"
     assert body["version"]
-    assert (client.scan_root.parent / "data" / "gauntletarr.db").exists()
+    assert (client.scan_root.parent / "data" / "nazgarr.db").exists()

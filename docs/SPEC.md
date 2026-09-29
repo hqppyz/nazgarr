@@ -1,8 +1,8 @@
-# The Media Gauntlet*rr — Functional and architectural spec (v1)
+# Nazgarr — Functional and architectural spec (v1)
 
 A document consolidated from a user's stream of ideas, reorganized and grounded by comparing it against four related local projects. Not an open brainstorm: wherever something is explicitly undecided, it's flagged as such at the bottom (section 15).
 
-**Name**: project name **"The Media Gauntlet*rr"**, repo/technical name **`gauntletarr`** (*arr style — gauntlet+arr, like Bazarr/Cleanuparr/Prowlarr — without actually depending on Sonarr/Radarr, the same stylistic "wink" Auditorr already does). A deliberately playful nod to the Infinity Gauntlet: a single tool that gives you full control over your entire media/torrent/tracker ecosystem, with one touch (a scheduled "run" or a manual action) fixing what's broken — hence the **Media Stones** theme below, which is not a literal reference to Marvel names/logos (this deliberately avoids any trademark collision: the names and concepts here are original, only genre-inspired).
+**Name** (renamed 2026-09-29, user decision): project name **"Nazgarr"**, repo/technical name **`nazgarr`**. It was "The Media Gauntlet*rr" / `gauntletarr`, and the rename carries the data along (`gauntletarr.db` is renamed at startup, `app/db.py`). It's *arr style (like Bazarr/Cleanuparr/Prowlarr) without actually depending on Sonarr/Radarr, the same stylistic "wink" Auditorr already does. "Nazg" is a fantasy word for "ring" and the icon is a plain golden ring: a light fantasy flavour is fine in the UI, but no direct references to the source works or their marks, and none in the README. The **Media Stones** theme below comes from the old name and stays only as internal naming of domains/phases for now; a re-theme around the new name is to be evaluated (it isn't visible in the UI today).
 
 ## Theme: the Media Stones
 
@@ -23,7 +23,7 @@ Six "stones," one per main functional domain — used as a reading key to organi
 
 This doesn't start from scratch. It synthesizes:
 
-- **`ratio-guardian`** (`/Users/lucazonarelli/Projects/ratio-guardian/docs/SPEC.md`): the most mature architectural analysis and the closest to this scope — a disk/hardlink model with no Unraid/FUSE dependency, a TMDB matching engine with explicit confidence, a reseeding engine with forced recheck, and — decided in that project's most recent session — a second "Upload" mode inspired by Upload-Assistant. Gauntletarr **inherits ratio-guardian's entire data architecture and matching/reseeding engine**, which should be read for the verified implementation details (the real shape of the UNIT3D API, already-fixed known bugs like the season pack size comparison, mediainfo edge cases). This document doesn't repeat those details where they haven't changed, it references them.
+- **`ratio-guardian`** (`/Users/lucazonarelli/Projects/ratio-guardian/docs/SPEC.md`): the most mature architectural analysis and the closest to this scope — a disk/hardlink model with no Unraid/FUSE dependency, a TMDB matching engine with explicit confidence, a reseeding engine with forced recheck, and — decided in that project's most recent session — a second "Upload" mode inspired by Upload-Assistant. Nazgarr **inherits ratio-guardian's entire data architecture and matching/reseeding engine**, which should be read for the verified implementation details (the real shape of the UNIT3D API, already-fixed known bugs like the season pack size comparison, mediainfo edge cases). This document doesn't repeat those details where they haven't changed, it references them.
 - **Auditorr**: reference for the visualization experience — library tree view, per-file state (presence/hardlink/seeding), dashboard with a "library health" gauge, reverse hardlink lookup from the torrent side.
 - **Upload-Assistant**: domain reference for the upload flow (mediainfo, screenshots, description, dupe-check, ~90 supported trackers). **In development freeze** as declared by the project itself — to be treated as a domain reference to reimplement against our own contracts, never as a live dependency.
 - **smartmediareseed**: reference for verifying file↔torrent identity via **piece hashes** (BEP3) against the hash declared in the `.torrent` — a stronger confidence signal than mediainfo Unique ID alone (which doesn't distinguish different audio tracks on otherwise-identical video). To be integrated as an additional signal in the matching engine (section 6), never as a substitute for a real recheck.
@@ -37,7 +37,7 @@ The user manages a media library (movies/shows) and one or more torrent seeding 
 - files seeding that were never organized/linked into the actual media library;
 - downloaded/organized files that were never correctly identified (no TMDB match), and are therefore invisible to any matching logic.
 
-Gauntletarr has to give **a single, coherent view of every file's state**, on both sides (media and torrent) and on the torrent client itself, plus the tools to fix every kind of drift: reseeding, manual linking, uploading new content.
+Nazgarr has to give **a single, coherent view of every file's state**, on both sides (media and torrent) and on the torrent client itself, plus the tools to fix every kind of drift: reseeding, manual linking, uploading new content.
 
 ## 2. Genericity requirements (binding, inherited from ratio-guardian §2)
 
@@ -55,7 +55,7 @@ The central point of the original request, distinct from (and complementary to) 
 
 Files in the media library **without** a valid hardlink to the disk's torrent folder → candidates for the matching/reseeding engine (section 6). This is the "I moved/renamed the file and broke seeding" case.
 
-### Torrent → client/media direction (new requirement for Gauntletarr)
+### Torrent → client/media direction (new requirement for Nazgarr)
 
 For every file in a disk's torrent folder:
 
@@ -96,7 +96,7 @@ Either way, the runtime `st_dev` check before every hardlink (§3, `create_disk`
 
 ### Why ratio-guardian's model isn't enough as-is
 
-Ratio-guardian merges logical identity and physical file into a single row (`media_item` has both `tmdb_id` and `file_path`/`inode`) and **has no table at all for the torrent client inventory** — it checks "is this already seeding" with a live filesystem check (`find -samefile`) plus a client query only at execution time. That works for a single client with no need to see cross-seeding, but it doesn't hold up against Gauntletarr's requirements (multi-client, a grid view grouped by content, explicit visibility of every cross-seed claimant — §3, §5, §7). Auditorr's model was also analyzed, as a negative reference: it keeps everything in JSON blobs recomputed on every run and, for cross-seeding, merges every claimant on the same inode down to just "the healthiest one" (`audit.py::_walk_directory`, lines 106-124) — an efficient choice, but one that **loses information**, exactly the opposite of what's needed here.
+Ratio-guardian merges logical identity and physical file into a single row (`media_item` has both `tmdb_id` and `file_path`/`inode`) and **has no table at all for the torrent client inventory** — it checks "is this already seeding" with a live filesystem check (`find -samefile`) plus a client query only at execution time. That works for a single client with no need to see cross-seeding, but it doesn't hold up against Nazgarr's requirements (multi-client, a grid view grouped by content, explicit visibility of every cross-seed claimant — §3, §5, §7). Auditorr's model was also analyzed, as a negative reference: it keeps everything in JSON blobs recomputed on every run and, for cross-seeding, merges every claimant on the same inode down to just "the healthiest one" (`audit.py::_walk_directory`, lines 106-124) — an efficient choice, but one that **loses information**, exactly the opposite of what's needed here.
 
 ### The entities (physical separated from logical, as discussed)
 
@@ -261,7 +261,7 @@ Configuration
 
 Dashboard: inherits ratio-guardian §15 (library health gauge, pending review/failed/unresolved KPIs, novelty feed) — **additional KPIs** to reflect the two directions: an `orphan_torrent` count and an `ignored` count, each linking directly to the matching filter in Library. Health gauge formula settled in Fase 5 (`app/health.py`): a single explicit, size-weighted ratio (seeding media size / total media size), not Auditorr's multi-factor weighted score (hardlink/orphan/not-imported/duplicates, each independently weighted) — the other KPIs already surface those signals individually and clickably, so folding them again into one composite number would lose clarity rather than add it. Layout (revised 2026-09-29, Auditorr-inspired, user decision): a 7d/30d/90d/All window drives the health ring and its history. The health is still the single hardlink ratio above: no weighted score. Four cards (hardlinked media, orphaned torrents, not imported, duplicates) show value, size and trend against the previous scan (`run_log` keeps their sizes), plus a link to the filtered view. The **Not imported** view lists seeding torrents with no hardlink in the library (per-file state `ignored`, shown as "not imported"), one row per torrent with a reason. The reasons are superseded, copy, removed, never imported and extras only (`app/not_imported.py`). The view is read-only; actions are a future step through the review queue (docs/ROADMAP.md). The novelty feed is **"Changes since last scan"** (`GET /api/dashboard/changes`, `app/file_changes.py`), a per-file diff in the style of Auditorr and a user decision that replaces the earlier "latest candidates" feed. At the end of each scan where every disk and every client completed, each file's state (media and torrent side) is compared with the previous snapshot. The diff lists new and removed media/torrent files, plus state changes: now seeding, now orphaned, now ignored, stopped and resumed. The first scan only takes the baseline, and excluded files never produce a change.
 
-Frontend stack: **React SPA + shadcn/ui** (a decision already made in ratio-guardian on 2026-09-21, inherited here from the start instead of as a later refactor — Gauntletarr already starts with a FastAPI backend as a pure JSON API under `/api/*`, no Jinja2/HTMX phase to outgrow). Fase 8 (in corso): scaffold Vite + React + TypeScript + Tailwind + shadcn/ui in `frontend/`, tipi TS generati dallo schema OpenAPI di FastAPI (`openapi-typescript`, mai duplicati a mano), servito in produzione dallo stesso container FastAPI (`app/frontend.py`, nessun processo Node separato) — sidebar di navigazione con la struttura sopra già in piedi, le singole pagine arrivano per sotto-fasi successive.
+Frontend stack: **React SPA + shadcn/ui** (a decision already made in ratio-guardian on 2026-09-21, inherited here from the start instead of as a later refactor — Nazgarr already starts with a FastAPI backend as a pure JSON API under `/api/*`, no Jinja2/HTMX phase to outgrow). Fase 8 (in corso): scaffold Vite + React + TypeScript + Tailwind + shadcn/ui in `frontend/`, tipi TS generati dallo schema OpenAPI di FastAPI (`openapi-typescript`, mai duplicati a mano), servito in produzione dallo stesso container FastAPI (`app/frontend.py`, nessun processo Node separato) — sidebar di navigazione con la struttura sopra già in piedi, le singole pagine arrivano per sotto-fasi successive.
 
 ## 11. Tech stack
 
@@ -313,7 +313,7 @@ Inherits ratio-guardian (CLAUDE.md), with additions for multi-client and posters
 
 Not binding to the letter, but respects the logical dependencies (e.g. there's no point building the Library view before a unified state exists to show).
 
-**Repo**: `https://github.com/lktorrentz/gauntletarr` (public, GPL-3.0). A project **separate from `ratio-guardian`** (confirmed decision: doesn't replace it, doesn't reuse its code as-is — reuses architecture/patterns as described in this document, but has its own repo and history).
+**Repo**: `https://github.com/lktorrentz/nazgarr` (public, GPL-3.0). A project **separate from `ratio-guardian`** (confirmed decision: doesn't replace it, doesn't reuse its code as-is — reuses architecture/patterns as described in this document, but has its own repo and history).
 
 ## 15. Things explicitly left open (not decided in this session)
 

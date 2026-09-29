@@ -74,6 +74,17 @@ jobs:
           docker buildx imagetools create -t "$image:stable" -t "$image:latest" "$image:$VERSION"
           docker buildx imagetools inspect "$image:stable"
 
+      - name: Mirror stable to the legacy image name
+        # Vedi docker-publish.yml (LEGACY_IMAGE): da togliere dopo la prossima stable.
+        continue-on-error: true
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          image="${REGISTRY}/${IMAGE_NAME,,}"
+          legacy=ghcr.io/lktorrentz/gauntletarr
+          docker buildx imagetools create -t "$legacy:stable" -t "$legacy:latest" "$image:$VERSION"
+
       - name: Mark the release as stable
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

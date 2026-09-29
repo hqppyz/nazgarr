@@ -16,7 +16,7 @@ export const CACHE_BUSTER = 'library-v1'
 
 export const queryPersister = createAsyncStoragePersister({
   storage: { getItem: get, setItem: set, removeItem: del },
-  key: 'gauntletarr-query-cache',
+  key: 'nazgarr-query-cache',
   throttleTime: 2000,
 })
 

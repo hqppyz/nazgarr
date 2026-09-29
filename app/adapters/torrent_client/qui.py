@@ -29,7 +29,7 @@ pragmatica originale (vedi ancora qbittorrent.py in questo pacchetto):
   `action: "recheck"` (SPEC.md sezione 8, mai skip_checking=True).
 
 Un deployment qui gestisce più istanze qBittorrent dietro un solo host+api
-token: un TorrentClient di gauntletarr punta sempre a UNA istanza specifica
+token: un TorrentClient di nazgarr punta sempre a UNA istanza specifica
 (TorrentClient.qui_instance_id) — add_torrent deve sapere esattamente dove
 scrivere, non può sceglierla a runtime.
 """

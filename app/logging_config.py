@@ -70,12 +70,12 @@ def add_file_handler(log_dir: Path) -> None:
     accumulerebbe un RotatingFileHandler aperto in più a ogni giro."""
     root = logging.getLogger()
     for existing in list(root.handlers):
-        if getattr(existing, "_gauntletarr_file_handler", False):
+        if getattr(existing, "_nazgarr_file_handler", False):
             root.removeHandler(existing)
             existing.close()
 
     log_dir.mkdir(parents=True, exist_ok=True)
     handler = RotatingFileHandler(log_dir / "app.log", maxBytes=5_000_000, backupCount=3)
     handler.setFormatter(RedactingFormatter(LOG_FORMAT, LOG_DATEFMT))
-    handler._gauntletarr_file_handler = True
+    handler._nazgarr_file_handler = True
     root.addHandler(handler)

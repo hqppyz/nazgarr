@@ -1,4 +1,4 @@
--- The Media Gauntlet*rr — DB schema
+-- Nazgarr — DB schema
 -- See docs/SPEC.md for the rationale behind every table/field.
 -- Inherits ratio-guardian/docs/schema.sql's setup, with one main structural
 -- difference: here the physical file (media_file/seed_file) is an entity
@@ -84,7 +84,7 @@ CREATE TABLE IF NOT EXISTS disk_torrent_client (
     disk_id                    INTEGER NOT NULL REFERENCES disk(id) ON DELETE CASCADE,
     torrent_client_id          INTEGER NOT NULL REFERENCES torrent_client(id) ON DELETE CASCADE,
     torrent_client_root_path   TEXT,    -- root of THIS disk as seen by THIS client, if different from
-                                         -- disk.root_path — null if this client and Gauntletarr see the
+                                         -- disk.root_path — null if this client and Nazgarr see the
                                          -- same path (common case, same host or same mount)
     PRIMARY KEY (disk_id, torrent_client_id)
 );
@@ -299,7 +299,7 @@ CREATE TABLE IF NOT EXISTS client_torrent (
     category            TEXT,
     tracker_url         TEXT,
     state               TEXT NOT NULL,          -- value as reported by the client, not normalized here
-                                                 -- (mapping to Gauntletarr states happens in the app, not the DB)
+                                                 -- (mapping to Nazgarr states happens in the app, not the DB)
     added_at            TIMESTAMP,
     last_polled_at      TIMESTAMP NOT NULL,
     ratio               REAL,                   -- as reported by the client (Not imported view). Additive, nullable.

@@ -15,6 +15,11 @@ from pathlib import Path
 import yaml
 from pydantic import BaseModel, field_validator
 
+DB_FILENAME = "nazgarr.db"
+# Nome del file prima del rename del progetto (Gauntletarr -> Nazgarr):
+# rinominato all'avvio da app/db.py::migrate_legacy_db_filename.
+LEGACY_DB_FILENAME = "gauntletarr.db"
+
 
 class Settings(BaseModel):
     disk_scan_root: str = "/mnt"
@@ -29,7 +34,7 @@ class Settings(BaseModel):
 
     @property
     def db_path(self) -> str:
-        return os.path.join(self.data_dir, "gauntletarr.db")
+        return os.path.join(self.data_dir, DB_FILENAME)
 
 
 def load_settings(config_path: str | None = None) -> Settings:

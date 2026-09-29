@@ -9,13 +9,17 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { t } from '@/lib/i18n'
+import { RingLogo } from '@/components/RingLogo'
 
 function CenteredCard({ title, description, children }: { title: string; description: string; children: ReactNode }) {
   return (
     <div className="flex min-h-svh items-center justify-center p-6">
       <Card className="w-full max-w-sm">
         <CardHeader>
-          <CardTitle>{title}</CardTitle>
+          <CardTitle className="flex items-center gap-2">
+            <RingLogo className="size-7" />
+            {title}
+          </CardTitle>
           <CardDescription>{description}</CardDescription>
         </CardHeader>
         <CardContent>{children}</CardContent>
@@ -30,7 +34,7 @@ function SetupScreen() {
   const setup = useSetup()
 
   return (
-    <CenteredCard title="The Media Gauntlet*rr" description={t('auth.setupDescription')}>
+    <CenteredCard title="Nazgarr" description={t('auth.setupDescription')}>
       <form
         className="grid gap-3"
         onSubmit={(e) => {
@@ -69,7 +73,7 @@ function LoginScreen() {
   const login = useLogin()
 
   return (
-    <CenteredCard title="The Media Gauntlet*rr" description={t('auth.loginDescription')}>
+    <CenteredCard title="Nazgarr" description={t('auth.loginDescription')}>
       <form
         className="grid gap-3"
         onSubmit={(e) => {

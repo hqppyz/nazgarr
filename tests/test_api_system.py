@@ -16,7 +16,7 @@ def test_app_info(client):
 
 
 def _fake_releases(monkeypatch, releases, status=200):
-    def fake_get(url, params=None, headers=None, timeout=None):
+    def fake_get(url, params=None, headers=None, timeout=None, **kwargs):
         return httpx.Response(status, json=releases, request=httpx.Request("GET", url))
 
     monkeypatch.setattr(system_module.httpx, "get", fake_get)

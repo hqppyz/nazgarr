@@ -36,13 +36,13 @@ class ExecutionError(Exception):
 
 
 def _client_visible_path(session: Session, disk: Disk, torrent_client_id: int | None, local_path: str) -> str:
-    """Traduce un path lato Gauntletarr nel path equivalente visto DA QUESTO
+    """Traduce un path lato Nazgarr nel path equivalente visto DA QUESTO
     client torrent, quando i due girano in container/mount diversi per lo
     stesso disco fisico (disk_torrent_client.torrent_client_root_path per
     la coppia (disk, torrent_client_id) — non un campo del disco: client
     diversi sullo stesso disco possono vederlo a path diversi). Se
     torrent_client_id è None, o nessuna riga/override esiste per quella
-    coppia, assume che client e Gauntletarr vedano lo stesso path."""
+    coppia, assume che client e Nazgarr vedano lo stesso path."""
     root_override = None
     if torrent_client_id is not None:
         link = (

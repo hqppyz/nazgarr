@@ -5,7 +5,7 @@ selezionare disk.media_rel_path che per creare/selezionare
 torrents_rel_path — un solo meccanismo di scoping condiviso
 (app/fs_scope.py), mai duplicato.
 
-Gauntletarr è un'API JSON pura fin dall'inizio (a differenza di
+Nazgarr è un'API JSON pura fin dall'inizio (a differenza di
 ratio-guardian, che ha ancora una Web UI Jinja2): anche l'elenco dei mount
 disponibili sotto disk_scan_root (usato lì solo dalla pagina web) è quindi
 esposto qui come endpoint proprio.

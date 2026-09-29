@@ -1,8 +1,8 @@
-# The Media Gauntlet*rr
+# Nazgarr
 
 A self-hosted tool that manages, in one place: your media library, your torrent seeding folders, the hardlink correspondence between them, the real state of your configured torrent clients (multi-client, cross-seed included), and publishing new uploads to trackers.
 
-Not specific to Unraid or the \*arr stack — it works with any layout of separate disks (no FUSE/RAID required), and Sonarr/Radarr/qBittorrent-style tools are optional integrations, never dependencies. The name is a stylistic nod to the \*arr naming convention (gauntlet + arr, like Bazarr/Prowlarr), nothing more.
+Not specific to Unraid or the \*arr stack — it works with any layout of separate disks (no FUSE/RAID required), and Sonarr/Radarr/qBittorrent-style tools are optional integrations, never dependencies. The name is a stylistic nod to the \*arr naming convention (like Bazarr/Prowlarr), nothing more.
 
 **Current status**: the backend is complete and tested (filesystem/hardlink scan, multi-client torrent indexing, TMDB content identification, the matching/reseeding engine for both directions, scheduling, and the upload module) and exposed as a JSON API under `/api/*`. **The web UI (React + shadcn/ui, [`frontend/`](frontend/)) is functionally complete** — Dashboard, Library (tree/grid/orphaned), Reseeding (review queue, runs), Upload (wizard + queue) and Configuration (disks, torrent clients, trackers, settings) are all implemented and served by the same container. The walkthrough below still drives the API directly (`curl`, a REST client, or your own scripts) since that works identically whether or not you're also using the UI — see [`docs/SPEC.md`](docs/SPEC.md) §10 for the UI design and [`frontend/README.md`](frontend/README.md) for frontend-specific dev instructions.
 
@@ -21,8 +21,8 @@ License: GPL-3.0 (see [`LICENSE`](LICENSE)).
 ## Quick start (Docker Compose)
 
 ```bash
-git clone https://github.com/lktorrentz/gauntletarr.git
-cd gauntletarr
+git clone https://github.com/lktorrentz/nazgarr.git
+cd nazgarr
 cp .env.example .env
 ```
 
@@ -51,14 +51,14 @@ curl http://localhost:8080/api/health
 
 ### Unraid
 
-A Community-Applications-style template is published at [`unraid/gauntletarr-template.xml`](unraid/gauntletarr-template.xml) — add it as a custom template pointing at that raw GitHub URL, or download it and add it manually via "Add Container" → "Template" in the Unraid Docker UI. It follows the same TrashGuide layout as the compose file above (one combined `/data` mount).
+A Community-Applications-style template is published at [`unraid/nazgarr-template.xml`](unraid/nazgarr-template.xml) — add it as a custom template pointing at that raw GitHub URL, or download it and add it manually via "Add Container" → "Template" in the Unraid Docker UI. It follows the same TrashGuide layout as the compose file above (one combined `/data` mount).
 
 ### Release channels
 
 Two image tags, pick one:
 
-- **`ghcr.io/lktorrentz/gauntletarr:stable`** (same image as **`:latest`**): releases promoted by hand once they've been tested. This is the tag to use if you just want to run it, and the Unraid template uses it.
-- **`ghcr.io/lktorrentz/gauntletarr:nightly`**: a test build for every push to `main` (published as a GitHub *prerelease*). It moves fast and may break.
+- **`ghcr.io/lktorrentz/nazgarr:stable`** (same image as **`:latest`**): releases promoted by hand once they've been tested. This is the tag to use if you just want to run it, and the Unraid template uses it.
+- **`ghcr.io/lktorrentz/nazgarr:nightly`**: a test build for every push to `main` (published as a GitHub *prerelease*). It moves fast and may break.
 
 Every version is also published as `:X.Y.Z`. **Configuration → Application → Check for updates** follows the channel you're on. On a stable version it only offers newer stable releases; on a test build it offers every newer build.
 

@@ -18,7 +18,7 @@ from app.version import __commit__, __version__
 
 router = APIRouter(prefix="/api/system", tags=["system"])
 
-GITHUB_REPO = "lktorrentz/gauntletarr"
+GITHUB_REPO = "lktorrentz/nazgarr"
 
 
 class AppInfoResponse(BaseModel):
@@ -84,8 +84,9 @@ def update_check():
         response = httpx.get(
             f"https://api.github.com/repos/{GITHUB_REPO}/releases",
             params={"per_page": 50},
-            headers={"Accept": "application/vnd.github+json", "User-Agent": "gauntletarr"},
+            headers={"Accept": "application/vnd.github+json", "User-Agent": "nazgarr"},
             timeout=5,
+            follow_redirects=True,  # un repo rinominato risponde con un redirect
         )
     except httpx.HTTPError as exc:
         return UpdateCheckResponse(

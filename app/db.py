@@ -50,6 +50,7 @@ repair_dangling_media_file_legacy_fk() ripara chi ha già subito il danno
 della prima versione."""
 
 import logging
+import os
 from pathlib import Path
 
 from sqlalchemy import create_engine, event, inspect, text
@@ -70,6 +71,32 @@ def _configure_sqlite(dbapi_connection, _connection_record):
     # vengono bloccati da uno scrittore concorrente (lo scan in corso).
     cursor.execute("PRAGMA journal_mode=WAL")
     cursor.close()
+
+
+def migrate_legacy_db_filename(data_dir: str) -> str | None:
+    """Rename del progetto (Gauntletarr -> Nazgarr): il database si chiamava
+    gauntletarr.db. Se c'è solo quello, viene rinominato (con i file -wal/
+    -shm di SQLite, se presenti) prima di aprire qualunque connessione: senza,
+    l'app partirebbe con un database vuoto e sembrerebbe aver perso tutto.
+    Se esistono entrambi non si tocca niente e vale quello nuovo (un rename
+    già fatto, o un database nuovo creato apposta): solo un avviso nei log.
+    Restituisce il percorso rinominato, None se non c'era niente da fare."""
+    from app.config import DB_FILENAME, LEGACY_DB_FILENAME
+
+    legacy = Path(data_dir) / LEGACY_DB_FILENAME
+    current = Path(data_dir) / DB_FILENAME
+    if not legacy.exists():
+        return None
+    if current.exists():
+        logger.warning("Trovati sia %s sia %s: uso %s, il vecchio resta com'è", legacy, current, current)
+        return None
+    for suffix in ("-wal", "-shm"):
+        sidecar = Path(f"{legacy}{suffix}")
+        if sidecar.exists():
+            os.replace(sidecar, f"{current}{suffix}")
+    os.replace(legacy, current)
+    logger.info("Database rinominato: %s -> %s", legacy, current)
+    return str(current)
 
 
 def make_engine(db_path: str) -> Engine:

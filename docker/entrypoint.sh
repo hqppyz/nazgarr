@@ -15,12 +15,12 @@ PUID="${PUID:-1000}"
 PGID="${PGID:-1000}"
 
 if ! getent group "$PGID" >/dev/null 2>&1; then
-    groupadd -g "$PGID" gauntletarr
+    groupadd -g "$PGID" nazgarr
 fi
 GROUP_NAME=$(getent group "$PGID" | cut -d: -f1)
 
 if ! getent passwd "$PUID" >/dev/null 2>&1; then
-    useradd -u "$PUID" -g "$GROUP_NAME" -M -s /usr/sbin/nologin gauntletarr
+    useradd -u "$PUID" -g "$GROUP_NAME" -M -s /usr/sbin/nologin nazgarr
 fi
 USER_NAME=$(getent passwd "$PUID" | cut -d: -f1)
 

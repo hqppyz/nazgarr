@@ -4,7 +4,7 @@ aggiornamenti (Configuration > Application).
 La versione vera la decide la CI (.github/workflows/docker-publish.yml): a
 ogni push su main incrementa la patch dell'ultimo tag vX.Y.Z (0.2.1,
 0.2.2, …), crea tag e GitHub Release e la inietta nell'immagine Docker
-(GAUNTLETARR_VERSION / GAUNTLETARR_COMMIT) — nessun commit automatico
+(NAZGARR_VERSION / NAZGARR_COMMIT) — nessun commit automatico
 sul repo. Qui resta solo la base major.minor: per passare a 0.3.x basta
 alzare BASE_VERSION a "0.3.0", la CI parte da lì al push successivo.
 1.0.0 è riservata a un rilascio pubblico vero, testato end-to-end.
@@ -19,8 +19,8 @@ BASE_VERSION + "-dev": a colpo d'occhio non si confonde con una release."""
 
 import os
 
-BASE_VERSION = "0.4.0"
+BASE_VERSION = "0.5.0"
 
-__version__ = os.environ.get("GAUNTLETARR_VERSION") or f"{BASE_VERSION}-dev"
+__version__ = os.environ.get("NAZGARR_VERSION") or f"{BASE_VERSION}-dev"
 # Commit breve da cui è stata costruita l'immagine, None in sviluppo locale.
-__commit__ = os.environ.get("GAUNTLETARR_COMMIT") or None
+__commit__ = os.environ.get("NAZGARR_COMMIT") or None

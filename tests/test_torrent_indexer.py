@@ -180,7 +180,7 @@ def test_client_with_no_disks_still_indexes_torrents_without_linking(db_session)
 
 
 def test_client_without_associations_is_matched_against_every_disk_by_path(db_session):
-    """Caso comune (TRaSH Guides): client e Gauntletarr vedono gli stessi
+    """Caso comune (TRaSH Guides): client e Nazgarr vedono gli stessi
     percorsi, nessuna associazione disco-client da configurare."""
     disk = Disk(label="FUSE", root_path="/data", torrents_rel_path="torrents")
     tc = TorrentClient(label="qui", adapter_type="qui", base_url="http://qui")

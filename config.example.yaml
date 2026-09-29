@@ -1,4 +1,4 @@
-# The Media Gauntlet*rr - static configuration
+# Nazgarr - static configuration
 #
 # Physical disks are NOT listed here: just mount them into the container
 # under disk_scan_root, and they'll show up on their own via the API

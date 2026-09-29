@@ -33,9 +33,9 @@
 # logic needed beyond restarting the container to pick up the new mount.
 
 services:
-  gauntletarr:
+  nazgarr:
     build: .
-    container_name: gauntletarr
+    container_name: nazgarr
     restart: unless-stopped
     ports:
       - "8080:8080"

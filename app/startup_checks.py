@@ -14,7 +14,9 @@ from app.models import AppSetting
 logger = logging.getLogger(__name__)
 
 _CANARY_KEY = "app_secret_key_canary"
-_CANARY_PLAINTEXT = "gauntletarr-secret-key-check"
+_CANARY_PLAINTEXT = "nazgarr-secret-key-check"
+# Prima del rename del progetto: ancora valido, e riscritto col testo nuovo.
+_LEGACY_CANARY_PLAINTEXT = "gauntletarr-secret-key-check"
 
 
 class SecretKeyMismatchError(RuntimeError):
@@ -47,6 +49,10 @@ def verify_secret_key(session: Session) -> None:
             "precedente se la conservi ancora, oppure riparti con quella nuova "
             "reinserendo da capo quelle credenziali."
         ) from exc
+    if decrypted == _LEGACY_CANARY_PLAINTEXT:
+        row.value = crypto.encrypt(_CANARY_PLAINTEXT)
+        session.commit()
+        return
     if decrypted != _CANARY_PLAINTEXT:
         # Non dovrebbe accadere in pratica (Fernet solleverebbe già InvalidToken
         # su qualunque manomissione/chiave sbagliata prima di arrivare qui), ma

@@ -1,10 +1,20 @@
 // localStorage invece che in-memory: un JWT valido 30 giorni (app/auth.py)
 // deve sopravvivere a un refresh della pagina, non solo alla sessione tab.
-const STORAGE_KEY = 'gauntletarr_token'
+const STORAGE_KEY = 'nazgarr_token'
+// Prima del rename del progetto (Gauntletarr -> Nazgarr): letta una volta e
+// spostata sulla chiave nuova, così nessuno viene disconnesso dal rename.
+const LEGACY_STORAGE_KEY = 'gauntletarr_token'
 
 export function getToken(): string | null {
   try {
-    return localStorage.getItem(STORAGE_KEY)
+    const token = localStorage.getItem(STORAGE_KEY)
+    if (token != null) return token
+    const legacy = localStorage.getItem(LEGACY_STORAGE_KEY)
+    if (legacy != null) {
+      localStorage.setItem(STORAGE_KEY, legacy)
+      localStorage.removeItem(LEGACY_STORAGE_KEY)
+    }
+    return legacy
   } catch {
     return null
   }
