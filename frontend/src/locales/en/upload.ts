@@ -131,6 +131,7 @@ export const upload = {
 
   'upload.dupes.suggested': 'Suggested:',
   'upload.dupes.onTracker': 'Already on the tracker',
+  'upload.dupes.seedingHere': 'These files are already seeding on {client} for this tracker ({torrent}): nothing to do here.',
   'upload.decision.yourDecision': 'Your decision',
   'upload.dupes.none': 'Nothing like this on the tracker yet.',
   'upload.dupes.checkFailed':
@@ -171,6 +172,10 @@ export const upload = {
   'upload.overrides.field.screenshot_count': 'Screenshots',
   'upload.overrides.field.notes': 'Notes at the end of the description',
   'upload.overrides.advanced': 'Advanced',
+  'upload.overrides.readFrom.hardlink': 'Read from the torrent already seeding these files:',
+  'upload.overrides.readFrom.radarr': 'Read from the original name Radarr recorded:',
+  'upload.overrides.readFrom.sonarr': 'Read from the original name Sonarr recorded:',
+  'upload.overrides.readFrom.source': 'Read from the source name:',
   'upload.overrides.screenshotDefault': 'from the settings',
   'upload.overrides.noSeed': "Don't add the torrents to the client",
   'upload.overrides.save': 'Apply',
@@ -265,6 +270,7 @@ export const upload = {
   'upload.event.grabbed_from_tracker': 'Radarr/Sonarr downloaded this from {trackers}.',
   'upload.event.dupe_check_done':
     '{results} result(s) on the tracker, {identical} identical, {same_slot} dupe(s): suggested {suggested}.',
+  'upload.event.already_seeding_here': 'Already seeding on {client} for this tracker ({torrent}): skip suggested.',
   'upload.event.dupe_check_failed': 'Dupe check failed: {error}',
   'upload.event.verify_started': 'Full hash check against torrent {torrent} started.',
   'upload.event.verify_passed': 'Torrent {torrent}: every piece matches ({ok}/{pieces}).',

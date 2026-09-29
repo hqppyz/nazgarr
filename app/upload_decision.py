@@ -40,7 +40,10 @@ def _maps(profile: TrackerUploadProfile | None) -> tuple[dict, dict, dict]:
 
 
 def detected_values(job: UploadJob) -> dict:
-    return detect(os.path.basename(job.source_path.rstrip(os.sep)))
+    """Dal nome scelto dall'analisi (torrent in hardlink, nome originale di
+    Radarr/Sonarr, o il nome della sorgente: app/upload_analysis.py)."""
+    source = (json.loads(job.analysis_json or "{}").get("name_source") or {}).get("name")
+    return detect(source or os.path.basename(job.source_path.rstrip(os.sep)))
 
 
 def clean_overrides(raw: dict | None) -> dict:

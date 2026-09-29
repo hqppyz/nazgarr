@@ -119,6 +119,7 @@ def _client_matches(session: Session, files: list[tuple[str, int]]) -> list[dict
         client = session.get(TorrentClient, torrent.torrent_client_id)
         matched = entry["hardlinked"] | entry["same_size"]
         matches.append({
+            "client_id": torrent.torrent_client_id,
             "client": client.label if client else None,
             "name": torrent.name,
             "info_hash": torrent.info_hash,
@@ -133,8 +134,7 @@ def _client_matches(session: Session, files: list[tuple[str, int]]) -> list[dict
     return matches
 
 
-def _arr_grabs(session: Session, files: list[tuple[str, int]]) -> list[dict]:
-    index = arr_index_if_configured(session)
+def _arr_grabs(index, files: list[tuple[str, int]]) -> list[dict]:
     if index is None:
         return []
     grabs, seen = [], set()
@@ -156,6 +156,30 @@ def _arr_grabs(session: Session, files: list[tuple[str, int]]) -> list[dict]:
     return grabs
 
 
+def _strip_video_ext(name: str) -> str:
+    base, ext = os.path.splitext(name)
+    return base if is_video(name) else name
+
+
+def name_source(job: UploadJob, files: list[tuple[str, int]], client_matches: list[dict], index) -> dict:
+    """Da quale nome leggere risoluzione, sorgente, codec e gruppo per il
+    nome della release. Chi parte da un file in libreria ha il nome
+    rinominato da Radarr/Sonarr: meglio il nome del torrent che fa già seed
+    di quei byte (hardlink), poi il nome originale che Radarr/Sonarr hanno
+    registrato, e solo in ultimo il nome della sorgente."""
+    hardlinked = next((m for m in client_matches if m["match"] == "hardlink"), None)
+    if hardlinked is not None:
+        return {"name": _strip_video_ext(hardlinked["name"]), "origin": "hardlink"}
+    if index is not None:
+        for path, size in sorted(files, key=lambda f: -f[1]):
+            if not is_video(path):
+                continue
+            identity = index.identity_for(path, size)
+            if identity is not None and identity.scene_name:
+                return {"name": identity.scene_name, "origin": identity.source}
+    return {"name": os.path.basename(job.source_path.rstrip(os.sep)), "origin": "source"}
+
+
 def summary_of(job: UploadJob, files: list[tuple[str, int]]) -> SourceSummary:
     return SourceSummary(
         name=os.path.basename(job.source_path.rstrip(os.sep)),
@@ -167,7 +191,24 @@ def summary_of(job: UploadJob, files: list[tuple[str, int]]) -> SourceSummary:
     )
 
 
-def _check_trackers(session: Session, job: UploadJob, summary: SourceSummary) -> None:
+def seeding_here(target, client_matches: list[dict]) -> dict | None:
+    """Gli stessi byte (hardlink) sono già in seed sul client di questo
+    tracker, con un torrent di questo tracker: niente da fare, né upload né
+    reseed."""
+    hosts = {arr.host_of(target.tracker.announce_url), arr.host_of(target.tracker.base_url)} - {None}
+    for match in client_matches:
+        if (match["match"] == "hardlink" and match["client_id"] == target.torrent_client_id
+                and match["tracker_host"] in hosts):
+            return match
+    return None
+
+
+def _check_trackers(
+    session: Session, job: UploadJob, summary: SourceSummary, client_matches: list[dict]
+) -> dict[str, dict]:
+    """Dupe check di ogni tracker; restituisce, per target, il torrent che fa
+    già seed degli stessi byte sul suo client (vedi seeding_here)."""
+    seeding_by_target: dict[str, dict] = {}
     for target in job.targets:
         target.status = "checking"
         session.commit()
@@ -190,8 +231,15 @@ def _check_trackers(session: Session, job: UploadJob, summary: SourceSummary) ->
                 session, job, "dupe_check_done", target=target, results=len(results),
                 identical=counts["identical"], same_slot=counts["same_slot"], suggested=suggested,
             )
+        seeding = seeding_here(target, client_matches)
+        if seeding is not None:
+            seeding_by_target[str(target.id)] = {"name": seeding["name"], "client": seeding["client"]}
+            target.suggested_action = "skip"
+            upload_jobs.log_event(session, job, "already_seeding_here", level="warning", target=target,
+                                  torrent=seeding["name"], client=seeding["client"])
         target.status = "awaiting_decision"
         session.commit()
+    return seeding_by_target
 
 
 def handle(session: Session, job: UploadJob, worker) -> None:
@@ -216,12 +264,15 @@ def handle(session: Session, job: UploadJob, worker) -> None:
 
     job.stage = "local"
     session.commit()
+    index = arr_index_if_configured(session)
+    client_matches = _client_matches(session, files)
     analysis = {
         "total_size_bytes": sum(s for _p, s in files),
         "file_count": len(files),
-        "client_matches": _client_matches(session, files),
-        "arr_grabs": _arr_grabs(session, files),
+        "client_matches": client_matches,
+        "arr_grabs": _arr_grabs(index, files),
         "mediainfo": mediainfo_summary,
+        "name_source": name_source(job, files, client_matches, index),
     }
     job.analysis_json = json.dumps(analysis)
     if analysis["client_matches"]:
@@ -235,7 +286,9 @@ def handle(session: Session, job: UploadJob, worker) -> None:
 
     job.stage = "trackers"
     session.commit()
-    _check_trackers(session, job, summary_of(job, files))
+    analysis["seeding_here"] = _check_trackers(session, job, summary_of(job, files), client_matches)
+    job.analysis_json = json.dumps(analysis)
+    session.commit()
     upload_decision.propose(session, job)
 
     if upload_jobs.transition(session, job, "analyzing", "awaiting_decision", stage=None):

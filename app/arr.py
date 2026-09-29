@@ -81,6 +81,10 @@ class ArrIdentity:
     imdb_id: str | None = None
     instance_id: int | None = None  # radarr_instance.id / sonarr_instance.id
     slug: str | None = None  # titleSlug della pagina in Radarr/Sonarr
+    # Nome originale della release (sceneName, o il nome del file scaricato):
+    # quello da cui un upload ricava risoluzione, sorgente, codec e gruppo,
+    # anche dopo il rename in libreria.
+    scene_name: str | None = None
 
 
 @dataclass(frozen=True)
@@ -246,6 +250,18 @@ def _tmdb_poster_path(item: dict) -> str | None:
     return None
 
 
+def _scene_name(media_file: dict) -> str | None:
+    """sceneName se Radarr/Sonarr l'hanno registrato, altrimenti il nome del
+    file originale (originalFilePath, senza cartelle né estensione)."""
+    if media_file.get("sceneName"):
+        return media_file["sceneName"]
+    original = media_file.get("originalFilePath")
+    if not original:
+        return None
+    name = original.replace("\\", "/").rsplit("/", 1)[-1]
+    return name.rsplit(".", 1)[0] if "." in name else name
+
+
 def _index_radarr(api: ArrApi, index: ArrIndex) -> None:
     movies = api.get("/api/v3/movie")
     # Anche i film senza file (sostituiti, cancellati): la history li cita per id.
@@ -260,6 +276,7 @@ def _index_radarr(api: ArrApi, index: ArrIndex) -> None:
                 source="radarr", content_type="movie", tmdb_id=movie["tmdbId"],
                 poster_path=_tmdb_poster_path(movie), title=movie.get("title"), year=movie.get("year") or None,
                 imdb_id=movie.get("imdbId") or None, instance_id=api.instance_id, slug=movie.get("titleSlug"),
+                scene_name=_scene_name(movie_file),
             ),
         )
     _index_history(api, index, lambda event: content.get(event.get("movieId")))
@@ -302,6 +319,7 @@ def _index_sonarr(api: ArrApi, index: ArrIndex) -> None:
                     season_number=numbers[0], episode_number=numbers[1],
                     title=series.get("title"), year=series.get("year") or None,
                     imdb_id=series.get("imdbId") or None, instance_id=api.instance_id, slug=series.get("titleSlug"),
+                    scene_name=_scene_name(episode_file),
                 ),
             )
     _index_history(api, index, lambda event: content.get(event.get("episodeId")))

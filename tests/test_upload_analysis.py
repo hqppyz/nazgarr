@@ -200,3 +200,65 @@ def test_interrupted_verification_goes_back_to_the_decision(db_session, tmp_path
     db_session.refresh(analyzing_job.targets[0])
     assert analyzing_job.targets[0].status == "awaiting_decision"
     assert db_session.get(UploadJob, analyzing_job.id).events[-1].code == "verify_interrupted"
+
+
+def _seed_hardlink(db_session, job, tracker_url, client):
+    st = os.stat(job.source_path)
+    run = RunLog(run_type="manual", started_at=datetime.now(UTC))
+    db_session.add(run)
+    db_session.commit()
+    sf = SeedFile(disk_id=job.disk_id, relative_path="torrents/x.mkv", size_bytes=st.st_size,
+                  st_dev=st.st_dev, inode=st.st_ino, last_scan_id=run.id, last_seen_at=datetime.now(UTC))
+    torrent = ClientTorrent(torrent_client_id=client.id, info_hash="aa",
+                            name="Movie.Name.2024.1080p.BluRay.REMUX.AVC.DTS-HD.MA.5.1-ORIG.mkv", save_path="/t",
+                            state="uploading", tracker_url=tracker_url, last_polled_at=datetime.now(UTC))
+    db_session.add_all([sf, torrent])
+    db_session.commit()
+    db_session.add(ClientTorrentFile(client_torrent_id=torrent.id, path_in_torrent="x.mkv", size_bytes=st.st_size,
+                                     seed_file_id=sf.id, last_scan_id=run.id))
+    db_session.commit()
+
+
+def test_already_seeding_on_the_trackers_client_suggests_skip_and_names_come_from_it(
+    db_session, tmp_path, monkeypatch, analyzing_job
+):
+    size = os.path.getsize(analyzing_job.source_path)
+    same = _FakeTracker([_candidate("Movie.Name.2024.1080p.BluRay.REMUX-ORIG", size)])
+    monkeypatch.setattr(upload_analysis.adapter_factory, "build_tracker_adapter", lambda t: same)
+    client = make_client(db_session, "qbit")
+    for target in analyzing_job.targets:
+        target.torrent_client_id = client.id
+    db_session.commit()
+    _seed_hardlink(db_session, analyzing_job, "https://tracker.example/announce/key", client)
+
+    _run(db_session, tmp_path, analyzing_job)
+
+    a, b = analyzing_job.targets
+    # Identico sul tracker, ma già in seed lì: né upload né reseed.
+    assert (a.suggested_action, b.suggested_action) == ("skip", "skip")
+    assert "already_seeding_here" in [e.code for e in analyzing_job.events]
+    analysis = json.loads(analyzing_job.analysis_json)
+    assert analysis["name_source"] == {"name": "Movie.Name.2024.1080p.BluRay.REMUX.AVC.DTS-HD.MA.5.1-ORIG",
+                                       "origin": "hardlink"}
+    assert analysis["detected"]["type"] == "REMUX" and analysis["detected"]["group"] == "ORIG"
+
+
+def test_names_come_from_the_original_name_radarr_recorded(db_session, tmp_path, monkeypatch, analyzing_job):
+    monkeypatch.setattr(upload_analysis.adapter_factory, "build_tracker_adapter", lambda t: _FakeTracker())
+    from app.arr import ArrIdentity
+
+    class _Index:
+        def grab_for(self, path, size):
+            return None
+
+        def identity_for(self, path, size):
+            return ArrIdentity(source="radarr", content_type="movie", tmdb_id=603,
+                               scene_name="Movie.Name.2024.2160p.WEB-DL.DV.HDR.H.265-SCENE")
+
+    monkeypatch.setattr(upload_analysis, "arr_index_if_configured", lambda session: _Index())
+
+    _run(db_session, tmp_path, analyzing_job)
+
+    analysis = json.loads(analyzing_job.analysis_json)
+    assert analysis["name_source"]["origin"] == "radarr"
+    assert (analysis["detected"]["resolution"], analysis["detected"]["group"]) == ("2160p", "SCENE")

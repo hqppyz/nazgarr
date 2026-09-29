@@ -31,7 +31,9 @@ function toDraft(overrides: Record<string, unknown>): Draft {
 // placeholder, da toccare solo dove è sbagliato. Salvando si rifanno i nomi
 // proposti per ogni tracker.
 export function OverridesPanel({ job }: { job: UploadJob }) {
-  const detected = ((job.analysis as Record<string, unknown> | null)?.detected ?? {}) as Record<string, string | null>
+  const analysis = (job.analysis ?? {}) as Record<string, unknown>
+  const detected = (analysis.detected ?? {}) as Record<string, string | null>
+  const nameSource = analysis.name_source as { name: string; origin: string } | undefined
   const [draft, setDraft] = useState<Draft>(() => toDraft(job.overrides))
   const save = useUpdateOverrides(job.id)
   const saved = toDraft(job.overrides)
@@ -75,6 +77,12 @@ export function OverridesPanel({ job }: { job: UploadJob }) {
               </span>
             )}
           </CollapsibleTrigger>
+          {nameSource && (
+            <p className="min-w-0 truncate text-xs text-muted-foreground" title={nameSource.name}>
+              {t(`upload.overrides.readFrom.${nameSource.origin}`)}{' '}
+              <span className="font-mono">{nameSource.name}</span>
+            </p>
+          )}
           {/* Chiuso: i valori usati per il nome come tag, quelli cambiati a mano
               in evidenza. Aperto: i campi per correggerli. */}
           <div className="flex flex-wrap gap-1.5 pt-1">

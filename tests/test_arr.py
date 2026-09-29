@@ -63,7 +63,8 @@ def _radarr_api():
                 {
                     "tmdbId": 157336, "hasFile": True,
                     "images": [{"coverType": "poster", "remoteUrl": "https://image.tmdb.org/t/p/original/abc.jpg"}],
-                    "movieFile": {"path": "/data/media/movies/Interstellar (2014)/Interstellar.mkv", "size": 64},
+                    "movieFile": {"path": "/data/media/movies/Interstellar (2014)/Interstellar.mkv", "size": 64,
+                                  "sceneName": "Interstellar.2014.1080p.BluRay.x264-GRP"},
                 },
                 {"tmdbId": 1, "hasFile": False, "movieFile": None},
             ]
@@ -117,7 +118,8 @@ def test_index_maps_identities_and_history_grabs(db_session):
     index = build_arr_index(db_session, api_factory=lambda inst: apis[inst.label])
 
     movie = index.identity_for("/mnt/disk1/Movies/Interstellar (2014)/Interstellar.mkv", 64)
-    assert movie == ArrIdentity(source="radarr", content_type="movie", tmdb_id=157336, poster_path="/abc.jpg")
+    assert movie == ArrIdentity(source="radarr", content_type="movie", tmdb_id=157336, poster_path="/abc.jpg",
+                                scene_name="Interstellar.2014.1080p.BluRay.x264-GRP")
     episode = index.identity_for("/mnt/disk1/TV/Season 01/show.s01e02e03.mkv", 500)
     assert episode == ArrIdentity(source="sonarr", content_type="tv", tmdb_id=1399, season_number=1, episode_number=2)
 

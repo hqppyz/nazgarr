@@ -78,6 +78,9 @@ export function TrackerCheckCard({
   const dupes = target.dupes as unknown as Dupe[]
   const verifying = target.status === 'verifying'
   const canVerify = job.status === 'awaiting_decision' && target.status === 'awaiting_decision'
+  const seeding = ((job.analysis as Record<string, unknown> | null)?.seeding_here as
+    | Record<string, { name: string; client: string }>
+    | undefined)?.[String(target.id)]
 
   return (
     <Card className="min-w-0">
@@ -103,6 +106,11 @@ export function TrackerCheckCard({
       <CardContent className="grid min-w-0 gap-5">
         <div className="grid min-w-0 gap-2">
           <SectionLabel>{t('upload.dupes.onTracker')}</SectionLabel>
+          {seeding && (
+            <p className="text-sm text-amber-600 dark:text-amber-400">
+              {t('upload.dupes.seedingHere', { client: seeding.client, torrent: seeding.name })}
+            </p>
+          )}
           {target.error_message === 'dupe_check_failed' && (
             <p className="text-sm text-amber-600 dark:text-amber-400">{t('upload.dupes.checkFailed')}</p>
           )}
