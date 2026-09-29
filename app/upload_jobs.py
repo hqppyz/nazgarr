@@ -194,6 +194,16 @@ def reset_interrupted(session: Session) -> list[int]:
         job.status = "queued"
         job.stage = None
         log_event(session, job, "job_resumed", level="warning")
+    # Un full hash check interrotto (in memoria nel worker) non riparte da
+    # solo: il target torna alla decisione, l'utente lo rilancia se vuole.
+    for target in (
+        session.query(UploadTarget)
+        .join(UploadJob, UploadJob.id == UploadTarget.job_id)
+        .filter(UploadJob.status == "awaiting_decision", UploadTarget.status == "verifying")
+        .all()
+    ):
+        target.status = "awaiting_decision"
+        log_event(session, target.job, "verify_interrupted", level="warning", target=target)
     session.commit()
     return [
         row.id

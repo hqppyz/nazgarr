@@ -36,9 +36,9 @@ HEAVY_STATES = ("queued", "running")
 def default_handlers() -> dict[str, Handler]:
     # Import qui: i moduli dei passi importano a loro volta il worker per
     # i tipi, e così restano sostituibili nei test senza cicli.
-    from app import upload_identify
+    from app import upload_analysis, upload_identify
 
-    return {"identifying": upload_identify.handle}
+    return {"identifying": upload_identify.handle, "analyzing": upload_analysis.handle}
 
 
 class UploadWorker:
@@ -50,12 +50,17 @@ class UploadWorker:
         handlers: dict[str, Handler] | None = None,
         light_executor: Executor | None = None,
         heavy_executor: Executor | None = None,
+        verify_executor: Executor | None = None,
     ):
         self.session_factory = session_factory
         self.data_dir = data_dir
         self.handlers = handlers if handlers is not None else default_handlers()
         self._light = light_executor or ThreadPoolExecutor(max_workers=2, thread_name_prefix="upload-light")
         self._heavy = heavy_executor or ThreadPoolExecutor(max_workers=1, thread_name_prefix="upload-heavy")
+        # I full hash check leggono tutta la sorgente: uno alla volta, a parte
+        # dalla coda, così un controllo chiesto a un punto di approvazione non
+        # aspetta la fine degli upload in corso (e viceversa).
+        self._verify = verify_executor or ThreadPoolExecutor(max_workers=1, thread_name_prefix="upload-verify")
         self._lock = threading.Lock()
         self._heavy_scheduled = False
 
@@ -76,9 +81,12 @@ class UploadWorker:
         for job_id in job_ids:
             self.kick(job_id, statuses[job_id])
 
+    def submit_verify(self, target_id: int, torrent_id_remote: str) -> None:
+        self._verify.submit(self._run_verify, target_id, torrent_id_remote)
+
     def shutdown(self) -> None:
-        self._light.shutdown(wait=False, cancel_futures=True)
-        self._heavy.shutdown(wait=False, cancel_futures=True)
+        for executor in (self._light, self._heavy, self._verify):
+            executor.shutdown(wait=False, cancel_futures=True)
 
     # --- esecuzione ---------------------------------------------------------
 
@@ -140,6 +148,17 @@ class UploadWorker:
             session.refresh(job)
             if job.status != status_before and job.status in LIGHT_STATES:
                 self.kick(job.id, job.status)
+        finally:
+            session.close()
+
+    def _run_verify(self, target_id: int, torrent_id_remote: str) -> None:
+        from app import upload_verify
+
+        session = self.session_factory()
+        try:
+            upload_verify.execute(session, target_id, torrent_id_remote)
+        except Exception:
+            logger.exception("Full hash check del target %s non riuscito", target_id)
         finally:
             session.close()
 

@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { toast } from 'sonner'
 
 import { useCancelUpload, useDeleteUpload, useUpload, WORKER_STATES, type UploadJob } from '@/api/hooks/uploads'
+import { DecisionStep } from '@/components/upload/DecisionStep'
 import { MatchStep } from '@/components/upload/MatchStep'
 import { UploadEventLog } from '@/components/upload/UploadEventLog'
 import { UploadStatusBadge } from '@/components/upload/UploadStatusBadge'
@@ -98,6 +99,7 @@ function FailedStep({ job }: { job: UploadJob }) {
 
 function JobBody({ job }: { job: UploadJob }) {
   if (job.status === 'awaiting_match') return <MatchStep key={job.candidates.length} job={job} />
+  if (job.status === 'awaiting_decision') return <DecisionStep job={job} />
   if (WORKER_STATES.includes(job.status)) return <WorkingStep job={job} />
   if (job.status === 'failed') return <FailedStep job={job} />
   return null

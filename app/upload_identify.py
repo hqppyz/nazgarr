@@ -23,7 +23,7 @@ from dataclasses import asdict
 
 from sqlalchemy.orm import Session
 
-from app import adapter_factory, settings_repo, upload_jobs
+from app import adapter_factory, settings_repo, upload_analysis, upload_jobs
 from app.adapter_factory import TmdbApiKeyMissingError
 from app.models import UploadJob
 from app.tmdb_client import TMDBClient
@@ -90,7 +90,7 @@ def _forced_candidates(client: TMDBClient, forced: dict, layout: SourceLayout) -
 
 def _resolver_candidates(session: Session, main_video: str) -> list[dict]:
     try:
-        resolver = adapter_factory.build_media_resolver(session)
+        resolver = adapter_factory.build_media_resolver(session, upload_analysis.arr_index_if_configured(session))
     except TmdbApiKeyMissingError:
         return []
     try:

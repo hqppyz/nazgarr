@@ -37,7 +37,9 @@ def no_resolver(monkeypatch):
             return self.resolved
 
     resolver = _Resolver()
-    monkeypatch.setattr(upload_identify.adapter_factory, "build_media_resolver", lambda session: resolver)
+    monkeypatch.setattr(
+        upload_identify.adapter_factory, "build_media_resolver", lambda session, arr_index=None: resolver
+    )
     return resolver
 
 

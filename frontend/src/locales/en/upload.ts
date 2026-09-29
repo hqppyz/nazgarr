@@ -113,6 +113,41 @@ export const upload = {
   'upload.match.confirm': 'Confirm match',
   'upload.match.confirmFailed': 'Could not confirm: {message}',
 
+  'upload.analysis.title': 'What Nazgarr found',
+  'upload.analysis.files': '{count} file(s), {size}.',
+  'upload.analysis.clean': 'Not on any client and not downloaded from a tracker, as far as Nazgarr knows.',
+  'upload.analysis.grabbed':
+    'Radarr/Sonarr downloaded this from {tracker} (torrent {id}): it is probably not your own release, a reseed may be what you want.',
+  'upload.analysis.onClient': 'Already on a client, check before uploading:',
+  'upload.analysis.hardlink': 'same files (hardlink)',
+  'upload.analysis.sameSize': 'same size, {matched}/{total} video(s)',
+
+  'upload.action.upload': 'Upload',
+  'upload.action.reseed': 'Reseed',
+  'upload.action.skip': 'Skip',
+
+  'upload.dupes.suggested': 'Suggested:',
+  'upload.dupes.none': 'Nothing like this on the tracker yet.',
+  'upload.dupes.checkFailed':
+    "The tracker didn't answer: the dupe check is missing for this tracker, decide knowing that.",
+  'upload.dupes.verdict.identical': 'Identical',
+  'upload.dupes.verdict.same_slot': 'Dupe',
+  'upload.dupes.verdict.different': 'Different',
+  'upload.dupes.reason.resolution': 'other resolution',
+  'upload.dupes.reason.source': 'other source',
+  'upload.dupes.reason.remux': 'remux vs encode',
+  'upload.dupes.reason.hdr': 'other HDR/DV',
+  'upload.dupes.reason.season': 'other season',
+  'upload.dupes.reason.episode': 'other episode',
+  'upload.dupes.reason.single_episode': 'single episode',
+  'upload.dupes.reason.covered_by_pack': 'season pack that includes it',
+  'upload.dupes.reason.repack_of_same_group': 'your repack replaces it',
+  'upload.dupes.verify': 'Full hash check',
+  'upload.dupes.verifying': 'Checking…',
+  'upload.dupes.verifyPassed': 'Every piece matches ({pieces}): reseed instead of uploading.',
+  'upload.dupes.verifyFailed': 'Not the same data: {reason}',
+  'upload.dupes.verifyError': 'Check failed: {reason}',
+
   // Registro eventi (app/upload_jobs.py log_event): un codice senza una
   // frase qui passa da errors.<code>.
   'upload.event.job_created': 'Upload created for {trackers}.',
@@ -125,5 +160,18 @@ export const upload = {
   'upload.event.target_interrupted':
     'Interrupted by a restart while sending to the tracker: check on the tracker before retrying.',
   'upload.event.upload_step_failed': 'The step "{step}" failed: {error}',
+  'upload.event.analysis_started': 'Analysis started.',
+  'upload.event.analysis_done': 'Analysis done: waiting for your decision.',
+  'upload.event.mediainfo_failed': 'Could not read the mediainfo of the main video.',
+  'upload.event.already_on_client': 'Found on {count} torrent(s) already in a client.',
+  'upload.event.grabbed_from_tracker': 'Radarr/Sonarr downloaded this from {trackers}.',
+  'upload.event.dupe_check_done':
+    '{results} result(s) on the tracker, {identical} identical, {same_slot} dupe(s): suggested {suggested}.',
+  'upload.event.dupe_check_failed': 'Dupe check failed: {error}',
+  'upload.event.verify_started': 'Full hash check against torrent {torrent} started.',
+  'upload.event.verify_passed': 'Torrent {torrent}: every piece matches ({ok}/{pieces}).',
+  'upload.event.verify_failed': 'Torrent {torrent}: not the same data ({reason}).',
+  'upload.event.verify_error': 'Torrent {torrent}: the check could not run ({reason}).',
+  'upload.event.verify_interrupted': 'Full hash check interrupted by a restart.',
   'upload.event.upload_step_not_available': 'This step ({status}) is not available yet in this version.',
 } as const

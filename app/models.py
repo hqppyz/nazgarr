@@ -529,6 +529,7 @@ class UploadTarget(Base):
     suggested_action: Mapped[str | None]
     action: Mapped[str | None]
     dupes_json: Mapped[str | None]
+    reseed_torrent_id: Mapped[str | None]
     proposed_name: Mapped[str | None]
     approved_name: Mapped[str | None]
     flags_json: Mapped[str | None]

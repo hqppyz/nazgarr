@@ -252,8 +252,8 @@ def run_full_check(
     files, bad = verify_all_pieces(parsed, locate, on_progress, cancelled)
     # bad_pieces è troncato per la risposta: i totali si contano su tutti.
     bad_set = set(bad)
-    unreadable_pieces = _unreadable_pieces(parsed, files)
-    unreadable = len(bad_set & unreadable_pieces)
+    unreadable_set = unreadable_pieces(parsed, files)
+    unreadable = len(bad_set & unreadable_set)
     mismatched = len(bad_set) - unreadable
     ok = len(parsed.pieces) - len(bad_set)
     return CheckResult(
@@ -290,7 +290,7 @@ def verdict(result: CheckResult) -> tuple[bool, str | None]:
     return True, None
 
 
-def _unreadable_pieces(parsed: TorrentInfo, files: list[FileCheck]) -> set[int]:
+def unreadable_pieces(parsed: TorrentInfo, files: list[FileCheck]) -> set[int]:
     """Piece che toccano un file senza copia locale leggibile per intero."""
     result: set[int] = set()
     for entry, check in zip(parsed.files, files, strict=True):

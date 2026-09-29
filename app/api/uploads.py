@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app import upload_identify, upload_jobs
+from app import upload_identify, upload_jobs, upload_verify
 from app.adapter_factory import TmdbApiKeyMissingError
 from app.api_errors import coded_detail, from_coded_error
 from app.deps import get_session
@@ -49,6 +49,10 @@ class UploadMatchRequest(BaseModel):
     episode: int | None = None
 
 
+class UploadVerifyRequest(BaseModel):
+    torrent_id_remote: str
+
+
 class UploadReidentifyRequest(BaseModel):
     forced_ids: ForcedIds | None = None
 
@@ -62,6 +66,7 @@ class UploadTargetResponse(BaseModel):
     suggested_action: str | None
     action: str | None
     dupes: list[dict]
+    reseed_torrent_id: str | None
     proposed_name: str | None
     approved_name: str | None
     flags: dict
@@ -78,7 +83,8 @@ class UploadTargetResponse(BaseModel):
         return cls(
             id=t.id, tracker_id=t.tracker_id, tracker_label=t.tracker.label, torrent_client_id=t.torrent_client_id,
             status=t.status, suggested_action=t.suggested_action, action=t.action,
-            dupes=_loads(t.dupes_json, []), proposed_name=t.proposed_name, approved_name=t.approved_name,
+            dupes=_loads(t.dupes_json, []), reseed_torrent_id=t.reseed_torrent_id,
+            proposed_name=t.proposed_name, approved_name=t.approved_name,
             flags=_loads(t.flags_json, {}), category_id=t.category_id, type_id=t.type_id,
             resolution_id=t.resolution_id, info_hash=t.info_hash, torrent_id_remote=t.torrent_id_remote,
             error_message=t.error_message, finished_at=t.finished_at,
@@ -286,4 +292,22 @@ def reidentify_upload(
     except UploadJobError as exc:
         raise HTTPException(status_code=400, detail=from_coded_error(exc)) from exc
     _worker(request).kick(job.id, job.status)
+    return UploadJobDetail.from_model(job)
+
+
+@router.post("/{upload_id}/targets/{target_id}/verify", response_model=UploadJobDetail)
+def verify_target(
+    upload_id: int, target_id: int, body: UploadVerifyRequest, request: Request, session: Session = Depends(get_session)
+):
+    """Full hash check della sorgente contro un torrent già sul tracker, in
+    background: se passa, per quel tracker il suggerimento diventa reseed."""
+    job = _get_job_or_404(session, upload_id)
+    target = next((t for t in job.targets if t.id == target_id), None)
+    if target is None:
+        raise HTTPException(status_code=404, detail=coded_detail("upload_target_not_found", id=target_id))
+    try:
+        upload_verify.start(session, job, target, body.torrent_id_remote, _worker(request))
+    except UploadJobError as exc:
+        raise HTTPException(status_code=400, detail=from_coded_error(exc)) from exc
+    session.refresh(job)
     return UploadJobDetail.from_model(job)

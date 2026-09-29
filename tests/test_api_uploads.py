@@ -2,7 +2,7 @@ import os
 
 import pytest
 
-from app import adapter_factory, upload_identify
+from app import adapter_factory, upload_analysis, upload_identify
 from app.adapters.media_resolver.base import ResolvedMedia
 from app.api import metadata as metadata_api
 from app.models import UploadJob
@@ -31,6 +31,11 @@ class _FakeResolver:
         return self.resolved
 
 
+class _NoDupes:
+    def search_by_tmdb(self, tmdb_id):
+        return []
+
+
 @pytest.fixture
 def setup(client, tmp_path, monkeypatch):
     """Disco, un tracker con profilo e un worker che gira nel thread del test."""
@@ -44,7 +49,10 @@ def setup(client, tmp_path, monkeypatch):
         light_executor=InlineExecutor(), heavy_executor=InlineExecutor(),
     )
     resolver = _FakeResolver()
-    monkeypatch.setattr(adapter_factory, "build_media_resolver", lambda session: resolver)
+    monkeypatch.setattr(adapter_factory, "build_media_resolver", lambda session, arr_index=None: resolver)
+    # Mai una chiamata vera verso un tracker o mediainfo sui file finti.
+    monkeypatch.setattr(upload_analysis.adapter_factory, "build_tracker_adapter", lambda t: _NoDupes())
+    monkeypatch.setattr(upload_analysis.mediainfo_util, "extract_full_text", lambda path: "MI")
     return {"disk_id": ids[0], "tracker_id": ids[1], "resolver": resolver}
 
 
@@ -169,9 +177,10 @@ def test_confirm_match_stores_ids_and_moves_on(client, tmp_path, setup, monkeypa
         job = session.get(UploadJob, job_id)
         assert (job.tmdb_id, job.imdb_id, job.tvdb_id, job.mal_id) == (1399, "tt0944947", 121361, 5)
         assert (job.title, job.year, job.poster_path, job.seasons_json) == ("Game of Thrones", 2011, "/got.jpg", "[2]")
-        assert job.events[-2].code == "match_confirmed"
-        # L'analisi non c'è ancora in questo step: il worker non resta appeso.
-        assert job.status == "failed" and job.error_message == "upload_step_not_available"
+        assert "match_confirmed" in [e.code for e in job.events]
+        assert job.status == "awaiting_decision"
+        assert [(t.status, t.suggested_action) for t in job.targets] == [("awaiting_decision", "upload")]
+        assert job.mediainfo_text == "MI"
     finally:
         session.close()
 
@@ -268,3 +277,14 @@ def test_upload_trackers_lists_only_trackers_with_a_profile_and_their_client(cli
     assert client.get("/api/uploads/trackers").json() == [
         {"id": tracker_id, "label": "with", "torrent_client_id": qbit_id, "torrent_client_label": "qbit"}
     ]
+
+
+def test_verify_endpoint_rejects_unknown_target_or_dupe(client, tmp_path, setup):
+    job_id = _awaiting_match(client, tmp_path, setup, "Movie.2024.mkv", ["Movie.2024.mkv"])
+    client.post(f"/api/uploads/{job_id}/match", json={"content_type": "movie", "tmdb_id": 1, "kind": "movie"})
+    target_id = client.get(f"/api/uploads/{job_id}").json()["targets"][0]["id"]
+
+    resp = client.post(f"/api/uploads/{job_id}/targets/999/verify", json={"torrent_id_remote": "1"})
+    assert resp.status_code == 404
+    resp = client.post(f"/api/uploads/{job_id}/targets/{target_id}/verify", json={"torrent_id_remote": "1"})
+    assert resp.json()["detail"]["code"] == "upload_dupe_not_found"

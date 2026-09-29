@@ -1203,6 +1203,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/uploads/{upload_id}/targets/{target_id}/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Verify Target
+         * @description Full hash check della sorgente contro un torrent già sul tracker, in
+         *     background: se passa, per quel tracker il suggerimento diventa reseed.
+         */
+        post: operations["verify_target_api_uploads__upload_id__targets__target_id__verify_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/metadata/search": {
         parameters: {
             query?: never;
@@ -3021,6 +3042,8 @@ export interface components {
             dupes: {
                 [key: string]: unknown;
             }[];
+            /** Reseed Torrent Id */
+            reseed_torrent_id: string | null;
             /** Proposed Name */
             proposed_name: string | null;
             /** Approved Name */
@@ -3054,6 +3077,11 @@ export interface components {
             torrent_client_id: number | null;
             /** Torrent Client Label */
             torrent_client_label: string | null;
+        };
+        /** UploadVerifyRequest */
+        UploadVerifyRequest: {
+            /** Torrent Id Remote */
+            torrent_id_remote: string;
         };
         /** ValidationError */
         ValidationError: {
@@ -5498,6 +5526,42 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["UploadReidentifyRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadJobDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    verify_target_api_uploads__upload_id__targets__target_id__verify_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                upload_id: number;
+                target_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UploadVerifyRequest"];
             };
         };
         responses: {

@@ -574,7 +574,8 @@ CREATE TABLE IF NOT EXISTS upload_target (
                                               'preparing','uploading','seeding','done','skipped','failed')),
     suggested_action        TEXT CHECK (suggested_action IN ('upload','reseed','skip')),
     action                  TEXT CHECK (action IN ('upload','reseed','skip')),  -- the user's choice at gate 2
-    dupes_json              TEXT,            -- filtered dupe-check results
+    dupes_json              TEXT,            -- dupe-check results with their verdict (app/upload_dupes.py)
+    reseed_torrent_id       TEXT,            -- the tracker torrent a passed full hash check matched: reseed it
     proposed_name           TEXT,
     approved_name           TEXT,
     flags_json              TEXT,            -- {"anonymous": ..., "personal_release": ..., "internal": ..., "stream": ...}

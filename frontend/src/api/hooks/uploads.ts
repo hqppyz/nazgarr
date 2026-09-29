@@ -12,15 +12,22 @@ export type UploadTarget = Schemas['UploadTargetResponse']
 export const WORKER_STATES = ['identifying', 'analyzing', 'queued', 'running']
 const POLL_MS = 2000
 
+// Anche a un punto di approvazione un target può avere un full hash check in corso.
+const TARGET_WORKING_STATES = ['checking', 'verifying', 'preparing', 'uploading', 'seeding']
+
 function isWorking(status: string | undefined) {
   return status !== undefined && WORKER_STATES.includes(status)
+}
+
+function isJobWorking(job: UploadJobSummary | undefined) {
+  return !!job && (isWorking(job.status) || job.targets.some((target) => TARGET_WORKING_STATES.includes(target.status)))
 }
 
 export function useUploads() {
   return useQuery({
     queryKey: ['uploads'],
     queryFn: () => unwrap(api.GET('/api/uploads')),
-    refetchInterval: (query) => (query.state.data?.some((job) => isWorking(job.status)) ? POLL_MS : false),
+    refetchInterval: (query) => (query.state.data?.some(isJobWorking) ? POLL_MS : false),
   })
 }
 
@@ -29,7 +36,7 @@ export function useUpload(uploadId: number | null) {
     queryKey: ['uploads', uploadId],
     queryFn: () => unwrap(api.GET('/api/uploads/{upload_id}', { params: { path: { upload_id: uploadId! } } })),
     enabled: uploadId !== null,
-    refetchInterval: (query) => (isWorking(query.state.data?.status) ? POLL_MS : false),
+    refetchInterval: (query) => (isJobWorking(query.state.data) ? POLL_MS : false),
   })
 }
 
@@ -92,5 +99,19 @@ export function useReidentify(uploadId: number) {
       queryClient.setQueryData(['uploads', uploadId], job)
       queryClient.invalidateQueries({ queryKey: ['uploads'] })
     },
+  })
+}
+
+export function useVerifyTarget(uploadId: number) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ targetId, torrentIdRemote }: { targetId: number; torrentIdRemote: string }) =>
+      unwrap(
+        api.POST('/api/uploads/{upload_id}/targets/{target_id}/verify', {
+          params: { path: { upload_id: uploadId, target_id: targetId } },
+          body: { torrent_id_remote: torrentIdRemote },
+        }),
+      ),
+    onSuccess: (job) => queryClient.setQueryData(['uploads', uploadId], job),
   })
 }
