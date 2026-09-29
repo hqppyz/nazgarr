@@ -9,6 +9,10 @@ name: Build and publish Docker image
 # sul repo. Un tag vX.Y.Z spinto a mano pubblica esattamente quella
 # versione. I tag creati qui col GITHUB_TOKEN non fanno ripartire il
 # workflow (comportamento di GitHub Actions), quindi niente doppie build.
+# Lanciato a mano (workflow_dispatch) su un branch diverso da main:
+# immagine :nightly e :sha-xxxxxxx con versione X.Y.Z-dev.<sha>, senza tag
+# git né release, per provare un branch prima del merge. Il push successivo
+# su main riporta :nightly su main.
 on:
   push:
     branches: [main]
@@ -42,6 +46,11 @@ jobs:
           set -euo pipefail
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
             version="${GITHUB_REF_NAME#v}"
+            release=false
+          elif [[ "$GITHUB_REF" != "refs/heads/${{ github.event.repository.default_branch }}" ]]; then
+            latest=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n1 | sed 's/^v//')
+            IFS=. read -r major minor patch <<< "${latest:-0.0.0}"
+            version="$major.$minor.$((patch + 1))-dev.${GITHUB_SHA::7}"
             release=false
           else
             base=$(sed -n 's/^BASE_VERSION = "\([0-9]*\.[0-9]*\.[0-9]*\)"/\1/p' app/version.py)
@@ -85,7 +94,7 @@ jobs:
           tags: |
             type=sha,format=short
             type=raw,value=${{ steps.version.outputs.version }}
-            type=raw,value=nightly,enable={{is_default_branch}}
+            type=raw,value=nightly,enable=${{ github.ref_type == 'branch' }}
           labels: |
             org.opencontainers.image.version=${{ steps.version.outputs.version }}
 
