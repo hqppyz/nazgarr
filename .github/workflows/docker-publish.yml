@@ -2,10 +2,10 @@ name: Build and publish Docker image
 
 # A ogni push su main: versione = patch successiva all'ultimo tag vX.Y.Z
 # (o BASE_VERSION di app/version.py se più alta, per i salti di minor),
-# immagine pubblicata come :latest, :X.Y.Z e :sha-xxxxxxx, poi tag git e
+# immagine pubblicata come :nightly, :X.Y.Z e :sha-xxxxxxx, poi tag git e
 # GitHub Release con le note generate dai commit, come PRERELEASE: sono
-# build di test (canale :latest). Il canale stable (:stable) si aggiorna
-# solo a mano, con .github/workflows/promote-stable.yml. Nessun commit automatico
+# build di test (canale :nightly). :stable e :latest (sempre uguali) si
+# aggiornano solo a mano, con .github/workflows/promote-stable.yml. Nessun commit automatico
 # sul repo. Un tag vX.Y.Z spinto a mano pubblica esattamente quella
 # versione. I tag creati qui col GITHUB_TOKEN non fanno ripartire il
 # workflow (comportamento di GitHub Actions), quindi niente doppie build.
@@ -81,7 +81,7 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=nightly,enable={{is_default_branch}}
             type=raw,value=${{ steps.version.outputs.version }}
             type=sha,format=short
           labels: |

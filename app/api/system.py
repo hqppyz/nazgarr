@@ -63,7 +63,7 @@ def _channel_and_latest(releases: list[dict], current: str) -> tuple[str, str | 
     """Canale dedotto dalla versione in uso: se è una release stable (non
     prerelease) si confronta solo con le stable, così chi prova l'app su
     :stable non viene avvisato di ogni build di test; altrimenti (build di
-    test, :latest) con la più recente in assoluto."""
+    test, :nightly) con la più recente in assoluto."""
     published = [r for r in releases if not r.get("draft") and r.get("tag_name")]
     stable = [r for r in published if not r.get("prerelease")]
     # Uguaglianza esatta del tag: "0.3.0-dev" (sviluppo locale) non è la stable 0.3.0.

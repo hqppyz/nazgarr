@@ -11,10 +11,22 @@ type Run = Schemas['RunResponse']
 
 const MAX_SHOWN = 10
 
-function Status({ run }: { run: Run }) {
-  if (run.current_phase) return <Badge>{t(`runStatus.phase.${run.current_phase}`)}</Badge>
-  if (run.cancelled) return <span className="text-xs text-muted-foreground">{t('scans.stopped')}</span>
-  return <span className="text-xs text-muted-foreground">{t('scans.done')}</span>
+// "Scan now" registra la run come bulk_import: per l'utente è manuale.
+function isScheduled(run: Run) {
+  return run.run_type === 'scheduled'
+}
+
+function formatStarted(value: string) {
+  return parseApiDate(value).toLocaleString(undefined, {
+    day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
+  })
+}
+
+// Lo stato si mostra solo quando dice qualcosa: in corso o fermata a mano.
+function StatusNote({ run }: { run: Run }) {
+  if (run.current_phase) return <Badge className="ml-1.5">{t(`runStatus.phase.${run.current_phase}`)}</Badge>
+  if (run.cancelled) return <span className="ml-1.5 text-xs text-muted-foreground">{t('scans.stopped')}</span>
+  return null
 }
 
 // Cronologia delle scansioni (le "run" della pipeline): in dashboard accanto
@@ -34,7 +46,7 @@ export function ScanHistoryCard({ className }: { className?: string }) {
           <TableHeader>
             <TableRow>
               <TableHead>{t('scans.started')}</TableHead>
-              <TableHead>{t('scans.status')}</TableHead>
+              <TableHead>{t('scans.type')}</TableHead>
               <TableHead className="text-right">{t('scans.files')}</TableHead>
               <TableHead className="text-right">{t('scans.matches')}</TableHead>
               <TableHead className="text-right">{t('scans.errors')}</TableHead>
@@ -50,17 +62,15 @@ export function ScanHistoryCard({ className }: { className?: string }) {
             )}
             {shown?.map((run) => (
               <TableRow key={run.id}>
-                <TableCell title={parseApiDate(run.started_at).toLocaleString()}>
-                  <span className="text-sm">{relativeFromNow(run.started_at)}</span>
-                  <span className="ml-1.5 text-xs text-muted-foreground">
-                    {t(`scans.type.${run.run_type}`)}
-                  </span>
+                <TableCell className="whitespace-nowrap" title={relativeFromNow(run.started_at)}>
+                  <span className="font-mono text-xs tabular-nums">{formatStarted(run.started_at)}</span>
+                  <StatusNote run={run} />
                 </TableCell>
-                <TableCell>
-                  <Status run={run} />
+                <TableCell className="text-xs text-muted-foreground">
+                  {isScheduled(run) ? t('scans.scheduled') : t('scans.manual')}
                 </TableCell>
-                <TableCell className="text-right font-mono text-xs tabular-nums">{run.items_scanned}</TableCell>
-                <TableCell className="text-right font-mono text-xs tabular-nums">{run.matches_found}</TableCell>
+                <TableCell className="text-right font-mono text-xs tabular-nums">{run.items_scanned.toLocaleString()}</TableCell>
+                <TableCell className="text-right font-mono text-xs tabular-nums">{run.matches_found.toLocaleString()}</TableCell>
                 <TableCell className="text-right">
                   <ErrorsPopover count={run.errors} messages={run.error_messages} />
                 </TableCell>

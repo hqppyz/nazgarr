@@ -60,7 +60,11 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     title: 'Torrent',
     icon: HardDriveDownload,
-    items: [{ title: 'Torrent', to: '/torrent/folder' }],
+    to: '/torrent/folder',
+    items: [
+      { title: 'Files', to: '/torrent/folder' },
+      { title: 'Not imported', to: '/torrent/not-imported' },
+    ],
   },
   {
     title: 'Reseeding',

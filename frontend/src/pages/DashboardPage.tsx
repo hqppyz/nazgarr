@@ -1,168 +1,91 @@
-import { TrendingDownIcon, TrendingUpIcon } from 'lucide-react'
+import {
+  CopyIcon,
+  FileSearchIcon,
+  Link2Icon,
+  Trash2Icon,
+  TrendingDownIcon,
+  TrendingUpIcon,
+  type LucideIcon,
+} from 'lucide-react'
 import { useState } from 'react'
-import { Area, AreaChart, CartesianGrid, XAxis } from 'recharts'
+import { Link } from 'react-router-dom'
+import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from 'recharts'
 
-import { useDashboard, useDashboardHistory } from '@/api/hooks/dashboard'
 import type { Schemas } from '@/api/client'
+import { useDashboard, useDashboardHistory } from '@/api/hooks/dashboard'
 import { ChangesCard } from '@/components/ChangesCard'
+import { HealthGauge } from '@/components/HealthGauge'
 import { ScanHistoryCard } from '@/components/ScanHistoryCard'
-import { Badge } from '@/components/ui/badge'
-import { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { type ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { ToggleGroupItem, ToggleGroupSingle } from '@/components/ui/toggle-group'
 import { t } from '@/lib/i18n'
 import { formatBytes } from '@/lib/library-filters'
+import { STATUS_STYLES } from '@/lib/status-styles'
 import { parseApiDate } from '@/lib/time'
+import { cn } from '@/lib/utils'
 
+type Dashboard = Schemas['DashboardResponse']
 type HistoryPoint = Schemas['HistoryPoint']
 
-function Stat({ label, value }: { label: string; value: number | string }) {
-  return (
-    <div>
-      <p className="text-xl font-semibold">{value}</p>
-      <p className="text-xs text-muted-foreground">{label}</p>
-    </div>
-  )
+// Finestra della parte superiore (anello, grafico): giorni, non numero di
+// scansioni — con gli scan manuali il numero non dice quanto tempo è passato.
+const WINDOWS = [
+  { value: '7', days: 7 },
+  { value: '30', days: 30 },
+  { value: '90', days: 90 },
+  { value: 'all', days: null },
+] as const
+
+function healthLabel(value: number): { label: string; dot: string } {
+  if (value >= 90) return { label: t('dashboard.healthGreat'), dot: 'bg-emerald-500' }
+  if (value >= 75) return { label: t('dashboard.healthGood'), dot: 'bg-sky-500' }
+  if (value >= 50) return { label: t('dashboard.healthFair'), dot: 'bg-amber-500' }
+  return { label: t('dashboard.healthPoor'), dot: 'bg-red-500' }
 }
 
-// Confronta gli ultimi due punti di storico (history è ordinata dal più
-// recente, vedi app/api/dashboard.py) — null se non c'è ancora una run
-// precedente con cui confrontare, mai un delta inventato.
-function historyDelta(history: HistoryPoint[] | undefined, field: keyof HistoryPoint): number | null {
-  if (!history || history.length < 2) return null
-  const [latest, previous] = history
-  return (latest[field] as number) - (previous[field] as number)
+function daysAgo(value: string | null | undefined): number | null {
+  if (!value) return null
+  return Math.max(0, Math.round((Date.now() - parseApiDate(value).getTime()) / 86_400_000))
 }
 
-function TrendBadge({ delta, positiveDirection = 'up' }: { delta: number | null; positiveDirection?: 'up' | 'down' }) {
-  if (delta === null) return null
-  const isUp = delta >= 0
-  const isGood = positiveDirection === 'up' ? isUp : !isUp
-  const Icon = isUp ? TrendingUpIcon : TrendingDownIcon
+function HealthCard({ data, history }: { data: Dashboard; history: HistoryPoint[] | undefined }) {
+  const { label, dot } = healthLabel(data.health_pct)
+  // history è dalla più recente: il confronto è con la prima della finestra.
+  const oldest = history && history.length > 1 ? history[history.length - 1] : null
+  const delta = oldest ? data.health_pct - oldest.health_snapshot : null
+  const ago = daysAgo(oldest?.finished_at)
   return (
-    <Badge variant="outline" className={isGood ? 'text-emerald-600 dark:text-emerald-400' : 'text-destructive'}>
-      <Icon />
-      {isUp ? '+' : ''}
-      {delta.toFixed(delta % 1 === 0 ? 0 : 1)}
-    </Badge>
-  )
-}
-
-function KpiCard({
-  description,
-  value,
-  delta,
-  positiveDirection = 'up',
-  headline,
-  subline,
-}: {
-  description: string
-  value: string
-  delta: number | null
-  positiveDirection?: 'up' | 'down'
-  headline: string
-  subline: string
-}) {
-  return (
-    <Card className="@container/card bg-gradient-to-t from-primary/5 to-card shadow-xs dark:bg-card">
+    <Card>
       <CardHeader>
-        <CardDescription>{description}</CardDescription>
-        <CardTitle className="text-2xl font-semibold tabular-nums @[250px]/card:text-3xl">{value}</CardTitle>
-        <CardAction>
-          <TrendBadge delta={delta} positiveDirection={positiveDirection} />
-        </CardAction>
+        <CardTitle>{t('dashboard.libraryHealth')}</CardTitle>
       </CardHeader>
-      <CardFooter className="flex-col items-start gap-1.5 border-t-0 bg-transparent text-sm">
-        <div className="line-clamp-1 font-medium">{headline}</div>
-        <div className="text-muted-foreground">{subline}</div>
-      </CardFooter>
+      <CardContent className="grid gap-4">
+        <HealthGauge value={data.health_pct}>
+          <span className="text-5xl font-semibold tabular-nums">{Math.round(data.health_pct)}</span>
+          <span className="font-mono text-xs text-muted-foreground">/ 100</span>
+          <span className="mt-1 flex items-center gap-1.5 text-sm font-medium">
+            <span className={cn('size-2 rounded-full', dot)} />
+            {label}
+          </span>
+        </HealthGauge>
+        <p className="text-center text-xs text-muted-foreground">
+          {delta == null ? (
+            t('dashboard.healthNoHistory')
+          ) : (
+            <span className={cn(delta > 0 && 'text-emerald-600 dark:text-emerald-400', delta < 0 && 'text-destructive')}>
+              {delta >= 0 ? '↑' : '↓'} {t('dashboard.ptsVsAgo', { delta: Math.abs(delta).toFixed(1), days: ago ?? 0 })}
+            </span>
+          )}
+        </p>
+      </CardContent>
     </Card>
   )
 }
 
-function HeroCards({ data, history }: { data: NonNullable<ReturnType<typeof useDashboard>['data']>; history: HistoryPoint[] | undefined }) {
-  const healthDelta = historyDelta(history, 'health_snapshot')
-  const pendingDelta = historyDelta(history, 'pending_review')
-  const autoExecutedDelta = historyDelta(history, 'auto_executed')
-  const errorsDelta = historyDelta(history, 'errors')
-
-  return (
-    <div className="grid grid-cols-1 gap-4 *:data-[slot=card]:shadow-xs sm:grid-cols-2 xl:grid-cols-4">
-      <KpiCard
-        description={t('dashboard.libraryHealth')}
-        value={`${data.health_pct.toFixed(1)}%`}
-        delta={healthDelta}
-        headline={
-          healthDelta === null
-            ? t('dashboard.healthNoHistory')
-            : healthDelta > 0
-              ? t('dashboard.healthImproving')
-              : healthDelta < 0
-                ? t('dashboard.healthDeclining')
-                : t('dashboard.healthStable')
-        }
-        subline={t('dashboard.seedingOfTotal', {
-          seeding: formatBytes(data.seeding_media_size),
-          total: formatBytes(data.total_media_size),
-        })}
-      />
-      <KpiCard
-        description={t('dashboard.pendingReview')}
-        value={String(data.pending_review)}
-        delta={pendingDelta}
-        positiveDirection="down"
-        headline={
-          pendingDelta === null
-            ? t('dashboard.healthNoHistory')
-            : pendingDelta > 0
-              ? t('dashboard.backlogGrowing')
-              : pendingDelta < 0
-                ? t('dashboard.backlogShrinking')
-                : t('dashboard.backlogStable')
-        }
-        subline={t('dashboard.reviewsAwaitingDecision')}
-      />
-      <KpiCard
-        description={t('dashboard.autoExecutedLastRun')}
-        value={String(data.last_run?.auto_executed ?? 0)}
-        delta={autoExecutedDelta}
-        headline={
-          autoExecutedDelta === null
-            ? t('dashboard.healthNoHistory')
-            : autoExecutedDelta > 0
-              ? t('dashboard.moreAutoExecuted')
-              : autoExecutedDelta < 0
-                ? t('dashboard.fewerAutoExecuted')
-                : t('dashboard.sameAutoExecuted')
-        }
-        subline={t('dashboard.aboveConfidenceThreshold')}
-      />
-      <KpiCard
-        description={t('dashboard.errorsLastRun')}
-        value={String(data.last_run?.errors ?? 0)}
-        delta={errorsDelta}
-        positiveDirection="down"
-        headline={
-          errorsDelta === null
-            ? t('dashboard.healthNoHistory')
-            : errorsDelta > 0
-              ? t('dashboard.moreErrors')
-              : errorsDelta < 0
-                ? t('dashboard.fewerErrors')
-                : t('dashboard.sameErrors')
-        }
-        subline={t('dashboard.failuresLastRun')}
-      />
-    </div>
-  )
-}
-
-const healthChartConfig = {
-  health: {
-    label: t('dashboard.healthHistory'),
-    color: 'var(--primary)',
-  },
+const chartConfig = {
+  health: { label: t('dashboard.healthHistory'), color: 'var(--primary)' },
 } satisfies ChartConfig
 
 function formatChartDate(value: string) {
@@ -170,55 +93,37 @@ function formatChartDate(value: string) {
   return parseApiDate(value).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 }
 
-function HealthHistoryChart() {
-  const [runWindow, setRunWindow] = useState('30')
-  const { data: history } = useDashboardHistory(Number(runWindow))
+function HistoryChart({ history }: { history: HistoryPoint[] | undefined }) {
   const chartData = [...(history ?? [])].reverse().map((h) => ({ date: h.finished_at ?? '', health: h.health_snapshot }))
-
+  const min = Math.min(...chartData.map((d) => d.health), 100)
   return (
-    <Card className="@container/card">
+    <Card className="lg:col-span-2">
       <CardHeader>
         <CardTitle>{t('dashboard.healthHistory')}</CardTitle>
-        <CardDescription>{t('dashboard.healthHistoryDescription')}</CardDescription>
-        <CardAction>
-          <ToggleGroupSingle
-            value={runWindow}
-            onValueChange={setRunWindow}
-            variant="outline"
-            className="hidden @[500px]/card:flex"
-          >
-            <ToggleGroupItem value="10">{t('dashboard.last10Runs')}</ToggleGroupItem>
-            <ToggleGroupItem value="30">{t('dashboard.last30Runs')}</ToggleGroupItem>
-            <ToggleGroupItem value="90">{t('dashboard.last90Runs')}</ToggleGroupItem>
-          </ToggleGroupSingle>
-          <Select value={runWindow} onValueChange={setRunWindow}>
-            <SelectTrigger className="w-40 @[500px]/card:hidden" size="sm">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="10">{t('dashboard.last10Runs')}</SelectItem>
-              <SelectItem value="30">{t('dashboard.last30Runs')}</SelectItem>
-              <SelectItem value="90">{t('dashboard.last90Runs')}</SelectItem>
-            </SelectContent>
-          </Select>
-        </CardAction>
       </CardHeader>
-      <CardContent className="px-2 pt-4 sm:px-6 sm:pt-6">
+      <CardContent className="px-2 sm:px-6">
         {chartData.length < 2 ? (
           <p className="text-sm text-muted-foreground">{t('dashboard.notEnoughHistory')}</p>
         ) : (
-          <ChartContainer config={healthChartConfig} className="aspect-auto h-[250px] w-full">
+          <ChartContainer config={chartConfig} className="aspect-auto h-[260px] w-full">
             <AreaChart data={chartData}>
               <defs>
                 <linearGradient id="fillHealth" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="var(--color-health)" stopOpacity={0.8} />
-                  <stop offset="95%" stopColor="var(--color-health)" stopOpacity={0.1} />
+                  <stop offset="5%" stopColor="var(--color-health)" stopOpacity={0.35} />
+                  <stop offset="95%" stopColor="var(--color-health)" stopOpacity={0.02} />
                 </linearGradient>
               </defs>
-              <CartesianGrid vertical={false} />
+              <CartesianGrid vertical={false} strokeDasharray="3 3" />
               <XAxis dataKey="date" tickLine={false} axisLine={false} tickMargin={8} minTickGap={32} tickFormatter={formatChartDate} />
+              <YAxis
+                domain={[Math.max(0, Math.floor(min / 10) * 10 - 10), 100]}
+                tickLine={false}
+                axisLine={false}
+                width={32}
+                tickCount={4}
+              />
               <ChartTooltip content={<ChartTooltipContent labelFormatter={(value) => formatChartDate(String(value))} indicator="dot" />} />
-              <Area dataKey="health" type="natural" fill="url(#fillHealth)" stroke="var(--color-health)" />
+              <Area dataKey="health" type="monotone" fill="url(#fillHealth)" stroke="var(--color-health)" />
             </AreaChart>
           </ChartContainer>
         )}
@@ -227,54 +132,171 @@ function HealthHistoryChart() {
   )
 }
 
-// Panoramica sull'intero stato dell'app (Library + Reseeding + Upload),
-// non solo sul reseeding — promossa a pagina di primo livello su
-// richiesta esplicita dell'utente dopo la Sotto-fase 8.2 (prima stava
-// sotto "Reseeding", dando l'impressione di riguardare solo quell'area).
-// Struttura hero card + area chart ispirata al blocco dashboard-01 di
-// shadcn/ui, adattata ai dati reali di questa app (nessun dato finto:
-// i trend sui delta vengono dal confronto tra le ultime due run in
-// storico, non da percentuali inventate).
+type Trend = 'improving' | 'worsening' | 'stable' | null
+
+// lowerIsBetter: per spazio orfano, non importato e duplicato meno è meglio.
+function trendOf(current: number, previous: number | null | undefined, lowerIsBetter: boolean): Trend {
+  if (previous == null) return null
+  if (current === previous) return 'stable'
+  return current < previous === lowerIsBetter ? 'improving' : 'worsening'
+}
+
+function TrendLine({ trend }: { trend: Trend }) {
+  if (trend == null) return <p className="text-xs text-muted-foreground">{t('dashboard.noPreviousScan')}</p>
+  if (trend === 'stable') return <p className="text-xs text-muted-foreground">{t('dashboard.trendStable')}</p>
+  const Icon = trend === 'improving' ? TrendingUpIcon : TrendingDownIcon
+  return (
+    <p
+      className={cn(
+        'flex items-center gap-1 text-xs font-medium',
+        trend === 'improving' ? 'text-emerald-600 dark:text-emerald-400' : 'text-destructive',
+      )}
+    >
+      <Icon className="size-3.5" />
+      {trend === 'improving' ? t('dashboard.trendImproving') : t('dashboard.trendWorsening')}
+    </p>
+  )
+}
+
+function BigValue({ value }: { value: string }) {
+  // "38.2 GiB" -> numero grande, unità piccola.
+  const [number, unit] = value.split(' ')
+  return (
+    <p className="text-3xl font-semibold tabular-nums">
+      {number}
+      {unit && <span className="ml-1 text-base font-normal text-muted-foreground">{unit}</span>}
+    </p>
+  )
+}
+
+function MetricCard({
+  title,
+  dot,
+  value,
+  subline,
+  trend,
+  description,
+  action,
+}: {
+  title: string
+  dot: string
+  value: React.ReactNode
+  subline: string
+  trend: Trend
+  description: string
+  action: { label: string; to: string; icon: LucideIcon }
+}) {
+  return (
+    <Card className="flex flex-col">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-sm">
+          <span className={cn('size-2 rounded-full', dot)} />
+          {title}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="flex flex-1 flex-col gap-2">
+        {value}
+        <p className="text-xs text-muted-foreground">{subline}</p>
+        <TrendLine trend={trend} />
+        <p className="flex-1 text-sm text-muted-foreground">{description}</p>
+        <Button variant="outline" className="mt-2 justify-start" render={<Link to={action.to} />}>
+          <action.icon className="size-4" />
+          {action.label}
+        </Button>
+      </CardContent>
+    </Card>
+  )
+}
+
+function MetricCards({ data }: { data: Dashboard }) {
+  const previous = data.previous
+  return (
+    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <MetricCard
+        title={t('dashboard.hardlinkedMedia')}
+        dot={STATUS_STYLES.seeding.dot}
+        value={
+          <p className="text-3xl font-semibold tabular-nums">
+            {data.health_pct.toFixed(1)}
+            <span className="ml-0.5 text-base font-normal text-muted-foreground">%</span>
+          </p>
+        }
+        subline={t('dashboard.seedingOfTotal', {
+          seeding: formatBytes(data.seeding_media_size),
+          total: formatBytes(data.total_media_size),
+        })}
+        trend={trendOf(data.health_pct, previous?.health_snapshot, false)}
+        description={t('dashboard.hardlinkedDescription')}
+        action={{ label: t('dashboard.viewOrphanedMedia'), to: '/library/folder?status=orphan_media', icon: Link2Icon }}
+      />
+      <MetricCard
+        title={t('dashboard.orphanedTorrents')}
+        dot={STATUS_STYLES.orphan.dot}
+        value={<BigValue value={formatBytes(data.orphan_torrent_bytes)} />}
+        subline={t('dashboard.orphanedSubline', {
+          count: data.orphan_torrent_count.toLocaleString(),
+          size: formatBytes(data.orphan_not_in_library_bytes),
+        })}
+        trend={trendOf(data.orphan_torrent_bytes, previous?.orphan_torrent_bytes, true)}
+        description={t('dashboard.orphanedDescription')}
+        action={{ label: t('dashboard.viewOrphanedTorrents'), to: '/torrent/folder?status=orphan_torrent', icon: Trash2Icon }}
+      />
+      <MetricCard
+        title={t('dashboard.notImported')}
+        dot={STATUS_STYLES.ignored.dot}
+        value={<BigValue value={formatBytes(data.ignored_bytes)} />}
+        subline={t('dashboard.filesCount', { count: data.ignored_count.toLocaleString() })}
+        trend={trendOf(data.ignored_bytes, previous?.ignored_bytes, true)}
+        description={t('dashboard.notImportedDescription')}
+        action={{ label: t('dashboard.viewNotImported'), to: '/torrent/not-imported', icon: FileSearchIcon }}
+      />
+      <MetricCard
+        title={t('dashboard.duplicates')}
+        dot={STATUS_STYLES.duplicate.dot}
+        value={<BigValue value={formatBytes(data.duplicate_wasted_bytes)} />}
+        subline={t('dashboard.duplicatesSubline', {
+          count: data.duplicate_files.toLocaleString(),
+          hardlinks: data.duplicate_hardlink_groups.toLocaleString(),
+        })}
+        trend={trendOf(data.duplicate_wasted_bytes, previous?.duplicate_wasted_bytes, true)}
+        description={t('dashboard.duplicatesDescription')}
+        action={{ label: t('dashboard.viewDuplicates'), to: '/library/folder?status=duplicates', icon: CopyIcon }}
+      />
+    </div>
+  )
+}
+
+// Panoramica dello stato del server, ispirata alla dashboard di Auditorr:
+// anello della salute (solo hardlink: GB in seed / GB in libreria, docs/SPEC.md
+// §10), storico nella finestra scelta, quattro card con valore, andamento
+// rispetto alla scansione precedente e un link alla vista filtrata. Sotto,
+// i cambiamenti per file e la cronologia delle scansioni.
 export function DashboardPage() {
   const { data, isPending } = useDashboard()
-  const { data: history } = useDashboardHistory(2)
+  const [period, setPeriod] = useState<string>('30')
+  const days = WINDOWS.find((w) => w.value === period)?.days ?? null
+  const { data: history } = useDashboardHistory(days)
 
   if (isPending || !data) {
     return <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
   }
 
-
   return (
     <div className="grid gap-6">
-      <HeroCards data={data} history={history} />
+      <ToggleGroupSingle value={period} onValueChange={setPeriod} variant="outline" className="justify-self-start">
+        {WINDOWS.map((w) => (
+          <ToggleGroupItem key={w.value} value={w.value} className="font-mono text-xs">
+            {w.days == null ? t('dashboard.windowAll') : `${w.days}d`}
+          </ToggleGroupItem>
+        ))}
+      </ToggleGroupSingle>
 
-      <HealthHistoryChart />
-
-      <div className="grid gap-6 md:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Library</CardTitle>
-          </CardHeader>
-          <CardContent className="grid grid-cols-2 gap-4">
-            <Stat label={t('dashboard.unresolved')} value={data.unmatched} />
-            <Stat label="Orphan torrent" value={data.orphan_torrent_count} />
-            <Stat label={t('dashboard.ignored')} value={data.ignored_count} />
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Reseeding</CardTitle>
-          </CardHeader>
-          <CardContent className="grid grid-cols-2 gap-4">
-            <Stat label={t('dashboard.pendingReview')} value={data.pending_review} />
-            <Stat label={t('dashboard.failed')} value={data.failed} />
-            {data.last_run && <Stat label={t('dashboard.lastRunMatches')} value={data.last_run.matches_found} />}
-            {data.last_run && <Stat label={t('dashboard.lastRunAutoExecuted')} value={data.last_run.auto_executed} />}
-          </CardContent>
-        </Card>
-
+      <div className="grid gap-6 lg:grid-cols-3">
+        <HealthCard data={data} history={history} />
+        <HistoryChart history={history} />
       </div>
+
+      <MetricCards data={data} />
 
       <div className="grid gap-6 xl:grid-cols-5">
         <ChangesCard className="xl:col-span-3" />

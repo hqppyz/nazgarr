@@ -975,6 +975,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/torrents/not-imported": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Not Imported */
+        get: operations["list_not_imported_api_torrents_not_imported_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/schedule": {
         parameters: {
             query?: never;
@@ -1017,7 +1034,12 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get History */
+        /**
+         * Get History
+         * @description Dalla più recente. `days`: solo le scansioni finite negli ultimi N
+         *     giorni (finestra 7d/30d/90d della dashboard), fino a 1000; senza, le
+         *     ultime `limit`.
+         */
         get: operations["get_history_api_dashboard_history_get"];
         put?: never;
         post?: never;
@@ -1335,6 +1357,13 @@ export interface components {
             /** Piece Verified */
             piece_verified: boolean | null;
         };
+        /** CategorySummary */
+        CategorySummary: {
+            /** Count */
+            count: number;
+            /** Total Bytes */
+            total_bytes: number;
+        };
         /** ChangePasswordRequest */
         ChangePasswordRequest: {
             /** Current Password */
@@ -1400,6 +1429,36 @@ export interface components {
             orphan_torrent_count: number;
             /** Ignored Count */
             ignored_count: number;
+            /**
+             * Orphan Torrent Bytes
+             * @default 0
+             */
+            orphan_torrent_bytes: number;
+            /**
+             * Orphan Not In Library Bytes
+             * @default 0
+             */
+            orphan_not_in_library_bytes: number;
+            /**
+             * Ignored Bytes
+             * @default 0
+             */
+            ignored_bytes: number;
+            /**
+             * Duplicate Wasted Bytes
+             * @default 0
+             */
+            duplicate_wasted_bytes: number;
+            /**
+             * Duplicate Files
+             * @default 0
+             */
+            duplicate_files: number;
+            /**
+             * Duplicate Hardlink Groups
+             * @default 0
+             */
+            duplicate_hardlink_groups: number;
             /** Pending Review */
             pending_review: number;
             /** Failed */
@@ -1407,6 +1466,7 @@ export interface components {
             /** Unmatched */
             unmatched: number;
             last_run: components["schemas"]["LastRunSummary"] | null;
+            previous?: components["schemas"]["TrendPoint"] | null;
         };
         /** DetailCandidate */
         DetailCandidate: {
@@ -1733,6 +1793,12 @@ export interface components {
             finished_at: string | null;
             /** Health Snapshot */
             health_snapshot: number;
+            /** Orphan Torrent Bytes */
+            orphan_torrent_bytes?: number | null;
+            /** Ignored Bytes */
+            ignored_bytes?: number | null;
+            /** Duplicate Wasted Bytes */
+            duplicate_wasted_bytes?: number | null;
             /** Items Scanned */
             items_scanned: number;
             /** Matches Found */
@@ -1949,6 +2015,65 @@ export interface components {
             /** Created */
             created: boolean;
         };
+        /** NotImportedItem */
+        NotImportedItem: {
+            /** Client Torrent Id */
+            client_torrent_id: number;
+            /** Name */
+            name: string;
+            /** Info Hash */
+            info_hash: string;
+            /** Client */
+            client: string | null;
+            /** Tracker */
+            tracker: string | null;
+            /** Category */
+            category: string;
+            /** Detail */
+            detail: string | null;
+            /** Matched By */
+            matched_by: string | null;
+            /** Content Type */
+            content_type: string | null;
+            /** Tmdb Id */
+            tmdb_id: number | null;
+            /** Title */
+            title: string | null;
+            /** Year */
+            year: number | null;
+            /** Season Number */
+            season_number: number | null;
+            /** Episode Number */
+            episode_number: number | null;
+            /** Quality */
+            quality: string | null;
+            replaced_by: components["schemas"]["ReplacedBy"] | null;
+            /** Total Bytes */
+            total_bytes: number;
+            /** Video Bytes */
+            video_bytes: number;
+            /** File Count */
+            file_count: number;
+            /** Ratio */
+            ratio: number | null;
+            /** Seeding Time Seconds */
+            seeding_time_seconds: number | null;
+            /** Added At */
+            added_at: string | null;
+            /** State */
+            state: string;
+        };
+        /** NotImportedResponse */
+        NotImportedResponse: {
+            /** Classified */
+            classified: boolean;
+            /** Summary */
+            summary: {
+                [key: string]: components["schemas"]["CategorySummary"];
+            };
+            /** Torrents */
+            torrents: components["schemas"]["NotImportedItem"][];
+        };
         /**
          * PhaseProgressResponse
          * @description Una fase della run (app/run_progress.py): done include gli elementi
@@ -2065,6 +2190,15 @@ export interface components {
             reconciled: number;
             /** Errors */
             errors: number;
+        };
+        /** ReplacedBy */
+        ReplacedBy: {
+            /** Relative Path */
+            relative_path: string;
+            /** Size Bytes */
+            size_bytes: number;
+            /** Quality */
+            quality: string | null;
         };
         /** ReviewResponse */
         ReviewResponse: {
@@ -2478,6 +2612,21 @@ export interface components {
             rss_key?: string | null;
             /** Torrent Client Id */
             torrent_client_id?: number | null;
+        };
+        /** TrendPoint */
+        TrendPoint: {
+            /** Run Id */
+            run_id: number;
+            /** Finished At */
+            finished_at: string | null;
+            /** Health Snapshot */
+            health_snapshot: number | null;
+            /** Orphan Torrent Bytes */
+            orphan_torrent_bytes: number | null;
+            /** Ignored Bytes */
+            ignored_bytes: number | null;
+            /** Duplicate Wasted Bytes */
+            duplicate_wasted_bytes: number | null;
         };
         /** UpdateCheckResponse */
         UpdateCheckResponse: {
@@ -4659,6 +4808,26 @@ export interface operations {
             };
         };
     };
+    list_not_imported_api_torrents_not_imported_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotImportedResponse"];
+                };
+            };
+        };
+    };
     get_schedule_api_schedule_get: {
         parameters: {
             query?: never;
@@ -4747,6 +4916,7 @@ export interface operations {
         parameters: {
             query?: {
                 limit?: number;
+                days?: number | null;
             };
             header?: never;
             path?: never;

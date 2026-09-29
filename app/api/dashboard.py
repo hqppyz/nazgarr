@@ -4,7 +4,7 @@ snapshot di salute per il grafico, cambiamenti per file dall'ultima
 scansione (app/file_changes.py).
 """
 
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
@@ -35,10 +35,28 @@ class DashboardResponse(BaseModel):
     seeding_media_size: int
     orphan_torrent_count: int
     ignored_count: int
+    orphan_torrent_bytes: int = 0
+    orphan_not_in_library_bytes: int = 0
+    ignored_bytes: int = 0
+    duplicate_wasted_bytes: int = 0
+    duplicate_files: int = 0
+    duplicate_hardlink_groups: int = 0
     pending_review: int
     failed: int
     unmatched: int
     last_run: LastRunSummary | None
+    # La scansione precedente all'ultima, per l'andamento delle card
+    # (Improving / Worsening): None finché non ce ne sono due.
+    previous: "TrendPoint | None" = None
+
+
+class TrendPoint(BaseModel):
+    run_id: int
+    finished_at: datetime | None
+    health_snapshot: float | None
+    orphan_torrent_bytes: int | None
+    ignored_bytes: int | None
+    duplicate_wasted_bytes: int | None
 
 
 class HistoryPoint(BaseModel):
@@ -46,6 +64,9 @@ class HistoryPoint(BaseModel):
     run_type: str
     finished_at: datetime | None
     health_snapshot: float
+    orphan_torrent_bytes: int | None = None
+    ignored_bytes: int | None = None
+    duplicate_wasted_bytes: int | None = None
     items_scanned: int
     matches_found: int
     auto_executed: int
@@ -106,21 +127,36 @@ def _last_run_summary(session: Session) -> LastRunSummary | None:
 @router.get("", response_model=DashboardResponse)
 def get_dashboard(disk_id: int | None = None, session: Session = Depends(get_session)):
     snapshot = health.compute_snapshot(session, disk_id=disk_id)
-    return DashboardResponse(**snapshot, last_run=_last_run_summary(session))
+    finished = (
+        session.query(RunLog).filter(RunLog.finished_at.isnot(None), RunLog.health_snapshot.isnot(None))
+        .order_by(RunLog.id.desc()).limit(2).all()
+    )
+    previous = finished[1] if len(finished) > 1 else None
+    return DashboardResponse(
+        **snapshot, last_run=_last_run_summary(session),
+        previous=TrendPoint(
+            run_id=previous.id, finished_at=previous.finished_at, health_snapshot=previous.health_snapshot,
+            orphan_torrent_bytes=previous.orphan_torrent_bytes, ignored_bytes=previous.ignored_bytes,
+            duplicate_wasted_bytes=previous.duplicate_wasted_bytes,
+        ) if previous else None,
+    )
 
 
 @router.get("/history", response_model=list[HistoryPoint])
-def get_history(limit: int = 30, session: Session = Depends(get_session)):
-    runs = (
-        session.query(RunLog)
-        .filter(RunLog.health_snapshot.isnot(None))
-        .order_by(RunLog.id.desc())
-        .limit(limit)
-        .all()
-    )
+def get_history(limit: int = 30, days: int | None = None, session: Session = Depends(get_session)):
+    """Dalla più recente. `days`: solo le scansioni finite negli ultimi N
+    giorni (finestra 7d/30d/90d della dashboard), fino a 1000; senza, le
+    ultime `limit`."""
+    query = session.query(RunLog).filter(RunLog.health_snapshot.isnot(None))
+    if days is not None:
+        query = query.filter(RunLog.finished_at >= datetime.now(UTC) - timedelta(days=days))
+        limit = 1000
+    runs = query.order_by(RunLog.id.desc()).limit(limit).all()
     return [
         HistoryPoint(
             run_id=r.id, run_type=r.run_type, finished_at=r.finished_at, health_snapshot=r.health_snapshot,
+            orphan_torrent_bytes=r.orphan_torrent_bytes, ignored_bytes=r.ignored_bytes,
+            duplicate_wasted_bytes=r.duplicate_wasted_bytes,
             items_scanned=r.items_scanned, matches_found=r.matches_found, auto_executed=r.auto_executed,
             pending_review=r.pending_review, errors=r.errors,
         )

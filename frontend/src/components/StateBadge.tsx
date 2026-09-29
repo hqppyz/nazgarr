@@ -9,7 +9,7 @@ const STATE_LABELS: Record<string, string> = {
   seeding: 'seeding',
   orphan_media: 'orphaned',
   orphan_torrent: 'orphaned',
-  ignored: 'ignored',
+  ignored: 'not imported',
   unmatched: 'unmatched',
   in_progress: 'in progress',
   removed: 'removed from client',

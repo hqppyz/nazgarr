@@ -10,6 +10,7 @@ import { WorkInProgress } from '@/pages/WorkInProgress'
 import { FolderView } from '@/pages/library/FolderView'
 import { LibraryDefaultView } from '@/pages/library/LibraryDefaultView'
 import { PosterView } from '@/pages/library/PosterView'
+import { NotImportedView } from '@/pages/torrent/NotImportedView'
 import { TorrentFolderView } from '@/pages/torrent/TorrentFolderView'
 import { t } from '@/lib/i18n'
 import { NAV_DASHBOARD, NAV_GROUPS } from '@/lib/nav'
@@ -24,6 +25,7 @@ const overrides: Record<string, ReactNode> = {
   '/library/poster': <PosterView />,
   '/library/folder': <FolderView />,
   '/torrent/folder': <TorrentFolderView />,
+  '/torrent/not-imported': <NotImportedView />,
   '/reseeding': <ReseedingPage />,
   // Upload in lavorazione: le pagine (pages/upload) restano nel codice ma non
   // sono raggiungibili, per chi prova l'app. Ripristinare con UploadQueuePage

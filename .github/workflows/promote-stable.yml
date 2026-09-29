@@ -3,7 +3,9 @@ name: Promote to stable
 # Canale stable, per chi prova l'app senza ricevere ogni build di test:
 # una versione già pubblicata da docker-publish.yml (immagine :X.Y.Z e
 # GitHub Release vX.Y.Z, prerelease) diventa quella stable.
-# - immagine :stable = stessa lista di manifest di :X.Y.Z (nessuna nuova build);
+# - immagini :stable e :latest = stessa lista di manifest di :X.Y.Z (nessuna
+#   nuova build): chi usa :latest resta sul canale stable, le build di test
+#   sono su :nightly;
 # - GitHub Release vX.Y.Z non più prerelease, segnata come Latest (è ciò
 #   che il controllo aggiornamenti dell'app confronta sul canale stable);
 # - tag git "stable" spostato sul commit di vX.Y.Z.
@@ -63,13 +65,13 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Tag the image as stable
+      - name: Tag the image as stable and latest
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           set -euo pipefail
           image="${REGISTRY}/${IMAGE_NAME,,}"
-          docker buildx imagetools create -t "$image:stable" "$image:$VERSION"
+          docker buildx imagetools create -t "$image:stable" -t "$image:latest" "$image:$VERSION"
           docker buildx imagetools inspect "$image:stable"
 
       - name: Mark the release as stable

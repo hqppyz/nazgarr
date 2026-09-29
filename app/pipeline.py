@@ -48,6 +48,7 @@ from app import (
     health,
     matching,
     media_resolution,
+    not_imported,
     review,
     scanner,
     settings_repo,
@@ -405,6 +406,11 @@ def run_bulk_import(session: Session, run: RunLog, data_dir: str) -> RunLog:
                 file_changes.record_changes(session, run)
             except Exception as exc:
                 errors = _record_failure(session, run, errors, "changes since the last scan", exc)
+            # Torrent in seed senza hardlink in libreria, e perché (vista Not imported).
+            try:
+                not_imported.classify_not_imported(session, arr_index, run)
+            except Exception as exc:
+                errors = _record_failure(session, run, errors, "not imported torrents", exc)
     except RunCancelled:
         # Stop richiesto dall'utente: non un errore. Il lavoro già salvato
         # resta (file scansionati, identità, match_attempt, candidati): la
@@ -434,6 +440,9 @@ def run_bulk_import(session: Session, run: RunLog, data_dir: str) -> RunLog:
         run.orphan_torrent_count = snapshot["orphan_torrent_count"]
         run.ignored_count = snapshot["ignored_count"]
         run.health_snapshot = snapshot["health_pct"]
+        run.orphan_torrent_bytes = snapshot["orphan_torrent_bytes"]
+        run.ignored_bytes = snapshot["ignored_bytes"]
+        run.duplicate_wasted_bytes = snapshot["duplicate_wasted_bytes"]
     except Exception as exc:
         errors = _record_failure(session, run, errors, "library health snapshot", exc)
         run.pending_review = len(review.list_ready_for_review(session))

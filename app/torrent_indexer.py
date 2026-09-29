@@ -146,13 +146,19 @@ def store_client_torrents(
             "tracker_url": t.tracker_url,
             "state": t.state,
             "last_polled_at": now,
+            "ratio": t.ratio,
+            "seeding_time_seconds": t.seeding_time_seconds,
+            "added_at": datetime.fromtimestamp(t.added_on, UTC) if t.added_on else None,
         }
         for t in torrents
     ]
     bulk_upsert(
         session, ClientTorrent.__table__, torrent_rows,
         conflict_cols=["torrent_client_id", "info_hash"],
-        update_cols=["name", "save_path", "category", "tracker_url", "state", "last_polled_at"],
+        update_cols=[
+            "name", "save_path", "category", "tracker_url", "state", "last_polled_at",
+            "ratio", "seeding_time_seconds", "added_at",
+        ],
     )
     session.commit()
     logger.debug("Client %r: %d righe client_torrent scritte", torrent_client.label, len(torrent_rows))

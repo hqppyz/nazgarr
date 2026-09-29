@@ -10,10 +10,16 @@ export function useDashboard() {
   })
 }
 
-export function useDashboardHistory(limit = 30) {
+// days: finestra 7/30/90 giorni della dashboard; null = tutto lo storico.
+export function useDashboardHistory(days: number | null) {
   return useQuery({
-    queryKey: ['dashboard', 'history', limit],
-    queryFn: () => unwrap(api.GET('/api/dashboard/history', { params: { query: { limit } } })),
+    queryKey: ['dashboard', 'history', days],
+    queryFn: () =>
+      unwrap(
+        api.GET('/api/dashboard/history', {
+          params: { query: days == null ? { limit: 1000 } : { days } },
+        }),
+      ),
   })
 }
 

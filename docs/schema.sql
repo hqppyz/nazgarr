@@ -158,6 +158,9 @@ CREATE TABLE IF NOT EXISTS run_log (
     pending_review       INTEGER DEFAULT 0,
     orphan_torrent_count  INTEGER DEFAULT 0,   -- new dashboard KPI, SPEC.md §10
     ignored_count         INTEGER DEFAULT 0,   -- ditto
+    orphan_torrent_bytes  INTEGER,             -- sizes at the end of the run, for the trend of the
+    ignored_bytes         INTEGER,             -- dashboard cards (not imported = ignored). Additive,
+    duplicate_wasted_bytes INTEGER,            -- nullable.
     health_snapshot       REAL,                -- "library health" % at the end of the run, for the
                                                 -- dashboard's historical chart (SPEC.md §10). Formula
                                                 -- settled in Fase 5, see app/health.py.
@@ -299,6 +302,8 @@ CREATE TABLE IF NOT EXISTS client_torrent (
                                                  -- (mapping to Gauntletarr states happens in the app, not the DB)
     added_at            TIMESTAMP,
     last_polled_at      TIMESTAMP NOT NULL,
+    ratio               REAL,                   -- as reported by the client (Not imported view). Additive, nullable.
+    seeding_time_seconds INTEGER,               -- ditto
     UNIQUE(torrent_client_id, info_hash)
 );
 
@@ -413,6 +418,26 @@ CREATE TABLE IF NOT EXISTS match_attempt (
     CHECK ((media_file_id IS NULL) <> (seed_file_id IS NULL)),
     UNIQUE(tracker_id, media_file_id),
     UNIQUE(tracker_id, seed_file_id)
+);
+
+-- Seeding torrents with no hardlink in the library, and why (app/not_imported.py,
+-- "Not imported" view). Recomputed at every reliable scan, read-only.
+CREATE TABLE IF NOT EXISTS not_imported_torrent (
+    id                         INTEGER PRIMARY KEY,
+    client_torrent_id          INTEGER NOT NULL UNIQUE REFERENCES client_torrent(id) ON DELETE CASCADE,
+    category                   TEXT NOT NULL,   -- superseded | copy | removed | never_imported | extras_only
+    detail                     TEXT,
+    matched_by                 TEXT,            -- arr | name | hash
+    content_type               TEXT,
+    tmdb_id                    INTEGER,
+    season_number              INTEGER,
+    episode_number             INTEGER,
+    main_path                  TEXT,
+    replaced_by_media_file_id  INTEGER REFERENCES media_file(id) ON DELETE SET NULL,
+    total_bytes                INTEGER NOT NULL,
+    video_bytes                INTEGER NOT NULL,
+    file_count                 INTEGER NOT NULL,
+    run_id                     INTEGER REFERENCES run_log(id) ON DELETE SET NULL
 );
 
 -- Per-file state at the latest snapshot (app/file_changes.py): replaced at

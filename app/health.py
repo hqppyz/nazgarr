@@ -15,7 +15,21 @@ bisogno concreto già osservato.
 from sqlalchemy.orm import Session
 
 from app import library, review
+from app.duplicates import find_duplicate_media_files
 from app.exclusions import load_exclusions
+
+
+def _duplicates(session: Session, disk_id: int | None) -> dict:
+    """Copie vere (inode diversi): lo spazio sprecato è tutto tranne una
+    copia per gruppo. I doppioni sullo stesso inode non sprecano spazio:
+    solo contati."""
+    groups = find_duplicate_media_files(session, disk_id=disk_id)
+    copies = [g for g in groups if g["kind"] == "copy"]
+    return {
+        "duplicate_wasted_bytes": sum(g["size_bytes"] * (len(g["files"]) - 1) for g in copies),
+        "duplicate_files": sum(len(g["files"]) for g in copies),
+        "duplicate_hardlink_groups": sum(1 for g in groups if g["kind"] == "hardlink"),
+    }
 
 
 def compute_snapshot(session: Session, disk_id: int | None = None) -> dict:
@@ -38,6 +52,14 @@ def compute_snapshot(session: Session, disk_id: int | None = None) -> dict:
         "seeding_media_size": seeding_media_size,
         "orphan_torrent_count": sum(1 for f in seed_states if f["state"] == "orphan_torrent"),
         "ignored_count": sum(1 for f in seed_states if f["state"] == "ignored"),
+        # Dimensioni per le card della dashboard (e il loro andamento, salvato
+        # a ogni scansione in run_log): quanto spazio in ciascuna situazione.
+        "orphan_torrent_bytes": sum(f["size_bytes"] for f in seed_states if f["state"] == "orphan_torrent"),
+        "orphan_not_in_library_bytes": sum(
+            f["size_bytes"] for f in seed_states if f["state"] == "orphan_torrent" and not f["linked_paths"]
+        ),
+        "ignored_bytes": sum(f["size_bytes"] for f in seed_states if f["state"] == "ignored"),
+        **_duplicates(session, disk_id),
         "pending_review": len(review.list_ready_for_review(session)),
         "failed": len(review.list_failed_seed_jobs(session)),
         "unmatched": sum(

@@ -44,6 +44,16 @@ export const CHANGE_STYLES: Record<string, { dot: string; badge: string }> = {
   state_changed: STATUS_STYLES.unmatched,
 }
 
+// Categorie della vista Not imported (app/not_imported.py): perché un torrent
+// in seed non ha hardlink in libreria.
+export const NOT_IMPORTED_STYLES: Record<string, { dot: string; badge: string; gradient: string }> = {
+  superseded: STATUS_STYLES.review,
+  copy: STATUS_STYLES.duplicate,
+  removed: STATUS_STYLES.orphan,
+  never_imported: STATUS_STYLES.ignored,
+  extras_only: STATUS_STYLES.unmatched,
+}
+
 // Stati del backend (app/library.py, seed job) -> stile.
 export function statusKeyOf(state: string): StatusKey | null {
   switch (state) {
@@ -71,6 +81,7 @@ export function summaryStyle(value: string): { dot: string; gradient: string } {
   if (value === 'all') return { dot: 'bg-foreground', gradient: 'from-primary/5' }
   if (value === 'duplicates') return STATUS_STYLES.duplicate
   if (value === 'review') return STATUS_STYLES.review
+  if (value in NOT_IMPORTED_STYLES) return NOT_IMPORTED_STYLES[value]
   const key = statusKeyOf(value)
   return key ? STATUS_STYLES[key] : { dot: 'bg-muted-foreground', gradient: 'from-muted/40' }
 }

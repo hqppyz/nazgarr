@@ -31,6 +31,15 @@ function KindBadge({ kind }: { kind: string }) {
   )
 }
 
+function fileName(path: string) {
+  return path.slice(path.lastIndexOf('/') + 1)
+}
+
+function folderOf(path: string) {
+  const i = path.lastIndexOf('/')
+  return i > 0 ? path.slice(0, i) : ''
+}
+
 function formatWhen(value: string | null | undefined) {
   if (!value) return '—'
   return parseApiDate(value).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
@@ -98,12 +107,14 @@ export function ChangesCard({ className }: { className?: string }) {
           <p className="text-sm text-muted-foreground">{t('changes.nothingChanged')}</p>
         ) : (
           <div className="max-h-96 overflow-y-auto">
-            <Table>
+            {/* table-fixed: il percorso prende tutto lo spazio rimasto invece
+                di troncarsi dopo pochi caratteri. */}
+            <Table className="table-fixed">
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-0">{t('changes.type')}</TableHead>
+                  <TableHead className="w-36">{t('changes.type')}</TableHead>
                   <TableHead>{t('changes.path')}</TableHead>
-                  <TableHead className="text-right">{t('changes.size')}</TableHead>
+                  <TableHead className="w-24 text-right">{t('changes.size')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -118,9 +129,12 @@ export function ChangesCard({ className }: { className?: string }) {
                       <TableCell>
                         <KindBadge kind={c.kind} />
                       </TableCell>
-                      <TableCell className="max-w-0">
-                        <span className="block truncate font-mono text-xs" title={c.relative_path}>
-                          {c.relative_path}
+                      <TableCell title={c.relative_path}>
+                        {/* Nome del file in evidenza, cartella sotto: così si legge
+                            anche quando il percorso intero non ci sta. */}
+                        <span className="block truncate font-mono text-xs">{fileName(c.relative_path)}</span>
+                        <span className="block truncate font-mono text-[length:var(--text-xxs)] text-muted-foreground">
+                          {folderOf(c.relative_path)}
                         </span>
                       </TableCell>
                       <TableCell className="text-right font-mono text-xs whitespace-nowrap tabular-nums">

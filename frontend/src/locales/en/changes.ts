@@ -17,7 +17,7 @@ export const changes = {
   'changes.kind.removed_torrent': 'Removed torrent',
   'changes.kind.now_seeding': 'Now seeding',
   'changes.kind.now_orphaned': 'Now orphaned',
-  'changes.kind.now_ignored': 'Now ignored',
+  'changes.kind.now_ignored': 'Now not imported',
   'changes.kind.stopped': 'Stopped',
   'changes.kind.resumed': 'Resumed',
   'changes.kind.state_changed': 'State changed',

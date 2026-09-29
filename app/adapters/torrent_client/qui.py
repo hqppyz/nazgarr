@@ -57,6 +57,13 @@ logger = logging.getLogger(__name__)
 DETAIL_WORKERS = 8
 
 
+def _number(value, kind):
+    try:
+        return kind(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
 class QuiTorrentClientAdapter(TorrentClientAdapter):
     def __init__(
         self,
@@ -219,6 +226,9 @@ class QuiTorrentClientAdapter(TorrentClientAdapter):
             category=torrent.get("category") or None,
             tracker_url=self._first_tracker_url(info_hash),
             files=files,
+            ratio=_number(torrent.get("ratio"), float),
+            seeding_time_seconds=_number(torrent.get("seeding_time"), int),
+            added_on=_number(torrent.get("added_on"), int),
         )
 
     def _first_tracker_url(self, info_hash: str) -> str | None:

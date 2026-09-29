@@ -84,3 +84,27 @@ def test_schedule_put_empty_disables(client):
     assert response.status_code == 200
     assert response.json() == {"cron": None, "enabled": False}
     assert client.app.state.scheduler.get_job("scheduled_run") is None
+
+
+def test_dashboard_trend_uses_the_scan_before_the_last_and_history_by_days(client):
+    from datetime import UTC, datetime, timedelta
+
+    from app import pipeline
+
+    session = client.app.state.session_factory()
+    try:
+        now = datetime.now(UTC)
+        for age_days, health, ignored in ((40, 70.0, 500), (2, 80.0, 300), (0, 90.0, 100)):
+            run = pipeline.start_run(session, "manual")
+            run.current_phase = None
+            run.finished_at = now - timedelta(days=age_days)
+            run.health_snapshot, run.ignored_bytes = health, ignored
+            session.commit()
+    finally:
+        session.close()
+
+    body = client.get("/api/dashboard").json()
+    assert (body["previous"]["health_snapshot"], body["previous"]["ignored_bytes"]) == (80.0, 300)
+
+    last_week = client.get("/api/dashboard/history", params={"days": 7}).json()
+    assert [p["health_snapshot"] for p in last_week] == [90.0, 80.0]

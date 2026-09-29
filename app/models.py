@@ -217,6 +217,10 @@ class RunLog(Base):
     orphan_torrent_count: Mapped[int] = mapped_column(server_default=text("0"))
     ignored_count: Mapped[int] = mapped_column(server_default=text("0"))
     health_snapshot: Mapped[float | None]
+    # Dimensioni a fine run, per l'andamento delle card della dashboard.
+    orphan_torrent_bytes: Mapped[int | None]
+    ignored_bytes: Mapped[int | None]
+    duplicate_wasted_bytes: Mapped[int | None]
     errors: Mapped[int] = mapped_column(server_default=text("0"))
     last_error: Mapped[str | None]
     errors_json: Mapped[str | None]  # JSON: ogni errore della run, in ordine (app/pipeline.py::_note_error)
@@ -333,6 +337,8 @@ class ClientTorrent(Base):
     tracker_url: Mapped[str | None]
     state: Mapped[str] = mapped_column(nullable=False)  # valore nativo del client, non normalizzato qui
     added_at: Mapped[datetime | None]
+    ratio: Mapped[float | None]
+    seeding_time_seconds: Mapped[int | None]
     last_polled_at: Mapped[datetime] = mapped_column(nullable=False)
 
 
@@ -488,6 +494,35 @@ class MatchReview(Base):
     candidate: Mapped["Candidate"] = relationship()
     media_file: Mapped["MediaFile | None"] = relationship()
     seed_file: Mapped["SeedFile | None"] = relationship()
+
+
+class NotImportedTorrent(Base):
+    """Vedi docs/schema.sql: un torrent in seed senza alcun hardlink in
+    libreria, con il perché (app/not_imported.py). Ricalcolata a ogni
+    scansione affidabile; sola lettura."""
+
+    __tablename__ = "not_imported_torrent"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    client_torrent_id: Mapped[int] = mapped_column(
+        ForeignKey("client_torrent.id", ondelete="CASCADE"), nullable=False, unique=True
+    )
+    category: Mapped[str] = mapped_column(nullable=False)  # superseded | copy | removed | never_imported | extras_only
+    detail: Mapped[str | None]
+    matched_by: Mapped[str | None]  # arr | name | hash: come si è arrivati alla categoria
+    content_type: Mapped[str | None]
+    tmdb_id: Mapped[int | None]
+    season_number: Mapped[int | None]
+    episode_number: Mapped[int | None]
+    main_path: Mapped[str | None]  # il video principale del torrent (percorso nel torrent)
+    replaced_by_media_file_id: Mapped[int | None] = mapped_column(ForeignKey("media_file.id", ondelete="SET NULL"))
+    total_bytes: Mapped[int] = mapped_column(nullable=False)
+    video_bytes: Mapped[int] = mapped_column(nullable=False)
+    file_count: Mapped[int] = mapped_column(nullable=False)
+    run_id: Mapped[int | None] = mapped_column(ForeignKey("run_log.id", ondelete="SET NULL"))
+
+    client_torrent: Mapped["ClientTorrent"] = relationship()
+    replaced_by: Mapped["MediaFile | None"] = relationship()
 
 
 class FileStateSnapshot(Base):

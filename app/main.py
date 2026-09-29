@@ -20,6 +20,7 @@ from app.api.settings import router as settings_router
 from app.api.sonarr_instances import router as sonarr_instances_router
 from app.api.system import router as system_router
 from app.api.torrent_clients import router as torrent_clients_router
+from app.api.torrents import router as torrents_router
 from app.api.trackers import router as trackers_router
 from app.api.uploads import router as uploads_router
 from app.config import load_settings
@@ -82,6 +83,7 @@ app.include_router(radarr_instances_router, dependencies=[_protected])
 app.include_router(sonarr_instances_router, dependencies=[_protected])
 app.include_router(reviews_router, dependencies=[_protected])
 app.include_router(full_checks_router, dependencies=[_protected])
+app.include_router(torrents_router, dependencies=[_protected])
 app.include_router(schedule_router, dependencies=[_protected])
 app.include_router(dashboard_router, dependencies=[_protected])
 app.include_router(uploads_router, dependencies=[_protected])

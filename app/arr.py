@@ -100,6 +100,11 @@ class ArrIndex:
     # ogni file di un download, anche dopo il rename di Sonarr/Radarr — è ciò
     # che collega i file di un season pack ai singoli episodi importati.
     _imports: dict[tuple[str, int], tuple[str, int]] = field(default_factory=dict)
+    # Stessa chiave: QUALE contenuto è stato importato da quel file
+    # (content_type, tmdb_id, stagione, episodio). Resta valido anche dopo
+    # che il file in libreria è stato sostituito da un upgrade: è ciò che
+    # dice "questo vecchio torrent era quel film" (vista Not imported).
+    _import_content: dict[tuple[str, int], tuple[str, int, int | None, int | None]] = field(default_factory=dict)
     _by_tmdb: dict[tuple[str, int], ArrIdentity] | None = None
 
     def add_identity(self, path: str, size: int, identity: ArrIdentity) -> None:
@@ -125,8 +130,15 @@ class ArrIndex:
     def grab_for(self, path: str, size: int) -> ArrGrab | None:
         return self._grabs.get((path_key(path), size))
 
-    def add_import(self, dropped_path: str, imported_path: str, size: int) -> None:
-        self._imports.setdefault((path_key(dropped_path), size), (path_key(imported_path), size))
+    def add_import(self, dropped_path: str, imported_path: str, size: int,
+                   content: tuple[str, int, int | None, int | None] | None = None) -> None:
+        key = (path_key(dropped_path), size)
+        self._imports.setdefault(key, (path_key(imported_path), size))
+        if content is not None:
+            self._import_content.setdefault(key, content)
+
+    def imported_content_for(self, dropped_path: str, size: int) -> tuple[str, int, int | None, int | None] | None:
+        return self._import_content.get((path_key(dropped_path), size))
 
     def imported_for(self, dropped_path: str, size: int) -> tuple[str, int] | None:
         """Chiave (path_key, size) del file in libreria importato da questo
@@ -200,7 +212,7 @@ def _grab_from_event(event: dict) -> ArrGrab | None:
     )
 
 
-def _index_history(api: ArrApi, index: ArrIndex) -> None:
+def _index_history(api: ArrApi, index: ArrIndex, content_of: Callable[[dict], tuple | None] = lambda e: None) -> None:
     grabs_by_download_id: dict[str, ArrGrab] = {}
     for event in api.history(EVENT_GRABBED):
         download_id = event.get("downloadId")
@@ -217,7 +229,7 @@ def _index_history(api: ArrApi, index: ArrIndex) -> None:
             continue
         imported, dropped = data.get("importedPath"), data.get("droppedPath")
         if imported and dropped:
-            index.add_import(dropped, imported, size)
+            index.add_import(dropped, imported, size, content_of(event))
         if grab is None:
             continue
         for path in (imported, dropped):
@@ -235,7 +247,10 @@ def _tmdb_poster_path(item: dict) -> str | None:
 
 
 def _index_radarr(api: ArrApi, index: ArrIndex) -> None:
-    for movie in api.get("/api/v3/movie"):
+    movies = api.get("/api/v3/movie")
+    # Anche i film senza file (sostituiti, cancellati): la history li cita per id.
+    content = {m["id"]: ("movie", m["tmdbId"], None, None) for m in movies if m.get("id") and m.get("tmdbId")}
+    for movie in movies:
         movie_file = movie.get("movieFile") or {}
         if not (movie.get("tmdbId") and movie_file.get("path") and movie_file.get("size")):
             continue
@@ -247,7 +262,7 @@ def _index_radarr(api: ArrApi, index: ArrIndex) -> None:
                 imdb_id=movie.get("imdbId") or None, instance_id=api.instance_id, slug=movie.get("titleSlug"),
             ),
         )
-    _index_history(api, index)
+    _index_history(api, index, lambda event: content.get(event.get("movieId")))
 
 
 def _series_files(api: ArrApi, series: dict) -> tuple[dict, list[dict], list[dict]]:
@@ -265,9 +280,12 @@ def _index_sonarr(api: ArrApi, index: ArrIndex) -> None:
     series_list = [s for s in api.get("/api/v3/series") if s.get("tmdbId")]  # senza tmdbId: resolver di default
     with ThreadPoolExecutor(max_workers=SERIES_WORKERS) as pool:
         fetched = list(pool.map(lambda s: _series_files(api, s), series_list))
+    content: dict[int, tuple] = {}  # episode id -> contenuto, per la history
     for series, episodes, episode_files in fetched:
         episode_by_file: dict[int, tuple[int, int]] = {}
         for episode in episodes:
+            if episode.get("id") and episode.get("seasonNumber") is not None:
+                content[episode["id"]] = ("tv", series["tmdbId"], episode["seasonNumber"], episode.get("episodeNumber"))
             file_id = episode.get("episodeFileId")
             if file_id:
                 # File multi-episodio: vale il primo, come fa FilenameParserResolver.
@@ -286,7 +304,7 @@ def _index_sonarr(api: ArrApi, index: ArrIndex) -> None:
                     imdb_id=series.get("imdbId") or None, instance_id=api.instance_id, slug=series.get("titleSlug"),
                 ),
             )
-    _index_history(api, index)
+    _index_history(api, index, lambda event: content.get(event.get("episodeId")))
 
 
 def build_arr_index(session: Session, api_factory: Callable[..., ArrApi] = ArrApi) -> ArrIndex:

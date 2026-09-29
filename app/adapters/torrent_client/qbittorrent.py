@@ -43,6 +43,13 @@ from app.adapters.torrent_client.base import (
 logger = logging.getLogger(__name__)
 
 
+def _number(value, kind):
+    try:
+        return kind(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
 class QBittorrentAdapter(TorrentClientAdapter):
     def __init__(
         self,
@@ -170,6 +177,9 @@ class QBittorrentAdapter(TorrentClientAdapter):
                     category=getattr(torrent, "category", "") or None,
                     tracker_url=getattr(torrent, "tracker", "") or None,
                     files=files,
+                    ratio=_number(getattr(torrent, "ratio", None), float),
+                    seeding_time_seconds=_number(getattr(torrent, "seeding_time", None), int),
+                    added_on=_number(getattr(torrent, "added_on", None), int),
                 )
             )
             if on_progress is not None:

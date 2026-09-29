@@ -53,6 +53,11 @@ class ClientTorrentInfo:
     category: str | None = None
     tracker_url: str | None = None
     files: list[ClientTorrentFileInfo] = field(default_factory=list)
+    # Per la vista Not imported: se un vecchio torrent serve ancora (ratio,
+    # tempo in seed, H&R del tracker). None se il client non li riporta.
+    ratio: float | None = None
+    seeding_time_seconds: int | None = None
+    added_on: int | None = None  # epoch in secondi
 
 
 class TorrentAddTimeoutError(Exception):

@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 
 import { FileFilterBar } from '@/components/FileFilterBar'
 import { FileTree, type TreeFileEntry } from '@/components/FileTree'
@@ -29,7 +30,13 @@ export function FileBrowser({
   // Sopra le card di riepilogo, es. il selettore Folder | Poster della libreria.
   header?: React.ReactNode
 }) {
-  const [filters, setFilters] = useState<LibraryFilters>(DEFAULT_FILTERS)
+  // ?status=… apre la vista già filtrata (link delle card della dashboard),
+  // solo se è uno stato offerto da questa vista.
+  const [searchParams] = useSearchParams()
+  const [filters, setFilters] = useState<LibraryFilters>(() => {
+    const status = searchParams.get('status')
+    return status && statusOptions.some((o) => o.value === status) ? { ...DEFAULT_FILTERS, status } : DEFAULT_FILTERS
+  })
   const [openItem, setOpenItem] = useState<OpenItem | null>(null)
 
   const summary = useMemo(() => summarizeByState(files, duplicateKeys), [files, duplicateKeys])

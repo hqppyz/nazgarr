@@ -18,7 +18,7 @@ export const library = {
   'library.stateReview': 'Awaiting approval',
   'library.searchTitlePlaceholder': 'Search by title…',
   'library.stateOrphanTorrent': 'Orphaned',
-  'library.stateIgnored': 'Ignored',
+  'library.stateIgnored': 'Not imported',
   'library.showExcluded': 'Excluded',
   'library.searchPlaceholder': 'Search by name or path…',
   'library.minSize': 'Min {unit}',

@@ -99,3 +99,10 @@ export function useExcludeFile() {
     },
   })
 }
+
+export function useNotImported() {
+  return useQuery({
+    queryKey: ['library', 'not-imported'],
+    queryFn: () => unwrap(api.GET('/api/torrents/not-imported')),
+  })
+}

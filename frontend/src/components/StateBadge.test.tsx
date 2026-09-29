@@ -8,7 +8,7 @@ describe('StateBadge', () => {
     ['seeding', 'seeding'],
     ['orphan_media', 'orphaned'],
     ['orphan_torrent', 'orphaned'],
-    ['ignored', 'ignored'],
+    ['ignored', 'not imported'],
     ['unmatched', 'unmatched'],
   ])('renders the label for state %s', (state, expectedLabel) => {
     const { container } = render(<StateBadge state={state} />)

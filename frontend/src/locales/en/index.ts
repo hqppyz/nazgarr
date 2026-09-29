@@ -15,6 +15,7 @@ import { layout } from './layout'
 import { library } from './library'
 import { logs } from './logs'
 import { metadata } from './metadata'
+import { notImported } from './notImported'
 import { reseeding } from './reseeding'
 import { runStatus } from './runStatus'
 import { scans } from './scans'
@@ -47,6 +48,7 @@ export const en = {
   ...library,
   ...logs,
   ...metadata,
+  ...notImported,
   ...reseeding,
   ...runStatus,
   ...scans,

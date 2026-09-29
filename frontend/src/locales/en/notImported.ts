@@ -1,0 +1,30 @@
+export const notImported = {
+  'notImported.title': 'Not imported',
+  'notImported.description':
+    'Torrents your clients are seeding that have no hardlink in your library, grouped by torrent, with the reason. Read-only: nothing is removed from here.',
+  'notImported.category.superseded': 'Superseded',
+  'notImported.category.copy': 'Copy, not hardlink',
+  'notImported.category.removed': 'Removed from library',
+  'notImported.category.never_imported': 'Never imported',
+  'notImported.category.extras_only': 'Extras only',
+  'notImported.help.superseded':
+    'Imported in the past and later replaced in the library by another file, usually a quality upgrade by Radarr/Sonarr. The old release keeps seeding on its own.',
+  'notImported.help.copy':
+    'The same content is in the library as a separate copy on another inode: it takes space twice. A hardlink would free one copy.',
+  'notImported.help.removed': 'Imported in the past, but the content is no longer in the library.',
+  'notImported.help.never_imported':
+    'No import on record: a manual download, a cross-seed, or something Radarr/Sonarr rejected or never recognized.',
+  'notImported.help.extras_only': 'Torrents with no video file (only nfo, subtitles, images…).',
+  'notImported.searchPlaceholder': 'Search by torrent or title…',
+  'notImported.notYet': 'Not computed yet: it is filled in at the end of the next scan.',
+  'notImported.nothing': 'Nothing here.',
+  'notImported.torrent': 'Torrent',
+  'notImported.why': 'Why',
+  'notImported.inLibrary': 'In the library now',
+  'notImported.size': 'Size',
+  'notImported.ratio': 'Ratio',
+  'notImported.seeding': 'Seeding',
+  'notImported.files': '{count} files',
+  'notImported.days': '{count}d',
+  'notImported.hours': '{count}h',
+} as const
