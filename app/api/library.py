@@ -168,6 +168,7 @@ class DetailDuplicate(BaseModel):
 
 class DetailFile(BaseModel):
     media_file_id: int
+    disk_id: int  # per aprire un upload su questo file (pagina di nuovo upload)
     season_number: int | None
     episode_number: int | None
     relative_path: str

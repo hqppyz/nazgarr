@@ -1726,6 +1726,8 @@ export interface components {
         DetailFile: {
             /** Media File Id */
             media_file_id: number;
+            /** Disk Id */
+            disk_id: number;
             /** Season Number */
             season_number: number | null;
             /** Episode Number */

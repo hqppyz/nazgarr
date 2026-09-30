@@ -1,4 +1,5 @@
 import {
+  UploadIcon,
   ChevronRightIcon,
   CornerDownRightIcon,
   ExternalLinkIcon,
@@ -10,6 +11,7 @@ import {
   SearchIcon,
 } from 'lucide-react'
 import { useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 
 import type { Schemas } from '@/api/client'
 import { useExcludeFile, useItemDetail, useSearchNow } from '@/api/hooks/library'
@@ -26,6 +28,7 @@ import { t } from '@/lib/i18n'
 import { formatBytes } from '@/lib/library-filters'
 import { STATUS_STYLES } from '@/lib/status-styles'
 import { relativeFromNow } from '@/lib/time'
+import { newUploadLink } from '@/lib/upload'
 import { cn } from '@/lib/utils'
 
 type Detail = Schemas['ItemDetailResponse']
@@ -74,8 +77,11 @@ function ExternalLinks({ detail }: { detail: Detail }) {
   )
 }
 
-function FileRow({ file, showEpisode }: { file: DetailFile; showEpisode: boolean }) {
+function FileRow({ file, showEpisode, uploadTmdb }: { file: DetailFile; showEpisode: boolean; uploadTmdb: string }) {
   const exclude = useExcludeFile()
+  const navigate = useNavigate()
+  // Un video orfano (in libreria, non in seed): upload o reseed dal flusso di upload.
+  const orphan = file.is_video && !file.excluded && file.state !== 'seeding'
   const code = showEpisode ? episodeCode(file) : null
   return (
     <div className={cn('grid gap-1 rounded-md border p-2.5', file.excluded && 'opacity-60')}>
@@ -107,6 +113,19 @@ function FileRow({ file, showEpisode }: { file: DetailFile; showEpisode: boolean
             <span className="text-xs text-muted-foreground tabular-nums">{formatBytes(file.size_bytes)}</span>
           </div>
         </div>
+        {orphan && (
+          <Button
+            size="xs"
+            variant="outline"
+            title={t('itemDetail.uploadOrReseedHelp')}
+            onClick={() =>
+              navigate(newUploadLink({ diskId: file.disk_id, path: file.relative_path, isDir: false }, uploadTmdb))
+            }
+          >
+            <UploadIcon className="size-3.5" />
+            {t('itemDetail.uploadOrReseed')}
+          </Button>
+        )}
         {!file.excluded && (
           <Button
             size="icon-xs"
@@ -159,7 +178,20 @@ function FileRow({ file, showEpisode }: { file: DetailFile; showEpisode: boolean
   )
 }
 
-function Seasons({ files }: { files: DetailFile[] }) {
+// La cartella comune ai file di una stagione, se ce n'è una sola: da lì si
+// carica la stagione intera come season pack.
+function seasonFolder(files: DetailFile[]): { diskId: number; path: string } | null {
+  const videos = files.filter((f) => f.is_video)
+  if (videos.length < 2) return null
+  const folders = new Set(videos.map((f) => `${f.disk_id}:${f.relative_path.split('/').slice(0, -1).join('/')}`))
+  if (folders.size !== 1) return null
+  const [disk, ...rest] = [...folders][0].split(':')
+  const path = rest.join(':')
+  return path ? { diskId: Number(disk), path } : null
+}
+
+function Seasons({ files, uploadTmdb }: { files: DetailFile[]; uploadTmdb: string }) {
+  const navigate = useNavigate()
   const seasons = useMemo(() => {
     const bySeason = new Map<number, DetailFile[]>()
     for (const f of files) {
@@ -173,6 +205,7 @@ function Seasons({ files }: { files: DetailFile[] }) {
       {seasons.map(([season, seasonFiles]) => {
         const videos = seasonFiles.filter((f) => f.is_video && !f.excluded)
         const seeding = videos.filter((f) => f.state === 'seeding').length
+        const folder = seeding < videos.length ? seasonFolder(seasonFiles) : null
         return (
           <Collapsible key={season} className="rounded-md border">
             <CollapsibleTrigger className="group flex w-full items-center gap-2 px-3 py-2 text-left text-sm">
@@ -183,8 +216,19 @@ function Seasons({ files }: { files: DetailFile[] }) {
               </span>
             </CollapsibleTrigger>
             <CollapsibleContent className="grid gap-2 px-3 pb-3">
+              {folder && (
+                <Button
+                  size="xs"
+                  variant="outline"
+                  className="w-fit"
+                  onClick={() => navigate(newUploadLink({ diskId: folder.diskId, path: folder.path, isDir: true }, uploadTmdb))}
+                >
+                  <UploadIcon className="size-3.5" />
+                  {t('itemDetail.uploadSeason', { n: season })}
+                </Button>
+              )}
               {seasonFiles.map((f) => (
-                <FileRow key={f.media_file_id} file={f} showEpisode />
+                <FileRow key={f.media_file_id} file={f} showEpisode uploadTmdb={uploadTmdb} />
               ))}
             </CollapsibleContent>
           </Collapsible>
@@ -414,9 +458,16 @@ export function ItemDetailSheet({ item, onClose }: { item: OpenItem | null; onCl
               <Reviews detail={detail} />
               <Section title={t('itemDetail.files')}>
                 {detail.content_type === 'tv' ? (
-                  <Seasons files={detail.files} />
+                  <Seasons files={detail.files} uploadTmdb={`${detail.content_type}/${detail.tmdb_id}`} />
                 ) : (
-                  detail.files.map((f) => <FileRow key={f.media_file_id} file={f} showEpisode={false} />)
+                  detail.files.map((f) => (
+                    <FileRow
+                      key={f.media_file_id}
+                      file={f}
+                      showEpisode={false}
+                      uploadTmdb={`${detail.content_type}/${detail.tmdb_id}`}
+                    />
+                  ))
                 )}
               </Section>
               <Matching detail={detail} />

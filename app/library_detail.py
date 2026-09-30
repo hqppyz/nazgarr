@@ -148,6 +148,7 @@ def item_detail(session: Session, content_type: str, tmdb_id: int) -> dict | Non
             "media_file_id": mf.id,
             "season_number": item.season_number,
             "episode_number": item.episode_number,
+            "disk_id": mf.disk_id,
             "relative_path": mf.relative_path,
             "size_bytes": mf.size_bytes,
             "is_video": is_video(mf.relative_path),

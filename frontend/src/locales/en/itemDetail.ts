@@ -27,4 +27,8 @@ export const itemDetail = {
   'itemDetail.checkNow': 'Check now',
   'itemDetail.checkNowHint': 'Ask the client now whether the recheck finished (it is also checked automatically every 2 minutes).',
   'itemDetail.checkNowFailed': 'Could not check: {message}',
+  'itemDetail.uploadOrReseed': 'Upload / reseed',
+  'itemDetail.uploadOrReseedHelp':
+    'Opens a new upload on this file: if a tracker already has the identical release, it proposes a reseed instead.',
+  'itemDetail.uploadSeason': 'Upload / reseed season {n} as a pack',
 } as const

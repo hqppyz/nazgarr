@@ -1,6 +1,6 @@
 import { CheckIcon, FileVideoIcon, FolderIcon, FolderSearchIcon } from 'lucide-react'
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 
 import { useCreateUpload, useUploadTrackers } from '@/api/hooks/uploads'
@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
 import { t } from '@/lib/i18n'
-import { EMPTY_IDS, toForcedIds } from '@/lib/upload'
+import { EMPTY_IDS, parseNewUploadParams, toForcedIds } from '@/lib/upload'
 import { cn } from '@/lib/utils'
 
 export function NewUploadPage() {
@@ -18,8 +18,11 @@ export function NewUploadPage() {
   const { data: trackers, isPending: trackersPending } = useUploadTrackers()
   const create = useCreateUpload()
   const [pickerOpen, setPickerOpen] = useState(false)
-  const [source, setSource] = useState<UploadSource | null>(null)
-  const [ids, setIds] = useState(EMPTY_IDS)
+  // Arrivando dalla vista poster: sorgente e TMDB già scelti (?disk=&path=&tmdb=).
+  const [params] = useSearchParams()
+  const [initial] = useState(() => parseNewUploadParams(params))
+  const [source, setSource] = useState<UploadSource | null>(initial.source)
+  const [ids, setIds] = useState({ ...EMPTY_IDS, tmdb: initial.tmdb })
   // null = scelta non ancora toccata: tutti i tracker con un profilo di upload.
   const [trackerChoice, setTrackerChoice] = useState<Set<number> | null>(null)
   const selectedTrackers = trackerChoice ?? (trackers ? new Set(trackers.map((tr) => tr.id)) : null)

@@ -127,3 +127,20 @@ export function draftProblem(draft: TargetDraft): string | null {
 export function dupeUrl(target: { tracker_base_url: string | null }, torrentId: string) {
   return target.tracker_base_url ? `${target.tracker_base_url}/torrents/${torrentId}` : null
 }
+
+// Link alla pagina di nuovo upload con sorgente e id già compilati (dalla
+// vista poster): il match con quel TMDB è immediato, e se il tracker ha già
+// la release identica il flusso stesso propone il reseed.
+export function newUploadLink(source: { diskId: number; path: string; isDir: boolean }, tmdb?: string) {
+  const params = new URLSearchParams({ disk: String(source.diskId), path: source.path })
+  if (source.isDir) params.set('dir', '1')
+  if (tmdb) params.set('tmdb', tmdb)
+  return `/upload/new?${params}`
+}
+
+export function parseNewUploadParams(params: URLSearchParams) {
+  const disk = Number(params.get('disk'))
+  const path = params.get('path')
+  const source = disk && path ? { diskId: disk, relativePath: path, isDir: params.get('dir') === '1' } : null
+  return { source, tmdb: params.get('tmdb') ?? '' }
+}

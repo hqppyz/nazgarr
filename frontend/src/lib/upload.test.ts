@@ -7,6 +7,8 @@ import {
   eventMessage,
   fromForcedIds,
   missingEpisodes,
+  newUploadLink,
+  parseNewUploadParams,
   toForcedIds,
 } from '@/lib/upload'
 
@@ -61,5 +63,16 @@ describe('decision drafts', () => {
     expect(draftProblem({ ...draft, type_id: null })).toBe('upload.decision.problem.ids')
     expect(draftProblem({ ...draft, action: 'reseed', reseed_torrent_id: null })).toBe('upload.decision.problem.reseed')
     expect(draftProblem({ ...draft, action: 'skip', name: '' })).toBeNull()
+  })
+})
+
+describe('new upload link from the poster view', () => {
+  it('carries the source and the TMDB id, and reads them back', () => {
+    const link = newUploadLink({ diskId: 2, path: 'media/TV/Show/Season 01', isDir: true }, 'tv/1399')
+    expect(link).toBe('/upload/new?disk=2&path=media%2FTV%2FShow%2FSeason+01&dir=1&tmdb=tv%2F1399')
+
+    const parsed = parseNewUploadParams(new URLSearchParams(link.split('?')[1]))
+    expect(parsed).toEqual({ source: { diskId: 2, relativePath: 'media/TV/Show/Season 01', isDir: true }, tmdb: 'tv/1399' })
+    expect(parseNewUploadParams(new URLSearchParams(''))).toEqual({ source: null, tmdb: '' })
   })
 })
