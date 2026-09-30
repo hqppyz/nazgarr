@@ -17,3 +17,7 @@ data/
 # sessions, deliberately not published in this public repo.
 /CLAUDE.md
 /docs/ROADMAP.md
+
+# Residui di pip install / build dei pacchetti (es. examples/)
+build/
+*.egg-info/
