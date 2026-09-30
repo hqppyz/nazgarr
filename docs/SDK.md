@@ -27,7 +27,9 @@ environment:
 
 Or write them one per line in `plugins.txt` in the data folder (`#` starts a comment). The environment variable wins when both exist.
 
-At startup Nazgarr installs them with pip into `<data_dir>/plugins/site`, so they survive container updates. pip only runs again when the list changes. **Restart the container after changing the list.**
+At startup Nazgarr installs them with pip into `<data_dir>/plugins/site`, so they survive container updates. pip only runs again when the list changes, and then it installs everything from scratch: a plugin you remove from the list is gone after the restart. **Restart the container after changing the list.**
+
+Each line is a package (a name, `name==version`, or a `git+https://…` URL). Lines starting with `-` are refused: pip options such as `--index-url` could make it install packages from anyone's index. Only plugins installed there are loaded: a package with a `nazgarr.plugins` entry point installed anywhere else is ignored. Pin versions (`nazgarr-ntfy==0.3.1`) so an update never arrives by surprise.
 
 **Settings > Plugins** shows:
 
@@ -240,6 +242,13 @@ curl -H "X-Api-Key: nzg_..." http://nazgarr:8080/api/dashboard
 | read | every `GET`: libraries, torrents, dashboard, history, settings (without secrets) |
 | write | everything you can do after logging in: create upload jobs, approve reviews, change settings |
 
-**No key can manage API keys.** Creating or revoking them requires the real login, so a stolen key cannot create more keys to stay in. A wrong or revoked key always gets `401`, even when no login is configured; a read key gets `403` on anything but `GET`.
+**What no key can do**, whatever its level:
+
+- manage API keys: creating or revoking them requires the real login, so a stolen key cannot create more keys to stay in;
+- read or change secret settings (API keys, tokens, passwords) or the login's own settings;
+- change the safety settings (verification before executing, the client's recheck, automatic execution and its thresholds);
+- move a tracker, client or Radarr/Sonarr instance to another host without sending its secrets again in the same request, so a changed address can never receive the saved token.
+
+A wrong or revoked key always gets `401`; a read key gets `403` on anything but `GET`. Error messages returned by the API never contain credentials (download keys, passkeys, tokens in URLs).
 
 The full API is described at `/docs` (OpenAPI) on your instance.

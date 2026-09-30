@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.api.types import HttpUrlStr, require_secrets_for_new_host
 from app.api_errors import coded_detail
 from app.deps import get_session
+from app.logging_config import safe_error
 from app.models import SonarrInstance
 
 router = APIRouter(prefix="/api/sonarr-instances", tags=["sonarr-instances"])
@@ -90,7 +91,7 @@ def _test_connection(
         response.raise_for_status()
         version = response.json().get("version")
     except Exception as exc:
-        return SonarrInstanceTestResponse(status="error", error=str(exc))
+        return SonarrInstanceTestResponse(status="error", error=safe_error(exc))
     return SonarrInstanceTestResponse(status="ok", version=version)
 
 

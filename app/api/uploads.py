@@ -18,6 +18,7 @@ from app.adapter_factory import TmdbApiKeyMissingError
 from app.api_errors import coded_detail, from_coded_error
 from app.deps import get_session
 from app.fs_scope import ScopeViolation
+from app.logging_config import safe_error
 from app.models import Disk, TorrentClient, TrackerUploadProfile, UploadEvent, UploadJob, UploadTarget
 from app.upload_jobs import UploadJobError
 
@@ -357,7 +358,7 @@ def confirm_match(
     except TmdbApiKeyMissingError:
         details = None  # solo Radarr/Sonarr: niente dettagli TMDB, bastano gli id
     except httpx.HTTPError as exc:
-        raise HTTPException(status_code=502, detail=coded_detail("tmdb_error", error=str(exc))) from exc
+        raise HTTPException(status_code=502, detail=coded_detail("tmdb_error", error=safe_error(exc))) from exc
     try:
         upload_jobs.confirm_match(
             session, job, content_type=body.content_type, tmdb_id=body.tmdb_id, kind=body.kind,

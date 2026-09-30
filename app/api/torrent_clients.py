@@ -15,6 +15,7 @@ from app.api.types import HttpUrlStr, require_secrets_for_new_host
 from app.api_errors import coded_detail, from_coded_error
 from app.client_labels import split_tags
 from app.deps import get_session
+from app.logging_config import safe_error
 from app.models import ClientTorrent, Disk, DiskTorrentClient, TorrentClient
 from app.plugins import REGISTRY
 from app.plugins import config as plugin_config
@@ -180,7 +181,7 @@ def test_torrent_client(torrent_client_id: int, session: Session = Depends(get_s
         adapter = adapter_factory.build_torrent_client_adapter(tc)
         torrents = adapter.list_torrents()
     except Exception as exc:
-        return TorrentClientTestResponse(status="error", error=str(exc))
+        return TorrentClientTestResponse(status="error", error=safe_error(exc))
     return TorrentClientTestResponse(status="ok", torrents_found=len(torrents))
 
 
@@ -233,7 +234,7 @@ def torrent_client_categories(torrent_client_id: int, session: Session = Depends
     try:
         categories = adapter_factory.build_torrent_client_adapter(tc).list_categories()
     except Exception as exc:
-        return TorrentClientCategoriesResponse(status="error", error=str(exc))
+        return TorrentClientCategoriesResponse(status="error", error=safe_error(exc))
     return TorrentClientCategoriesResponse(status="ok", categories=categories)
 
 

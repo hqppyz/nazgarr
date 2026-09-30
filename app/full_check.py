@@ -34,6 +34,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app import adapter_factory
 from app.file_types import is_video
 from app.fs_scope import ScopeViolation, resolve_scoped
+from app.logging_config import safe_error
 from app.models import Candidate, MatchReview, MediaFile, SeedFile, SeedJob
 from app.torrent_file import TorrentFileEntry, TorrentInfo, compute_info_hash, parse_torrent_info
 
@@ -409,7 +410,7 @@ def _run(session_factory: sessionmaker, state: CheckState, fetch_torrent=None, a
             after(session, state, None)
     except Exception as exc:
         logger.warning("Controllo completo di %r fallito", state.label, exc_info=True)
-        state.status, state.error = "failed", str(exc)
+        state.status, state.error = "failed", safe_error(exc)
         if after is not None:
             try:
                 session.rollback()

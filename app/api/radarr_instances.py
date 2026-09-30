@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.api.types import HttpUrlStr, require_secrets_for_new_host
 from app.api_errors import coded_detail
 from app.deps import get_session
+from app.logging_config import safe_error
 from app.models import RadarrInstance
 
 router = APIRouter(prefix="/api/radarr-instances", tags=["radarr-instances"])
@@ -94,7 +95,7 @@ def _test_connection(
         response.raise_for_status()
         version = response.json().get("version")
     except Exception as exc:
-        return RadarrInstanceTestResponse(status="error", error=str(exc))
+        return RadarrInstanceTestResponse(status="error", error=safe_error(exc))
     return RadarrInstanceTestResponse(status="ok", version=version)
 
 

@@ -33,6 +33,12 @@ def redact(text: str) -> str:
     return text
 
 
+def safe_error(value) -> str:
+    """Il testo di un errore da mostrare o salvare: le eccezioni di httpx
+    contengono l'URL completo, con chiavi e passkey dentro."""
+    return redact(str(value))
+
+
 class RedactingFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         return redact(super().format(record))
