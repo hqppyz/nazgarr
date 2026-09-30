@@ -103,6 +103,8 @@ export interface NamingPreview {
   sample: { kind: 'job' | 'example'; label: string | null }
   variables: Record<string, string | null>
   names: Record<string, string>
+  // Il nome finale di ogni esempio fisso e, se c'è, dell'ultimo upload analizzato (per primo).
+  examples: { kind: 'job' | 'example'; key: string; label: string; name: string }[]
 }
 
 // Anteprima delle regole di naming ancora da salvare (debounce a carico del chiamante).

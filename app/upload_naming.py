@@ -30,7 +30,7 @@ from app.upload_dupes import traits_of
 VARIABLES = {
     "title": "Dune: Part Two", "local_title": "Dune - Parte due", "year": "2024", "season": "S02",
     "episode": "E03", "edition": "Extended", "repack": "REPACK", "resolution": "2160p", "format": "UHD",
-    "source": "UHD BluRay", "source_full": "UHD BluRay",
+    "source": "BluRay", "source_full": "BluRay",
     "type": "REMUX", "service": "ATVP", "video_codec": "HEVC", "hdr": "DV HDR", "bit_depth": "10bit",
     "audio": "TrueHD 7.1 Atmos", "audio_codec": "TrueHD", "audio_channels": "7.1", "audio_atmos": "Atmos",
     "audio_all": "TrueHD 7.1 Atmos DD+ 5.1", "audio_languages": "ITA ENG", "subs_languages": "ITA ENG",
@@ -119,15 +119,17 @@ def release_type(guess: dict, name: str = "") -> str:
 
 
 def _source_label(guess: dict) -> str | None:
-    """La sorgente come si scrive nei nomi di remux ed encode (BluRay, UHD
-    BluRay, 3D BluRay, HDDVD, PAL/NTSC DVD, HDTV, UHDTV, UHDRip). Per il DVD
-    senza PAL/NTSC nel nome decide la risoluzione, in release_values."""
+    """La sorgente come si scrive nei nomi di remux ed encode (BluRay, 3D
+    BluRay, HDDVD, PAL/NTSC DVD, HDTV, UHDTV, UHDRip). Un Blu-ray UHD è
+    "BluRay" come gli altri: che sia UHD lo dicono già risoluzione e
+    {format} (decisione dell'utente, 2026-09-30). Per il DVD senza PAL/NTSC
+    nel nome decide la risoluzione, in release_values."""
     source = str(guess.get("source") or "")
     others = {str(o) for o in _as_list(guess.get("other"))}
     if source == "Web":
         return "WEBRip" if "Rip" in others else "WEB-DL"
-    if source == "Ultra HD Blu-ray":
-        return "UHD BluRay"
+    if source in ("Ultra HD Blu-ray", "Blu-ray") and "3D" not in others:
+        return "BluRay"
     if source == "Blu-ray":
         return "3D BluRay" if "3D" in others else "BluRay"
     if source == "HD-DVD":
@@ -140,8 +142,9 @@ def _source_label(guess: dict) -> str | None:
     return source or None
 
 
-# La sorgente di un full disc si scrive come il disco (Blu-ray, HD DVD, ...).
-_DISC_SOURCES = {"BluRay": "Blu-ray", "UHD BluRay": "UHD Blu-ray", "3D BluRay": "3D Blu-ray", "HDDVD": "HD DVD"}
+# La sorgente di un full disc si scrive come il disco (Blu-ray, HD DVD, ...);
+# un Blu-ray in 2160p è un UHD Blu-ray.
+_DISC_SOURCES = {"BluRay": "Blu-ray", "3D BluRay": "3D Blu-ray", "HDDVD": "HD DVD"}
 
 
 def source_full(values: dict) -> str | None:
@@ -153,7 +156,9 @@ def source_full(values: dict) -> str | None:
         return values.get("service")
     source = values.get("source")
     if kind == "DISC":
-        return _DISC_SOURCES.get(source, source)
+        disc = _DISC_SOURCES.get(source, source)
+        uhd = resolution_format(values.get("resolution")) == "UHD" or values.get("format") == "UHD"
+        return f"UHD {disc}" if disc == "Blu-ray" and uhd else disc
     return source
 
 

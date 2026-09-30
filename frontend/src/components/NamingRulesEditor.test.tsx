@@ -11,6 +11,10 @@ vi.mock('@/api/hooks/trackers', () => ({
       sample: { kind: 'job', label: 'A.Very.Long.Release.Name.2024.2160p.UHD.BluRay.REMUX-GRP' },
       variables: { resolution: '2160p' },
       names: { default: 'Dune 2024 2160p-GRP' },
+      examples: [
+        { kind: 'job', key: 'job-1', label: 'Dune', name: 'Dune 2024 2160p-GRP' },
+        { kind: 'example', key: 'series', label: 'Series · WEB-DL', name: 'Emberfall S02 2160p UHD AMZN WEB-DL-NTb' },
+      ],
     },
   }),
 }))
@@ -39,6 +43,9 @@ describe('NamingRulesEditor', () => {
     render(<Harness initial={{ templates: { default: '{title} {year}' } }} onChange={onChange} />)
 
     expect(screen.getByText('→ Dune 2024 2160p-GRP')).toBeTruthy()
+    // Il nome finale di ogni esempio, con il suo nome.
+    expect(screen.getByText('Your latest upload: Dune')).toBeTruthy()
+    expect(screen.getByText('Emberfall S02 2160p UHD AMZN WEB-DL-NTb')).toBeTruthy()
     expect(screen.queryByLabelText('Pattern for REMUX')).toBeNull()
     const main = screen.getByLabelText('Release name pattern') as HTMLInputElement
     fireEvent.focus(main)

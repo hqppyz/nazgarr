@@ -247,6 +247,23 @@ export function NamingRulesEditor({
               : t('naming.previewOnExample')}
           </p>
         )}
+        {preview && (preview.examples?.length ?? 0) > 0 && (
+          <div className="grid gap-2 rounded-md border bg-muted/30 p-3">
+            <p className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+              {t('naming.examplesTitle')}
+            </p>
+            <ul className="grid gap-2">
+              {preview.examples.map((example) => (
+                <li key={example.key} className="grid gap-0.5">
+                  <span className="text-[11px] text-muted-foreground">
+                    {example.kind === 'job' ? t('naming.exampleJob', { label: example.label }) : example.label}
+                  </span>
+                  <span className="font-mono text-xs break-all">{example.name}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         {isError && <p className="text-[11px] text-destructive">{t('naming.previewFailed')}</p>}
       </div>
 

@@ -119,5 +119,13 @@ def test_naming_preview_uses_an_example_without_uploads(client):
     }}).json()
 
     assert preview["sample"]["kind"] == "example"
-    assert preview["names"]["REMUX"] == "Dune: Part Two 2024 2160p TrueHD-GRP"
-    assert preview["variables"]["audio_all"] == "TrueHD 7.1 Atmos DD+ 5.1"
+    # Il tracker ha preso l'italiano dal profilo ITT: titolo localizzato.
+    assert preview["names"]["REMUX"] == "Dune - Parte due 2024 2160p TrueHD-FraMeSToR"
+    assert preview["variables"]["audio_all"] == "TrueHD 7.1 Atmos DD+ 5.1 DTS-HD MA 5.1"
+    names = {example["key"]: example["name"] for example in preview["examples"]}
+    assert set(names) == {"uhd_remux", "fhd_encode", "web_subbed", "series"}
+    assert " 1080p FullHD NF WEB-DL " in names["web_subbed"] and " SUBS ITA " in names["web_subbed"]
+    assert names["series"].startswith("Emberfall - Le terre di cenere S02 2160p UHD AMZN WEB-DL")
+    # Ogni esempio col suo pattern: il remux quello per i REMUX appena cambiato.
+    assert names["uhd_remux"] == preview["names"]["REMUX"]
+    assert " 1080p FullHD BluRay " in names["fhd_encode"]

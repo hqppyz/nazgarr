@@ -27,6 +27,7 @@ from app.upload_naming import (
     rules_from_convention,
     with_tracker_language,
 )
+from app.upload_naming_examples import EXAMPLES
 from app.upload_profiles import freeleech_options
 
 logger = logging.getLogger(__name__)
@@ -225,10 +226,17 @@ def approve(session: Session, job: UploadJob, decisions: list[dict]) -> None:
     session.commit()
 
 
+def _example_values(example, rules: dict) -> dict:
+    local_title = example.local_titles.get(rules.get("title_language") or "")
+    return release_values(example.job(), detect(example.release_name), example.mediainfo, {}, rules, local_title)
+
+
 def preview_names(session: Session, rules: dict, tracker_language: str | None = None) -> dict:
-    """Anteprima delle regole di naming nell'editor del profilo: il nome per
-    ogni template, sull'ultimo upload già analizzato (valori veri) o, se
-    non ce n'è, su un esempio fisso."""
+    """Anteprima delle regole di naming nell'editor del profilo: il nome
+    finale di ogni esempio fisso (app/upload_naming_examples.py) e, se c'è,
+    dell'ultimo upload già analizzato (valori veri); sotto ogni template, il
+    nome che darebbe (l'upload vero, se no il primo esempio; l'esempio da
+    serie per il pattern delle serie)."""
     job = (
         session.query(UploadJob)
         .filter(UploadJob.tmdb_id.isnot(None), UploadJob.analysis_json.isnot(None))
@@ -236,6 +244,12 @@ def preview_names(session: Session, rules: dict, tracker_language: str | None = 
         .first()
     )
     rules = with_tracker_language(rules, tracker_language) or {}
+    examples = [(example, _example_values(example, rules)) for example in EXAMPLES]
+    results = [
+        {"kind": "example", "key": example.key, "label": example.label, "name": build_name(rules, values)}
+        for example, values in examples
+    ]
+    series = next(values for example, values in examples if example.content_type == "tv")
     if job is not None:
         analysis = json.loads(job.analysis_json or "{}")
         language = rules.get("title_language")
@@ -245,19 +259,20 @@ def preview_names(session: Session, rules: dict, tracker_language: str | None = 
             local_title,
         )
         sample = {"kind": "job", "label": job.title or job.relative_path}
+        results.insert(0, {"kind": "job", "key": f"job-{job.id}", "label": sample["label"],
+                           "name": build_name(rules, values)})
+        if job.content_type == "tv":
+            series = values
     else:
-        # L'esempio è un film: niente stagione né episodio nel nome.
-        values = {**VARIABLES, "season": None, "episode": None, "content_type": "movie"}
-        sample = {"kind": "example", "label": None}
+        values = examples[0][1]
+        sample = {"kind": "example", "label": EXAMPLES[0].label}
     templates = rules.get("templates") or {}
     names = {}
     for key in templates:
         if key == "tv":
-            # Il pattern per le serie sui valori dell'esempio da serie.
-            tv = {**values, "content_type": "tv", "season": values.get("season") or "S01"}
-            names[key] = build_name(rules, tv)
+            names[key] = build_name(rules, series)
         else:
             movie = {**values, "content_type": "movie", "season": None, "episode": None}
             names[key] = build_name(rules, {**movie, "type": key if key != "default" else values.get("type")})
     variables = {key: values.get(key) for key in VARIABLES}
-    return {"sample": sample, "variables": variables, "names": names}
+    return {"sample": sample, "variables": variables, "names": names, "examples": results}

@@ -149,7 +149,7 @@ def test_sources_are_written_as_in_the_tracker_rules():
     assert [detect(name)["source"] for name in (
         "Movie.2010.1080p.3D.BluRay.x264-GRP", "Movie.2010.1080p.HDDVD.x264-GRP", "Show.S01E01.2160p.UHDTV.x265-GRP",
         "Movie.2010.2160p.UHDRip.x265-GRP", "Movie.2010.PAL.DVD9-GRP", "Movie.2010.2160p.UHD.BluRay.x265-GRP",
-    )] == ["3D BluRay", "HDDVD", "UHDTV", "UHDRip", "PAL DVD", "UHD BluRay"]
+    )] == ["3D BluRay", "HDDVD", "UHDTV", "UHDRip", "PAL DVD", "BluRay"]
     # Un DVD senza PAL/NTSC nel nome: lo dice la risoluzione.
     values = release_values(_job(), detect("Movie.2010.DVDRip.x264-GRP"), None, {"resolution": "576p"}, None)
     assert values["source"] == "PAL DVD"
@@ -172,7 +172,7 @@ def test_source_full_is_the_service_for_web_the_disc_for_a_full_disc_and_the_sou
     remux = release_values(_job(), detect("Movie.2019.2160p.UHD.BluRay.REMUX.HEVC-GRP"), None, {}, None)
     disc = release_values(_job(), detect("Movie.2019.2160p.UHD.BluRay.REMUX.HEVC-GRP"), None, {"type": "DISC"}, None)
 
-    assert (web["source_full"], remux["source_full"], disc["source_full"]) == ("NF", "UHD BluRay", "UHD Blu-ray")
+    assert (web["source_full"], remux["source_full"], disc["source_full"]) == ("NF", "BluRay", "UHD Blu-ray")
 
 
 def test_itt_names_follow_the_wiki_source_and_format():
