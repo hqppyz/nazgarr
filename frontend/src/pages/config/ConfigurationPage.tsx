@@ -6,6 +6,7 @@ import {
   InfoIcon,
   LayoutGridIcon,
   PlugIcon,
+  PuzzleIcon,
   RadioTowerIcon,
   ScrollTextIcon,
   ShieldIcon,
@@ -27,6 +28,7 @@ import { IntegrationsSection } from '@/pages/config/IntegrationsSection'
 import { InterfaceSection } from '@/pages/config/InterfaceSection'
 import { LogsSection } from '@/pages/config/LogsSection'
 import { MetadataSection } from '@/pages/config/MetadataSection'
+import { PluginsSection } from '@/pages/config/PluginsSection'
 import { SecuritySection } from '@/pages/config/SecuritySection'
 import { TorrentClientsSection } from '@/pages/config/TorrentClientsSection'
 import { TrackersSection } from '@/pages/config/TrackersSection'
@@ -99,6 +101,7 @@ const GROUPS: { title: string; tabs: Tab[] }[] = [
     title: t('config.groupSystem'),
     tabs: [
       { value: 'upload', label: t('config.tabUpload'), icon: UploadCloudIcon, layout: PAIRS, content: <UploadSettingsSection /> },
+      { value: 'plugins', label: t('config.tabPlugins'), icon: PuzzleIcon, layout: STACK, content: <PluginsSection /> },
       { value: 'logs', label: t('config.tabLogs'), icon: ScrollTextIcon, layout: STACK, content: <LogsSection /> },
     ],
   },

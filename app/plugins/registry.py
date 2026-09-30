@@ -10,8 +10,10 @@ funzione che lo costruisce da un AdapterContext. Un adapter_type è unico per
 kind: un plugin non può sostituire un adapter integrato.
 """
 
-from collections.abc import Callable
-from dataclasses import dataclass, field
+import contextlib
+import contextvars
+from collections.abc import Callable, Iterator
+from dataclasses import dataclass, field, replace
 from typing import Any, Literal
 
 AdapterKind = Literal["tracker", "torrent_client", "media_resolver", "image_host", "notification"]
@@ -65,11 +67,28 @@ class AdapterAlreadyRegisteredError(ValueError):
     pass
 
 
+# Il plugin che si sta caricando (app/plugins/loader.py): quello che registra
+# finisce a suo nome, e se il caricamento fallisce si annulla.
+_current_plugin: contextvars.ContextVar[str | None] = contextvars.ContextVar("current_plugin", default=None)
+
+
+@contextlib.contextmanager
+def registering_as(plugin: str) -> Iterator[None]:
+    token = _current_plugin.set(plugin)
+    try:
+        yield
+    finally:
+        _current_plugin.reset(token)
+
+
 class Registry:
     def __init__(self) -> None:
         self._specs: dict[tuple[str, str], AdapterSpec] = {}
 
     def register(self, spec: AdapterSpec) -> AdapterSpec:
+        plugin = _current_plugin.get()
+        if plugin is not None:
+            spec = replace(spec, plugin=plugin)
         if spec.kind not in KINDS:
             raise ValueError(f"kind sconosciuto: {spec.kind!r} (validi: {', '.join(KINDS)})")
         key = (spec.kind, spec.adapter_type)
@@ -84,6 +103,12 @@ class Registry:
 
     def get(self, kind: str, adapter_type: str | None) -> AdapterSpec | None:
         return self._specs.get((kind, adapter_type or ""))
+
+    def all(self) -> list[AdapterSpec]:
+        return list(self._specs.values())
+
+    def of_plugin(self, plugin: str) -> list[AdapterSpec]:
+        return [spec for spec in self._specs.values() if spec.plugin == plugin]
 
     def of_kind(self, kind: str) -> list[AdapterSpec]:
         return [spec for (k, _t), spec in self._specs.items() if k == kind]

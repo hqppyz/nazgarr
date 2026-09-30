@@ -1,0 +1,26 @@
+export const plugins = {
+  'plugins.trustTitle': 'Plugins run inside Nazgarr',
+  'plugins.trust':
+    'They have the same permissions as Nazgarr itself: install only the ones you trust. A plugin can never change files or clients on its own: every change still goes through your approval.',
+  'plugins.howTo':
+    'List the pip packages in the {env} environment variable (separated by spaces), or one per line in plugins.txt inside the data folder, then restart the container. They are installed once and kept across restarts.',
+  'plugins.source.env': 'From {env}',
+  'plugins.source.file': 'From plugins.txt',
+  'plugins.source.none': 'No plugins requested',
+  'plugins.sdkVersion': 'SDK {version}',
+  'plugins.installFailed': 'Installing the plugins failed',
+  'plugins.none': 'No plugin loaded.',
+  'plugins.status.loaded': 'loaded',
+  'plugins.status.failed': 'failed',
+  'plugins.status.incompatible': 'incompatible',
+  'plugins.status.install_failed': 'not installed',
+  'plugins.provides': 'Provides: {adapters}',
+  'plugins.providesNothing': 'Registers no adapter',
+  'plugins.adaptersTitle': 'Available adapters',
+  'plugins.builtin': 'built-in',
+  'plugins.kind.tracker': 'Trackers',
+  'plugins.kind.torrent_client': 'Torrent clients',
+  'plugins.kind.media_resolver': 'Media resolvers',
+  'plugins.kind.image_host': 'Image hosts',
+  'plugins.kind.notification': 'Notifications',
+} as const

@@ -1498,6 +1498,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/plugins": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Plugins */
+        get: operations["list_plugins_api_plugins_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/health": {
         parameters: {
             query?: never;
@@ -1536,6 +1553,21 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AdapterResponse */
+        AdapterResponse: {
+            /** Kind */
+            kind: string;
+            /** Adapter Type */
+            adapter_type: string;
+            /** Label */
+            label: string;
+            /** Description */
+            description: string | null;
+            /** Plugin */
+            plugin: string | null;
+            /** Config Fields */
+            config_fields: components["schemas"]["ConfigFieldResponse"][];
+        };
         /** AppInfoResponse */
         AppInfoResponse: {
             /** Version */
@@ -1696,6 +1728,26 @@ export interface components {
             bad_pieces: number[];
             /** Files */
             files: components["schemas"]["FileCheckResponse"][];
+        };
+        /** ConfigFieldResponse */
+        ConfigFieldResponse: {
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /** Type */
+            type: string;
+            /** Required */
+            required: boolean;
+            /** Default */
+            default?: string | number | boolean | null;
+            /** Help */
+            help?: string | null;
+            /**
+             * Choices
+             * @default []
+             */
+            choices: string[];
         };
         /** DashboardResponse */
         DashboardResponse: {
@@ -2471,6 +2523,40 @@ export interface components {
             started_at?: string | null;
             /** Finished At */
             finished_at?: string | null;
+        };
+        /** PluginResponse */
+        PluginResponse: {
+            /** Name */
+            name: string;
+            /** Distribution */
+            distribution: string | null;
+            /** Version */
+            version: string | null;
+            /** Status */
+            status: string;
+            /** Error */
+            error: string | null;
+            /** Requires Sdk */
+            requires_sdk: string | null;
+            /** Adapters */
+            adapters: string[];
+        };
+        /** PluginsResponse */
+        PluginsResponse: {
+            /** Sdk Version */
+            sdk_version: string;
+            /** Env Var */
+            env_var: string;
+            /** Source */
+            source: string | null;
+            /** Requested */
+            requested: string[];
+            /** Install Error */
+            install_error: string | null;
+            /** Plugins */
+            plugins: components["schemas"]["PluginResponse"][];
+            /** Adapters */
+            adapters: components["schemas"]["AdapterResponse"][];
         };
         /** QueueOrderRequest */
         QueueOrderRequest: {
@@ -6439,6 +6525,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_plugins_api_plugins_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PluginsResponse"];
                 };
             };
         };

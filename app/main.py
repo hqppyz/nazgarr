@@ -13,6 +13,7 @@ from app.api.disks import router as disks_router
 from app.api.full_checks import router as full_checks_router
 from app.api.library import router as library_router
 from app.api.metadata import router as metadata_router
+from app.api.plugins import router as plugins_router
 from app.api.radarr_instances import router as radarr_instances_router
 from app.api.reviews import router as reviews_router
 from app.api.runs import router as runs_router
@@ -27,6 +28,7 @@ from app.api.uploads import router as uploads_router
 from app.config import load_settings
 from app.frontend import mount_frontend
 from app.logging_config import add_file_handler, configure_logging
+from app.plugins import loader as plugin_loader
 from app.upload_worker import UploadWorker
 from app.version import __commit__, __version__
 
@@ -37,6 +39,8 @@ configure_logging()
 async def lifespan(app: FastAPI):
     settings = load_settings()
     add_file_handler(Path(settings.data_dir) / "logs")
+    # Prima di tutto il resto: gli adapter dei plugin servono già allo startup.
+    plugin_loader.load(settings.data_dir)
     db.migrate_legacy_db_filename(settings.data_dir)
     engine = db.make_engine(settings.db_path)
     db.migrate_legacy_media_path_id(engine)
@@ -99,6 +103,7 @@ app.include_router(dashboard_router, dependencies=[_protected])
 app.include_router(uploads_router, dependencies=[_protected])
 app.include_router(metadata_router, dependencies=[_protected])
 app.include_router(system_router, dependencies=[_protected])
+app.include_router(plugins_router, dependencies=[_protected])
 
 
 class HealthResponse(BaseModel):
