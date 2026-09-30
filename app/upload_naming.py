@@ -28,7 +28,8 @@ from app.upload_dupes import traits_of
 # servono all'editor delle regole (chip da inserire e anteprima).
 VARIABLES = {
     "title": "Dune: Part Two", "local_title": "Dune - Parte due", "year": "2024", "season": "S02",
-    "episode": "E03", "edition": "Extended", "repack": "REPACK", "resolution": "2160p", "source": "UHD BluRay",
+    "episode": "E03", "edition": "Extended", "repack": "REPACK", "resolution": "2160p", "format": "UHD",
+    "source": "UHD BluRay",
     "type": "REMUX", "service": "ATVP", "video_codec": "HEVC", "hdr": "DV HDR", "bit_depth": "10bit",
     "audio": "TrueHD 7.1 Atmos", "audio_codec": "TrueHD", "audio_channels": "7.1", "audio_atmos": "Atmos",
     "audio_all": "TrueHD 7.1 Atmos DD+ 5.1", "audio_languages": "ITA ENG", "subs_languages": "ITA ENG",
@@ -190,6 +191,22 @@ def _mi_resolution(video: dict) -> str | None:
     else:
         base = "480"
     return f"{base}{'i' if interlaced and base in ('1080', '576', '480') else 'p'}"
+
+
+def resolution_format(resolution: str | None) -> str | None:
+    """La risoluzione in lettere, come la chiamano i tracker (Format):
+    UHD da 2160p in su, FullHD a 1080, HD a 720, SD sotto."""
+    match = re.match(r"(\d+)", resolution or "")
+    if not match:
+        return None
+    height = int(match.group(1))
+    if height >= 2160:
+        return "UHD"
+    if height >= 1080:
+        return "FullHD"
+    if height >= 720:
+        return "HD"
+    return "SD"
 
 
 def _mi_hdr(video: dict) -> str | None:
@@ -354,6 +371,7 @@ def release_values(
     for key in DETECTED_FIELDS:
         if overrides.get(key) not in (None, ""):
             values[key] = overrides[key]
+    values["format"] = resolution_format(values.get("resolution"))  # dopo gli override: segue la risoluzione
 
     title = job.title
     if rules.get("title") == "local" and local_title:

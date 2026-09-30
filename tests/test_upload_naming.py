@@ -7,7 +7,7 @@ from pymediainfo import MediaInfo
 from app import upload_profiles
 from app.mediainfo_util import summarize
 from app.models import TrackerUploadProfile
-from app.upload_naming import build_name, detect, release_values
+from app.upload_naming import build_name, detect, release_values, resolution_format
 from tests.upload_helpers import make_tracker
 
 MEDIAINFO = summarize(MediaInfo((Path(__file__).parent / "fixtures" / "mediainfo_remux.xml").read_text()), "x.mkv")
@@ -130,3 +130,15 @@ def test_series_use_their_own_pattern_when_there_is_one():
     assert build_name(rules, movie) == "Severance 2022 REMUX-G"
     no_tv = {"templates": {"default": rules["templates"]["default"]}}
     assert build_name(no_tv, {**base, "content_type": "tv"}) == "Severance 2022 S02 1080p-G"
+
+
+def test_format_is_the_resolution_in_letters_and_follows_the_override():
+    assert [resolution_format(r) for r in ("4320p", "2160p", "1080i", "1080p", "720p", "576p", "480p", None)] == [
+        "UHD", "UHD", "FullHD", "FullHD", "HD", "SD", "SD", None,
+    ]
+    detected = detect("Movie.2019.2160p.WEB-DL.DDP5.1.H.265-GRP")
+    rules = {"templates": {"default": "{title} {year} {format} {resolution} {group}"}}
+
+    assert release_values(_job(), detected, None, {}, rules)["format"] == "UHD"
+    values = release_values(_job(), detected, None, {"resolution": "720p"}, rules)
+    assert build_name(rules, values) == "17 Again 2009 HD 720p-GRP"
