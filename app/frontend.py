@@ -13,6 +13,8 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from app.fs_scope import ScopeViolation, resolve_scoped
+
 FRONTEND_DIST = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
 
 
@@ -32,7 +34,12 @@ def mount_frontend(app: FastAPI, dist_dir: str = FRONTEND_DIST) -> bool:
     # /docs, /redoc, /openapi.json — già tutte registrate prima di questa.
     @app.get("/{full_path:path}")
     def serve_spa(full_path: str):
-        candidate = os.path.join(dist_dir, full_path)
+        # Mai fuori da dist: senza, "/%2e%2e/..." leggeva qualunque file del
+        # processo (DB, config.yaml) e questa route non passa dal login.
+        try:
+            candidate = resolve_scoped(dist_dir, full_path)
+        except ScopeViolation:
+            return FileResponse(index_path)
         if full_path and os.path.isfile(candidate):
             return FileResponse(candidate)
         # Route lato client di React Router (es. /reseeding/dashboard):

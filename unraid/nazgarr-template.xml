@@ -19,7 +19,7 @@ On first start, if config/config.yaml doesn't exist yet in the "Config" folder b
   <Category>Tools: Downloaders:</Category>
   <WebUI>http://[IP]:[PORT:8080]/api/health</WebUI>
   <TemplateURL/>
-  <Icon></Icon>
+  <Icon>https://raw.githubusercontent.com/lktorrentz/nazgarr/main/frontend/public/ring.png</Icon>
   <ExtraParams/>
   <PostArgs/>
   <CPUset/>

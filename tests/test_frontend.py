@@ -86,3 +86,15 @@ def test_mount_frontend_never_shadows_api_routes(tmp_path):
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+
+
+def test_mount_frontend_never_serves_files_outside_dist(tmp_path):
+    dist = _build_fake_dist(tmp_path)
+    (tmp_path / "secret.txt").write_text("SECRET")
+    app = FastAPI()
+    mount_frontend(app, str(dist))
+    client = TestClient(app)
+
+    for path in ("/%2e%2e/secret.txt", "/..%2fsecret.txt", "/%2e%2e%2fsecret.txt", "/assets/%2e%2e/%2e%2e/secret.txt"):
+        response = client.get(path)
+        assert "SECRET" not in response.text, path
