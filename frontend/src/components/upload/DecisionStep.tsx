@@ -46,6 +46,7 @@ export function DecisionStep({ job }: { job: UploadJob }) {
         type_id: draft.action === 'upload' ? draft.type_id : null,
         resolution_id: draft.action === 'upload' ? draft.resolution_id : null,
         reseed_torrent_id: draft.action === 'reseed' ? draft.reseed_torrent_id : null,
+        ...(draft.action !== 'skip' ? { client_category: draft.client_category, client_tags: draft.client_tags } : {}),
       })),
       {
         onSuccess: () => setConfirmOpen(false),

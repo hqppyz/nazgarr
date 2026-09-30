@@ -211,6 +211,8 @@ export const upload = {
   'upload.decision.flag.personal_release': 'Personal release',
   'upload.decision.flag.internal': 'Internal',
   'upload.decision.flag.stream': 'Stream optimized',
+  'upload.decision.clientCategory': 'Category in {client}',
+  'upload.decision.clientTags': 'Tags',
   'upload.decision.reseedTorrent': 'Torrent to reseed',
   'upload.decision.reseedHelp':
     "Nazgarr adds the tracker's torrent to the client on your files, with a full recheck, instead of uploading.",

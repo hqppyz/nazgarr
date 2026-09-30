@@ -61,7 +61,23 @@ export interface TargetDraft {
   flags: Record<string, boolean>
   freeleech: number  // percentuale, 0 = nessuno
   reseed_torrent_id: string | null
+  // Nel client del tracker: categoria (null = nessuna) e tag separati da virgola.
+  client_category: string | null
+  client_tags: string
   touched: (keyof Omit<TargetDraft, 'touched'>)[]
+}
+
+interface ClientDefaults {
+  category?: string | null
+  tags_upload?: string | null
+  tags_reseed?: string | null
+}
+
+// I tag proposti seguono l'azione: quelli per gli upload o per i reseed.
+function defaultTags(defaults: ClientDefaults | undefined, action: TargetDraft['action']) {
+  if (action === 'upload') return defaults?.tags_upload ?? ''
+  if (action === 'reseed') return defaults?.tags_reseed ?? ''
+  return ''
 }
 
 interface DraftSource {
@@ -73,6 +89,9 @@ interface DraftSource {
   flags: Record<string, unknown>
   reseed_torrent_id: string | null
   dupes: unknown[]
+  client_category?: string | null
+  client_tags?: string | null
+  client_defaults?: ClientDefaults
 }
 
 export function initialDraft(target: DraftSource): TargetDraft {
@@ -80,8 +99,11 @@ export function initialDraft(target: DraftSource): TargetDraft {
     (d) => d.verdict === 'identical',
   )
   const suggested = target.suggested_action
+  const action = suggested === 'reseed' || suggested === 'skip' ? suggested : 'upload'
   return {
-    action: suggested === 'reseed' || suggested === 'skip' ? suggested : 'upload',
+    action,
+    client_category: target.client_category ?? target.client_defaults?.category ?? null,
+    client_tags: target.client_tags ?? defaultTags(target.client_defaults, action),
     name: target.proposed_name ?? '',
     category_id: target.category_id,
     type_id: target.type_id,
@@ -103,6 +125,10 @@ export function effectiveDraft(edits: Partial<TargetDraft> | undefined, target: 
   if (!edits) return fresh
   const out: TargetDraft = { ...fresh, touched: edits.touched ?? [] }
   for (const key of out.touched) (out as unknown as Record<string, unknown>)[key] = edits[key]
+  // Azione cambiata a mano, tag no: i tag proposti per la nuova azione.
+  if (!out.touched.includes('client_tags') && target.client_tags == null) {
+    out.client_tags = defaultTags(target.client_defaults, out.action)
+  }
   return out
 }
 

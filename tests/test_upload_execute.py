@@ -46,10 +46,12 @@ class _Client:
         self.rechecked = []
         self.save_paths = {}
         self.reported_path = None  # il percorso che il client dice di usare, se diverso
+        self.labels = []  # (categoria, tag) di ogni aggiunta
 
     def add_torrent(self, torrent_file, save_path, force_recheck=True, skip_check_verified=False, **kwargs):
         assert force_recheck is True
         self.added.append((torrent_file, save_path))
+        self.labels.append((kwargs.get("category"), kwargs.get("tags")))
         self.skipped.append(skip_check_verified)
         info_hash = torf.Torrent.read(torrent_file).infohash
         self.save_paths[info_hash] = save_path
@@ -96,7 +98,7 @@ def env(db_session, tmp_path, monkeypatch):
         return paths
 
     monkeypatch.setattr(upload_execute.screenshots, "generate_screenshots", fake_screenshots)
-    return {"root": root, "disk": disk, "trackers": trackers, "client": client}
+    return {"root": root, "disk": disk, "trackers": trackers, "client": client, "client_row": client_row}
 
 
 def _approved(db_session, env, relative_path, decisions, **job_values):
@@ -308,3 +310,38 @@ def test_a_torrent_changed_by_the_tracker_is_rechecked(db_session, tmp_path, env
 
     assert job.status == "done"
     assert env["client"].skipped == [False]  # non più gli stessi file: recheck
+
+
+def test_client_category_and_tags_follow_the_client_defaults_or_the_job(db_session, tmp_path, env):
+    client = env["client_row"]
+    client.category_movie, client.category_anime = "movie", "anime"
+    client.tags_upload, client.tags_reseed = "release, nazgarr", "reseed"
+    db_session.commit()
+    video = write_video(env["root"] / "media" / "The.Matrix.1999.1080p.WEB-DL.H.264-GRP.mkv", 300 * KB)
+    # "a" con i default del client; "b" con categoria e tag scelti nel job.
+    job = _approved(db_session, env, "media/" + video.name, {
+        "a": _upload("Matrix A"),
+        "b": _upload("Matrix B", client_category="ebook", client_tags=""),
+    })
+    a, b = job.targets
+    assert (a.client_category, a.client_tags) == ("movie", "release, nazgarr")
+    assert (b.client_category, b.client_tags) == ("ebook", None)
+
+    _run(db_session, tmp_path, job)
+
+    assert env["client"].labels == [("movie", ["release", "nazgarr"]), ("ebook", None)]
+
+
+def test_an_anime_takes_the_anime_category(db_session, env):
+    from app import client_labels
+
+    env["client_row"].category_tv, env["client_row"].category_anime = "tv", "anime"
+    db_session.commit()
+    write_video(env["root"] / "media" / "Show" / "e1.mkv", 20 * KB)
+    job = upload_jobs.create_job(db_session, env["disk"], "media/Show")
+    job.anime, job.content_type = True, "tv"
+    db_session.commit()
+
+    assert upload_decision.client_label_defaults(job, job.targets[0])["category"] == "anime"
+    assert client_labels.is_anime({"genres": ["Animation", "Action"], "original_language": "ja"})
+    assert not client_labels.is_anime({"genres": ["Animation"], "original_language": "en"})  # Pixar non è anime

@@ -31,7 +31,7 @@ from datetime import UTC, datetime
 import torf
 from sqlalchemy.orm import Session
 
-from app import adapter_factory, screenshots, settings_repo, upload_jobs
+from app import adapter_factory, client_labels, screenshots, settings_repo, upload_jobs
 from app.adapter_factory import ImageHostConfigError
 from app.adapters.image_host.base import ImageHostError
 from app.adapters.tracker.base import UploadFields
@@ -246,7 +246,10 @@ def _add_to_client(
         return None
     visible = client_visible_path(session, job.disk, client_id, save_path)
     skip = torrent is not None and files_in_place(torrent, save_path)
-    info_hash = adapter.add_torrent(torrent_file, save_path=visible, force_recheck=True, skip_check_verified=skip)
+    info_hash = adapter.add_torrent(
+        torrent_file, save_path=visible, force_recheck=True, skip_check_verified=skip,
+        **client_labels.add_kwargs(target.client_category, target.client_tags),
+    )
     client = target.torrent_client.label
     if skip:
         info = adapter.get_torrent_info(info_hash)

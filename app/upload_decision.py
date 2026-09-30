@@ -14,7 +14,7 @@ import os
 
 from sqlalchemy.orm import Session, object_session
 
-from app import upload_jobs
+from app import client_labels, upload_jobs
 from app.adapter_factory import TmdbApiKeyMissingError
 from app.models import TrackerUploadProfile, UploadJob, UploadTarget
 from app.upload_jobs import UploadJobError
@@ -161,6 +161,9 @@ def _validate(target: UploadTarget, decision: dict) -> dict:
     if action not in ("upload", "reseed", "skip"):
         raise UploadJobError("upload_invalid_action", tracker=target.tracker.label)
     out = {"action": action}
+    for key in ("client_category", "client_tags"):
+        if key in decision:
+            out[key] = decision[key]
     if action == "upload":
         name = (decision.get("name") or "").strip()
         if not name:
@@ -181,6 +184,26 @@ def _validate(target: UploadTarget, decision: dict) -> dict:
             raise UploadJobError("upload_reseed_needs_identical", tracker=target.tracker.label)
         out["reseed_torrent_id"] = torrent_id
     return out
+
+
+def client_label_defaults(job: UploadJob, target: UploadTarget) -> dict:
+    """Categoria e tag proposti nel client del tracker: per tipo di
+    contenuto (anime compreso) e per azione."""
+    client = target.torrent_client
+    return {
+        "category": client_labels.default_category(client, job.content_type, bool(job.anime)),
+        "tags_upload": client_labels.default_tags(client, "upload"),
+        "tags_reseed": client_labels.default_tags(client, "reseed"),
+    }
+
+
+def _client_labels(job: UploadJob, target: UploadTarget, decision: dict) -> tuple[str | None, str | None]:
+    """Quelli scelti nella decisione (vuoto = nessuno), se no i default."""
+    defaults = client_label_defaults(job, target)
+    category = decision["client_category"] if "client_category" in decision else defaults["category"]
+    tags = decision["client_tags"] if "client_tags" in decision else defaults[f"tags_{decision['action']}"]
+    tags = ", ".join(client_labels.split_tags(tags)) or None
+    return (category or "").strip() or None, tags
 
 
 def approve(session: Session, job: UploadJob, decisions: list[dict]) -> None:
@@ -208,6 +231,8 @@ def approve(session: Session, job: UploadJob, decisions: list[dict]) -> None:
             target.resolution_id = decision["resolution_id"]
         if decision["action"] == "reseed":
             target.reseed_torrent_id = decision["reseed_torrent_id"]
+        if decision["action"] in ("upload", "reseed"):
+            target.client_category, target.client_tags = _client_labels(job, target, decision)
         target.status = "skipped" if decision["action"] == "skip" else "approved"
         upload_jobs.log_event(
             session, job, "target_approved", target=target, action=decision["action"],

@@ -123,3 +123,21 @@ describe('executionSteps', () => {
     expect(states({ status: 'done', stage: null, events: [], targets: reseed })).toEqual(['target-2:done', 'finish:done'])
   })
 })
+
+describe('client labels in the draft', () => {
+  const target = {
+    suggested_action: 'upload', proposed_name: 'X', category_id: 1, type_id: 1, resolution_id: 1, flags: {},
+    reseed_torrent_id: null, dupes: [{ torrent_id_remote: '7', verdict: 'identical' }],
+    client_defaults: { category: 'movie', tags_upload: 'release', tags_reseed: 'reseed' },
+  }
+
+  it('starts from the client defaults and the tags follow the action', () => {
+    const draft = effectiveDraft(undefined, target)
+    expect([draft.client_category, draft.client_tags]).toEqual(['movie', 'release'])
+    const reseed = effectiveDraft(editDraft(draft, { action: 'reseed' }), target)
+    expect(reseed.client_tags).toBe('reseed')
+    // Tag scritti a mano: restano anche cambiando azione.
+    const mine = editDraft(editDraft(draft, { client_tags: 'mine' }), { action: 'reseed' })
+    expect(effectiveDraft(mine, target).client_tags).toBe('mine')
+  })
+})

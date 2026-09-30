@@ -1,5 +1,5 @@
 import { HardDriveIcon, PencilIcon, PlusIcon, TrashIcon, ZapIcon } from 'lucide-react'
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import { toast } from 'sonner'
 
 import { useDisks } from '@/api/hooks/disks'
@@ -9,10 +9,12 @@ import {
   useDeleteTorrentClient,
   useDissociateDisk,
   useTestTorrentClient,
+  useTorrentClientCategories,
   useTorrentClients,
   useUpdateTorrentClient,
 } from '@/api/hooks/torrentClients'
 import type { Schemas } from '@/api/client'
+import { ClientCategorySelect } from '@/components/ClientCategorySelect'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -376,6 +378,80 @@ function DisksDialog({ torrentClientId, disks: associations }: { torrentClientId
   )
 }
 
+type LabelField = 'category_movie' | 'category_tv' | 'category_anime' | 'tags_upload' | 'tags_reseed'
+
+// Tag separati da virgola: si salvano uscendo dal campo, se cambiati.
+function TagsField({ tc, field, label }: { tc: TorrentClient; field: LabelField; label: string }) {
+  const updateTorrentClient = useUpdateTorrentClient()
+  const saved = (tc[field] as string | null | undefined) ?? ''
+  const [value, setValue] = useState(saved)
+  return (
+    <>
+      <Label htmlFor={`tc-${tc.id}-${field}`} className="text-xs font-normal text-muted-foreground">
+        {label}
+      </Label>
+      <Input
+        id={`tc-${tc.id}-${field}`}
+        className="h-7 w-44 text-xs"
+        value={value}
+        placeholder={t('torrentClients.noTags')}
+        onChange={(e) => setValue(e.target.value)}
+        onBlur={() =>
+          value.trim() !== saved &&
+          updateTorrentClient.mutate({ id: tc.id, body: { [field]: value } }, autosaveFeedback(`${tc.label} · ${label}`))
+        }
+      />
+    </>
+  )
+}
+
+// Categoria e tag dei torrent che Nazgarr aggiunge a questo client (solo
+// etichette: i file non si spostano). Le categorie sono quelle del client;
+// senza categorie nel client, niente scelta.
+function ClientLabels({ tc }: { tc: TorrentClient }) {
+  const updateTorrentClient = useUpdateTorrentClient()
+  const { data } = useTorrentClientCategories(tc.id)
+  const categories = data?.status === 'ok' ? data.categories : []
+  const setCategory = (field: LabelField, label: string) => (category: string | null) =>
+    updateTorrentClient.mutate({ id: tc.id, body: { [field]: category } }, autosaveFeedback(`${tc.label} · ${label}`))
+  const rows: [LabelField, string, string | undefined][] = [
+    ['category_movie', t('torrentClients.categoryMovie'), undefined],
+    ['category_tv', t('torrentClients.categoryTv'), undefined],
+    ['category_anime', t('torrentClients.categoryAnime'), t('torrentClients.animeSameAs')],
+  ]
+  return (
+    <div className="grid gap-2 border-t pt-3">
+      <p className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase" title={t('torrentClients.labelsHelp')}>
+        {t('torrentClients.labelsTitle')}
+      </p>
+      <div className="grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-1.5 text-xs">
+        {categories.length > 0 || rows.some(([field]) => tc[field]) ? (
+          rows.map(([field, label, noneLabel]) => (
+            <Fragment key={field}>
+              <span className="text-muted-foreground">{label}</span>
+              <ClientCategorySelect
+                categories={categories}
+                value={(tc[field] as string | null | undefined) ?? null}
+                noneLabel={noneLabel}
+                onChange={setCategory(field, label)}
+              />
+            </Fragment>
+          ))
+        ) : (
+          <>
+            <span className="text-muted-foreground">{t('torrentClients.categories')}</span>
+            <span className="text-muted-foreground">
+              {data?.status === 'error' ? t('torrentClients.categoriesUnavailable') : t('torrentClients.noCategories')}
+            </span>
+          </>
+        )}
+        <TagsField tc={tc} field="tags_upload" label={t('torrentClients.tagsUpload')} />
+        <TagsField tc={tc} field="tags_reseed" label={t('torrentClients.tagsReseed')} />
+      </div>
+    </div>
+  )
+}
+
 export function TorrentClientsSection() {
   const { data: torrentClients, isPending } = useTorrentClients()
   const { data: disks } = useDisks()
@@ -442,6 +518,7 @@ export function TorrentClientsSection() {
                   )}
                 </span>
               </div>
+              <ClientLabels tc={tc} />
               <div className="flex justify-end gap-1 border-t pt-3">
                 <TestButton id={tc.id} />
                 <DisksDialog torrentClientId={tc.id} disks={tc.disks} />

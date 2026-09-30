@@ -82,7 +82,15 @@ CREATE TABLE IF NOT EXISTS torrent_client (
                                              -- qBittorrent instances behind one host+api_token, so this pins
                                              -- one TorrentClient row to exactly one of them (add_torrent must
                                              -- target a specific instance, never pick one at runtime).
-    enabled         BOOLEAN NOT NULL DEFAULT 1
+    enabled         BOOLEAN NOT NULL DEFAULT 1,
+    -- Category and tags given to the torrents Nazgarr adds, only as labels (auto torrent
+    -- management stays off: a category never moves the files). Categories are the client's own
+    -- (picked from its list); null = none. Anime = TMDB genre Animation + original language ja.
+    category_movie  TEXT,
+    category_tv     TEXT,
+    category_anime  TEXT,                   -- null = the movie/tv category
+    tags_upload     TEXT,                   -- comma separated, for new uploads (e.g. "release")
+    tags_reseed     TEXT                    -- comma separated, for reseeds
 );
 
 -- A disk can have several clients enabled at once (SPEC.md §5) — needs a
@@ -592,6 +600,8 @@ CREATE TABLE IF NOT EXISTS upload_job (
     analysis_json           TEXT,            -- client / Radarr-Sonarr findings
     mediainfo_text          TEXT,
     screenshot_urls_json    TEXT,
+    anime                   BOOLEAN,         -- from TMDB at the first gate (genre Animation + original
+                                             -- language ja): picks the client's anime category
     error_message           TEXT,
     created_at              TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at              TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -621,6 +631,8 @@ CREATE TABLE IF NOT EXISTS upload_target (
     torrent_path            TEXT,
     info_hash               TEXT,
     torrent_id_remote       TEXT,
+    client_category         TEXT,            -- category / tags in the client, approved at gate 2
+    client_tags             TEXT,            -- (defaults from the client, torrent_client.category_* / tags_*)
     error_message           TEXT,
     finished_at             TIMESTAMP,
     UNIQUE(job_id, tracker_id)

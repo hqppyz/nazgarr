@@ -83,7 +83,18 @@ export function DecisionSummary({
                     )}
                   </TableCell>
                   <TableCell className="text-xs whitespace-nowrap text-muted-foreground">
-                    {draft.action === 'skip' ? '—' : (target.torrent_client_label ?? t('upload.noClient'))}
+                    {draft.action === 'skip' ? (
+                      '—'
+                    ) : (
+                      <span className="grid gap-0.5">
+                        <span>{target.torrent_client_label ?? t('upload.noClient')}</span>
+                        {(draft.client_category || draft.client_tags.trim()) && (
+                          <span className="text-[11px]">
+                            {[draft.client_category, draft.client_tags.trim()].filter(Boolean).join(' · ')}
+                          </span>
+                        )}
+                      </span>
+                    )}
                   </TableCell>
                   <TableCell>
                     {problem ? (

@@ -75,6 +75,7 @@ class QBittorrentAdapter(TorrentClientAdapter):
     def add_torrent(
         self, torrent_file_or_url: str, save_path: str, force_recheck: bool = True,
         expected_info_hash: str | None = None, skip_check_verified: bool = False,
+        category: str | None = None, tags: list[str] | None = None,
     ) -> str:
         if not force_recheck:
             raise ValueError(
@@ -93,6 +94,8 @@ class QBittorrentAdapter(TorrentClientAdapter):
             save_path=save_path,
             is_skip_checking=skip_check_verified,
             use_auto_torrent_management=False,
+            **({"category": category} if category else {}),
+            **({"tags": ",".join(tags)} if tags else {}),
         )
         info_hash = self._wait_for_new_hash(before_hashes, expected)
         if not skip_check_verified:
@@ -118,6 +121,9 @@ class QBittorrentAdapter(TorrentClientAdapter):
         raise TorrentAddTimeoutError(
             f"Nessun nuovo torrent rilevato in qBittorrent entro {self.poll_timeout}s dall'aggiunta"
         )
+
+    def list_categories(self) -> list[str]:
+        return sorted(self._client.torrents_categories().keys(), key=str.lower)
 
     def recheck(self, info_hash: str) -> None:
         self._client.torrents_recheck(torrent_hashes=info_hash)

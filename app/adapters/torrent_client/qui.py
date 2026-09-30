@@ -92,6 +92,7 @@ class QuiTorrentClientAdapter(TorrentClientAdapter):
     def add_torrent(
         self, torrent_file_or_url: str, save_path: str, force_recheck: bool = True,
         expected_info_hash: str | None = None, skip_check_verified: bool = False,
+        category: str | None = None, tags: list[str] | None = None,
     ) -> str:
         if not force_recheck:
             raise ValueError(
@@ -115,6 +116,10 @@ class QuiTorrentClientAdapter(TorrentClientAdapter):
             "savepath": (None, save_path),
             "skip_checking": (None, "true" if skip_check_verified else "false"),
         }
+        if category:
+            files["category"] = (None, category)
+        if tags:
+            files["tags"] = (None, ",".join(tags))
         if os.path.isfile(torrent_file_or_url):
             with open(torrent_file_or_url, "rb") as f:
                 torrent_bytes = f.read()
@@ -155,6 +160,14 @@ class QuiTorrentClientAdapter(TorrentClientAdapter):
             json={"hashes": hashes, "action": action},
         )
         response.raise_for_status()
+
+    def list_categories(self) -> list[str]:
+        # Come qBittorrent (/torrents/categories): un oggetto nome -> dettagli.
+        response = self._client.get(f"/api/instances/{self.instance_id}/categories")
+        response.raise_for_status()
+        body = response.json()
+        names = body.keys() if isinstance(body, dict) else [c.get("name") for c in body if isinstance(c, dict)]
+        return sorted((name for name in names if name), key=str.lower)
 
     def recheck(self, info_hash: str) -> None:
         self._bulk_action([info_hash], "recheck")

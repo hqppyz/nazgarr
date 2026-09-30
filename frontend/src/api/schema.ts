@@ -484,6 +484,27 @@ export interface paths {
         patch: operations["update_torrent_client_api_torrent_clients__torrent_client_id__patch"];
         trace?: never;
     };
+    "/api/torrent-clients/{torrent_client_id}/categories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Torrent Client Categories
+         * @description Le categorie che esistono nel client, lette dal vivo: si sceglie solo
+         *     fra queste (nessuna scritta a mano), in impostazioni e nel job.
+         */
+        get: operations["torrent_client_categories_api_torrent_clients__torrent_client_id__categories_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/torrent-clients/{torrent_client_id}/disks/{disk_id}": {
         parameters: {
             query?: never;
@@ -2869,6 +2890,10 @@ export interface components {
             resolution_id?: number | null;
             /** Reseed Torrent Id */
             reseed_torrent_id?: string | null;
+            /** Client Category */
+            client_category?: string | null;
+            /** Client Tags */
+            client_tags?: string | null;
         };
         /** TokenResponse */
         TokenResponse: {
@@ -2876,6 +2901,18 @@ export interface components {
             access_token: string;
             /** Username */
             username: string;
+        };
+        /** TorrentClientCategoriesResponse */
+        TorrentClientCategoriesResponse: {
+            /** Status */
+            status: string;
+            /**
+             * Categories
+             * @default []
+             */
+            categories: string[];
+            /** Error */
+            error?: string | null;
         };
         /** TorrentClientCreateRequest */
         TorrentClientCreateRequest: {
@@ -2910,6 +2947,16 @@ export interface components {
             qui_instance_id: number | null;
             /** Enabled */
             enabled: boolean;
+            /** Category Movie */
+            category_movie?: string | null;
+            /** Category Tv */
+            category_tv?: string | null;
+            /** Category Anime */
+            category_anime?: string | null;
+            /** Tags Upload */
+            tags_upload?: string | null;
+            /** Tags Reseed */
+            tags_reseed?: string | null;
             /** Disks */
             disks: components["schemas"]["DiskAssociationResponse"][];
             /**
@@ -2945,6 +2992,16 @@ export interface components {
             qui_instance_id?: number | null;
             /** Enabled */
             enabled?: boolean | null;
+            /** Category Movie */
+            category_movie?: string | null;
+            /** Category Tv */
+            category_tv?: string | null;
+            /** Category Anime */
+            category_anime?: string | null;
+            /** Tags Upload */
+            tags_upload?: string | null;
+            /** Tags Reseed */
+            tags_reseed?: string | null;
         };
         /**
          * TorrentSource
@@ -3419,6 +3476,17 @@ export interface components {
             /** Resolution Id Map */
             resolution_id_map: {
                 [key: string]: number;
+            };
+            /** Client Category */
+            client_category?: string | null;
+            /** Client Tags */
+            client_tags?: string | null;
+            /**
+             * Client Defaults
+             * @default {}
+             */
+            client_defaults: {
+                [key: string]: unknown;
             };
         };
         /** UploadTrackerResponse */
@@ -4367,6 +4435,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TorrentClientResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    torrent_client_categories_api_torrent_clients__torrent_client_id__categories_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                torrent_client_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TorrentClientCategoriesResponse"];
                 };
             };
             /** @description Validation Error */

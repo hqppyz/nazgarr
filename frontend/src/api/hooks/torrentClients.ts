@@ -77,3 +77,14 @@ export function useDissociateDisk() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['torrent-clients'] }),
   })
 }
+
+// Le categorie del client, lette dal vivo: si sceglie solo fra queste.
+export function useTorrentClientCategories(id: number | null) {
+  return useQuery({
+    queryKey: ['torrent-clients', id, 'categories'],
+    queryFn: () =>
+      unwrap(api.GET('/api/torrent-clients/{torrent_client_id}/categories', { params: { path: { torrent_client_id: id! } } })),
+    enabled: id !== null,
+    staleTime: 60_000,
+  })
+}

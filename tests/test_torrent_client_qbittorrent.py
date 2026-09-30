@@ -43,9 +43,13 @@ class FakeQbtClient:
     def torrents_files(self, torrent_hash):
         return self._files_by_hash.get(torrent_hash, [])
 
-    def torrents_add(self, urls, save_path, is_skip_checking, use_auto_torrent_management):
-        self.added_calls.append({"urls": urls, "save_path": save_path, "is_skip_checking": is_skip_checking})
+    def torrents_add(self, urls, save_path, is_skip_checking, use_auto_torrent_management, category=None, tags=None):
+        self.added_calls.append({"urls": urls, "save_path": save_path, "is_skip_checking": is_skip_checking,
+                                 "category": category, "tags": tags, "auto": use_auto_torrent_management})
         self._torrents.append(FakeTorrent(hash="new-hash", save_path=save_path))
+
+    def torrents_categories(self):
+        return {"tv": {"savePath": ""}, "Movie": {"savePath": ""}, "anime": {"savePath": ""}}
 
     def torrents_recheck(self, torrent_hashes):
         self.rechecked.append(torrent_hashes)
@@ -143,3 +147,15 @@ def test_a_torrent_verified_100_percent_by_nazgarr_skips_the_client_recheck_only
 
     assert client.added_calls[0]["is_skip_checking"] is True
     assert client.rechecked == []
+
+
+def test_category_and_tags_are_only_labels():
+    client = FakeQbtClient()
+    adapter = _adapter(client)
+
+    adapter.add_torrent("magnet:?xt=...", save_path="/torrents/movie", category="movie", tags=["release", "nzg"])
+
+    call = client.added_calls[0]
+    # La gestione automatica resta spenta: la categoria non sposta i file.
+    assert (call["category"], call["tags"], call["auto"]) == ("movie", "release,nzg", False)
+    assert adapter.list_categories() == ["anime", "Movie", "tv"]

@@ -123,6 +123,11 @@ class TorrentClient(Base):
     api_token: Mapped[str | None] = mapped_column(EncryptedString)
     qui_instance_id: Mapped[int | None]
     enabled: Mapped[bool] = mapped_column(nullable=False, server_default=text("1"))
+    category_movie: Mapped[str | None]
+    category_tv: Mapped[str | None]
+    category_anime: Mapped[str | None]
+    tags_upload: Mapped[str | None]
+    tags_reseed: Mapped[str | None]
 
 
 class DiskTorrentClient(Base):
@@ -528,6 +533,7 @@ class UploadJob(Base):
     analysis_json: Mapped[str | None]
     mediainfo_text: Mapped[str | None]
     screenshot_urls_json: Mapped[str | None]
+    anime: Mapped[bool | None]
     error_message: Mapped[str | None]
     created_at: Mapped[datetime | None] = mapped_column(server_default=text("CURRENT_TIMESTAMP"))
     updated_at: Mapped[datetime | None] = mapped_column(
@@ -575,6 +581,8 @@ class UploadTarget(Base):
     torrent_path: Mapped[str | None]
     info_hash: Mapped[str | None]
     torrent_id_remote: Mapped[str | None]
+    client_category: Mapped[str | None]
+    client_tags: Mapped[str | None]
     error_message: Mapped[str | None]
     finished_at: Mapped[datetime | None]
 

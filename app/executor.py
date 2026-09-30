@@ -23,9 +23,11 @@ from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session
 
+from app import client_labels, settings_repo
 from app.adapters.torrent_client.base import TorrentClientAdapter
 from app.fs_scope import ScopeViolation, resolve_scoped
-from app.models import Disk, DiskTorrentClient, MatchReview, SeedJob
+from app.models import Disk, DiskTorrentClient, MatchReview, SeedJob, TorrentClient
+from app.tmdb_client import TMDBClient
 from app.torrent_layout import expected_missing_bytes
 
 logger = logging.getLogger(__name__)
@@ -88,16 +90,41 @@ def execute_review(
     return _execute_torrent_to_client(session, review, adapter, torrent_client_id, skip_recheck)
 
 
+def _labels(session: Session, torrent_client_id: int | None, candidate) -> dict:
+    """Categoria (per tipo di contenuto) e tag per i reseed del client
+    (app/client_labels.py). TMDB, per sapere se è un anime, solo se il
+    client ha una categoria per gli anime; senza TMDB non lo è."""
+    client = session.get(TorrentClient, torrent_client_id) if torrent_client_id is not None else None
+    if client is None:
+        return {}
+    item = candidate.media_item
+    content_type = item.content_type if item is not None else None
+    anime = False
+    if client.category_anime and item is not None and item.tmdb_id:
+        api_key = settings_repo.get_setting(session, "tmdb_api_key")
+        try:
+            anime = bool(api_key) and client_labels.is_anime(
+                TMDBClient(api_key=api_key).full_details(content_type, item.tmdb_id)
+            )
+        except Exception:
+            logger.warning("TMDB non disponibile per il riconoscimento anime di %s", item.tmdb_id, exc_info=True)
+    return client_labels.add_kwargs(
+        client_labels.default_category(client, content_type, anime), client_labels.default_tags(client, "reseed"),
+    )
+
+
 def _add_to_client(
     adapter: TorrentClientAdapter, candidate, save_path: str, seed_job: SeedJob, skip_recheck: bool,
+    labels: dict | None = None,
 ) -> str:
     """Aggiunge il torrent al client. Il recheck del client si salta solo se
     il chiamante l'ha verificato lui stesso al 100% (skip_recheck): resta
-    scritto sul seed_job, così si vede quali esecuzioni sono passate così."""
+    scritto sul seed_job, così si vede quali esecuzioni sono passate così.
+    labels: categoria e tag del client (_labels), solo se ce ne sono."""
     extra = {"skip_check_verified": True} if skip_recheck else {}
     info_hash = adapter.add_torrent(
         candidate.download_link, save_path=save_path, force_recheck=True,
-        expected_info_hash=candidate.info_hash, **extra,
+        expected_info_hash=candidate.info_hash, **extra, **(labels or {}),
     )
     seed_job.recheck_skipped = skip_recheck or None
     return info_hash
@@ -195,7 +222,8 @@ def _execute_layout_media_to_torrent(
         logger.info("Creati %d hardlink per candidate %s", len(created), candidate.id)
 
         client_save_path = client_visible_path(session, disk, torrent_client_id, target_root)
-        info_hash = _add_to_client(adapter, candidate, client_save_path, seed_job, skip_recheck)
+        info_hash = _add_to_client(adapter, candidate, client_save_path, seed_job, skip_recheck,
+                                   _labels(session, torrent_client_id, candidate))
         seed_job.info_hash = info_hash
         seed_job.torrent_added_at = datetime.now(UTC)
         seed_job.recheck_status = "pending"
@@ -264,7 +292,8 @@ def _execute_layout_torrent_to_client(
     session.commit()
     try:
         client_save_path = client_visible_path(session, disk, torrent_client_id, save_path_local)
-        info_hash = _add_to_client(adapter, candidate, client_save_path, seed_job, skip_recheck)
+        info_hash = _add_to_client(adapter, candidate, client_save_path, seed_job, skip_recheck,
+                                   _labels(session, torrent_client_id, candidate))
         seed_job.info_hash = info_hash
         seed_job.torrent_added_at = datetime.now(UTC)
         seed_job.recheck_status = "pending"
@@ -362,7 +391,8 @@ def _create_hardlink_then_seed(
         logger.info("Hardlink creato per candidate %s: %s", candidate.id, target_path)
 
         client_save_path = client_visible_path(session, disk, torrent_client_id, target_root)
-        info_hash = _add_to_client(adapter, candidate, client_save_path, seed_job, skip_recheck)
+        info_hash = _add_to_client(adapter, candidate, client_save_path, seed_job, skip_recheck,
+                                   _labels(session, torrent_client_id, candidate))
         seed_job.info_hash = info_hash
         seed_job.torrent_added_at = datetime.now(UTC)
         seed_job.recheck_status = "pending"
@@ -407,7 +437,8 @@ def _execute_torrent_to_client(
     save_path_local = os.path.dirname(source_path)
     try:
         client_save_path = client_visible_path(session, disk, torrent_client_id, save_path_local)
-        info_hash = _add_to_client(adapter, candidate, client_save_path, seed_job, skip_recheck)
+        info_hash = _add_to_client(adapter, candidate, client_save_path, seed_job, skip_recheck,
+                                   _labels(session, torrent_client_id, candidate))
         seed_job.info_hash = info_hash
         seed_job.torrent_added_at = datetime.now(UTC)
         seed_job.recheck_status = "pending"

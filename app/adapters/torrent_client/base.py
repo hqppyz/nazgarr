@@ -74,6 +74,7 @@ class TorrentClientAdapter(ABC):
     def add_torrent(
         self, torrent_file_or_url: str, save_path: str, force_recheck: bool = True,
         expected_info_hash: str | None = None, skip_check_verified: bool = False,
+        category: str | None = None, tags: list[str] | None = None,
     ) -> str:
         """Aggiunge il torrent puntando a save_path (il file già hardlinkato,
         o già presente per la direzione torrent->client di SPEC.md sezione 3).
@@ -89,6 +90,9 @@ class TorrentClientAdapter(ABC):
         dell'utente, 2026-09-30, app/upload_execute.py). Il client lo
         aggiunge già completo, senza rileggerlo una seconda volta.
 
+        category / tags: solo etichette nel client (app/client_labels.py); la
+        gestione automatica resta spenta, una categoria non sposta i file.
+
         expected_info_hash (se noto: il .torrent è già stato scaricato e
         analizzato dal matching) rende l'attesa precisa — si aspetta proprio
         quel torrent, non "un torrent nuovo qualunque" — e trasforma un
@@ -98,6 +102,11 @@ class TorrentClientAdapter(ABC):
     @abstractmethod
     def get_torrent_status(self, info_hash: str) -> TorrentStatus:
         raise NotImplementedError
+
+    def list_categories(self) -> list[str]:
+        """Le categorie che esistono nel client, per sceglierle dalla sua
+        lista. Vuota se il client non ne ha o non le espone."""
+        return []
 
     def recheck(self, info_hash: str) -> None:
         """Fa ricontrollare al client un torrent già aggiunto: il ripiego di

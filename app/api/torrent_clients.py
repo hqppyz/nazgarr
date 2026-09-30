@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session, object_session
 
 from app import adapter_factory
 from app.api_errors import coded_detail
+from app.client_labels import split_tags
 from app.deps import get_session
 from app.models import ClientTorrent, Disk, DiskTorrentClient, TorrentClient
 
@@ -39,6 +40,16 @@ class TorrentClientUpdateRequest(BaseModel):
     api_token: str | None = None
     qui_instance_id: int | None = None
     enabled: bool | None = None
+    # Etichette dei torrent aggiunti da Nazgarr (app/client_labels.py): un
+    # campo inviato vuoto o null le toglie.
+    category_movie: str | None = None
+    category_tv: str | None = None
+    category_anime: str | None = None
+    tags_upload: str | None = None
+    tags_reseed: str | None = None
+
+
+LABEL_FIELDS = ("category_movie", "category_tv", "category_anime", "tags_upload", "tags_reseed")
 
 
 class TorrentClientTestResponse(BaseModel):
@@ -68,6 +79,11 @@ class TorrentClientResponse(BaseModel):
     username: str | None
     qui_instance_id: int | None  # mai api_token/password: write-only, non tornano mai indietro
     enabled: bool
+    category_movie: str | None = None
+    category_tv: str | None = None
+    category_anime: str | None = None
+    tags_upload: str | None = None
+    tags_reseed: str | None = None
     disks: list[DiskAssociationResponse]  # dischi abilitati per questo client, con l'eventuale path override
     # Dall'indice dell'ultima scan, per la scheda del client.
     torrent_count: int = 0
@@ -83,6 +99,7 @@ class TorrentClientResponse(BaseModel):
             torrent_count=count or 0, last_polled_at=last,
             id=tc.id, label=tc.label, adapter_type=tc.adapter_type,
             base_url=tc.base_url, username=tc.username, qui_instance_id=tc.qui_instance_id, enabled=tc.enabled,
+            **{name: getattr(tc, name) for name in LABEL_FIELDS},
             disks=[
                 DiskAssociationResponse(disk_id=link.disk_id, torrent_client_root_path=link.torrent_client_root_path)
                 for link in links
@@ -170,8 +187,32 @@ def update_torrent_client(
         tc.qui_instance_id = body.qui_instance_id
     if body.enabled is not None:
         tc.enabled = body.enabled
+    for name in LABEL_FIELDS:
+        if name in body.model_fields_set:
+            value = (getattr(body, name) or "").strip()
+            if name.startswith("tags_"):
+                value = ", ".join(split_tags(value))
+            setattr(tc, name, value or None)
     session.commit()
     return TorrentClientResponse.from_model(tc, _links_for(session, tc.id))
+
+
+class TorrentClientCategoriesResponse(BaseModel):
+    status: str  # "ok" | "error"
+    categories: list[str] = []
+    error: str | None = None
+
+
+@router.get("/{torrent_client_id}/categories", response_model=TorrentClientCategoriesResponse)
+def torrent_client_categories(torrent_client_id: int, session: Session = Depends(get_session)):
+    """Le categorie che esistono nel client, lette dal vivo: si sceglie solo
+    fra queste (nessuna scritta a mano), in impostazioni e nel job."""
+    tc = _get_torrent_client_or_404(session, torrent_client_id)
+    try:
+        categories = adapter_factory.build_torrent_client_adapter(tc).list_categories()
+    except Exception as exc:
+        return TorrentClientCategoriesResponse(status="error", error=str(exc))
+    return TorrentClientCategoriesResponse(status="ok", categories=categories)
 
 
 @router.delete("/{torrent_client_id}", status_code=204)

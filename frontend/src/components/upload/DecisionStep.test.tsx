@@ -45,7 +45,7 @@ describe('DecisionStep', () => {
     expect(approve.mock.calls[0][0]).toEqual([
       { target_id: 1, action: 'upload', name: 'Movie (2024) 1080p-GRP', category_id: 1, type_id: 4, resolution_id: 3,
         flags: { anonymous: false, personal_release: false, internal: false, stream: false, freeleech: 0 },
-        reseed_torrent_id: null },
+        reseed_torrent_id: null, client_category: null, client_tags: '' },
       { target_id: 2, action: 'skip', name: null, flags: null, category_id: null, type_id: null, resolution_id: null,
         reseed_torrent_id: null },
     ])

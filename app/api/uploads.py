@@ -67,6 +67,9 @@ class TargetDecision(BaseModel):
     type_id: int | None = None
     resolution_id: int | None = None
     reseed_torrent_id: str | None = None
+    # Nel client: assenti = i default del client, vuoti = nessuno.
+    client_category: str | None = None
+    client_tags: str | None = None
 
 
 class UploadApproveRequest(BaseModel):
@@ -109,6 +112,9 @@ class UploadTargetResponse(BaseModel):
     category_id_map: dict[str, int]
     type_id_map: dict[str, int]
     resolution_id_map: dict[str, int]
+    client_category: str | None = None  # scelti all'approvazione
+    client_tags: str | None = None
+    client_defaults: dict = {}  # {"category", "tags_upload", "tags_reseed"} dal client del tracker
 
     @classmethod
     def from_model(cls, t: UploadTarget) -> "UploadTargetResponse":
@@ -129,6 +135,8 @@ class UploadTargetResponse(BaseModel):
             category_id_map=_loads(profile.category_id_map_json if profile else None, {}),
             type_id_map=_loads(profile.type_id_map_json if profile else None, {}),
             resolution_id_map=_loads(profile.resolution_id_map_json if profile else None, {}),
+            client_category=t.client_category, client_tags=t.client_tags,
+            client_defaults=upload_decision.client_label_defaults(t.job, t),
         )
 
 
@@ -411,7 +419,7 @@ def approve_upload(
     docs/SPEC.md §9: da qui il worker porta il job fino in fondo."""
     job = _get_job_or_404(session, upload_id)
     try:
-        upload_decision.approve(session, job, [d.model_dump() for d in body.targets])
+        upload_decision.approve(session, job, [d.model_dump(exclude_unset=True) for d in body.targets])
     except UploadJobError as exc:
         raise HTTPException(status_code=400, detail=from_coded_error(exc)) from exc
     _worker(request).kick(job.id, job.status)

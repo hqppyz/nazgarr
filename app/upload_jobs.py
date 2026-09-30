@@ -20,6 +20,7 @@ from datetime import UTC, datetime
 from sqlalchemy import update
 from sqlalchemy.orm import Session
 
+from app import client_labels
 from app.api_errors import CodedError
 from app.fs_scope import resolve_scoped
 from app.models import Disk, TorrentClient, Tracker, TrackerUploadProfile, UploadEvent, UploadJob, UploadTarget
@@ -263,6 +264,8 @@ def confirm_match(
         imdb_id=forced.get("imdb") or details.get("imdb_id"),
         tvdb_id=forced.get("tvdb") or details.get("tvdb_id"),
         mal_id=forced.get("mal"),
+        # Per la categoria anime del client (app/client_labels.py).
+        anime=client_labels.is_anime(details) if details else None,
     )
     for key in ("title", "year", "poster_path"):
         if details.get(key) is not None:

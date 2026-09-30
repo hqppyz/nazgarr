@@ -1,4 +1,6 @@
+import { useTorrentClientCategories } from '@/api/hooks/torrentClients'
 import type { UploadTarget } from '@/api/hooks/uploads'
+import { ClientCategorySelect } from '@/components/ClientCategorySelect'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -50,6 +52,54 @@ function IdSelect({
 
 // La decisione per un tracker: azione, e per un upload nome, id del
 // profilo e flag; per un reseed il torrent identico da rimettere in seed.
+// Categoria e tag nel client del tracker, già compilati con i suoi default.
+// La categoria si sceglie solo fra quelle del client: senza, non compare.
+function ClientLabelFields({
+  target,
+  draft,
+  disabled,
+  set,
+}: {
+  target: UploadTarget
+  draft: TargetDraft
+  disabled?: boolean
+  set: (patch: Partial<Omit<TargetDraft, 'touched'>>) => void
+}) {
+  const { data } = useTorrentClientCategories(target.torrent_client_id)
+  const categories = data?.status === 'ok' ? data.categories : []
+  return (
+    <div className="grid gap-3 sm:grid-cols-3 lg:max-w-3xl">
+      {(categories.length > 0 || draft.client_category) && (
+        <div className="grid gap-1">
+          <Label htmlFor={`client-category-${target.id}`} className="text-xs">
+            {t('upload.decision.clientCategory', { client: target.torrent_client_label ?? '' })}
+          </Label>
+          <ClientCategorySelect
+            id={`client-category-${target.id}`}
+            className="h-8 w-full"
+            categories={categories}
+            value={draft.client_category}
+            onChange={(client_category) => set({ client_category })}
+          />
+        </div>
+      )}
+      <div className="grid gap-1 sm:col-span-2">
+        <Label htmlFor={`client-tags-${target.id}`} className="text-xs">
+          {t('upload.decision.clientTags')}
+        </Label>
+        <Input
+          id={`client-tags-${target.id}`}
+          className="h-8 text-xs"
+          value={draft.client_tags}
+          disabled={disabled}
+          placeholder={t('torrentClients.noTags')}
+          onChange={(e) => set({ client_tags: e.target.value })}
+        />
+      </div>
+    </div>
+  )
+}
+
 export function TargetDecisionForm({
   target,
   draft,
@@ -166,6 +216,10 @@ export function TargetDecisionForm({
             ))}
           </div>
         </>
+      )}
+
+      {draft.action !== 'skip' && target.torrent_client_id != null && (
+        <ClientLabelFields target={target} draft={draft} disabled={disabled} set={set} />
       )}
 
       {draft.action === 'reseed' && (
