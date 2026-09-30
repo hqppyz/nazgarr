@@ -1,9 +1,11 @@
-import { ArrowRightIcon, EyeOffIcon, Loader2Icon, RefreshCwIcon, SearchIcon } from 'lucide-react'
+import { ArrowRightIcon, EyeOffIcon, Loader2Icon, RefreshCwIcon, SearchIcon, UploadIcon } from 'lucide-react'
 import { useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 
 import type { Schemas } from '@/api/client'
 import { useNotImported, useRefreshNotImported } from '@/api/hooks/library'
 import { LibrarySummaryCards } from '@/components/LibrarySummaryCards'
+import { RowContextMenu, type RowMenuItem } from '@/components/RowContextMenu'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -14,6 +16,7 @@ import { t } from '@/lib/i18n'
 import { formatBytes, type StateSummary, type StatusOption } from '@/lib/library-filters'
 import { NOT_IMPORTED_STYLES } from '@/lib/status-styles'
 import { parseApiDate, relativeFromNow } from '@/lib/time'
+import { newUploadLink } from '@/lib/upload'
 import { cn } from '@/lib/utils'
 import { ItemDetailSheet, type OpenItem } from '@/pages/library/ItemDetailSheet'
 
@@ -59,6 +62,7 @@ function CategoryBadge({ category }: { category: string }) {
 // (app/not_imported.py). Sola lettura: niente viene rimosso da qui — le
 // azioni, se arriveranno, passeranno dalla coda di approvazione.
 export function NotImportedView() {
+  const navigate = useNavigate()
   const { data, isPending } = useNotImported()
   const refresh = useRefreshNotImported()
   const [category, setCategory] = useState('all')
@@ -94,6 +98,7 @@ export function NotImportedView() {
         <div className="grid gap-1">
           <h1 className="text-lg font-semibold">{t('notImported.title')}</h1>
           <p className="max-w-3xl text-sm text-muted-foreground">{t('notImported.description')}</p>
+          <p className="text-xs text-muted-foreground">{t('notImported.rightClickHint')}</p>
           <p className="text-xs text-muted-foreground" title={data?.computed_at ? parseApiDate(data.computed_at).toLocaleString() : undefined}>
             {data?.computed_at
               ? t(data.with_arr ? 'notImported.computedWithArr' : 'notImported.computedWithoutArr', {
@@ -153,9 +158,23 @@ export function NotImportedView() {
               <TableBody>
                 {shown.map((tor) => {
                   const openable = tor.content_type != null && tor.tmdb_id != null && tor.title != null
+                  // Dal menu contestuale: ripubblicare il torrent (es. arrivato da un
+                  // tracker pubblico) con un nuovo upload sui suoi file.
+                  const source = tor.source
+                  const items: RowMenuItem[] = source
+                    ? [{
+                        label: t('itemDetail.uploadOrReseed'),
+                        icon: <UploadIcon />,
+                        onSelect: () =>
+                          navigate(newUploadLink(
+                            { diskId: source.disk_id, path: source.relative_path, isDir: source.is_dir },
+                            tor.content_type && tor.tmdb_id ? `${tor.content_type}/${tor.tmdb_id}` : undefined,
+                          )),
+                      }]
+                    : []
                   return (
+                    <RowContextMenu key={tor.client_torrent_id} title={tor.name} items={items}>
                     <TableRow
-                      key={tor.client_torrent_id}
                       className={cn(openable && 'cursor-pointer', tor.excluded && 'opacity-60')}
                       onClick={openable ? () => setOpenItem({ contentType: tor.content_type!, tmdbId: tor.tmdb_id! }) : undefined}
                     >
@@ -200,6 +219,7 @@ export function NotImportedView() {
                         {formatSeedTime(tor.seeding_time_seconds)}
                       </TableCell>
                     </TableRow>
+                    </RowContextMenu>
                   )
                 })}
               </TableBody>

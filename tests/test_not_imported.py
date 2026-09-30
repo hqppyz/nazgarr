@@ -116,6 +116,8 @@ def test_api_lists_torrents_with_their_replacement(db_session, tmp_path):
     assert (old.category, old.title, old.ratio) == ("superseded", "New", 2.5)
     assert old.replaced_by.relative_path.endswith("New.2160p.mkv") and old.replaced_by.quality == "2160p"
     assert body.summary["superseded"].count == 2
+    # Dove sta su disco: la sorgente per ripubblicarlo con un upload.
+    assert (old.source.relative_path, old.source.is_dir) == ("torrents/Old.1080p.mkv", False)
 
 
 def test_excluded_torrents_are_flagged_and_left_out_of_the_totals(db_session, tmp_path):

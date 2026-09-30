@@ -13,7 +13,7 @@ from app import arr, not_imported
 from app.api_errors import coded_detail
 from app.deps import get_session
 from app.library_detail import _host, _quality
-from app.models import MediaItem, NotImportedTorrent, RunLog, TorrentClient
+from app.models import ClientTorrentFile, MediaItem, NotImportedTorrent, RunLog, SeedFile, TorrentClient
 
 router = APIRouter(prefix="/api/torrents", tags=["torrents"])
 logger = logging.getLogger(__name__)
@@ -23,6 +23,14 @@ class ReplacedBy(BaseModel):
     relative_path: str
     size_bytes: int
     quality: str | None
+
+
+class TorrentSource(BaseModel):
+    """Dove sta su disco il contenuto del torrent: la sorgente di un upload."""
+
+    disk_id: int
+    relative_path: str
+    is_dir: bool
 
 
 class NotImportedItem(BaseModel):
@@ -50,6 +58,32 @@ class NotImportedItem(BaseModel):
     added_at: datetime | None
     state: str
     excluded: bool = False
+    source: TorrentSource | None = None  # None se i suoi file non sono nell'indice dell'ultima scan
+
+
+def _sources(session: Session) -> dict[int, TorrentSource]:
+    """Per ogni torrent, i suoi file su disco (seed_file): il file se è uno
+    solo, altrimenti la cartella che li contiene tutti, sullo stesso disco."""
+    rows = (
+        session.query(ClientTorrentFile.client_torrent_id, SeedFile.disk_id, SeedFile.relative_path)
+        .join(SeedFile, SeedFile.id == ClientTorrentFile.seed_file_id)
+        .all()
+    )
+    by_torrent: dict[int, list[tuple[int, str]]] = {}
+    for torrent_id, disk_id, path in rows:
+        by_torrent.setdefault(torrent_id, []).append((disk_id, path))
+    out = {}
+    for torrent_id, files in by_torrent.items():
+        if len({d for d, _p in files}) != 1:
+            continue
+        disk_id = files[0][0]
+        if len(files) == 1:
+            out[torrent_id] = TorrentSource(disk_id=disk_id, relative_path=files[0][1], is_dir=False)
+            continue
+        common = os.path.commonpath([p for _d, p in files])
+        if common:
+            out[torrent_id] = TorrentSource(disk_id=disk_id, relative_path=common, is_dir=True)
+    return out
 
 
 class CategorySummary(BaseModel):
@@ -78,6 +112,7 @@ def list_not_imported(session: Session = Depends(get_session)):
         titles.setdefault((item.content_type, item.tmdb_id), (item.title, item.year))
     summary: dict[str, CategorySummary] = {}
     torrents = []
+    sources = _sources(session)
     for row in rows:
         ct = row.client_torrent
         if not row.excluded:
@@ -98,7 +133,7 @@ def list_not_imported(session: Session = Depends(get_session)):
             ) if replaced else None,
             total_bytes=row.total_bytes, video_bytes=row.video_bytes, file_count=row.file_count,
             ratio=ct.ratio, seeding_time_seconds=ct.seeding_time_seconds, added_at=ct.added_at, state=ct.state,
-            excluded=bool(row.excluded),
+            excluded=bool(row.excluded), source=sources.get(ct.id),
         ))
     torrents.sort(key=lambda t: t.total_bytes, reverse=True)
     status = not_imported.load_status(session)

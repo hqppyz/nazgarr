@@ -2369,6 +2369,7 @@ export interface components {
              * @default false
              */
             excluded: boolean;
+            source?: components["schemas"]["TorrentSource"] | null;
         };
         /** NotImportedResponse */
         NotImportedResponse: {
@@ -2905,6 +2906,18 @@ export interface components {
             qui_instance_id?: number | null;
             /** Enabled */
             enabled?: boolean | null;
+        };
+        /**
+         * TorrentSource
+         * @description Dove sta su disco il contenuto del torrent: la sorgente di un upload.
+         */
+        TorrentSource: {
+            /** Disk Id */
+            disk_id: number;
+            /** Relative Path */
+            relative_path: string;
+            /** Is Dir */
+            is_dir: boolean;
         };
         /** TrackerChoice */
         TrackerChoice: {

@@ -1,7 +1,8 @@
 import { ChevronRightIcon, FileIcon, FileVideoIcon, FolderIcon, FolderOpenIcon } from "lucide-react";
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState } from "react";
 
 import { HardlinkInfo } from "@/components/HardlinkInfo";
+import { RowContextMenu, type RowMenuItem } from "@/components/RowContextMenu";
 import { StateBadge, StatusBadge, StoppedBadge } from "@/components/StateBadge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { t } from "@/lib/i18n";
@@ -94,11 +95,11 @@ export function filesUnder(node: TreeNode): TreeFileEntry[] {
   return out
 }
 
-// Azioni facoltative a fine riga (es. "Upload / reseed" sui torrent orfani):
-// un nodo senza azione non mostra niente.
+// Voci facoltative del menu contestuale di una riga (tasto destro), es.
+// "Upload / reseed" sui torrent orfani: nessuna voce, nessun menu.
 export interface TreeRowActions {
-  file?: (file: TreeFileEntry) => ReactNode
-  folder?: (node: TreeNode) => ReactNode
+  file?: (file: TreeFileEntry) => RowMenuItem[]
+  folder?: (node: TreeNode) => RowMenuItem[]
 }
 
 export function FileTree({ files, expandAll = false, duplicateKeys, onOpenFile, actions }: { files: TreeFileEntry[]; expandAll?: boolean; duplicateKeys?: Set<string>; onOpenFile?: (file: TreeFileEntry) => void; actions?: TreeRowActions }) {
@@ -148,8 +149,8 @@ export function FileTree({ files, expandAll = false, duplicateKeys, onOpenFile, 
           const indent = { paddingLeft: `${depth * 1.25 + 0.5}rem` };
           if (!node.file) {
             return (
+              <RowContextMenu key={node.path} title={node.path} items={actions?.folder?.(node) ?? []}>
               <TableRow
-                key={node.path}
                 // Cartelle aperte con uno sfondo tendente al primary: a colpo
                 // d'occhio si vede cosa è esploso e cosa no.
                 className={cn("cursor-pointer", open && "bg-primary/5 hover:bg-primary/10", "text-xs")}
@@ -165,22 +166,19 @@ export function FileTree({ files, expandAll = false, duplicateKeys, onOpenFile, 
                       <span aria-hidden>·</span>
                       {t("library.filesCount", { count: node.fileCount })}
                     </span>
-                    {actions?.folder && (
-                      <span className="ml-auto shrink-0 font-sans" onClick={(e) => e.stopPropagation()}>
-                        {actions.folder(node)}
-                      </span>
-                    )}
                   </div>
                 </TableCell>
                 <TableCell />
                 <TableCell className="text-right text-xs text-muted-foreground tabular-nums">{formatBytes(node.sizeBytes)}</TableCell>
               </TableRow>
+              </RowContextMenu>
             );
           }
           const file = node.file;
           const openable = onOpenFile != null && file.tmdb_id != null && file.content_type != null;
           return (
-            <TableRow key={node.path} className={cn(file.excluded && "opacity-60", openable && "cursor-pointer")} onClick={openable ? () => onOpenFile(file) : undefined}>
+            <RowContextMenu key={node.path} title={file.relative_path} items={actions?.file?.(file) ?? []}>
+            <TableRow className={cn(file.excluded && "opacity-60", openable && "cursor-pointer")} onClick={openable ? () => onOpenFile(file) : undefined}>
               <TableCell className="max-w-0" style={indent}>
                 <div className="flex items-center gap-1.5 pl-5">
                   {isVideo(node.name) ? <FileVideoIcon className="size-3.5 shrink-0 text-muted-foreground" /> : <FileIcon className="size-3.5 shrink-0 text-muted-foreground" />}
@@ -188,11 +186,6 @@ export function FileTree({ files, expandAll = false, duplicateKeys, onOpenFile, 
                     {node.name}
                   </span>
                   <HardlinkInfo linkedPaths={file.linked_paths} />
-                  {actions?.file && (
-                    <span className="ml-auto shrink-0 font-sans" onClick={(e) => e.stopPropagation()}>
-                      {actions.file(file)}
-                    </span>
-                  )}
                 </div>
               </TableCell>
               <TableCell>
@@ -224,6 +217,7 @@ export function FileTree({ files, expandAll = false, duplicateKeys, onOpenFile, 
               </TableCell>
               <TableCell className="text-right text-xs tabular-nums">{formatBytes(file.size_bytes)}</TableCell>
             </TableRow>
+            </RowContextMenu>
           );
         })}
       </TableBody>

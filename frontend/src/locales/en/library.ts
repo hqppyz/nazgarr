@@ -29,4 +29,6 @@ export const library = {
   'library.filesCount': '{count} files',
   'library.hardlink': 'Hardlink',
   'library.duplicate': 'duplicate',
+  'library.torrentRightClickHint':
+    'Right-click an orphaned torrent (a file or its folder) to upload or reseed it on your trackers.',
 } as const

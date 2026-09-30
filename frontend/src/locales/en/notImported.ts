@@ -35,4 +35,5 @@ export const notImported = {
   'notImported.files': '{count} files',
   'notImported.days': '{count}d',
   'notImported.hours': '{count}h',
+  'notImported.rightClickHint': 'Right-click a torrent to upload or reseed it on your trackers.',
 } as const
