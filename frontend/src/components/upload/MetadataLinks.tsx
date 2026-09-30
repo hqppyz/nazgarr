@@ -1,6 +1,5 @@
 import { ExternalLinkIcon } from 'lucide-react'
 
-import type { UploadJob } from '@/api/hooks/uploads'
 
 interface Service {
   key: string
@@ -9,7 +8,16 @@ interface Service {
   url: string
 }
 
-function servicesOf(job: UploadJob): Service[] {
+// Gli id di un contenuto: di un job di upload o di un candidato al match.
+export interface MetadataIds {
+  content_type: string | null
+  tmdb_id: number | null
+  imdb_id?: string | null
+  tvdb_id?: number | null
+  mal_id?: number | null
+}
+
+function servicesOf(job: MetadataIds): Service[] {
   const tv = job.content_type === 'tv'
   const out: Service[] = []
   if (job.tmdb_id) {
@@ -24,7 +32,7 @@ function servicesOf(job: UploadJob): Service[] {
 }
 
 // I link ai servizi di metadati come pulsanti con il logo del servizio.
-export function MetadataLinks({ job }: { job: UploadJob }) {
+export function MetadataLinks({ job }: { job: MetadataIds }) {
   const services = servicesOf(job)
   if (services.length === 0) return null
   return (

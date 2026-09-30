@@ -1,4 +1,4 @@
-import { CheckIcon, ExternalLinkIcon, SearchIcon, TriangleAlertIcon } from 'lucide-react'
+import { CheckIcon, SearchIcon, TriangleAlertIcon } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { toast } from 'sonner'
 
@@ -13,6 +13,7 @@ import { useConfirmMatch, useReidentify, type UploadJob } from '@/api/hooks/uplo
 import { AuthedPoster } from '@/components/AuthedPoster'
 import { ChoiceCards } from '@/components/ChoiceCards'
 import { ForcedIdFields } from '@/components/upload/ForcedIdFields'
+import { MetadataLinks } from '@/components/upload/MetadataLinks'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -114,7 +115,6 @@ function DetailPanel({ candidate, details, isPending }: {
   isPending: boolean
 }) {
   const info = details ?? candidate
-  const tmdbUrl = `https://www.themoviedb.org/${candidate.content_type}/${candidate.tmdb_id}`
   return (
     <div className="grid gap-3">
       <div className="flex gap-3">
@@ -154,27 +154,14 @@ function DetailPanel({ candidate, details, isPending }: {
           <span className="font-medium text-foreground">{t('upload.match.cast')}:</span> {details.cast.join(', ')}
         </p>
       )}
-      <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 font-mono text-xs">
-        <dt className="text-muted-foreground">TMDB</dt>
-        <dd>
-          <a href={tmdbUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 hover:underline">
-            {candidate.tmdb_id}
-            <ExternalLinkIcon className="size-3" />
-          </a>
-        </dd>
-        {details?.imdb_id && (
-          <>
-            <dt className="text-muted-foreground">IMDB</dt>
-            <dd>{details.imdb_id}</dd>
-          </>
-        )}
-        {details?.tvdb_id && (
-          <>
-            <dt className="text-muted-foreground">TVDB</dt>
-            <dd>{details.tvdb_id}</dd>
-          </>
-        )}
-      </dl>
+      <MetadataLinks
+        job={{
+          content_type: candidate.content_type,
+          tmdb_id: candidate.tmdb_id,
+          imdb_id: details?.imdb_id,
+          tvdb_id: details?.tvdb_id,
+        }}
+      />
     </div>
   )
 }
