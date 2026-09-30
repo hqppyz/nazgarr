@@ -245,10 +245,17 @@ def preview_names(session: Session, rules: dict) -> dict:
         sample = {"kind": "job", "label": job.title or job.relative_path}
     else:
         # L'esempio è un film: niente stagione né episodio nel nome.
-        values = {**VARIABLES, "season": None, "episode": None}
+        values = {**VARIABLES, "season": None, "episode": None, "content_type": "movie"}
         sample = {"kind": "example", "label": None}
     templates = rules.get("templates") or {}
-    names = {key: build_name(rules, {**values, "type": key if key != "default" else values.get("type")})
-             for key in templates}
+    names = {}
+    for key in templates:
+        if key == "tv":
+            # Il pattern per le serie sui valori dell'esempio da serie.
+            tv = {**values, "content_type": "tv", "season": values.get("season") or "S01"}
+            names[key] = build_name(rules, tv)
+        else:
+            movie = {**values, "content_type": "movie", "season": None, "episode": None}
+            names[key] = build_name(rules, {**movie, "type": key if key != "default" else values.get("type")})
     variables = {key: values.get(key) for key in VARIABLES}
     return {"sample": sample, "variables": variables, "names": names}

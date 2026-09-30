@@ -54,8 +54,8 @@ def decision_job(db_session, tmp_path):
 
 def test_propose_names_ids_and_flags_per_tracker(decision_job):
     itt, custom = decision_job.targets
-    # Regole ITT: template WEB-DL, anno senza parentesi, servizio.
-    assert itt.proposed_name == "Severance 2022 S02 1080p ATVP WEB-DL H.264 DD+ 5.1-NTb"
+    # Regole ITT: pattern per le serie (senza anno), servizio, tipo WEB-DL.
+    assert itt.proposed_name == "Severance S02 1080p ATVP WEB-DL H.264 DD+ 5.1-NTb"
     assert (itt.category_id, itt.type_id, itt.resolution_id) == (2, 4, 3)
     assert json.loads(itt.flags_json) == {"anonymous": False, "personal_release": False, "internal": False,
                                           "stream": False, "freeleech": 0}

@@ -85,6 +85,8 @@ export function UploadProfileDialog({
       { category_id_map, type_id_map, resolution_id_map, description_template: descriptionTemplate, naming_rules },
       {
         onSuccess: () => {
+          toast.success(t('trackers.profileSaved'))
+          onOpenChange(false)
           setCategoryMapDraft(null)
           setTypeMapDraft(null)
           setResolutionMapDraft(null)

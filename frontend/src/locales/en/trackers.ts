@@ -39,6 +39,7 @@ export const trackers = {
     'Copied from the bundled profile "{key}" — double-check the ids against your account before the first real upload.',
   'trackers.descriptionTemplate': 'Description template (Jinja2)',
   'trackers.namingRules': 'Naming rules',
+  'trackers.profileSaved': 'Upload profile saved.',
   'trackers.section.naming': 'Release name',
   'trackers.section.description': 'Description template (Jinja2)',
   'trackers.section.defaults': 'Defaults for new uploads',

@@ -53,7 +53,7 @@ upload:
   # Upload-Assistant (src/trackers/ITT.py, riferimento di dominio): da
   # verificare contro il regolamento del tracker prima del primo upload.
   naming:
-    version: 3
+    version: 4
     force: false
     title: local
     title_language: it
@@ -62,9 +62,11 @@ upload:
       primary: ITA
       multi_from: 3
     group_separator: "-"
-    # Un solo pattern: cambia solo come si scrive il tipo.
+    # Un pattern, più quello per le serie (senza anno): cambia solo come si
+    # scrive il tipo.
     templates:
-      default: "{title} {year} {season} {edition} {repack} {resolution} {service} {type} {hdr} {video_codec} {audio_languages} {audio_all} {group}"
+      default: "{title} {year} {edition} {repack} {resolution} {service} {type} {hdr} {video_codec} {audio_languages} {audio_all} {group}"
+      tv: "{title} {season} {edition} {repack} {resolution} {service} {type} {hdr} {video_codec} {audio_languages} {audio_all} {group}"
     type_labels:
       REMUX: "{source} REMUX VU"
       WEBDL: "WEB-DL"

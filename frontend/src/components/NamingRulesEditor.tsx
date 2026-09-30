@@ -16,7 +16,8 @@ export type NamingRules = Record<string, unknown> & {
 
 // Un template per tipo di release (le chiavi type_id dei profili); vuoto =
 // usa quello di default.
-const TEMPLATE_KEYS = ['default', 'REMUX', 'WEBDL', 'WEBRIP', 'ENCODE', 'HDTV', 'DVDRIP', 'BRRIP'] as const
+// 'tv': il pattern per le serie (di solito senza anno), prima di quelli per tipo.
+const TEMPLATE_KEYS = ['default', 'tv', 'REMUX', 'WEBDL', 'WEBRIP', 'ENCODE', 'HDTV', 'DVDRIP', 'BRRIP'] as const
 // Stesse di app/upload_naming.py DEFAULT_TYPE_LABELS.
 const DEFAULT_TYPE_LABELS: Record<string, string> = {
   REMUX: 'REMUX', WEBDL: 'WEB-DL', WEBRIP: 'WEBRip', ENCODE: '', HDTV: 'HDTV', DVDRIP: 'DVDRip', BRRIP: 'BRRip',
@@ -289,7 +290,17 @@ export function NamingRulesEditor({
       ))}
 
       <Group title={t('naming.group.labels')}>
-        <TextOption label={t('naming.subsLabel')} value={String(value.subs_label ?? '')} placeholder="SUBS" onChange={(label) => set({ subs_label: label || null })} />
+        <TextOption
+          label={t('naming.subsFormat')}
+          value={String(value.subs_format ?? value.subs_label ?? '')}
+          placeholder="SUBS {subs_languages}"
+          onChange={(format) => {
+            const next: NamingRules = { ...value, subs_format: format || undefined }
+            delete next.subs_label
+            if (!format) delete next.subs_format
+            onChange(next)
+          }}
+        />
         <TextOption label={t('naming.sdrLabel')} value={String(value.sdr_label ?? '')} placeholder="SDR" onChange={(label) => set({ sdr_label: label || null })} />
         <TextOption label={t('naming.separator')} value={String(value.separator ?? ' ')} onChange={(separator) => set({ separator: separator || ' ' })} />
         <TextOption label={t('naming.groupSeparator')} value={String(value.group_separator ?? '-')} onChange={(separator) => set({ group_separator: separator || '-' })} />
@@ -303,7 +314,7 @@ export function NamingRulesEditor({
           <Label className="text-xs">{t('naming.typeLabels')}</Label>
           <p className="text-[11px] text-muted-foreground">{t('naming.typeLabelsHelp')}</p>
           <div className="grid gap-2 sm:grid-cols-4">
-            {TEMPLATE_KEYS.filter((key) => key !== 'default').map((key) => (
+            {TEMPLATE_KEYS.filter((key) => key !== 'default' && key !== 'tv').map((key) => (
               <TextOption
                 key={key}
                 label={t(`naming.template.${key}`)}

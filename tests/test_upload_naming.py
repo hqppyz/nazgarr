@@ -25,11 +25,12 @@ def test_itt_remux_name_from_mediainfo_with_the_italian_title():
     values = release_values(_job(), detected, MEDIAINFO, {}, ITT_RULES, local_title="17 Again - Ritorno al liceo")
 
     assert values["video_codec"] == "VC-1"
-    assert (values["audio"], values["audio_all"]) == ("TrueHD 5.1", "TrueHD 5.1 DD 5.1 DD 5.1")
+    # Due tracce DD 5.1 (inglese e italiano): una volta sola.
+    assert (values["audio"], values["audio_all"]) == ("TrueHD 5.1", "TrueHD 5.1 DD 5.1")
     assert (values["audio_codec"], values["audio_channels"], values["audio_atmos"]) == ("TrueHD", "5.1", None)
     assert (values["audio_languages"], values["subs_languages"], values["bit_depth"]) == ("ITA ENG", "ENG ITA", "8bit")
     assert build_name(ITT_RULES, values) == (
-        "17 Again - Ritorno al liceo 2009 1080p REMUX VU VC-1 ITA ENG TrueHD 5.1 DD 5.1 DD 5.1-MaTiTa"
+        "17 Again - Ritorno al liceo 2009 1080p REMUX VU VC-1 ITA ENG TrueHD 5.1 DD 5.1-MaTiTa"
     )
 
 
@@ -104,3 +105,28 @@ def test_one_pattern_with_type_labels_that_can_hold_variables():
     assert build_name({**rules, "templates": {**rules["templates"], "WEBDL": " "}}, {**base, "type": "WEBDL"}) == (
         "Dune 2160p WEB-DL HEVC-G"
     )
+
+
+def test_subs_writes_a_label_with_the_languages_and_can_be_turned_off():
+    detected = detect("Movie.2009.1080p.BluRay.REMUX-GRP")
+    rules = {"templates": {"default": "{title} {resolution} {subs} {group}"}}
+
+    values = release_values(_job(), detected, MEDIAINFO, {}, rules)
+    assert build_name(rules, values) == "17 Again 1080p SUBS ENG ITA-GRP"
+    off = {**rules, "subs_format": ""}
+    assert build_name(off, release_values(_job(), detected, MEDIAINFO, {}, off)) == "17 Again 1080p-GRP"
+    legacy = {**rules, "subs_label": "SUBS"}  # regole scritte prima di subs_format
+    assert build_name(legacy, release_values(_job(), detected, MEDIAINFO, {}, legacy)) == "17 Again 1080p SUBS-GRP"
+
+
+def test_series_use_their_own_pattern_when_there_is_one():
+    rules = {"templates": {"default": "{title} {year} {resolution} {group}",
+                           "tv": "{title} {season} {resolution} {group}",
+                           "REMUX": "{title} {year} REMUX {group}"}}
+    base = {"title": "Severance", "year": 2022, "season": "S02", "resolution": "1080p", "group": "G"}
+
+    assert build_name(rules, {**base, "content_type": "tv", "type": "REMUX"}) == "Severance S02 1080p-G"
+    movie = {**base, "content_type": "movie", "type": "REMUX", "season": None}
+    assert build_name(rules, movie) == "Severance 2022 REMUX-G"
+    no_tv = {"templates": {"default": rules["templates"]["default"]}}
+    assert build_name(no_tv, {**base, "content_type": "tv"}) == "Severance 2022 S02 1080p-G"

@@ -32,7 +32,7 @@ VARIABLES = {
     "type": "REMUX", "service": "ATVP", "video_codec": "HEVC", "hdr": "DV HDR", "bit_depth": "10bit",
     "audio": "TrueHD 7.1 Atmos", "audio_codec": "TrueHD", "audio_channels": "7.1", "audio_atmos": "Atmos",
     "audio_all": "TrueHD 7.1 Atmos DD+ 5.1", "audio_languages": "ITA ENG", "subs_languages": "ITA ENG",
-    "subs": "SUBS", "group": "GRP",
+    "subs": "SUBS ITA ENG", "group": "GRP",
 }
 
 # Campi che l'utente può correggere nei "Detected details".
@@ -57,7 +57,7 @@ DEFAULT_RULES = {
     "title_language": None,  # es. "it": titolo TMDB in quella lingua per {local_title}
     "audio_languages": {"style": "none"},  # none | all | primary_first (+ primary, multi_from)
     "subs_languages": {"style": "all"},  # come audio_languages, per {subs_languages}
-    "subs_label": None,  # es. "SUBS": scritto se ci sono sottotitoli
+    "subs_format": "SUBS {subs_languages}",  # come si scrive {subs} se ci sono sottotitoli; "" = mai
     "sdr_label": None,  # es. "SDR": scritto al posto dell'HDR quando non c'è
     "separator": " ",
     "group_separator": "-",
@@ -267,7 +267,10 @@ def _audio_values(tracks: list[dict], rules: dict) -> dict:
         return {}
     main = next((t for t in usable if t.get("default")), usable[0])
     codec, channels, atmos = _audio_parts(main, codecs)
-    every = " ".join(label for label in (_audio_label(t, codecs) for t in usable) if label) or None
+    # Stesso codec e stessi canali una volta sola (due tracce DD 5.1 in lingue
+    # diverse sono "DD 5.1", le lingue le dice {audio_languages}).
+    labels = dict.fromkeys(label for label in (_audio_label(t, codecs) for t in usable) if label)
+    every = " ".join(labels) or None
     return {
         "audio": every if rules.get("audio") == "all" else _audio_label(main, codecs),  # "all": regole v1
         "audio_codec": codec, "audio_channels": channels, "audio_atmos": atmos, "audio_all": every,
@@ -318,6 +321,7 @@ def release_values(
 ) -> dict:
     """Tutti i valori dei segnaposto per un tracker: MediaInfo, poi il nome
     della release, poi gli override dell'utente sopra tutto."""
+    rules_in = rules
     rules = effective_rules(rules)
     values = {key: detected.get(key) for key in DETECTED_FIELDS}
     video = (mediainfo or {}).get("video") or {}
@@ -340,7 +344,13 @@ def release_values(
         values["subs_languages"] = _languages_value(subtitles, rules.get("subs_languages") or {"style": "all"})
     if not values.get("hdr") and rules.get("sdr_label"):
         values["hdr"] = rules["sdr_label"]
-    values["subs"] = rules.get("subs_label") if subtitles else None
+    values["subs"] = None
+    if subtitles:
+        # Regole v1-v3 avevano solo un'etichetta fissa (subs_label).
+        subs_format = rules.get("subs_format")
+        if "subs_format" not in (rules_in or {}) and (rules_in or {}).get("subs_label"):
+            subs_format = rules_in["subs_label"]
+        values["subs"] = re.sub(r"\s+", " ", _render(subs_format or "", values)).strip() or None
     for key in DETECTED_FIELDS:
         if overrides.get(key) not in (None, ""):
             values[key] = overrides[key]
@@ -351,6 +361,7 @@ def release_values(
     elif rules.get("title") == "local_original" and local_title and local_title != job.title:
         title = f"{job.title} {local_title}"
     values["title"] = title
+    values["content_type"] = job.content_type
     values["local_title"] = local_title if local_title and local_title != job.title else None
     values["year"] = overrides.get("year") or job.year
     seasons = json.loads(job.seasons_json or "[]")
@@ -362,9 +373,15 @@ def release_values(
 _TOKEN = re.compile(r"\{(\w+)\}")
 
 
-def template_for(rules: dict, release_type_key: str | None) -> str:
+def template_for(rules: dict, release_type_key: str | None, content_type: str | None = None) -> str:
+    """Il pattern per le serie se è una serie e il profilo ne ha uno (di
+    solito senza anno), poi quello del tipo di release, poi il principale."""
     templates = rules.get("templates") or {}
-    return (templates.get(release_type_key or "") or "").strip() or templates.get("default") or DEFAULT_TEMPLATE
+    for key in (("tv",) if content_type == "tv" else ()) + ((release_type_key,) if release_type_key else ()):
+        template = (templates.get(key) or "").strip()
+        if template:
+            return template
+    return templates.get("default") or DEFAULT_TEMPLATE
 
 
 def _render(template: str, values: dict) -> str:
@@ -382,7 +399,7 @@ def type_label(rules: dict, values: dict) -> str | None:
 
 def build_name(rules: dict | None, values: dict) -> str:
     rules = effective_rules(rules)
-    template = template_for(rules, values.get("type"))
+    template = template_for(rules, values.get("type"), values.get("content_type"))
     values = {**values, "type": type_label(rules, values)}
     if values.get("season") and "{season}" not in template:
         anchor = "({year})" if "({year})" in template else "{year}" if "{year}" in template else "{title}"
