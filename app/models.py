@@ -269,6 +269,7 @@ class AdapterConfig(Base):
     adapter_type: Mapped[str] = mapped_column(primary_key=True)
     enabled: Mapped[bool] = mapped_column(nullable=False, server_default=text("1"))
     config_json: Mapped[str | None] = mapped_column(EncryptedString)
+    events_json: Mapped[str | None]
 
 
 class AppSetting(Base):

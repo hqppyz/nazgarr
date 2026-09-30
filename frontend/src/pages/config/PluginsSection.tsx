@@ -1,7 +1,9 @@
-import { PuzzleIcon, ShieldAlertIcon } from 'lucide-react'
+import { PuzzleIcon, SendIcon, ShieldAlertIcon } from 'lucide-react'
+import { toast } from 'sonner'
 import { useState } from 'react'
 
-import { useAdapterConfig, usePlugins, useSaveAdapterConfig } from '@/api/hooks/plugins'
+import { useAdapterConfig, usePlugins, useSaveAdapterConfig, useTestNotification } from '@/api/hooks/plugins'
+import { useWebhookEvents } from '@/api/hooks/webhooks'
 import type { Schemas } from '@/api/client'
 import {
   AdapterConfigFields,
@@ -29,6 +31,68 @@ const KINDS = ['tracker', 'torrent_client', 'media_resolver', 'image_host', 'not
 const GLOBAL_KINDS = ['image_host', 'media_resolver', 'notification']
 
 type Adapter = Schemas['AdapterResponse']
+const ALL = '*'
+
+// Notifiche: quali eventi manda, l'ultima consegna e l'invio di prova.
+function NotificationControls({ adapter, events, lastDelivery }: {
+  adapter: Adapter
+  events: string[]
+  lastDelivery: Schemas['LastDelivery'] | null | undefined
+}) {
+  const { data: catalog } = useWebhookEvents()
+  const save = useSaveAdapterConfig(adapter.kind, adapter.adapter_type)
+  const test = useTestNotification(adapter.adapter_type)
+  const all = events.includes(ALL)
+  const feedback = autosaveFeedback(`${adapter.label} · ${t('plugins.events')}`)
+  const setEvents = (next: string[]) => next.length > 0 && save.mutate({ events: next }, feedback)
+  return (
+    <div className="grid gap-2 border-t pt-3">
+      <div className="flex items-center gap-2">
+        <Switch id={`n-all-${adapter.adapter_type}`} checked={all} onCheckedChange={(checked) => checked && setEvents([ALL])} />
+        <label htmlFor={`n-all-${adapter.adapter_type}`} className="text-sm">{t('webhooks.allEvents')}</label>
+      </div>
+      <div className="flex flex-wrap gap-x-4 gap-y-1">
+        {catalog?.map((event) => (
+          <label key={event.name} className="flex cursor-pointer items-center gap-1.5 text-xs" title={event.description}>
+            <input
+              type="checkbox"
+              checked={all || events.includes(event.name)}
+              onChange={(e) => {
+                const current = all ? catalog.map((c) => c.name) : events
+                setEvents(e.target.checked ? [...current, event.name] : current.filter((n) => n !== event.name))
+              }}
+            />
+            <span className="font-mono">{event.name}</span>
+          </label>
+        ))}
+      </div>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="text-xs text-muted-foreground">
+          {lastDelivery
+            ? t('plugins.lastDelivery', { event: lastDelivery.event, status: t(`webhooks.status.${lastDelivery.status}`) }) +
+              (lastDelivery.error ? ` — ${lastDelivery.error}` : '')
+            : t('webhooks.noDeliveries')}
+        </span>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={test.isPending}
+          onClick={() =>
+            test.mutate(undefined, {
+              onSuccess: (r) =>
+                r.status === 'delivered'
+                  ? toast.success(t('webhooks.testDelivered'))
+                  : toast.error(t('webhooks.testFailed', { error: r.error ?? '' })),
+            })
+          }
+        >
+          <SendIcon className="size-4" />
+          {t('webhooks.test')}
+        </Button>
+      </div>
+    </div>
+  )
+}
 
 function GlobalAdapterCard({ adapter }: { adapter: Adapter }) {
   const { data } = useAdapterConfig(adapter.kind, adapter.adapter_type)
@@ -37,6 +101,9 @@ function GlobalAdapterCard({ adapter }: { adapter: Adapter }) {
   if (!data) return null
   const current = values ?? initialConfigValues(adapter.config_fields, data.values)
   const title = `${adapter.label} · ${t(`plugins.kind.${adapter.kind}`)}`
+  const notification = adapter.kind === 'notification' ? (
+    <NotificationControls adapter={adapter} events={data.events ?? [ALL]} lastDelivery={data.last_delivery} />
+  ) : null
   return (
     <Card>
       <CardHeader className="flex flex-row items-start justify-between gap-3">
@@ -83,8 +150,10 @@ function GlobalAdapterCard({ adapter }: { adapter: Adapter }) {
               {t('common.save')}
             </Button>
           </div>
+          {notification}
         </CardContent>
       )}
+      {adapter.config_fields.length === 0 && notification && <CardContent>{notification}</CardContent>}
     </Card>
   )
 }

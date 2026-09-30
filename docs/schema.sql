@@ -153,6 +153,7 @@ CREATE TABLE IF NOT EXISTS adapter_config (
     adapter_type    TEXT NOT NULL,
     enabled         BOOLEAN NOT NULL DEFAULT 1,
     config_json     TEXT,                   -- encrypted at rest; secrets never returned by the API
+    events_json     TEXT,                   -- notifications: the events they send (app/events.py), null = all
     PRIMARY KEY (kind, adapter_type)
 );
 

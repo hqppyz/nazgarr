@@ -66,18 +66,23 @@ def notification_targets(session: Session, name: str) -> list[str]:
     return notifications.targets(session, name)
 
 
-def store(session: Session, name: str, data: dict, *, only_webhook_id: int | None = None) -> object | None:
-    """Salva l'evento e le sue consegne (senza commit). None se nessuno è iscritto."""
-    from app.models import Event, EventDelivery
+def store(
+    session: Session, name: str, data: dict, *, only_webhook_id: int | None = None,
+    only_notification: str | None = None,
+) -> object | None:
+    """Salva l'evento e le sue consegne (senza commit). None se nessuno è
+    iscritto. only_*: una consegna sola a quel destinatario (l'invio di prova)."""
+    from app.models import Event, EventDelivery, Webhook
 
+    only = only_webhook_id is not None or only_notification is not None
     with session.no_autoflush:
-        webhooks = webhook_targets(session, name) if only_webhook_id is None else []
-        notifications = notification_targets(session, name) if only_webhook_id is None else []
-    if only_webhook_id is not None:
-        from app.models import Webhook
-
-        webhook = session.get(Webhook, only_webhook_id)
-        webhooks = [webhook] if webhook is not None else []
+        webhooks = webhook_targets(session, name) if not only else []
+        notifications = notification_targets(session, name) if not only else []
+        if only_webhook_id is not None:
+            webhook = session.get(Webhook, only_webhook_id)
+            webhooks = [webhook] if webhook is not None else []
+        if only_notification is not None:
+            notifications = [only_notification]
     if not webhooks and not notifications:
         return None
     now = datetime.now(UTC)

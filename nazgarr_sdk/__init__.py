@@ -12,6 +12,7 @@ approvazione dell'utente.
 
 from app.adapters.image_host.base import ImageHostAdapter, ImageHostError
 from app.adapters.media_resolver.base import MediaResolverAdapter, ResolvedMedia
+from app.adapters.notification.base import Notification, NotificationAdapter, NotificationError
 from app.adapters.torrent_client.base import (
     ClientTorrentFileInfo,
     ClientTorrentInfo,
@@ -37,6 +38,7 @@ SDK_VERSION = "1.0.0"
 __all__ = [
     "KINDS", "SDK_VERSION", "AdapterContext", "AdapterSpec", "ClientTorrentFileInfo", "ClientTorrentInfo",
     "ConfigField", "ImageHostAdapter", "ImageHostError", "MediaResolverAdapter", "NotSupportedError",
+    "Notification", "NotificationAdapter", "NotificationError",
     "ResolvedMedia", "TorrentAddTimeoutError", "TorrentAlreadyInClientError", "TorrentCandidate",
     "TorrentClientAdapter", "TorrentRecord", "TorrentStatus", "TrackerAdapter", "TrackerRateLimitedError",
     "UploadError", "UploadFields", "UploadedTorrent", "register",

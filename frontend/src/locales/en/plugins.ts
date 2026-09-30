@@ -18,6 +18,8 @@ export const plugins = {
   'plugins.providesNothing': 'Registers no adapter',
   'plugins.adaptersTitle': 'Available adapters',
   'plugins.enabled': 'Enabled',
+  'plugins.events': 'Events',
+  'plugins.lastDelivery': 'Last: {event}, {status}',
   'plugins.builtin': 'built-in',
   'plugins.kind.tracker': 'Trackers',
   'plugins.kind.torrent_client': 'Torrent clients',

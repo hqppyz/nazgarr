@@ -1533,6 +1533,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/plugins/config/notification/{adapter_type}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Test Notification
+         * @description Una notifica di prova, mandata subito.
+         */
+        post: operations["test_notification_api_plugins_config_notification__adapter_type__test_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/webhooks/events": {
         parameters: {
             query?: never;
@@ -1721,6 +1741,8 @@ export interface components {
             config?: {
                 [key: string]: unknown;
             } | null;
+            /** Events */
+            events?: string[] | null;
         };
         /** AdapterConfigResponse */
         AdapterConfigResponse: {
@@ -1736,6 +1758,9 @@ export interface components {
             };
             /** Secrets Set */
             secrets_set: string[];
+            /** Events */
+            events?: string[] | null;
+            last_delivery?: components["schemas"]["LastDelivery"] | null;
         };
         /** AdapterResponse */
         AdapterResponse: {
@@ -2511,6 +2536,20 @@ export interface components {
             /** Seed Jobs */
             seed_jobs: components["schemas"]["DetailSeedJob"][];
         };
+        /** LastDelivery */
+        LastDelivery: {
+            /** Event */
+            event: string;
+            /** Status */
+            status: string;
+            /** Error */
+            error: string | null;
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+        };
         /** LastRunSummary */
         LastRunSummary: {
             /** Id */
@@ -3246,6 +3285,13 @@ export interface components {
             client_category?: string | null;
             /** Client Tags */
             client_tags?: string | null;
+        };
+        /** TestResponse */
+        TestResponse: {
+            /** Status */
+            status: string;
+            /** Error */
+            error: string | null;
         };
         /** TokenResponse */
         TokenResponse: {
@@ -6957,6 +7003,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AdapterConfigResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    test_notification_api_plugins_config_notification__adapter_type__test_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                adapter_type: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TestResponse"];
                 };
             };
             /** @description Validation Error */

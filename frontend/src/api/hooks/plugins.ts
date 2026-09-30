@@ -24,10 +24,19 @@ export function useAdapterConfig(kind: string, adapterType: string) {
 export function useSaveAdapterConfig(kind: string, adapterType: string) {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (body: { enabled?: boolean; config?: Record<string, unknown> }) =>
+    mutationFn: (body: { enabled?: boolean; config?: Record<string, unknown>; events?: string[] }) =>
       unwrap(
         api.PUT('/api/plugins/config/{kind}/{adapter_type}', { params: { path: { kind, adapter_type: adapterType } }, body }),
       ),
     onSuccess: (data) => queryClient.setQueryData(['plugins', 'config', kind, adapterType], data),
+  })
+}
+
+export function useTestNotification(adapterType: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () =>
+      unwrap(api.POST('/api/plugins/config/notification/{adapter_type}/test', { params: { path: { adapter_type: adapterType } } })),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['plugins', 'config', 'notification', adapterType] }),
   })
 }
