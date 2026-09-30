@@ -141,6 +141,10 @@ curl -X PUT http://localhost:8080/api/schedule \
 
 Full endpoint reference: `http://<host>:8080/docs`.
 
+## Plugins, webhooks and API
+
+Nazgarr can be extended with plugins (trackers, torrent clients, media resolvers, image hosts, notification services), sends signed webhooks for its events, and exposes its JSON API to scripts through API keys. See [docs/SDK.md](docs/SDK.md), and [examples/nazgarr-ntfy](examples/nazgarr-ntfy) for a complete plugin.
+
 ## Local development
 
 ```bash

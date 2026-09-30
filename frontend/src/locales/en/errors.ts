@@ -30,6 +30,8 @@ export const errors = {
   'errors.seed_job_not_found': 'SeedJob {id} not found.',
 
   'errors.tracker_not_found': 'Tracker {id} not found.',
+  'errors.setting_protected': 'This setting is managed from its own page',
+  'errors.setting_secret_for_api_key': 'API keys cannot read or change secret settings',
   'errors.webhook_event_unknown': 'Unknown event: {event}',
   'errors.webhook_events_required': 'Choose at least one event',
   'errors.webhook_url_invalid': 'The URL must start with http:// or https://',

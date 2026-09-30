@@ -57,3 +57,19 @@ def test_invalid_requests(client):
     auth = _login(client)
     assert client.post("/api/api-keys", json={"name": " ", "level": "read"}, headers=auth).status_code == 400
     assert client.post("/api/api-keys", json={"name": "x", "level": "admin"}, headers=auth).status_code == 400
+
+
+def test_keys_never_reach_secret_settings_and_nobody_reaches_the_login_ones(client):
+    auth = _login(client)
+    read, write = _key(client, auth, "read"), _key(client, auth, "write")
+    client.put("/api/settings/tmdb_api_key", json={"value": "tmdb-secret"}, headers=auth)
+
+    assert client.get("/api/settings/tmdb_api_key", headers=auth).json()["value"] == "tmdb-secret"  # la UI sì
+    assert client.get("/api/settings/tmdb_api_key", headers={"X-Api-Key": read["key"]}).status_code == 403
+    assert client.put("/api/settings/image_host_ptpimg_api_key", json={"value": "x"},
+                      headers={"X-Api-Key": write["key"]}).status_code == 403
+    assert client.get("/api/settings/rematch_interval_days", headers={"X-Api-Key": read["key"]}).status_code == 200
+    # L'hash della password non si legge e non si sostituisce da qui, nemmeno col login.
+    assert client.get("/api/settings/auth_password_hash", headers=auth).status_code == 403
+    assert client.put("/api/settings/auth_password_hash", json={"value": "x"},
+                      headers={"X-Api-Key": write["key"]}).status_code == 403
