@@ -19,7 +19,7 @@ BASE_VERSION + "-dev": a colpo d'occhio non si confonde con una release."""
 
 import os
 
-BASE_VERSION = "0.5.0"
+BASE_VERSION = "0.6.0"
 
 __version__ = os.environ.get("NAZGARR_VERSION") or f"{BASE_VERSION}-dev"
 # Commit breve da cui è stata costruita l'immagine, None in sviluppo locale.
