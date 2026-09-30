@@ -1,11 +1,11 @@
 import { LoaderCircleIcon } from 'lucide-react'
 
 import type { UploadJob } from '@/api/hooks/uploads'
-import { ActionBadge } from '@/components/upload/TrackerCheckCard'
-import { UploadStatusBadge } from '@/components/upload/UploadStatusBadge'
+import { ExecutionSteps } from '@/components/upload/ExecutionSteps'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
 import { t } from '@/lib/i18n'
+import { executionSteps } from '@/lib/upload'
 
 // Lo stage del worker (app/upload_execute.py): "hashing", "screenshots",
 // "tracker:<label>".
@@ -29,6 +29,7 @@ export function ProgressStep({ job }: { job: UploadJob }) {
         </CardTitle>
       </CardHeader>
       <CardContent className="grid gap-4">
+        <ExecutionSteps steps={executionSteps(job)} />
         {pct !== null && (
           <div className="grid gap-1">
             <Progress value={pct} />
@@ -36,17 +37,6 @@ export function ProgressStep({ job }: { job: UploadJob }) {
               {job.progress_done}/{total} ({pct}%)
             </span>
           </div>
-        )}
-        {job.status !== 'identifying' && job.status !== 'analyzing' && (
-          <ul className="grid gap-1.5">
-            {job.targets.map((target) => (
-              <li key={target.id} className="flex flex-wrap items-center gap-2 text-sm">
-                <span className="font-medium">{target.tracker_label}</span>
-                {target.action && <ActionBadge action={target.action} />}
-                <UploadStatusBadge status={target.status} />
-              </li>
-            ))}
-          </ul>
         )}
       </CardContent>
     </Card>

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   draftProblem,
   editDraft,
+  executionSteps,
   effectiveDraft,
   eventMessage,
   fromForcedIds,
@@ -88,5 +89,37 @@ describe('commonFolder', () => {
     expect(commonFolder([f(1, 'tv/Show/S01/a.mkv'), f(1, 'tv/Show/S02/b.mkv')])).toEqual({ diskId: 1, path: 'tv/Show' })
     expect(commonFolder([f(1, 'tv/Show/S01/a.mkv'), f(2, 'tv/Show/S02/b.mkv')])).toBeNull()
     expect(commonFolder([f(1, 'a.mkv'), f(1, 'b.mkv')])).toBeNull()
+  })
+})
+
+describe('executionSteps', () => {
+  const targets = [
+    { id: 1, tracker_label: 'ITT', action: 'upload', status: 'approved' },
+    { id: 2, tracker_label: 'BLU', action: 'reseed', status: 'approved' },
+    { id: 3, tracker_label: 'OTH', action: 'skip', status: 'skipped' },
+  ]
+  const states = (job: Parameters<typeof executionSteps>[0]) =>
+    executionSteps(job).map((step) => `${step.key}:${step.state}`)
+
+  it('keeps the finished steps done while the next one runs', () => {
+    expect(states({ status: 'running', stage: 'screenshots', events: [{ code: 'torrent_created' }], targets })).toEqual([
+      'hashing:done', 'screenshots:active', 'target-1:pending', 'target-2:pending', 'finish:pending',
+    ])
+    const onBlu = [{ ...targets[0], status: 'done' }, { ...targets[1], status: 'preparing' }, targets[2]]
+    expect(states({ status: 'running', stage: 'tracker:BLU', events: [], targets: onBlu })).toEqual([
+      'hashing:done', 'screenshots:done', 'target-1:done', 'target-2:active', 'finish:pending',
+    ])
+  })
+
+  it('marks a failed hashing and skips the screenshots, reseeds go on', () => {
+    const failed = [{ ...targets[0], status: 'failed' }, { ...targets[1], status: 'seeding' }, targets[2]]
+    expect(states({ status: 'running', stage: 'tracker:BLU', events: [], targets: failed })).toEqual([
+      'hashing:failed', 'screenshots:skipped', 'target-1:failed', 'target-2:active', 'finish:pending',
+    ])
+  })
+
+  it('has no torrent or screenshot steps for reseeds only', () => {
+    const reseed = [{ ...targets[1], status: 'done' }]
+    expect(states({ status: 'done', stage: null, events: [], targets: reseed })).toEqual(['target-2:done', 'finish:done'])
   })
 })

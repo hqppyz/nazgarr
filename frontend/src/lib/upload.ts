@@ -166,3 +166,81 @@ export function commonFolder(files: { disk_id: number; relative_path: string }[]
   }
   return common.length ? { diskId: files[0].disk_id, path: common.join('/') } : null
 }
+
+// Gli step dell'esecuzione dopo l'approvazione (app/upload_execute.py): torrent
+// e screenshot se c'è almeno un upload, poi un tracker alla volta, poi la
+// fine. Quelli conclusi restano segnati mentre il worker va avanti.
+export type ExecutionStepState = 'pending' | 'active' | 'done' | 'failed' | 'skipped'
+export interface ExecutionStep {
+  key: string
+  label: string
+  state: ExecutionStepState
+}
+
+interface ExecutionJob {
+  status: string
+  stage: string | null
+  events: { code: string }[]
+  targets: { id: number; tracker_label: string; action: string | null; status: string }[]
+}
+
+const TARGET_ACTIVE = ['preparing', 'uploading', 'seeding']
+
+export function executionSteps(job: ExecutionJob): ExecutionStep[] {
+  const codes = new Set(job.events.map((event) => event.code))
+  const stage = job.stage ?? ''
+  const onTrackers = stage.startsWith('tracker:') || !['queued', 'running'].includes(job.status)
+  const targets = job.targets.filter((target) => target.action && target.action !== 'skip')
+  const steps: ExecutionStep[] = []
+
+  if (targets.some((target) => target.action === 'upload')) {
+    // Un upload riuscito ha avuto per forza torrent e screenshot (anche nei
+    // job di prima di questi eventi).
+    const uploaded = targets.some((target) => target.action === 'upload' && target.status === 'done')
+    const hashed = uploaded || codes.has('torrent_created')
+    const shot = uploaded || codes.has('screenshots_done')
+    const hashing: ExecutionStepState = hashed
+      ? 'done'
+      : stage === 'hashing'
+        ? 'active'
+        : stage === 'screenshots' || onTrackers
+          ? 'failed'
+          : 'pending'
+    const screenshots: ExecutionStepState = shot
+      ? 'done'
+      : hashing === 'failed'
+        ? 'skipped'
+        : stage === 'screenshots'
+          ? 'active'
+          : onTrackers
+            ? 'failed'
+            : 'pending'
+    steps.push({ key: 'hashing', label: t('upload.steps.hashing'), state: hashing })
+    steps.push({ key: 'screenshots', label: t('upload.steps.screenshots'), state: screenshots })
+  }
+
+  for (const target of targets) {
+    const state: ExecutionStepState =
+      target.status === 'done'
+        ? 'done'
+        : target.status === 'failed'
+          ? 'failed'
+          : target.status === 'cancelled'
+            ? 'skipped'
+            : TARGET_ACTIVE.includes(target.status) || stage === `tracker:${target.tracker_label}`
+              ? 'active'
+              : 'pending'
+    steps.push({ key: `target-${target.id}`, label: target.tracker_label, state })
+  }
+
+  const finished = ['done', 'partial', 'failed'].includes(job.status)
+  const finish: ExecutionStepState = finished
+    ? job.status === 'done'
+      ? 'done'
+      : 'failed'
+    : job.status === 'cancelled'
+      ? 'skipped'
+      : 'pending'
+  steps.push({ key: 'finish', label: t('upload.steps.finish'), state: finish })
+  return steps
+}

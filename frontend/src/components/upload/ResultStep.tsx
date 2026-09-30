@@ -1,11 +1,12 @@
 import { CircleAlertIcon, CircleCheckIcon, ExternalLinkIcon, TriangleAlertIcon } from 'lucide-react'
 
 import type { UploadJob } from '@/api/hooks/uploads'
+import { ExecutionSteps } from '@/components/upload/ExecutionSteps'
 import { ActionBadge } from '@/components/upload/TrackerCheckCard'
 import { UploadStatusBadge } from '@/components/upload/UploadStatusBadge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { t } from '@/lib/i18n'
-import { eventMessage } from '@/lib/upload'
+import { eventMessage, executionSteps } from '@/lib/upload'
 
 // Esito finale, tracker per tracker: cosa è stato fatto, il link al
 // torrent sul tracker e, se qualcosa è andato storto, perché (l'ultimo
@@ -26,6 +27,7 @@ export function ResultStep({ job }: { job: UploadJob }) {
         </CardTitle>
       </CardHeader>
       <CardContent className="grid gap-3">
+        <ExecutionSteps steps={executionSteps(job)} />
         {job.targets.map((target) => {
           const error = lastError(target.id)
           return (

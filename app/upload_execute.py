@@ -362,11 +362,15 @@ def handle(session: Session, job: UploadJob, worker) -> None:
     try:
         if any(t.action == "upload" for t in targets):
             ctx["torrent"] = hash_pieces(session, job)
+            # Per la barra degli step (ProgressStep): i passaggi conclusi restano segnati.
+            upload_jobs.log_event(session, job, "torrent_created")
+            session.commit()
             count = overrides.get("screenshot_count")
             if count is None:
                 count = int(settings_repo.get_setting(session, "upload_screenshot_count") or "4")
             ctx["screenshots"] = take_screenshots(session, job, worker, count)
             job.screenshot_urls_json = json.dumps(ctx["screenshots"])
+            upload_jobs.log_event(session, job, "screenshots_done", count=len(ctx["screenshots"]))
             session.commit()
     except _Cancelled:
         return
