@@ -87,14 +87,24 @@ def authenticated_username(request: Request, session: Session) -> str | None:
     return username
 
 
+SETUP_CODE_ENV = "NAZGARR_SETUP_CODE"
+
+
+def new_setup_code() -> str:
+    """Il codice monouso per creare l'account al primo avvio (decisione
+    dell'utente, 2026-10-01): da NAZGARR_SETUP_CODE se c'è, se no casuale.
+    Vive solo in memoria e si scrive nel log del container: chi raggiunge la
+    porta ma non vede il log non può creare l'account al posto tuo."""
+    return os.environ.get(SETUP_CODE_ENV) or secrets.token_urlsafe(9)
+
+
 def require_auth(request: Request, session: Session = Depends(get_session)) -> str | None:
-    """Dependency applicata a ogni router protetto (app/main.py). Ritorna
-    None senza sollevare finché nessun login è mai stato configurato —
-    è l'unico modo per restare compatibili con un'istanza esistente che
-    non ha mai impostato un account, e per far funzionare il primissimo
-    /api/auth/setup (che deve restare raggiungibile senza token)."""
+    """Dependency applicata a ogni router protetto (app/main.py). Il login è
+    obbligatorio: finché l'account non esiste, tutto è chiuso tranne
+    /api/auth/* (per crearlo, con il codice monouso del log) — prima era
+    aperto, e chiunque in rete aveva il pieno controllo."""
     if not is_auth_configured(session):
-        return None
+        raise HTTPException(status_code=401, detail=coded_detail("auth_setup_required"))
     username = authenticated_username(request, session)
     if username is None:
         raise HTTPException(status_code=401, detail=coded_detail("auth_required"))

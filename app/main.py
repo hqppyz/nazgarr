@@ -1,3 +1,4 @@
+import logging
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
@@ -33,6 +34,8 @@ from app.version import __commit__, __version__
 configure_logging()
 
 
+logger = logging.getLogger(__name__)
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = load_settings()
@@ -48,6 +51,14 @@ async def lifespan(app: FastAPI):
     session_factory = db.make_session_factory(engine)
     with session_factory() as session:
         startup_checks.verify_secret_key(session)
+        # Senza account: tutto chiuso finché non lo si crea con questo codice.
+        app.state.setup_code = None
+        if not auth.is_auth_configured(session):
+            app.state.setup_code = auth.new_setup_code()
+            logger.warning(
+                "\n%s\nNo account yet: open Nazgarr and create it with this setup code: %s\n%s",
+                "=" * 72, app.state.setup_code, "=" * 72,
+            )
         pipeline.close_interrupted_runs(session)
         review.reset_interrupted_verifications(session)
         upload_profiles.sync_tracker_languages(session)

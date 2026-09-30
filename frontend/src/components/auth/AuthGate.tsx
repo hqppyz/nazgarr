@@ -31,6 +31,7 @@ function CenteredCard({ title, description, children }: { title: string; descrip
 function SetupScreen() {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
+  const [setupCode, setSetupCode] = useState('')
   const setup = useSetup()
 
   return (
@@ -40,14 +41,27 @@ function SetupScreen() {
         onSubmit={(e) => {
           e.preventDefault()
           setup.mutate(
-            { username, password },
+            { username, password, setup_code: setupCode },
             { onError: (error) => toast.error(t('auth.creationFailed', { message: error.message })) },
           )
         }}
       >
         <div className="grid gap-1.5">
+          <Label htmlFor="setup-code">{t('auth.setupCode')}</Label>
+          <Input
+            id="setup-code"
+            value={setupCode}
+            onChange={(e) => setSetupCode(e.target.value)}
+            autoComplete="off"
+            spellCheck={false}
+            className="font-mono"
+            autoFocus
+          />
+          <p className="text-xs text-muted-foreground">{t('auth.setupCodeHelp')}</p>
+        </div>
+        <div className="grid gap-1.5">
           <Label htmlFor="setup-username">{t('auth.username')}</Label>
-          <Input id="setup-username" value={username} onChange={(e) => setUsername(e.target.value)} autoFocus />
+          <Input id="setup-username" value={username} onChange={(e) => setUsername(e.target.value)} />
         </div>
         <div className="grid gap-1.5">
           <Label htmlFor="setup-password">{t('auth.password')}</Label>
@@ -59,7 +73,7 @@ function SetupScreen() {
             placeholder={t('auth.passwordMinChars')}
           />
         </div>
-        <Button type="submit" disabled={!username || password.length < 8 || setup.isPending}>
+        <Button type="submit" disabled={!setupCode.trim() || !username || password.length < 8 || setup.isPending}>
           {t('auth.createAccount')}
         </Button>
       </form>
