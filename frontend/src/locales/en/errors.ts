@@ -30,6 +30,10 @@ export const errors = {
   'errors.seed_job_not_found': 'SeedJob {id} not found.',
 
   'errors.tracker_not_found': 'Tracker {id} not found.',
+  'errors.adapter_config_invalid': 'The value of {field} is not valid for this adapter',
+  'errors.adapter_config_unknown_field': 'This adapter has no field called {field}',
+  'errors.adapter_config_missing_field': '{field} is required',
+  'errors.adapter_not_found': 'No configurable plugin adapter {kind} {type}',
   'errors.tracker_language_invalid': 'Unknown language: {language}',
   'errors.tracker_adapter_type_unsupported': 'Unsupported adapter_type: {adapter_type} (supported: {supported})',
   'errors.tracker_no_upload_profile': 'Tracker {tracker} has no upload profile.',

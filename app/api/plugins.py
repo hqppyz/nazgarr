@@ -2,10 +2,14 @@
 Settings > Plugins e per i form degli adapter. Sola lettura: la lista dei
 plugin si cambia da NAZGARR_PLUGINS o data_dir/plugins.txt, con un riavvio."""
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from sqlalchemy.orm import Session
 
+from app.api_errors import coded_detail, from_coded_error
+from app.deps import get_session
 from app.plugins import REGISTRY
+from app.plugins import config as plugin_config
 from app.plugins.loader import ENV_VAR, STATE
 from nazgarr_sdk import SDK_VERSION
 
@@ -72,3 +76,52 @@ def list_plugins():
         plugins=[PluginResponse(**vars(p)) for p in STATE.plugins],
         adapters=[_adapter(spec) for spec in specs],
     )
+
+
+# Gli adapter senza una riga propria: si configurano qui (tracker e client
+# dei plugin si configurano sulla loro riga, con le loro API).
+GLOBAL_KINDS = ("image_host", "media_resolver", "notification")
+
+
+class AdapterConfigResponse(BaseModel):
+    kind: str
+    adapter_type: str
+    enabled: bool
+    values: dict
+    secrets_set: list[str]
+
+
+class AdapterConfigRequest(BaseModel):
+    enabled: bool | None = None
+    config: dict | None = None  # un segreto assente o null resta com'era, "" lo cancella
+
+
+def _global_spec(kind: str, adapter_type: str):
+    spec = REGISTRY.get(kind, adapter_type)
+    if kind not in GLOBAL_KINDS or spec is None or spec.plugin is None:
+        raise HTTPException(status_code=404, detail=coded_detail("adapter_not_found", kind=kind, type=adapter_type))
+    return spec
+
+
+def _config_response(session: Session, spec) -> AdapterConfigResponse:
+    row = plugin_config.global_config(session, spec.kind, spec.adapter_type)
+    public = plugin_config.public(spec, plugin_config.loads(row.config_json) if row else None)
+    return AdapterConfigResponse(kind=spec.kind, adapter_type=spec.adapter_type,
+                                 enabled=row.enabled if row else True, **public)
+
+
+@router.get("/config/{kind}/{adapter_type}", response_model=AdapterConfigResponse)
+def get_adapter_config(kind: str, adapter_type: str, session: Session = Depends(get_session)):
+    return _config_response(session, _global_spec(kind, adapter_type))
+
+
+@router.put("/config/{kind}/{adapter_type}", response_model=AdapterConfigResponse)
+def put_adapter_config(
+    kind: str, adapter_type: str, body: AdapterConfigRequest, session: Session = Depends(get_session)
+):
+    spec = _global_spec(kind, adapter_type)
+    try:
+        plugin_config.save_global(session, spec, body.config, body.enabled)
+    except plugin_config.AdapterConfigError as exc:
+        raise HTTPException(status_code=400, detail=from_coded_error(exc)) from exc
+    return _config_response(session, spec)

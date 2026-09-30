@@ -1515,6 +1515,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/plugins/config/{kind}/{adapter_type}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Adapter Config */
+        get: operations["get_adapter_config_api_plugins_config__kind___adapter_type__get"];
+        /** Put Adapter Config */
+        put: operations["put_adapter_config_api_plugins_config__kind___adapter_type__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/health": {
         parameters: {
             query?: never;
@@ -1553,6 +1571,30 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AdapterConfigRequest */
+        AdapterConfigRequest: {
+            /** Enabled */
+            enabled?: boolean | null;
+            /** Config */
+            config?: {
+                [key: string]: unknown;
+            } | null;
+        };
+        /** AdapterConfigResponse */
+        AdapterConfigResponse: {
+            /** Kind */
+            kind: string;
+            /** Adapter Type */
+            adapter_type: string;
+            /** Enabled */
+            enabled: boolean;
+            /** Values */
+            values: {
+                [key: string]: unknown;
+            };
+            /** Secrets Set */
+            secrets_set: string[];
+        };
         /** AdapterResponse */
         AdapterResponse: {
             /** Kind */
@@ -3016,6 +3058,10 @@ export interface components {
             api_token?: string | null;
             /** Qui Instance Id */
             qui_instance_id?: number | null;
+            /** Config */
+            config?: {
+                [key: string]: unknown;
+            } | null;
         };
         /** TorrentClientResponse */
         TorrentClientResponse: {
@@ -3043,6 +3089,13 @@ export interface components {
             tags_upload?: string | null;
             /** Tags Reseed */
             tags_reseed?: string | null;
+            /**
+             * Config
+             * @default {}
+             */
+            config: {
+                [key: string]: unknown;
+            };
             /** Disks */
             disks: components["schemas"]["DiskAssociationResponse"][];
             /**
@@ -3088,6 +3141,10 @@ export interface components {
             tags_upload?: string | null;
             /** Tags Reseed */
             tags_reseed?: string | null;
+            /** Config */
+            config?: {
+                [key: string]: unknown;
+            } | null;
         };
         /**
          * TorrentSource
@@ -3126,6 +3183,10 @@ export interface components {
             torrent_client_id?: number | null;
             /** Language */
             language?: string | null;
+            /** Config */
+            config?: {
+                [key: string]: unknown;
+            } | null;
         };
         /** TrackerResponse */
         TrackerResponse: {
@@ -3155,6 +3216,13 @@ export interface components {
             torrent_client_id?: number | null;
             /** Language */
             language?: string | null;
+            /**
+             * Config
+             * @default {}
+             */
+            config: {
+                [key: string]: unknown;
+            };
             upload_profile?: components["schemas"]["TrackerUploadProfileSummary"] | null;
         };
         /** TrackerUpdateRequest */
@@ -3177,6 +3245,10 @@ export interface components {
             torrent_client_id?: number | null;
             /** Language */
             language?: string | null;
+            /** Config */
+            config?: {
+                [key: string]: unknown;
+            } | null;
         };
         /** TrackerUploadProfileSummary */
         TrackerUploadProfileSummary: {
@@ -6545,6 +6617,74 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PluginsResponse"];
+                };
+            };
+        };
+    };
+    get_adapter_config_api_plugins_config__kind___adapter_type__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                kind: string;
+                adapter_type: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdapterConfigResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    put_adapter_config_api_plugins_config__kind___adapter_type__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                kind: string;
+                adapter_type: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdapterConfigRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdapterConfigResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

@@ -4,9 +4,10 @@ come un plugin, e un adapter di un plugin costruito dalle stesse factory."""
 import pytest
 
 import nazgarr_sdk as sdk
-from app import adapter_factory, settings_repo
+from app import adapter_factory
 from app.models import TorrentClient
 from app.plugins import REGISTRY
+from app.plugins import config as plugin_config
 from app.plugins.registry import AdapterAlreadyRegisteredError
 
 
@@ -65,7 +66,7 @@ def test_a_plugin_client_type_is_accepted_by_the_api(client, fake_client_type):
     }).status_code == 400
 
 
-def test_a_plugin_image_host_takes_its_fields_from_the_settings(db_session):
+def test_a_plugin_image_host_takes_its_fields_from_its_config(db_session):
     class FakeHost(sdk.ImageHostAdapter):
         def __init__(self, token, album):
             self.token, self.album = token, album
@@ -82,9 +83,16 @@ def test_a_plugin_image_host_takes_its_fields_from_the_settings(db_session):
     try:
         # Senza il campo obbligatorio: host saltato, come un integrato senza chiave.
         assert adapter_factory._build_image_host_adapter(db_session, "fakehost") is None
-        settings_repo.set_setting(db_session, "image_host_fakehost_token", "t0k")
+        spec = REGISTRY.get("image_host", "fakehost")
+        plugin_config.save_global(db_session, spec, {"token": "t0k"}, enabled=True)
         host = adapter_factory._build_image_host_adapter(db_session, "fakehost")
         assert (host.token, host.album) == ("t0k", "nazgarr")
         assert "fakehost" in adapter_factory.keyed_image_hosts()
+        # In coda alla priorità, senza doverla salvare di nuovo.
+        assert adapter_factory.image_host_priority(db_session)[-1] == "fakehost"
+        assert adapter_factory.image_host_status(db_session)["with_api_key"] == ["fakehost"]
+        # Spento: si salta.
+        plugin_config.save_global(db_session, spec, None, enabled=False)
+        assert adapter_factory._build_image_host_adapter(db_session, "fakehost") is None
     finally:
         REGISTRY.unregister("image_host", "fakehost")

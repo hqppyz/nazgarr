@@ -13,6 +13,7 @@ from app.api_errors import coded_detail, from_coded_error
 from app.deps import get_session
 from app.models import Tracker, TrackerUploadProfile
 from app.plugins import REGISTRY
+from app.plugins import config as plugin_config
 from app.upload_naming import LANG3
 
 LANGUAGE_CODES = frozenset(LANG3)
@@ -31,6 +32,7 @@ class TrackerCreateRequest(BaseModel):
     rss_key: str | None = None  # facoltativa: appresa in automatico dall'API
     torrent_client_id: int | None = None  # client per i reseed di questo tracker, None = il primo abilitato
     language: str | None = None  # ISO 639-1, es. "it": per i nomi degli upload (app/upload_naming.py)
+    config: dict | None = None  # campi di un adapter di un plugin (GET /api/plugins)
 
 
 class TrackerUpdateRequest(BaseModel):
@@ -43,6 +45,7 @@ class TrackerUpdateRequest(BaseModel):
     rss_key: str | None = None  # "" la cancella (torna al solo recupero automatico)
     torrent_client_id: int | None = None  # esplicitamente null = torna al primo client abilitato
     language: str | None = None  # esplicitamente null o "" = nessuna lingua
+    config: dict | None = None  # campi di un adapter di un plugin; un segreto null resta com'era
 
 
 class TrackerUploadProfileSummary(BaseModel):
@@ -65,6 +68,7 @@ class TrackerResponse(BaseModel):
     has_rss_key: bool = False  # mai la chiave stessa, solo se ce n'è una (manuale o appresa)
     torrent_client_id: int | None = None
     language: str | None = None
+    config: dict = {}  # {"values": {...}, "secrets_set": [...]}, mai i segreti
     upload_profile: TrackerUploadProfileSummary | None = None  # per la scheda: senza profilo niente upload
 
     @classmethod
@@ -82,8 +86,16 @@ class TrackerResponse(BaseModel):
             id=t.id, label=t.label, adapter_type=t.adapter_type, base_url=t.base_url,
             has_announce_url=bool(t.announce_url), rate_limit_per_min=t.rate_limit_per_min, enabled=t.enabled,
             has_rss_key=bool(t.rss_key), torrent_client_id=t.torrent_client_id, language=t.language,
+            config=plugin_config.public_for_row(t, "tracker"),
             upload_profile=summary,
         )
+
+
+def _apply_config(tracker: Tracker, config: dict | None, *, creating: bool) -> None:
+    try:
+        plugin_config.apply_to_row(tracker, "tracker", config, creating=creating)
+    except plugin_config.AdapterConfigError as exc:
+        raise HTTPException(status_code=400, detail=from_coded_error(exc)) from exc
 
 
 def _language(raw: str | None) -> str | None:
@@ -126,6 +138,7 @@ def create_tracker(body: TrackerCreateRequest, session: Session = Depends(get_se
         rss_key=body.rss_key.strip() if body.rss_key and body.rss_key.strip() else None,
         torrent_client_id=body.torrent_client_id, language=_language(body.language),
     )
+    _apply_config(tracker, body.config, creating=True)
     session.add(tracker)
     session.commit()
     return TrackerResponse.from_model(tracker)
@@ -156,6 +169,8 @@ def update_tracker(
         tracker.torrent_client_id = body.torrent_client_id
     if "language" in body.model_fields_set:
         tracker.language = _language(body.language)
+    if "config" in body.model_fields_set:
+        _apply_config(tracker, body.config, creating=False)
     session.commit()
     return TrackerResponse.from_model(tracker)
 

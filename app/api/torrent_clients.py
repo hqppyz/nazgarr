@@ -11,11 +11,12 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session, object_session
 
 from app import adapter_factory
-from app.api_errors import coded_detail
+from app.api_errors import coded_detail, from_coded_error
 from app.client_labels import split_tags
 from app.deps import get_session
 from app.models import ClientTorrent, Disk, DiskTorrentClient, TorrentClient
 from app.plugins import REGISTRY
+from app.plugins import config as plugin_config
 
 router = APIRouter(prefix="/api/torrent-clients", tags=["torrent-clients"])
 
@@ -29,6 +30,7 @@ class TorrentClientCreateRequest(BaseModel):
     password: str | None = None
     api_token: str | None = None  # adapter_type="qui": la sua X-API-Key
     qui_instance_id: int | None = None  # adapter_type="qui": quale istanza gestita da quel deployment
+    config: dict | None = None  # campi di un adapter di un plugin (GET /api/plugins)
 
 
 class TorrentClientUpdateRequest(BaseModel):
@@ -46,6 +48,8 @@ class TorrentClientUpdateRequest(BaseModel):
     category_anime: str | None = None
     tags_upload: str | None = None
     tags_reseed: str | None = None
+    # Campi di un adapter di un plugin: un segreto assente o null resta com'era.
+    config: dict | None = None
 
 
 LABEL_FIELDS = ("category_movie", "category_tv", "category_anime", "tags_upload", "tags_reseed")
@@ -83,6 +87,8 @@ class TorrentClientResponse(BaseModel):
     category_anime: str | None = None
     tags_upload: str | None = None
     tags_reseed: str | None = None
+    # Campi di un adapter di un plugin: {"values": {...}, "secrets_set": [...]}, mai i segreti.
+    config: dict = {}
     disks: list[DiskAssociationResponse]  # dischi abilitati per questo client, con l'eventuale path override
     # Dall'indice dell'ultima scan, per la scheda del client.
     torrent_count: int = 0
@@ -99,11 +105,19 @@ class TorrentClientResponse(BaseModel):
             id=tc.id, label=tc.label, adapter_type=tc.adapter_type,
             base_url=tc.base_url, username=tc.username, qui_instance_id=tc.qui_instance_id, enabled=tc.enabled,
             **{name: getattr(tc, name) for name in LABEL_FIELDS},
+            config=plugin_config.public_for_row(tc, "torrent_client"),
             disks=[
                 DiskAssociationResponse(disk_id=link.disk_id, torrent_client_root_path=link.torrent_client_root_path)
                 for link in links
             ],
         )
+
+
+def _apply_config(tc: TorrentClient, config: dict | None, *, creating: bool) -> None:
+    try:
+        plugin_config.apply_to_row(tc, "torrent_client", config, creating=creating)
+    except plugin_config.AdapterConfigError as exc:
+        raise HTTPException(status_code=400, detail=from_coded_error(exc)) from exc
 
 
 def _get_torrent_client_or_404(session: Session, torrent_client_id: int) -> TorrentClient:
@@ -148,6 +162,7 @@ def create_torrent_client(body: TorrentClientCreateRequest, session: Session = D
         username=body.username, password=body.password,
         api_token=body.api_token, qui_instance_id=body.qui_instance_id,
     )
+    _apply_config(tc, body.config, creating=True)
     session.add(tc)
     session.commit()
     return TorrentClientResponse.from_model(tc, [])
@@ -187,6 +202,8 @@ def update_torrent_client(
         tc.qui_instance_id = body.qui_instance_id
     if body.enabled is not None:
         tc.enabled = body.enabled
+    if "config" in body.model_fields_set:
+        _apply_config(tc, body.config, creating=False)
     for name in LABEL_FIELDS:
         if name in body.model_fields_set:
             value = (getattr(body, name) or "").strip()

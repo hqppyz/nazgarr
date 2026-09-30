@@ -17,6 +17,7 @@ export const plugins = {
   'plugins.provides': 'Provides: {adapters}',
   'plugins.providesNothing': 'Registers no adapter',
   'plugins.adaptersTitle': 'Available adapters',
+  'plugins.enabled': 'Enabled',
   'plugins.builtin': 'built-in',
   'plugins.kind.tracker': 'Trackers',
   'plugins.kind.torrent_client': 'Torrent clients',

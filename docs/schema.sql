@@ -60,9 +60,12 @@ CREATE TABLE IF NOT EXISTS tracker (
         -- client where torrents of this tracker are added when reseeding (e.g. a private-trackers
         -- instance); null or a disabled/deleted client = the first enabled client. No FK: a deleted
         -- client must just fall back, never block deleting it.
-    language                TEXT
+    language                TEXT,
         -- ISO 639-1 (e.g. 'it'): the tracker's language, for upload names (localized title, that
         -- language first among the audio tracks, how subtitles are written). Null = none.
+    adapter_config_json     TEXT
+        -- encrypted at rest: the values of the fields a plugin adapter declares
+        -- (app/plugins/config.py). Built-in adapters use the columns above.
 );
 
 CREATE TABLE IF NOT EXISTS torrent_client (
@@ -90,7 +93,8 @@ CREATE TABLE IF NOT EXISTS torrent_client (
     category_tv     TEXT,
     category_anime  TEXT,                   -- null = the movie/tv category
     tags_upload     TEXT,                   -- comma separated, for new uploads (e.g. "release")
-    tags_reseed     TEXT                    -- comma separated, for reseeds
+    tags_reseed     TEXT,                   -- comma separated, for reseeds
+    adapter_config_json TEXT                -- encrypted at rest: fields of a plugin adapter (app/plugins/config.py)
 );
 
 -- A disk can have several clients enabled at once (SPEC.md §5) — needs a
@@ -139,6 +143,17 @@ CREATE TABLE IF NOT EXISTS sonarr_instance (
     timeout_seconds       INTEGER,
     basic_auth_username   TEXT,
     basic_auth_password   TEXT              -- encrypted at rest
+);
+
+-- Configuration of the adapters that have no row of their own (image hosts,
+-- media resolvers, notifications) when they come from a plugin
+-- (app/plugins/config.py). Built-in image hosts keep their app_settings keys.
+CREATE TABLE IF NOT EXISTS adapter_config (
+    kind            TEXT NOT NULL,
+    adapter_type    TEXT NOT NULL,
+    enabled         BOOLEAN NOT NULL DEFAULT 1,
+    config_json     TEXT,                   -- encrypted at rest; secrets never returned by the API
+    PRIMARY KEY (kind, adapter_type)
 );
 
 CREATE TABLE IF NOT EXISTS app_settings (

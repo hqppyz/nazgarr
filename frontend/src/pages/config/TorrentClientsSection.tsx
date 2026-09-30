@@ -14,6 +14,14 @@ import {
   useUpdateTorrentClient,
 } from '@/api/hooks/torrentClients'
 import type { Schemas } from '@/api/client'
+import { usePlugins } from '@/api/hooks/plugins'
+import {
+  AdapterConfigFields,
+  configPayload,
+  initialConfigValues,
+  missingRequired,
+  type ConfigValues,
+} from '@/components/AdapterConfigFields'
 import { ClientCategorySelect } from '@/components/ClientCategorySelect'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -47,10 +55,23 @@ const ADAPTER_TYPES = [
   { value: 'qui', label: t('torrentClients.quiLabel') },
 ]
 
+// I client dei plugin, con i campi che dichiarano.
+function usePluginClientTypes() {
+  const { data } = usePlugins()
+  return (data?.adapters ?? []).filter((a) => a.kind === 'torrent_client' && a.plugin)
+}
+
 function AddTorrentClientDialog() {
   const [open, setOpen] = useState(false)
   const [label, setLabel] = useState('')
-  const [adapterType, setAdapterType] = useState<'qbittorrent' | 'qui'>('qbittorrent')
+  const [adapterType, setAdapterType] = useState<string>('qbittorrent')
+  const pluginTypes = usePluginClientTypes()
+  const pluginSpec = pluginTypes.find((a) => a.adapter_type === adapterType)
+  const [config, setConfig] = useState<ConfigValues>({})
+  const typeOptions = [
+    ...ADAPTER_TYPES,
+    ...pluginTypes.map((a) => ({ value: a.adapter_type, label: `${a.label} · ${a.plugin}` })),
+  ]
   const [baseUrl, setBaseUrl] = useState('')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -66,6 +87,7 @@ function AddTorrentClientDialog() {
     setPassword('')
     setApiToken('')
     setQuiInstanceId('')
+    setConfig({})
   }
 
   function submit() {
@@ -78,6 +100,7 @@ function AddTorrentClientDialog() {
         password: isQui ? undefined : password || undefined,
         api_token: isQui ? apiToken || undefined : undefined,
         qui_instance_id: isQui && quiInstanceId ? Number(quiInstanceId) : undefined,
+        ...(pluginSpec ? { username: undefined, password: undefined, config: configPayload(pluginSpec.config_fields, config) } : {}),
       },
       {
         onSuccess: () => {
@@ -89,7 +112,10 @@ function AddTorrentClientDialog() {
     )
   }
 
-  const canSubmit = label && baseUrl && (isQui ? apiToken && quiInstanceId : true)
+  const canSubmit =
+    label &&
+    baseUrl &&
+    (pluginSpec ? !missingRequired(pluginSpec.config_fields, config) : isQui ? apiToken && quiInstanceId : true)
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -105,14 +131,22 @@ function AddTorrentClientDialog() {
           </div>
           <div className="grid gap-1.5">
             <Label>{t('torrentClients.type')}</Label>
-            <Select value={adapterType} onValueChange={(v) => setAdapterType(v as 'qbittorrent' | 'qui')}>
+            <Select
+              value={adapterType}
+              onValueChange={(v) => {
+                if (v == null) return
+                setAdapterType(v)
+                const spec = pluginTypes.find((a) => a.adapter_type === v)
+                setConfig(spec ? initialConfigValues(spec.config_fields, undefined) : {})
+              }}
+            >
               <SelectTrigger>
                 <SelectValue>
-                  {(v: string | null) => selectLabel(ADAPTER_TYPES, v, (a) => a.value, (a) => a.label, 'qBittorrent')}
+                  {(v: string | null) => selectLabel(typeOptions, v, (a) => a.value, (a) => a.label, 'qBittorrent')}
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
-                {ADAPTER_TYPES.map((a) => (
+                {typeOptions.map((a) => (
                   <SelectItem key={a.value} value={a.value}>
                     {a.label}
                   </SelectItem>
@@ -130,7 +164,9 @@ function AddTorrentClientDialog() {
               placeholder={isQui ? 'http://qui:7476' : 'http://qbittorrent:8080'}
             />
           </div>
-          {isQui ? (
+          {pluginSpec ? (
+            <AdapterConfigFields idPrefix="tc-config" fields={pluginSpec.config_fields} values={config} onChange={setConfig} />
+          ) : isQui ? (
             <>
               <div className="grid gap-1.5">
                 <Label htmlFor="tc-api-token">{t('torrentClients.apiKey')}</Label>
@@ -187,6 +223,11 @@ function EditTorrentClientDialog({ tc }: { tc: TorrentClient }) {
   const [quiInstanceId, setQuiInstanceId] = useState(tc.qui_instance_id?.toString() ?? '')
   const updateTorrentClient = useUpdateTorrentClient()
   const isQui = tc.adapter_type === 'qui'
+  const pluginSpec = usePluginClientTypes().find((a) => a.adapter_type === tc.adapter_type)
+  const secretsSet = (tc.config as { secrets_set?: string[] }).secrets_set ?? []
+  const [config, setConfig] = useState<ConfigValues | null>(null)
+  const configValues =
+    config ?? (pluginSpec ? initialConfigValues(pluginSpec.config_fields, (tc.config as { values?: Record<string, unknown> }).values) : {})
 
   function submit() {
     updateTorrentClient.mutate(
@@ -199,6 +240,9 @@ function EditTorrentClientDialog({ tc }: { tc: TorrentClient }) {
           password: isQui ? undefined : password || undefined,
           api_token: isQui ? apiToken || undefined : undefined,
           qui_instance_id: isQui && quiInstanceId ? Number(quiInstanceId) : undefined,
+          ...(pluginSpec
+            ? { username: undefined, password: undefined, config: configPayload(pluginSpec.config_fields, configValues) }
+            : {}),
         },
       },
       {
@@ -206,6 +250,7 @@ function EditTorrentClientDialog({ tc }: { tc: TorrentClient }) {
           setOpen(false)
           setPassword('')
           setApiToken('')
+          setConfig(null)
         },
         onError: (error) => toast.error(t('common.saveFailed', { message: error.message })),
       },
@@ -229,7 +274,15 @@ function EditTorrentClientDialog({ tc }: { tc: TorrentClient }) {
             <Label htmlFor="tc-edit-base-url">{t('torrentClients.url')}</Label>
             <Input id="tc-edit-base-url" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} />
           </div>
-          {isQui ? (
+          {pluginSpec ? (
+            <AdapterConfigFields
+              idPrefix={`tc-edit-config-${tc.id}`}
+              fields={pluginSpec.config_fields}
+              values={configValues}
+              secretsSet={secretsSet}
+              onChange={setConfig}
+            />
+          ) : isQui ? (
             <>
               <div className="grid gap-1.5">
                 <Label htmlFor="tc-edit-api-token">{t('torrentClients.apiKey')}</Label>
@@ -271,7 +324,15 @@ function EditTorrentClientDialog({ tc }: { tc: TorrentClient }) {
           )}
         </div>
         <DialogFooter>
-          <Button onClick={submit} disabled={!label || !baseUrl || updateTorrentClient.isPending}>
+          <Button
+            onClick={submit}
+            disabled={
+              !label ||
+              !baseUrl ||
+              updateTorrentClient.isPending ||
+              (pluginSpec != null && missingRequired(pluginSpec.config_fields, configValues, secretsSet))
+            }
+          >
             {t('common.save')}
           </Button>
         </DialogFooter>

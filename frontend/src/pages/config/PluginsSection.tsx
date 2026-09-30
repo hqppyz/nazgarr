@@ -1,7 +1,19 @@
 import { PuzzleIcon, ShieldAlertIcon } from 'lucide-react'
+import { useState } from 'react'
 
-import { usePlugins } from '@/api/hooks/plugins'
+import { useAdapterConfig, usePlugins, useSaveAdapterConfig } from '@/api/hooks/plugins'
+import type { Schemas } from '@/api/client'
+import {
+  AdapterConfigFields,
+  configPayload,
+  initialConfigValues,
+  missingRequired,
+  type ConfigValues,
+} from '@/components/AdapterConfigFields'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Switch } from '@/components/ui/switch'
+import { autosaveFeedback } from '@/lib/autosave'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { t } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
@@ -13,6 +25,69 @@ const STATUS_STYLE: Record<string, string> = {
   install_failed: 'border-red-500/40 bg-red-500/10 text-red-700 dark:text-red-300',
 }
 const KINDS = ['tracker', 'torrent_client', 'media_resolver', 'image_host', 'notification'] as const
+// Gli adapter senza una riga propria: si configurano qui.
+const GLOBAL_KINDS = ['image_host', 'media_resolver', 'notification']
+
+type Adapter = Schemas['AdapterResponse']
+
+function GlobalAdapterCard({ adapter }: { adapter: Adapter }) {
+  const { data } = useAdapterConfig(adapter.kind, adapter.adapter_type)
+  const save = useSaveAdapterConfig(adapter.kind, adapter.adapter_type)
+  const [values, setValues] = useState<ConfigValues | null>(null)
+  if (!data) return null
+  const current = values ?? initialConfigValues(adapter.config_fields, data.values)
+  const title = `${adapter.label} · ${t(`plugins.kind.${adapter.kind}`)}`
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-start justify-between gap-3">
+        <div className="grid gap-1">
+          <CardTitle className="text-base">{adapter.label}</CardTitle>
+          <CardDescription>
+            {t(`plugins.kind.${adapter.kind}`)} · {adapter.plugin}
+            {adapter.description ? ` — ${adapter.description}` : ''}
+          </CardDescription>
+        </div>
+        <Switch
+          checked={data.enabled}
+          title={t('plugins.enabled')}
+          onCheckedChange={(enabled) => save.mutate({ enabled }, autosaveFeedback(title))}
+        />
+      </CardHeader>
+      {adapter.config_fields.length > 0 && (
+        <CardContent className="grid gap-3">
+          <AdapterConfigFields
+            idPrefix={`plugin-${adapter.kind}-${adapter.adapter_type}`}
+            fields={adapter.config_fields}
+            values={current}
+            secretsSet={data.secrets_set}
+            onChange={setValues}
+          />
+          <div className="flex justify-end">
+            <Button
+              size="sm"
+              disabled={save.isPending || missingRequired(adapter.config_fields, current, data.secrets_set)}
+              onClick={() => {
+                const feedback = autosaveFeedback(title)
+                save.mutate(
+                  { config: configPayload(adapter.config_fields, current) },
+                  {
+                    onSuccess: () => {
+                      setValues(null)
+                      feedback.onSuccess()
+                    },
+                    onError: feedback.onError,
+                  },
+                )
+              }}
+            >
+              {t('common.save')}
+            </Button>
+          </div>
+        </CardContent>
+      )}
+    </Card>
+  )
+}
 
 // Plugin caricati e adapter disponibili, in sola lettura: la lista dei
 // plugin si cambia da NAZGARR_PLUGINS o plugins.txt, con un riavvio.
@@ -80,6 +155,12 @@ export function PluginsSection() {
           )}
         </CardContent>
       </Card>
+
+      {data.adapters
+        .filter((a) => a.plugin && GLOBAL_KINDS.includes(a.kind))
+        .map((adapter) => (
+          <GlobalAdapterCard key={`${adapter.kind}:${adapter.adapter_type}`} adapter={adapter} />
+        ))}
 
       <Card>
         <CardHeader>

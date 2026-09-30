@@ -104,6 +104,7 @@ class Tracker(Base):
     # i tracker privati); None = il primo client abilitato.
     torrent_client_id: Mapped[int | None]
     language: Mapped[str | None]
+    adapter_config_json: Mapped[str | None] = mapped_column(EncryptedString)
 
 
 class TorrentClient(Base):
@@ -128,6 +129,7 @@ class TorrentClient(Base):
     category_anime: Mapped[str | None]
     tags_upload: Mapped[str | None]
     tags_reseed: Mapped[str | None]
+    adapter_config_json: Mapped[str | None] = mapped_column(EncryptedString)
 
 
 class DiskTorrentClient(Base):
@@ -192,6 +194,18 @@ class SonarrInstance(Base):
     timeout_seconds: Mapped[int | None]
     basic_auth_username: Mapped[str | None]
     basic_auth_password: Mapped[str | None] = mapped_column(EncryptedString)
+
+
+class AdapterConfig(Base):
+    """Configurazione di un adapter di un plugin senza una riga sua (host
+    di immagini, resolver, notifiche): app/plugins/config.py."""
+
+    __tablename__ = "adapter_config"
+
+    kind: Mapped[str] = mapped_column(primary_key=True)
+    adapter_type: Mapped[str] = mapped_column(primary_key=True)
+    enabled: Mapped[bool] = mapped_column(nullable=False, server_default=text("1"))
+    config_json: Mapped[str | None] = mapped_column(EncryptedString)
 
 
 class AppSetting(Base):

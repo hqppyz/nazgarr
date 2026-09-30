@@ -22,4 +22,5 @@ export const common = {
   'common.stopRun': 'Stop scan',
   'common.stopping': 'Stopping…',
   'common.stopFailed': 'Could not stop the scan: {message}',
+  'common.choose': 'Choose…',
 } as const
