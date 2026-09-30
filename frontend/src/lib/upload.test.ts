@@ -141,3 +141,18 @@ describe('client labels in the draft', () => {
     expect(effectiveDraft(mine, target).client_tags).toBe('mine')
   })
 })
+
+describe('reseed needs a passed hash check', () => {
+  const base = {
+    suggested_action: 'reseed', proposed_name: 'X', category_id: 1, type_id: 1, resolution_id: 1, flags: {},
+    reseed_torrent_id: null,
+  }
+  it('is a problem until the check passed', () => {
+    const unverified = effectiveDraft(undefined, { ...base, dupes: [{ torrent_id_remote: '7', verdict: 'identical' }] })
+    expect(draftProblem(unverified)).toBe('upload.decision.problem.verify')
+    const passed = effectiveDraft(undefined, {
+      ...base, dupes: [{ torrent_id_remote: '7', verdict: 'identical', verification: { status: 'passed' } }],
+    })
+    expect(draftProblem(passed)).toBeNull()
+  })
+})

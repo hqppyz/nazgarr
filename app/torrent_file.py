@@ -128,6 +128,17 @@ class TorrentInfo(NamedTuple):
     total_length: int
 
 
+def _safe_component(value: str, what: str) -> str:
+    """Un nome o una parte di percorso di un .torrent (che arriva da un
+    tracker, cioè da chiunque ci abbia caricato qualcosa): mai vuoto, "." o
+    "..", mai con separatori o byte nulli. Senza questo controllo un
+    percorso come ["..", "..", "etc", "x"] o "/mnt/disk1/privato" usciva dalla
+    cartella in cui Nazgarr cerca e collega i file."""
+    if value in ("", ".", "..") or any(ch in value for ch in ("/", "\\", "\x00")):
+        raise TorrentMetainfoError(f"Struttura .torrent non sicura: {what} {value!r} non valido")
+    return value
+
+
 def parse_torrent_info(torrent_bytes: bytes) -> TorrentInfo:
     """Estrae da un .torrent tutto ciò che serve per la verifica piece-hash
     (app/torrent_pieces.py::verify_file_pieces): nome, piece_length, l'elenco
@@ -143,7 +154,7 @@ def parse_torrent_info(torrent_bytes: bytes) -> TorrentInfo:
     name_raw = info.get(b"name")
     if name_raw is None:
         raise TorrentMetainfoError("Struttura .torrent inattesa: 'info.name' mancante")
-    name = _decode_str(name_raw)
+    name = _safe_component(_decode_str(name_raw), "nome")
 
     piece_length = info.get(b"piece length")
     pieces_blob = info.get(b"pieces")
@@ -163,7 +174,7 @@ def parse_torrent_info(torrent_bytes: bytes) -> TorrentInfo:
             path_parts = entry.get(b"path")
             if not isinstance(length, int) or not path_parts:
                 raise TorrentMetainfoError("Struttura .torrent inattesa: voce 'files' malformata")
-            rel_path = "/".join(_decode_str(part) for part in path_parts)
+            rel_path = "/".join(_safe_component(_decode_str(part), "percorso") for part in path_parts)
             files.append(TorrentFileEntry(path=rel_path, length=length, offset=offset))
             offset += length
         is_multi_file = True

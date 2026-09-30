@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 
 from app.adapters.torrent_client.base import TorrentClientAdapter
 from app.db_utils import bulk_upsert
+from app.fs_scope import ScopeViolation, resolve_scoped
 from app.models import MediaFile, RunLog, SeedFile, SeedJob, TorrentClient
 from app.scan_state import latest_scan_by_disk
 from app.torrent_indexer import store_client_torrents
@@ -54,8 +55,9 @@ def _register_hardlinks(session: Session, seed_job: SeedJob, scan_id: int) -> in
     rows = []
     for relative_path, media_file_id in _hardlink_paths(seed_job, mf):
         try:
-            st = os.stat(os.path.join(disk.root_path, relative_path))
-        except OSError:
+            # Cartella e nomi vengono dal tracker: mai fuori dal disco.
+            st = os.stat(resolve_scoped(disk.root_path, relative_path))
+        except (OSError, ScopeViolation):
             continue  # extra non ancora scaricato dal client: lo vedrà il prossimo scan
         rows.append({
             "disk_id": disk.id, "relative_path": relative_path, "size_bytes": st.st_size,

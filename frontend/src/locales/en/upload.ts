@@ -219,6 +219,7 @@ export const upload = {
   'upload.decision.problem.name': 'the release name is empty',
   'upload.decision.problem.ids': 'choose category, type and resolution',
   'upload.decision.problem.reseed': 'choose the torrent to reseed',
+  'upload.decision.problem.verify': 'run the full hash check first: only a passed check allows a reseed',
   'upload.decision.ready': 'Every tracker has a decision.',
   'upload.decision.busy': 'Wait for the running checks to finish.',
   'upload.decision.approve': 'Approve',

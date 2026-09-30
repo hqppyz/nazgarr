@@ -64,7 +64,16 @@ export interface TargetDraft {
   // Nel client del tracker: categoria (null = nessuna) e tag separati da virgola.
   client_category: string | null
   client_tags: string
-  touched: (keyof Omit<TargetDraft, 'touched'>)[]
+  // Il torrent da rimettere in seed ha passato il full hash check: senza, niente reseed.
+  reseed_verified: boolean
+  touched: (keyof Omit<TargetDraft, 'touched' | 'reseed_verified'>)[]
+}
+
+function verified(dupes: unknown[], torrentId: string | null) {
+  const dupe = (dupes as { torrent_id_remote: string; verification?: { status?: string } | null }[]).find(
+    (d) => d.torrent_id_remote === torrentId,
+  )
+  return dupe?.verification?.status === 'passed'
 }
 
 interface ClientDefaults {
@@ -115,6 +124,7 @@ export function initialDraft(target: DraftSource): TargetDraft {
     ),
     freeleech: typeof target.flags.freeleech === 'number' ? target.flags.freeleech : 0,
     reseed_torrent_id: target.reseed_torrent_id ?? identical[0]?.torrent_id_remote ?? null,
+    reseed_verified: verified(target.dupes, target.reseed_torrent_id ?? identical[0]?.torrent_id_remote ?? null),
     touched: [],
   }
 }
@@ -125,6 +135,7 @@ export function effectiveDraft(edits: Partial<TargetDraft> | undefined, target: 
   if (!edits) return fresh
   const out: TargetDraft = { ...fresh, touched: edits.touched ?? [] }
   for (const key of out.touched) (out as unknown as Record<string, unknown>)[key] = edits[key]
+  out.reseed_verified = verified(target.dupes, out.reseed_torrent_id)
   // Azione cambiata a mano, tag no: i tag proposti per la nuova azione.
   if (!out.touched.includes('client_tags') && target.client_tags == null) {
     out.client_tags = defaultTags(target.client_defaults, out.action)
@@ -132,9 +143,12 @@ export function effectiveDraft(edits: Partial<TargetDraft> | undefined, target: 
   return out
 }
 
-export function editDraft(draft: TargetDraft, patch: Partial<Omit<TargetDraft, 'touched'>>): TargetDraft {
+export function editDraft(
+  draft: TargetDraft,
+  patch: Partial<Omit<TargetDraft, 'touched' | 'reseed_verified'>>,
+): TargetDraft {
   const touched = new Set(draft.touched)
-  for (const key of Object.keys(patch)) touched.add(key as keyof Omit<TargetDraft, 'touched'>)
+  for (const key of Object.keys(patch)) touched.add(key as keyof Omit<TargetDraft, 'touched' | 'reseed_verified'>)
   return { ...draft, ...patch, touched: [...touched] }
 }
 
@@ -146,6 +160,7 @@ export function draftProblem(draft: TargetDraft): string | null {
     }
   }
   if (draft.action === 'reseed' && !draft.reseed_torrent_id) return 'upload.decision.problem.reseed'
+  if (draft.action === 'reseed' && !draft.reseed_verified) return 'upload.decision.problem.verify'
   return null
 }
 

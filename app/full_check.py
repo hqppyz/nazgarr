@@ -33,6 +33,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app import adapter_factory
 from app.file_types import is_video
+from app.fs_scope import ScopeViolation, resolve_scoped
 from app.models import Candidate, MatchReview, MediaFile, SeedFile, SeedJob
 from app.torrent_file import TorrentFileEntry, TorrentInfo, compute_info_hash, parse_torrent_info
 
@@ -216,8 +217,11 @@ def build_locator(session: Session, candidate: Candidate, seed_job: SeedJob | No
 
     def locate(entry: TorrentFileEntry) -> tuple[str | None, str | None]:
         if seed_root is not None:
-            seeded = os.path.normpath(os.path.join(seed_root, entry.path))
-            if os.path.isfile(seeded):
+            try:  # il percorso viene dal .torrent del tracker: mai fuori dalla cartella
+                seeded = resolve_scoped(seed_root, entry.path)
+            except ScopeViolation:
+                seeded = None
+            if seeded and os.path.isfile(seeded):
                 return seeded, "seed"
         matched = by_path.get(entry.path)
         if matched is None and candidate.files:

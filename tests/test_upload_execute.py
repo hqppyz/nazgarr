@@ -9,6 +9,7 @@ import torf
 from app import torrent_create, upload_decision, upload_execute, upload_jobs
 from app.adapters.tracker.base import UploadedTorrent, UploadError
 from app.models import Disk, TrackerUploadProfile
+from app.upload_jobs import UploadJobError
 from app.upload_worker import UploadWorker
 from tests.upload_helpers import InlineExecutor, make_client, make_tracker, write_video
 
@@ -190,7 +191,8 @@ def test_reseed_links_the_files_with_the_tracker_names(db_session, tmp_path, env
         env["trackers"]["a"].torrent_bytes = f.read()
     job = upload_jobs.create_job(db_session, env["disk"], "media/Matrix")
     job.targets[0].dupes_json = json.dumps([{"torrent_id_remote": "7", "verdict": "identical",
-                                             "download_link": "https://a/dl/7"}])
+                                             "download_link": "https://a/dl/7",
+                                             "verification": {"status": "passed"}}])
     db_session.commit()
     upload_jobs.transition(db_session, job, "identifying", "awaiting_decision", tmdb_id=603, content_type="movie",
                            kind="movie")
@@ -345,3 +347,21 @@ def test_an_anime_takes_the_anime_category(db_session, env):
     assert upload_decision.client_label_defaults(job, job.targets[0])["category"] == "anime"
     assert client_labels.is_anime({"genres": ["Animation", "Action"], "original_language": "ja"})
     assert not client_labels.is_anime({"genres": ["Animation"], "original_language": "en"})  # Pixar non è anime
+
+
+def test_link_files_checks_everything_first_and_never_follows_symlinks(tmp_path):
+    root = tmp_path / "torrents"
+    root.mkdir()
+    real = write_video(tmp_path / "media" / "a.mkv", 10 * KB)
+    other = write_video(tmp_path / "media" / "b.mkv", 10 * KB)
+    link = tmp_path / "media" / "link.mkv"
+    link.symlink_to(real)
+
+    with pytest.raises(UploadJobError) as exc:
+        upload_execute.link_files([(str(real), str(root / "a.mkv")), (str(link), str(root / "l.mkv"))], str(root))
+    assert exc.value.code == "upload_source_not_a_file"
+    assert not (root / "a.mkv").exists()  # niente hardlink a metà
+
+    with pytest.raises(Exception):
+        upload_execute.link_files([(str(other), str(root / ".." / "escaped.mkv"))], str(root))
+    assert not (tmp_path / "escaped.mkv").exists()
