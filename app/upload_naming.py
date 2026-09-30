@@ -65,6 +65,7 @@ DEFAULT_RULES = {
     "audio_languages": {"style": "none"},  # none | all | primary_first (+ primary, multi_from)
     "subs_languages": {"style": "all"},  # come audio_languages, per {subs_languages}
     "subs_format": "SUBS {subs_languages}",  # come si scrive {subs} se ci sono sottotitoli; "" = mai
+    "subs_multi_format": None,  # es. "MULTI SUBS": {subs} quando le lingue diventano MULTI (multi_from)
     "sdr_label": None,  # es. "SDR": scritto al posto dell'HDR quando non c'è
     "separator": " ",
     "group_separator": "-",
@@ -401,6 +402,8 @@ def release_values(
         subs_format = rules.get("subs_format")
         if "subs_format" not in (rules_in or {}) and (rules_in or {}).get("subs_label"):
             subs_format = rules_in["subs_label"]
+        if rules.get("subs_multi_format") and "MULTI" in (values.get("subs_languages") or "").split():
+            subs_format = rules["subs_multi_format"]
         values["subs"] = re.sub(r"\s+", " ", _render(subs_format or "", values)).strip() or None
     for key in DETECTED_FIELDS:
         if overrides.get(key) not in (None, ""):

@@ -151,6 +151,18 @@ def test_exclude_endpoint_appends_once(client):
     assert value.splitlines() == ["media/movies/A [[]x[]]/a.mkv"]
 
 
+def test_excluding_a_folder_excludes_everything_inside(client):
+    from app.exclusions import CompiledExclusions
+
+    body = {"relative_path": "torrents/Old/", "is_dir": True}
+    pattern = client.post("/api/library/exclude", json=body).json()["pattern"]
+
+    assert pattern == "torrents/Old/*"
+    excluded = CompiledExclusions(patterns=[pattern])
+    assert excluded.is_excluded("torrents/Old/a.mkv") and excluded.is_excluded("torrents/Old/Sub/b.srt")
+    assert not excluded.is_excluded("torrents/Older/a.mkv")
+
+
 def test_search_now_forces_a_new_search_for_that_item_only(db_session, monkeypatch):
     from app import adapter_factory
     from app.api import library as library_api

@@ -91,12 +91,16 @@ export function useSearchNow() {
 export function useExcludeFile() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (relativePath: string) =>
-      unwrap(api.POST('/api/library/exclude', { body: { relative_path: relativePath } })),
+    // Una stringa = un file; { isDir: true } = tutto quello che c'è nella cartella.
+    mutationFn: (target: string | { relativePath: string; isDir?: boolean }) => {
+      const { relativePath, isDir = false } = typeof target === 'string' ? { relativePath: target } : target
+      return unwrap(api.POST('/api/library/exclude', { body: { relative_path: relativePath, is_dir: isDir } }))
+    },
     onError: (error) => {
       pushActivity({ status: 'error', title: t('activity.excludeFailed'), detail: error.message })
     },
-    onSuccess: (_result, relativePath) => {
+    onSuccess: (_result, target) => {
+      const relativePath = typeof target === 'string' ? target : target.relativePath
       pushActivity({ status: 'success', title: t('itemDetail.excluded'), detail: relativePath })
       queryClient.invalidateQueries({ queryKey: ['library'] })
       queryClient.invalidateQueries({ queryKey: ['settings', 'exclusion_patterns'] })

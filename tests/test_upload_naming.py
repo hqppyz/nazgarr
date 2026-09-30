@@ -30,7 +30,7 @@ def test_itt_remux_name_from_mediainfo_with_the_italian_title():
     assert (values["audio_codec"], values["audio_channels"], values["audio_atmos"]) == ("TrueHD", "5.1", None)
     assert (values["audio_languages"], values["subs_languages"], values["bit_depth"]) == ("ITA ENG", "ITA ENG", "8bit")
     assert build_name(ITT_RULES, values) == (
-        "17 Again - Ritorno al liceo 2009 1080p VU REMUX TrueHD 5.1 DD 5.1 ITA ENG SUBS ITA ENG VC-1-MaTiTa"
+        "17 Again - Ritorno al liceo 2009 1080p FullHD VU REMUX TrueHD 5.1 DD 5.1 ITA ENG SUBS ITA ENG VC-1-MaTiTa"
     )
 
 
@@ -178,8 +178,8 @@ def test_itt_names_follow_the_wiki_source_and_format():
     web = release_values(_job(), detect("Movie.2009.1080p.NF.WEB-DL.DDP5.1.H.264-GRP"), None, {}, ITT_RULES)
     encode = release_values(_job(), detect("Movie.2009.720p.BluRay.DD5.1.x264-GRP"), None, {}, ITT_RULES)
 
-    assert build_name(ITT_RULES, web) == "17 Again 2009 1080p NF WEB-DL DD+ 5.1 H.264-GRP"
-    assert build_name(ITT_RULES, encode) == "17 Again 2009 720p BluRay DD 5.1 x264-GRP"
+    assert build_name(ITT_RULES, web) == "17 Again 2009 1080p FullHD NF WEB-DL DD+ 5.1 H.264-GRP"
+    assert build_name(ITT_RULES, encode) == "17 Again 2009 720p SD BluRay DD 5.1 x264-GRP"
     assert (web["format"], encode["format"]) == ("FullHD", "SD")  # ITT non ha HD
 
 
@@ -207,4 +207,4 @@ def test_itt_writes_multi_from_three_subtitle_languages():
         "video": {}, "audio": [],
         "subtitles": [{"language": "it"}, {"language": "en"}, {"language": "fr"}],
     }, {}, ITT_RULES)["subs"]
-    assert subs == "SUBS ITA MULTI"
+    assert subs == "MULTI SUBS"

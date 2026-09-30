@@ -61,6 +61,8 @@ class SeedFileState(BaseModel):
     stopped: bool = False
     excluded: bool
     linked_paths: list[str]
+    # Orfano, ma lo stesso file (hardlink) è in seed da questi altri percorsi.
+    seeding_copies: list[str] = []
     content_type: str | None = None  # dal file in libreria collegato, se c'è
     tmdb_id: int | None = None
 
@@ -331,6 +333,7 @@ def search_item_now(content_type: str, tmdb_id: int, session: Session = Depends(
 
 class ExcludeFileRequest(BaseModel):
     relative_path: str
+    is_dir: bool = False  # una cartella: tutto quello che c'è dentro
 
 
 class ExcludeFileResponse(BaseModel):
@@ -346,10 +349,13 @@ def _fnmatch_literal(path: str) -> str:
 @router.post("/library/exclude", response_model=ExcludeFileResponse)
 def exclude_file(body: ExcludeFileRequest, session: Session = Depends(get_session)):
     """Aggiunge ai pattern personalizzati (Configuration > Exclusions) una
-    voce che esclude esattamente quel file. Nessun file viene toccato."""
+    voce che esclude esattamente quel file, o tutto il contenuto di quella
+    cartella. Nessun file viene toccato."""
     pattern = _fnmatch_literal(body.relative_path.strip().strip("/"))
     if not pattern:
         raise HTTPException(status_code=400, detail=coded_detail("invalid_path"))
+    if body.is_dir:
+        pattern = f"{pattern}/*"
     current = settings_repo.get_setting(session, "exclusion_patterns") or ""
     lines = [line for line in current.splitlines() if line.strip()]
     if pattern not in lines:

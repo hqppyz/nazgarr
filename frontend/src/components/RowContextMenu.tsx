@@ -13,6 +13,9 @@ export interface RowMenuItem {
   label: string
   icon?: ReactNode
   onSelect: () => void
+  // Voce visibile ma non utilizzabile, con il perché sotto l'etichetta.
+  disabled?: boolean
+  hint?: string
 }
 
 // Menu contestuale (tasto destro, o pressione lunga su touch) su una riga di
@@ -35,9 +38,12 @@ export function RowContextMenu({
         <ContextMenuGroup>
           {title && <ContextMenuLabel>{title}</ContextMenuLabel>}
           {items.map((item) => (
-            <ContextMenuItem key={item.label} onClick={item.onSelect}>
+            <ContextMenuItem key={item.label} onClick={item.onSelect} disabled={item.disabled}>
               {item.icon}
-              {item.label}
+              <span className="grid">
+                {item.label}
+                {item.hint && <span className="text-xs text-muted-foreground">{item.hint}</span>}
+              </span>
             </ContextMenuItem>
           ))}
         </ContextMenuGroup>

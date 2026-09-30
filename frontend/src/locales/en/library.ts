@@ -30,5 +30,25 @@ export const library = {
   'library.hardlink': 'Hardlink',
   'library.duplicate': 'duplicate',
   'library.torrentRightClickHint':
-    'Right-click an orphaned torrent (a file or its folder) to upload or reseed it on your trackers.',
+    'Right-click a file or folder to upload or reseed an orphaned torrent, or to exclude it.',
+  'library.mediaRightClickHint': 'Right-click a file or folder to upload an orphaned file, or to exclude it.',
+  'library.seedingCopy': 'seeding from another copy',
+  'library.seedingCopyTitle': 'Nobody seeds this path, but the same file (hardlink) is seeding from:',
+  'library.menu.excludeFile': 'Exclude file',
+  'library.menu.excludeFolder': 'Exclude folder',
+  'library.menu.alreadyExcluded': 'Already excluded',
+  'library.menu.reasonExcluded': 'Excluded',
+  'library.menu.reasonNoDisk': 'Not on a configured disk',
+  'library.menu.reasonSeeding': 'Already seeding',
+  'library.menu.reasonInClient': 'Already in a torrent client',
+  'library.menu.reasonNotOrphan': 'Only for orphaned files',
+  'library.menu.reasonNoOrphans': 'No orphaned files inside',
+  'library.menu.reasonManyDisks': 'Files on more than one disk',
+  'library.menu.excludeFileTitle': 'Exclude this file?',
+  'library.menu.excludeFolderTitle': 'Exclude this folder?',
+  'library.menu.excludeFileDescription':
+    'It will no longer be shown, counted or searched on the trackers. No file is touched: a pattern is added to Configuration › Exclusions, where you can remove it.',
+  'library.menu.excludeFolderDescription':
+    'Its {count} file(s), and anything added there later, will no longer be shown, counted or searched on the trackers. No file is touched: a pattern is added to Configuration › Exclusions, where you can remove it.',
+  'library.menu.excludeConfirm': 'Exclude',
 } as const

@@ -189,3 +189,31 @@ def test_a_deleted_torrent_file_is_no_longer_a_hardlink(db_session, tmp_path):
 
     (state,) = library.media_file_states(db_session)
     assert (state["linked_paths"], state["state"]) == ([], "orphan_media")
+
+
+def test_an_orphan_copy_of_a_file_seeding_elsewhere_says_where(db_session, tmp_path):
+    root = tmp_path / "disk1"
+    (root / "media").mkdir(parents=True)
+    (root / "torrents" / "ITT").mkdir(parents=True)
+    (root / "torrents" / "old").mkdir(parents=True)
+    disk = Disk(label="disk1", root_path=str(root), media_rel_path="media", torrents_rel_path="torrents")
+    tc = TorrentClient(label="qbt", adapter_type="qbittorrent", base_url="http://qbt")
+    db_session.add_all([disk, tc])
+    db_session.commit()
+    # Lo stesso file in libreria e in due cartelle torrent; il client ne usa una sola.
+    (root / "media" / "Movie.mkv").write_bytes(b"m")
+    os.link(root / "media" / "Movie.mkv", root / "torrents" / "ITT" / "Movie.mkv")
+    os.link(root / "media" / "Movie.mkv", root / "torrents" / "old" / "Movie.mkv")
+    run = pipeline.start_run(db_session, run_type="manual")
+    scanner.scan_disk(db_session, disk, run)
+    torrent_indexer.index_torrent_client(db_session, tc, FakeAdapter([
+        ClientTorrentInfo(info_hash="h1", name="Movie.mkv", save_path=str(root / "torrents" / "ITT"), state="uploading",
+                          files=[ClientTorrentFileInfo(path_in_torrent="Movie.mkv", size_bytes=1)]),
+    ]), run)
+
+    states = {s["relative_path"]: s for s in library.seed_file_states(db_session)}
+    old = states[os.path.join("torrents", "old", "Movie.mkv")]
+    itt = states[os.path.join("torrents", "ITT", "Movie.mkv")]
+
+    assert (old["state"], old["seeding_copies"]) == ("orphan_torrent", [os.path.join("torrents", "ITT", "Movie.mkv")])
+    assert (itt["state"], itt["seeding_copies"]) == ("seeding", [])

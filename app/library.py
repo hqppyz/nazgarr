@@ -131,6 +131,23 @@ def seed_file_states(
 
     latest_seed = latest_scan_by_disk(session, SeedFile)
     identity = _identity_by_media_file(session)
+    rows = [sf for sf in query.order_by(SeedFile.relative_path).all() if is_current(sf, latest_seed)]
+
+    # Un file lato torrent orfano può essere un'altra copia (hardlink, stesso
+    # inode) di un file che è in seed da un altro percorso, es. il torrent
+    # rimosso dal client dopo un cross-seed: lo stato resta orfano (quel
+    # percorso nessun client lo usa), ma la vista dice da dove è in seed.
+    by_inode: dict[tuple[int, int, int], list[SeedFile]] = {}
+    for sf in rows:
+        by_inode.setdefault((sf.disk_id, sf.st_dev, sf.inode), []).append(sf)
+
+    def _seeding_copies(sf: SeedFile) -> list[str]:
+        if sf.id in tracked_seed_file_ids:
+            return []
+        return [
+            other.relative_path for other in by_inode.get((sf.disk_id, sf.st_dev, sf.inode), [])
+            if other.id != sf.id and other.id in tracked_seed_file_ids
+        ]
 
     def _state(sf: SeedFile) -> str:
         if sf.id not in tracked_seed_file_ids:
@@ -148,12 +165,12 @@ def seed_file_states(
             "stopped": sf.id in tracked_seed_file_ids and sf.id not in active_seed_file_ids,
             "excluded": exclusions.is_excluded(sf.relative_path),
             "linked_paths": [media_paths_by_id[sf.media_file_id]] if sf.media_file_id in media_paths_by_id else [],
+            "seeding_copies": _seeding_copies(sf),
             "content_type": identity.get(sf.media_file_id, (None, None))[0],
             "tmdb_id": identity.get(sf.media_file_id, (None, None))[1],
         }
-        for sf in query.order_by(SeedFile.relative_path).all()
-        if is_current(sf, latest_seed)
-        and (sf.id in tracked_seed_file_ids or sf.id not in tracked_anywhere)
+        for sf in rows
+        if sf.id in tracked_seed_file_ids or sf.id not in tracked_anywhere
     ]
 
 

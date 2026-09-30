@@ -16,6 +16,8 @@ export interface TreeFileEntry {
   stopped?: boolean;
   excluded: boolean;
   linked_paths: string[];
+  // Solo Torrent files: orfano, ma lo stesso file è in seed da questi percorsi.
+  seeding_copies?: string[];
   size_bytes: number;
   // Contenuto del file (scheda di dettaglio al clic), assente se il file
   // non ha un'identità: non risolto, nfo, immagini.
@@ -205,6 +207,13 @@ export function FileTree({ files, expandAll = false, duplicateKeys, onOpenFile, 
                         <StatusBadge status="unmatched" compact>
                           {t("library.notInLibrary")}
                         </StatusBadge>
+                      )}
+                      {(file.seeding_copies?.length ?? 0) > 0 && (
+                        <span title={`${t("library.seedingCopyTitle")}\n${file.seeding_copies?.join("\n")}`}>
+                          <StatusBadge status="seeding" compact>
+                            {t("library.seedingCopy")}
+                          </StatusBadge>
+                        </span>
                       )}
                       {duplicateKeys?.has(fileKey(file)) && (
                         <StatusBadge status="duplicate" compact>

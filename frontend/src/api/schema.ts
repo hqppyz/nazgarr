@@ -415,7 +415,8 @@ export interface paths {
         /**
          * Exclude File
          * @description Aggiunge ai pattern personalizzati (Configuration > Exclusions) una
-         *     voce che esclude esattamente quel file. Nessun file viene toccato.
+         *     voce che esclude esattamente quel file, o tutto il contenuto di quella
+         *     cartella. Nessun file viene toccato.
          */
         post: operations["exclude_file_api_library_exclude_post"];
         delete?: never;
@@ -1963,6 +1964,11 @@ export interface components {
         ExcludeFileRequest: {
             /** Relative Path */
             relative_path: string;
+            /**
+             * Is Dir
+             * @default false
+             */
+            is_dir: boolean;
         };
         /** ExcludeFileResponse */
         ExcludeFileResponse: {
@@ -2694,6 +2700,11 @@ export interface components {
             excluded: boolean;
             /** Linked Paths */
             linked_paths: string[];
+            /**
+             * Seeding Copies
+             * @default []
+             */
+            seeding_copies: string[];
             /** Content Type */
             content_type?: string | null;
             /** Tmdb Id */
