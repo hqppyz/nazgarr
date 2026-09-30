@@ -30,6 +30,12 @@ export const errors = {
   'errors.seed_job_not_found': 'SeedJob {id} not found.',
 
   'errors.tracker_not_found': 'Tracker {id} not found.',
+  'errors.api_key_invalid': 'The API key is wrong or has been revoked',
+  'errors.api_key_read_only': 'This API key is read only',
+  'errors.api_key_not_allowed': 'API keys can only be managed after logging in',
+  'errors.api_key_name_required': 'Give the key a name',
+  'errors.api_key_level_invalid': 'Unknown level: {level}',
+  'errors.api_key_not_found': 'API key not found',
   'errors.adapter_config_invalid': 'The value of {field} is not valid for this adapter',
   'errors.adapter_config_unknown_field': 'This adapter has no field called {field}',
   'errors.adapter_config_missing_field': '{field} is required',

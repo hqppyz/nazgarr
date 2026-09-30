@@ -196,6 +196,21 @@ class SonarrInstance(Base):
     basic_auth_password: Mapped[str | None] = mapped_column(EncryptedString)
 
 
+class ApiKey(Base):
+    """Una API key (app/api_keys.py): solo l'hash, la chiave si vede una volta."""
+
+    __tablename__ = "api_key"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(nullable=False)
+    prefix: Mapped[str] = mapped_column(nullable=False)
+    key_hash: Mapped[str] = mapped_column(nullable=False, unique=True)
+    level: Mapped[str] = mapped_column(nullable=False)
+    created_at: Mapped[datetime] = mapped_column(nullable=False, server_default=text("CURRENT_TIMESTAMP"))
+    last_used_at: Mapped[datetime | None]
+    revoked_at: Mapped[datetime | None]
+
+
 class AdapterConfig(Base):
     """Configurazione di un adapter di un plugin senza una riga sua (host
     di immagini, resolver, notifiche): app/plugins/config.py."""

@@ -7,6 +7,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from pydantic import BaseModel
 
 from app import auth, db, pipeline, review, scheduler, startup_checks, upload_profiles
+from app.api.api_keys import router as api_keys_router
 from app.api.auth import router as auth_router
 from app.api.dashboard import router as dashboard_router
 from app.api.disks import router as disks_router
@@ -104,6 +105,8 @@ app.include_router(uploads_router, dependencies=[_protected])
 app.include_router(metadata_router, dependencies=[_protected])
 app.include_router(system_router, dependencies=[_protected])
 app.include_router(plugins_router, dependencies=[_protected])
+# Le API key si gestiscono solo con il login, mai con un'altra API key.
+app.include_router(api_keys_router, dependencies=[Depends(auth.require_login)])
 
 
 class HealthResponse(BaseModel):

@@ -19,7 +19,7 @@ import jwt
 from fastapi import Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
-from app import settings_repo
+from app import api_keys, settings_repo
 from app.api_errors import coded_detail
 from app.crypto import SecretKeyMissingError
 from app.deps import get_session
@@ -87,15 +87,43 @@ def authenticated_username(request: Request, session: Session) -> str | None:
     return username
 
 
+def _api_key(request: Request, session: Session):
+    """La API key dell'header X-Api-Key, se c'è (app/api_keys.py): una
+    chiave sbagliata o revocata è sempre un 401, anche senza login
+    configurato; una di sola lettura su un metodo che scrive un 403."""
+    raw = request.headers.get(api_keys.HEADER)
+    if raw is None:
+        return None
+    key = api_keys.authenticate(session, raw)
+    if key is None:
+        raise HTTPException(status_code=401, detail=coded_detail("api_key_invalid"))
+    if not api_keys.allows(key, request.method):
+        raise HTTPException(status_code=403, detail=coded_detail("api_key_read_only"))
+    request.state.api_key_id = key.id
+    return key
+
+
 def require_auth(request: Request, session: Session = Depends(get_session)) -> str | None:
     """Dependency applicata a ogni router protetto (app/main.py). Ritorna
     None senza sollevare finché nessun login è mai stato configurato —
     è l'unico modo per restare compatibili con un'istanza esistente che
     non ha mai impostato un account, e per far funzionare il primissimo
-    /api/auth/setup (che deve restare raggiungibile senza token)."""
+    /api/auth/setup (che deve restare raggiungibile senza token).
+    Accetta anche una API key (X-Api-Key), con i suoi limiti."""
+    key = _api_key(request, session)
+    if key is not None:
+        return f"api-key:{key.name}"
     if not is_auth_configured(session):
         return None
     username = authenticated_username(request, session)
     if username is None:
         raise HTTPException(status_code=401, detail=coded_detail("auth_required"))
     return username
+
+
+def require_login(request: Request, session: Session = Depends(get_session)) -> str | None:
+    """Come require_auth, ma una API key non basta: per le cose che una
+    chiave non deve poter fare (creare o revocare API key)."""
+    if request.headers.get(api_keys.HEADER) is not None:
+        raise HTTPException(status_code=403, detail=coded_detail("api_key_not_allowed"))
+    return require_auth(request, session)

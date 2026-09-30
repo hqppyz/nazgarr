@@ -156,6 +156,21 @@ CREATE TABLE IF NOT EXISTS adapter_config (
     PRIMARY KEY (kind, adapter_type)
 );
 
+-- API keys for services and scripts (docs/ROADMAP.md Phase 10): only the
+-- SHA-256 of the key is stored, the key itself is shown once at creation.
+-- 'read' reaches GET only; 'write' everything a logged-in user can, except
+-- managing API keys (the login is required for that).
+CREATE TABLE IF NOT EXISTS api_key (
+    id              INTEGER PRIMARY KEY,
+    name            TEXT NOT NULL,
+    prefix          TEXT NOT NULL,          -- first characters, to recognize a key in the list
+    key_hash        TEXT NOT NULL UNIQUE,
+    level           TEXT NOT NULL CHECK (level IN ('read','write')),
+    created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_used_at    TIMESTAMP,
+    revoked_at      TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS app_settings (
     key     TEXT PRIMARY KEY,
     value   TEXT NOT NULL

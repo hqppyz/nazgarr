@@ -20,6 +20,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Masonry } from '@/components/Masonry'
 import { t } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
+import { ApiKeysSection } from '@/pages/config/ApiKeysSection'
 import { ApplicationSection } from '@/pages/config/ApplicationSection'
 import { AutoApproveSection } from '@/pages/config/AutoApproveSection'
 import { DisksSection } from '@/pages/config/DisksSection'
@@ -60,7 +61,7 @@ const GROUPS: { title: string; tabs: Tab[] }[] = [
     tabs: [
       { value: 'application', label: t('config.tabApplication'), icon: InfoIcon, layout: PAIRS, content: <ApplicationSection /> },
       { value: 'interface', label: t('config.tabInterface'), icon: LayoutGridIcon, layout: PAIRS, content: <InterfaceSection /> },
-      { value: 'security', label: t('config.tabSecurity'), icon: ShieldIcon, layout: PAIRS, content: <SecuritySection /> },
+      { value: 'security', label: t('config.tabSecurity'), icon: ShieldIcon, layout: PAIRS, content: <><SecuritySection /><ApiKeysSection /></> },
     ],
   },
   {
