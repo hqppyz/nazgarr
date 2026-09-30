@@ -34,4 +34,7 @@ export const torrentClients = {
   'torrentClients.enabled': 'Enabled',
   'torrentClients.none': 'none',
   'torrentClients.noClientsConfigured': 'No torrent clients configured.',
+  'torrentClients.torrents': 'Torrents',
+  'torrentClients.torrentCount': '{count} in the index',
+  'torrentClients.lastScan': 'last scan {when}',
 } as const

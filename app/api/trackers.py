@@ -3,11 +3,12 @@ loro profilo di upload opzionale 1:1 (docs/SPEC.md sezione 9, Fase 6)."""
 
 import json
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, object_session
 
-from app import upload_decision, upload_profiles
+from app import tracker_icons, upload_decision, upload_profiles
 from app.api_errors import coded_detail, from_coded_error
 from app.deps import get_session
 from app.models import Tracker, TrackerUploadProfile
@@ -39,6 +40,14 @@ class TrackerUpdateRequest(BaseModel):
     torrent_client_id: int | None = None  # esplicitamente null = torna al primo client abilitato
 
 
+class TrackerUploadProfileSummary(BaseModel):
+    source_profile_key: str | None
+    naming_version: int | None
+    naming_customized: bool
+    naming_update_available: int | None
+    freeleech_options: list[int]
+
+
 class TrackerResponse(BaseModel):
     id: int
     label: str
@@ -50,13 +59,23 @@ class TrackerResponse(BaseModel):
     enabled: bool
     has_rss_key: bool = False  # mai la chiave stessa, solo se ce n'è una (manuale o appresa)
     torrent_client_id: int | None = None
+    upload_profile: TrackerUploadProfileSummary | None = None  # per la scheda: senza profilo niente upload
 
     @classmethod
     def from_model(cls, t: Tracker) -> "TrackerResponse":
+        profile = object_session(t).get(TrackerUploadProfile, t.id)
+        summary = None
+        if profile is not None:
+            summary = TrackerUploadProfileSummary(
+                source_profile_key=profile.source_profile_key, naming_version=profile.naming_version,
+                naming_customized=bool(profile.naming_customized),
+                naming_update_available=profile.naming_update_available,
+                freeleech_options=upload_profiles.freeleech_options(profile),
+            )
         return cls(
             id=t.id, label=t.label, adapter_type=t.adapter_type, base_url=t.base_url,
             has_announce_url=bool(t.announce_url), rate_limit_per_min=t.rate_limit_per_min, enabled=t.enabled,
-            has_rss_key=bool(t.rss_key), torrent_client_id=t.torrent_client_id,
+            has_rss_key=bool(t.rss_key), torrent_client_id=t.torrent_client_id, upload_profile=summary,
         )
 
 
@@ -95,11 +114,15 @@ def create_tracker(body: TrackerCreateRequest, session: Session = Depends(get_se
 
 
 @router.patch("/{tracker_id}", response_model=TrackerResponse)
-def update_tracker(tracker_id: int, body: TrackerUpdateRequest, session: Session = Depends(get_session)):
+def update_tracker(
+    tracker_id: int, body: TrackerUpdateRequest, request: Request, session: Session = Depends(get_session)
+):
     tracker = _get_tracker_or_404(session, tracker_id)
     if body.label is not None:
         tracker.label = body.label
     if body.base_url is not None:
+        if body.base_url != tracker.base_url:
+            tracker_icons.forget_icon(request.app.state.settings.data_dir, tracker.id)
         tracker.base_url = body.base_url
     if body.api_token is not None:
         tracker.api_token = body.api_token
@@ -115,6 +138,16 @@ def update_tracker(tracker_id: int, body: TrackerUpdateRequest, session: Session
         tracker.torrent_client_id = body.torrent_client_id
     session.commit()
     return TrackerResponse.from_model(tracker)
+
+
+@router.get("/{tracker_id}/icon")
+def tracker_icon(tracker_id: int, request: Request, session: Session = Depends(get_session)):
+    """La favicon del tracker, dalla cache locale (app/tracker_icons.py)."""
+    tracker = _get_tracker_or_404(session, tracker_id)
+    path = tracker_icons.fetch_icon(request.app.state.settings.data_dir, tracker.id, tracker.base_url)
+    if path is None:
+        raise HTTPException(status_code=404, detail=coded_detail("tracker_icon_not_available"))
+    return FileResponse(path, headers={"Cache-Control": "private, max-age=86400"})
 
 
 @router.delete("/{tracker_id}", status_code=204)

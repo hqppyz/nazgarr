@@ -29,10 +29,12 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { t } from '@/lib/i18n'
-import { selectLabel } from '@/lib/utils'
+import { relativeFromNow } from '@/lib/time'
+import { cn, selectLabel } from '@/lib/utils'
 import { autosaveFeedback } from '@/lib/autosave'
+import { CLIENT_NAMES } from '@/lib/services'
+import { ClientLogo } from '@/pages/config/ServiceIcons'
 
 type TorrentClient = Schemas['TorrentClientResponse']
 type Disk = Schemas['DiskResponse']
@@ -383,77 +385,75 @@ export function TorrentClientsSection() {
   const diskLabel = (id: number) => disks?.find((d) => d.id === id)?.label ?? `#${id}`
 
   return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between">
-        <CardTitle>Torrent clients</CardTitle>
+    <div className="grid gap-4">
+      <div className="flex items-center justify-between gap-2">
+        <h2 className="text-lg font-semibold">Torrent clients</h2>
         <AddTorrentClientDialog />
-      </CardHeader>
-      <CardContent>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>{t('torrentClients.label')}</TableHead>
-              <TableHead>{t('torrentClients.type')}</TableHead>
-              <TableHead>{t('torrentClients.url')}</TableHead>
-              <TableHead>{t('torrentClients.disks')}</TableHead>
-              <TableHead>{t('torrentClients.enabled')}</TableHead>
-              <TableHead />
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {isPending && (
-              <TableRow>
-                <TableCell colSpan={6} className="text-center text-sm text-muted-foreground">
-                  {t('common.loading')}
-                </TableCell>
-              </TableRow>
-            )}
-            {torrentClients?.map((tc) => (
-              <TableRow key={tc.id}>
-                <TableCell className="font-medium">{tc.label}</TableCell>
-                <TableCell>
-                  <Badge variant="outline">
-                    {tc.adapter_type}
-                    {tc.adapter_type === 'qui' && tc.qui_instance_id !== null ? ` #${tc.qui_instance_id}` : ''}
-                  </Badge>
-                </TableCell>
-                <TableCell className="font-mono text-xs">{tc.base_url}</TableCell>
-                <TableCell className="flex flex-wrap gap-1">
-                  {tc.disks.length === 0 && <span className="text-xs text-muted-foreground">{t('torrentClients.none')}</span>}
+      </div>
+      {isPending && <p className="text-sm text-muted-foreground">{t('common.loading')}</p>}
+      {torrentClients?.length === 0 && (
+        <Card>
+          <CardContent className="py-6 text-center text-sm text-muted-foreground">
+            {t('torrentClients.noClientsConfigured')}
+          </CardContent>
+        </Card>
+      )}
+      {/* Una scheda per client: tipo con il suo logo, indirizzo, dischi, quanti
+          torrent ha nell'indice dell'ultima scan, e le azioni. */}
+      <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
+        {torrentClients?.map((tc) => (
+          <Card key={tc.id} className={cn('min-w-0', !tc.enabled && 'opacity-70')}>
+            <CardHeader className="flex flex-row items-center gap-3">
+              <ClientLogo type={tc.adapter_type} />
+              <div className="grid min-w-0 flex-1 gap-0.5">
+                <CardTitle className="truncate text-base">{tc.label}</CardTitle>
+                <span className="text-xs text-muted-foreground">
+                  {CLIENT_NAMES[tc.adapter_type] ?? tc.adapter_type}
+                  {tc.adapter_type === 'qui' && tc.qui_instance_id !== null ? ` · #${tc.qui_instance_id}` : ''}
+                </span>
+              </div>
+              <Switch
+                checked={tc.enabled}
+                title={t('torrentClients.enabled')}
+                onCheckedChange={(enabled) =>
+                  updateTorrentClient.mutate({ id: tc.id, body: { enabled } }, autosaveFeedback(tc.label))
+                }
+              />
+            </CardHeader>
+            <CardContent className="grid min-w-0 gap-3 text-sm">
+              <p className="truncate font-mono text-xs text-muted-foreground" title={tc.base_url}>
+                {tc.base_url}
+              </p>
+              <div className="grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-1.5 text-xs">
+                <span className="text-muted-foreground">{t('torrentClients.disks')}</span>
+                <span className="flex flex-wrap gap-1">
+                  {tc.disks.length === 0 && <span className="text-muted-foreground">{t('torrentClients.none')}</span>}
                   {tc.disks.map((assoc) => (
                     <Badge key={assoc.disk_id} variant="secondary">
                       {diskLabel(assoc.disk_id)}
                     </Badge>
                   ))}
-                </TableCell>
-                <TableCell>
-                  <Switch
-                    checked={tc.enabled}
-                    onCheckedChange={(enabled) =>
-                      updateTorrentClient.mutate({ id: tc.id, body: { enabled } }, autosaveFeedback(tc.label))
-                    }
-                  />
-                </TableCell>
-                <TableCell className="flex justify-end gap-1">
-                  <TestButton id={tc.id} />
-                  <DisksDialog torrentClientId={tc.id} disks={tc.disks} />
-                  <EditTorrentClientDialog tc={tc} />
-                  <Button variant="ghost" size="icon-sm" title={t('common.delete')} onClick={() => deleteTorrentClient.mutate(tc.id)}>
-                    <TrashIcon className="size-4" />
-                  </Button>
-                </TableCell>
-              </TableRow>
-            ))}
-            {torrentClients?.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={6} className="text-center text-sm text-muted-foreground">
-                  {t('torrentClients.noClientsConfigured')}
-                </TableCell>
-              </TableRow>
-            )}
-          </TableBody>
-        </Table>
-      </CardContent>
-    </Card>
+                </span>
+                <span className="text-muted-foreground">{t('torrentClients.torrents')}</span>
+                <span className="tabular-nums">
+                  {t('torrentClients.torrentCount', { count: tc.torrent_count })}
+                  {tc.last_polled_at && (
+                    <span className="text-muted-foreground"> · {t('torrentClients.lastScan', { when: relativeFromNow(tc.last_polled_at) })}</span>
+                  )}
+                </span>
+              </div>
+              <div className="flex justify-end gap-1 border-t pt-3">
+                <TestButton id={tc.id} />
+                <DisksDialog torrentClientId={tc.id} disks={tc.disks} />
+                <EditTorrentClientDialog tc={tc} />
+                <Button variant="ghost" size="icon-sm" title={t('common.delete')} onClick={() => deleteTorrentClient.mutate(tc.id)}>
+                  <TrashIcon className="size-4" />
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    </div>
   )
 }

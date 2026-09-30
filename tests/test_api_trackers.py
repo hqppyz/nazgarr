@@ -38,3 +38,23 @@ def test_tracker_client_can_be_set_and_cleared(client):
     assert kept["torrent_client_id"] == 3
     cleared = client.patch(f"/api/trackers/{created['id']}", json={"torrent_client_id": None}).json()
     assert cleared["torrent_client_id"] is None
+
+
+def test_tracker_icon_and_upload_profile_summary(client, monkeypatch, tmp_path):
+    from app.api import trackers as trackers_api
+
+    tracker_id = client.post("/api/trackers", json={
+        "label": "ITT", "adapter_type": "unit3d", "base_url": "https://itt.example", "api_token": "x",
+    }).json()["id"]
+    assert client.get("/api/trackers").json()[0]["upload_profile"] is None
+
+    client.post(f"/api/trackers/{tracker_id}/upload-profile", json={"profile_key": "itt"})
+    summary = client.get("/api/trackers").json()[0]["upload_profile"]
+    assert summary["source_profile_key"] == "itt" and summary["naming_version"] >= 1
+
+    monkeypatch.setattr(trackers_api.tracker_icons, "fetch_icon", lambda data_dir, tid, base_url: None)
+    assert client.get(f"/api/trackers/{tracker_id}/icon").status_code == 404
+    icon = tmp_path / "icon.png"
+    icon.write_bytes(b"\\x89PNG")
+    monkeypatch.setattr(trackers_api.tracker_icons, "fetch_icon", lambda data_dir, tid, base_url: str(icon))
+    assert client.get(f"/api/trackers/{tracker_id}/icon").status_code == 200

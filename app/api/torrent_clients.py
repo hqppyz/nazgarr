@@ -3,14 +3,17 @@ sezione 5) — un disco può avere più client abilitati contemporaneamente,
 gestito dalla tabella ponte disk_torrent_client.
 """
 
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy.orm import Session
+from sqlalchemy import func
+from sqlalchemy.orm import Session, object_session
 
 from app import adapter_factory
 from app.api_errors import coded_detail
 from app.deps import get_session
-from app.models import Disk, DiskTorrentClient, TorrentClient
+from app.models import ClientTorrent, Disk, DiskTorrentClient, TorrentClient
 
 router = APIRouter(prefix="/api/torrent-clients", tags=["torrent-clients"])
 
@@ -66,10 +69,18 @@ class TorrentClientResponse(BaseModel):
     qui_instance_id: int | None  # mai api_token/password: write-only, non tornano mai indietro
     enabled: bool
     disks: list[DiskAssociationResponse]  # dischi abilitati per questo client, con l'eventuale path override
+    # Dall'indice dell'ultima scan, per la scheda del client.
+    torrent_count: int = 0
+    last_polled_at: datetime | None = None
 
     @classmethod
     def from_model(cls, tc: TorrentClient, links: list[DiskTorrentClient]) -> "TorrentClientResponse":
+        session = object_session(tc)
+        count, last = session.query(func.count(ClientTorrent.id), func.max(ClientTorrent.last_polled_at)).filter(
+            ClientTorrent.torrent_client_id == tc.id
+        ).one()
         return cls(
+            torrent_count=count or 0, last_polled_at=last,
             id=tc.id, label=tc.label, adapter_type=tc.adapter_type,
             base_url=tc.base_url, username=tc.username, qui_instance_id=tc.qui_instance_id, enabled=tc.enabled,
             disks=[

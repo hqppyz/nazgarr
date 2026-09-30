@@ -1,5 +1,5 @@
 import { ImageOffIcon } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 
 import { getToken } from '@/lib/authToken'
 import { cn } from '@/lib/utils'
@@ -74,6 +74,17 @@ export function AuthedPoster({
           <ImageOffIcon className="size-6" />
         </div>
       )}
+    </div>
+  )
+}
+
+// Un'immagine qualunque dalle API (protette dal login), con un segnaposto
+// finché non c'è o se manca: es. l'icona di un tracker.
+export function AuthedImage({ url, className, fallback }: { url: string; className?: string; fallback: ReactNode }) {
+  const { ref, src, failed } = useAuthedImage(url, true)
+  return (
+    <div ref={ref} className={cn('flex shrink-0 items-center justify-center overflow-hidden', className)}>
+      {src && !failed ? <img src={src} alt="" className="size-full object-contain" /> : fallback}
     </div>
   )
 }

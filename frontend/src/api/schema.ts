@@ -582,6 +582,26 @@ export interface paths {
         patch: operations["update_tracker_api_trackers__tracker_id__patch"];
         trace?: never;
     };
+    "/api/trackers/{tracker_id}/icon": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Tracker Icon
+         * @description La favicon del tracker, dalla cache locale (app/tracker_icons.py).
+         */
+        get: operations["tracker_icon_api_trackers__tracker_id__icon_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/trackers/upload-profiles/bundled": {
         parameters: {
             query?: never;
@@ -2806,6 +2826,13 @@ export interface components {
             enabled: boolean;
             /** Disks */
             disks: components["schemas"]["DiskAssociationResponse"][];
+            /**
+             * Torrent Count
+             * @default 0
+             */
+            torrent_count: number;
+            /** Last Polled At */
+            last_polled_at?: string | null;
         };
         /** TorrentClientTestResponse */
         TorrentClientTestResponse: {
@@ -2883,6 +2910,7 @@ export interface components {
             has_rss_key: boolean;
             /** Torrent Client Id */
             torrent_client_id?: number | null;
+            upload_profile?: components["schemas"]["TrackerUploadProfileSummary"] | null;
         };
         /** TrackerUpdateRequest */
         TrackerUpdateRequest: {
@@ -2902,6 +2930,19 @@ export interface components {
             rss_key?: string | null;
             /** Torrent Client Id */
             torrent_client_id?: number | null;
+        };
+        /** TrackerUploadProfileSummary */
+        TrackerUploadProfileSummary: {
+            /** Source Profile Key */
+            source_profile_key: string | null;
+            /** Naming Version */
+            naming_version: number | null;
+            /** Naming Customized */
+            naming_customized: boolean;
+            /** Naming Update Available */
+            naming_update_available: number | null;
+            /** Freeleech Options */
+            freeleech_options: number[];
         };
         /** TrendPoint */
         TrendPoint: {
@@ -4486,6 +4527,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TrackerResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    tracker_icon_api_trackers__tracker_id__icon_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tracker_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */

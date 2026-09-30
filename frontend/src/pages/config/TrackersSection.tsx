@@ -4,6 +4,7 @@ import { toast } from 'sonner'
 
 import { useBundledUploadProfiles, useCreateTracker, useDeleteTracker, useTrackers, useUpdateTracker } from '@/api/hooks/trackers'
 import type { Schemas } from '@/api/client'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
@@ -20,9 +21,9 @@ import { Label } from '@/components/ui/label'
 import { useTorrentClients } from '@/api/hooks/torrentClients'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { t } from '@/lib/i18n'
-import { selectLabel } from '@/lib/utils'
+import { TrackerLogo } from '@/pages/config/ServiceIcons'
+import { cn, selectLabel } from '@/lib/utils'
 import { UploadProfileDialog } from '@/pages/config/UploadProfileDialog'
 import { autosaveFeedback } from '@/lib/autosave'
 
@@ -323,43 +324,50 @@ export function TrackersSection() {
   const [profileTrackerId, setProfileTrackerId] = useState<number | null>(null)
 
   return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between">
-        <CardTitle>{t('trackers.title')}</CardTitle>
+    <div className="grid gap-4">
+      <div className="flex items-center justify-between gap-2">
+        <h2 className="text-lg font-semibold">{t('trackers.title')}</h2>
         <AddTrackerDialog />
-      </CardHeader>
-      <CardContent>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>{t('trackers.label')}</TableHead>
-              <TableHead>{t('trackers.apiUrl')}</TableHead>
-              <TableHead>{t('trackers.announceUrlColumn')}</TableHead>
-              <TableHead>{t('trackers.rssKeyColumn')}</TableHead>
-              <TableHead>{t('trackers.clientColumn')}</TableHead>
-              <TableHead>{t('trackers.enabled')}</TableHead>
-              <TableHead />
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {isPending && (
-              <TableRow>
-                <TableCell colSpan={7} className="text-center text-sm text-muted-foreground">
-                  {t('common.loading')}
-                </TableCell>
-              </TableRow>
-            )}
-            {trackers?.map((tracker) => (
-              <TableRow key={tracker.id}>
-                <TableCell className="font-medium">{tracker.label}</TableCell>
-                <TableCell className="font-mono text-xs">{tracker.base_url}</TableCell>
-                <TableCell>
+      </div>
+      {isPending && <p className="text-sm text-muted-foreground">{t('common.loading')}</p>}
+      {trackers?.length === 0 && (
+        <Card>
+          <CardContent className="py-6 text-center text-sm text-muted-foreground">{t('trackers.noTrackers')}</CardContent>
+        </Card>
+      )}
+      {/* Una scheda per tracker: icona del sito, indirizzi e chiavi, client
+          su cui seedano i suoi torrent, profilo di upload e azioni. */}
+      <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
+        {trackers?.map((tracker) => {
+          const profile = tracker.upload_profile
+          return (
+            <Card key={tracker.id} className={cn('min-w-0', !tracker.enabled && 'opacity-70')}>
+              <CardHeader className="flex flex-row items-center gap-3">
+                <TrackerLogo trackerId={tracker.id} />
+                <div className="grid min-w-0 flex-1 gap-0.5">
+                  <CardTitle className="truncate text-base">{tracker.label}</CardTitle>
+                  <span className="truncate font-mono text-xs text-muted-foreground" title={tracker.base_url}>
+                    {tracker.base_url}
+                  </span>
+                </div>
+                <Switch
+                  checked={tracker.enabled}
+                  title={t('trackers.enabled')}
+                  onCheckedChange={(enabled) =>
+                    updateTracker.mutate(
+                      { id: tracker.id, body: { enabled } },
+                      autosaveFeedback(`${tracker.label} · ${t('trackers.enabled')}`),
+                    )
+                  }
+                />
+              </CardHeader>
+              <CardContent className="grid min-w-0 gap-3 text-sm">
+                <div className="grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-2 text-xs">
+                  <span className="text-muted-foreground">{t('trackers.announceUrlColumn')}</span>
                   <SecretPresence present={tracker.has_announce_url} />
-                </TableCell>
-                <TableCell>
+                  <span className="text-muted-foreground">{t('trackers.rssKeyColumn')}</span>
                   <SecretPresence present={tracker.has_rss_key} />
-                </TableCell>
-                <TableCell>
+                  <span className="text-muted-foreground">{t('trackers.clientColumn')}</span>
                   <TrackerClientSelect
                     value={tracker.torrent_client_id ?? null}
                     onChange={(torrentClientId) =>
@@ -369,44 +377,45 @@ export function TrackersSection() {
                       )
                     }
                   />
-                </TableCell>
-                <TableCell>
-                  <Switch
-                    checked={tracker.enabled}
-                    onCheckedChange={(enabled) =>
-                      updateTracker.mutate(
-                        { id: tracker.id, body: { enabled } },
-                        autosaveFeedback(`${tracker.label} · ${t('trackers.enabled')}`),
-                      )
-                    }
-                  />
-                </TableCell>
-                <TableCell className="flex justify-end gap-1">
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    title={t('trackers.uploadProfile')}
-                    onClick={() => setProfileTrackerId(tracker.id)}
-                  >
+                  <span className="text-muted-foreground">{t('trackers.uploadProfile')}</span>
+                  <span className="flex flex-wrap items-center gap-1.5">
+                    {profile ? (
+                      <>
+                        <Badge variant="secondary">{profile.source_profile_key ?? t('trackers.customProfile')}</Badge>
+                        {profile.naming_version != null && (
+                          <span className="text-muted-foreground">
+                            {t('trackers.namingVersion', { version: profile.naming_version })}
+                          </span>
+                        )}
+                        {profile.naming_update_available != null && (
+                          <Badge variant="outline" className="border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300">
+                            {t('trackers.namingUpdateBadge')}
+                          </Badge>
+                        )}
+                        {profile.freeleech_options.length > 0 && (
+                          <span className="text-muted-foreground">FL {profile.freeleech_options.join('/')}%</span>
+                        )}
+                      </>
+                    ) : (
+                      <span className="text-muted-foreground">{t('trackers.noUploadProfile')}</span>
+                    )}
+                  </span>
+                </div>
+                <div className="flex justify-end gap-1 border-t pt-3">
+                  <Button variant="ghost" size="sm" onClick={() => setProfileTrackerId(tracker.id)}>
                     <FileUpIcon className="size-4" />
+                    {t('trackers.uploadProfile')}
                   </Button>
                   <EditTrackerDialog tracker={tracker} />
                   <Button variant="ghost" size="icon-sm" title={t('common.delete')} onClick={() => deleteTracker.mutate(tracker.id)}>
                     <TrashIcon className="size-4" />
                   </Button>
-                </TableCell>
-              </TableRow>
-            ))}
-            {trackers?.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={7} className="text-center text-sm text-muted-foreground">
-                  {t('trackers.noTrackers')}
-                </TableCell>
-              </TableRow>
-            )}
-          </TableBody>
-        </Table>
-      </CardContent>
+                </div>
+              </CardContent>
+            </Card>
+          )
+        })}
+      </div>
 
       {profileTrackerId !== null && (
         <UploadProfileDialog
@@ -416,6 +425,6 @@ export function TrackersSection() {
           onOpenChange={(open) => !open && setProfileTrackerId(null)}
         />
       )}
-    </Card>
+    </div>
   )
 }
