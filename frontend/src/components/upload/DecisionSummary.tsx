@@ -57,8 +57,13 @@ export function DecisionSummary({
                         <span className="truncate font-mono text-xs" title={draft.name}>
                           {draft.name || '—'}
                         </span>
-                        {flags.length > 0 && (
+                        {(flags.length > 0 || draft.freeleech > 0) && (
                           <div className="flex flex-wrap gap-1">
+                            {draft.freeleech > 0 && (
+                              <Badge variant="secondary" className="h-4 px-1 text-[10px]">
+                                FL {draft.freeleech}%
+                              </Badge>
+                            )}
                             {flags.map((flag) => (
                               <Badge key={flag} variant="secondary" className="h-4 px-1 text-[10px]">
                                 {t(`upload.decision.flag.${flag}`)}

@@ -108,6 +108,7 @@ def create_job(
     tracker_ids: list[int] | None = None,
     forced_ids: dict | None = None,
     overrides: dict | None = None,
+    tracker_choices: dict[int, dict] | None = None,
 ) -> UploadJob:
     """Crea il job in 'identifying' (il worker lo prende da lì) con un target
     per tracker. tracker_ids None = tutti i tracker con un profilo di upload.
@@ -138,8 +139,13 @@ def create_job(
     session.add(job)
     session.flush()
     for tracker in trackers:
+        choice = (tracker_choices or {}).get(tracker.id) or {}
+        # Scelte fatte alla creazione (per ora il freeleech): diventano i flag
+        # di partenza del target, i default del profilo completano il resto.
+        flags = {"freeleech": int(choice["freeleech"])} if choice.get("freeleech") else None
         session.add(UploadTarget(
-            job_id=job.id, tracker_id=tracker.id, torrent_client_id=default_client_id(session, tracker)
+            job_id=job.id, tracker_id=tracker.id, torrent_client_id=default_client_id(session, tracker),
+            flags_json=json.dumps(flags) if flags else None,
         ))
     log_event(session, job, "job_created", path=relative_path, trackers=[t.label for t in trackers])
     session.commit()

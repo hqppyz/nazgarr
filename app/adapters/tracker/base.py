@@ -55,7 +55,7 @@ class UploadFields:
     di Upload-Assistant (src/trackers/UNIT3D.py get_data(), riferimento di
     dominio, nessun codice riusato) — sottoinsieme rilevante per questo
     progetto: i campi UNIT3D non gestiti qui (bdinfo, igdb, region_id,
-    distributor_id, featured/free/doubleup/sticky) sono sempre
+    distributor_id, featured/doubleup/sticky) sono sempre
     inviati con il default "non impostato"/"0" dell'API, mai omessi (un
     campo mancante non è equivalente al suo default esplicito per ogni
     installazione UNIT3D)."""
@@ -75,6 +75,7 @@ class UploadFields:
     anonymous: bool = False
     personal_release: bool = False
     internal: bool = False  # solo per chi ha i permessi sul tracker: altrimenti lo rifiuta
+    free: int = 0  # freeleech in percentuale (0 = nessuno), se il tracker lo concede a chi carica
     stream: bool = False
     sd: bool = False
     keywords: str = ""
@@ -278,7 +279,7 @@ class Unit3dTrackerAdapter(TrackerAdapter):
             "personal_release": "1" if fields.personal_release else "0",
             "internal": "1" if fields.internal else "0",
             "featured": "0",
-            "free": "0",
+            "free": str(fields.free),
             "doubleup": "0",
             "sticky": "0",
         }

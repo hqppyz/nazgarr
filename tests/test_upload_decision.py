@@ -3,6 +3,7 @@ import json
 import pytest
 
 from app import upload_decision, upload_jobs, upload_profiles
+from app.models import TrackerUploadProfile
 from app.upload_jobs import UploadJobError
 from app.upload_naming import build_name, season_token
 from tests.upload_helpers import make_disk, make_tracker, write_video
@@ -57,7 +58,7 @@ def test_propose_names_ids_and_flags_per_tracker(decision_job):
     assert itt.proposed_name == "Severance 2022 S02 1080p ATVP WEB-DL H.264 DD+ 5.1-NTb"
     assert (itt.category_id, itt.type_id, itt.resolution_id) == (2, 4, 3)
     assert json.loads(itt.flags_json) == {"anonymous": False, "personal_release": False, "internal": False,
-                                          "stream": False}
+                                          "stream": False, "freeleech": 0}
     # Profilo custom vuoto: il nome col formato di default, nessun id.
     assert custom.proposed_name == "Severance (2022) S02 1080p WEB-DL H.264 DD+ 5.1-NTb"
     assert (custom.category_id, custom.type_id, custom.resolution_id) == (None, None, None)
@@ -93,7 +94,7 @@ def test_approve_queues_the_job_with_every_decision(db_session, decision_job):
     assert decision_job.status == "queued" and decision_job.queue_position == 1
     assert (itt.status, itt.action, itt.approved_name) == ("approved", "upload", "Name")
     assert json.loads(itt.flags_json) == {"anonymous": True, "personal_release": False, "internal": False,
-                                          "stream": False}
+                                          "stream": False, "freeleech": 0}
     assert (custom.status, custom.action) == ("skipped", "skip")
     assert decision_job.events[-1].code == "job_queued"
 
@@ -141,3 +142,28 @@ def test_reseed_of_an_identical_release(db_session, decision_job):
     ])
 
     assert (itt.action, itt.reseed_torrent_id, itt.status) == ("reseed", "42", "approved")
+
+
+def test_freeleech_from_creation_survives_the_proposal_and_is_validated(db_session, tmp_path):
+    folder = tmp_path / "Movie.2024.1080p.WEB-DL-GRP.mkv"
+    write_video(folder)
+    disk = make_disk(db_session, tmp_path)
+    tracker = make_tracker(db_session, "fl")
+    profile = db_session.get(TrackerUploadProfile, tracker.id)
+    profile.freeleech_options_json = "[25, 50]"
+    db_session.commit()
+    job = upload_jobs.create_job(db_session, disk, folder.name, tracker_choices={tracker.id: {"freeleech": 50}})
+    upload_jobs.transition(db_session, job, "identifying", "awaiting_decision", kind="movie", content_type="movie",
+                           title="Movie", year=2024, tmdb_id=1)
+    job.targets[0].status = "awaiting_decision"
+    db_session.commit()
+
+    upload_decision.propose(db_session, job)
+    target = job.targets[0]
+    assert json.loads(target.flags_json)["freeleech"] == 50
+
+    with pytest.raises(UploadJobError) as exc:
+        upload_decision.approve(db_session, job, [_upload(target, flags={"freeleech": 75})])
+    assert exc.value.code == "upload_freeleech_not_allowed"
+    upload_decision.approve(db_session, job, [_upload(target, flags={"freeleech": 25})])
+    assert json.loads(target.flags_json)["freeleech"] == 25

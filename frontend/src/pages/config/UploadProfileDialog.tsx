@@ -10,6 +10,8 @@ import {
   useUploadProfile,
 } from '@/api/hooks/trackers'
 import { NamingRulesEditor, type NamingRules } from '@/components/NamingRulesEditor'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import { FreeleechField, Section } from '@/pages/config/UploadProfileParts'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
@@ -96,7 +98,7 @@ export function UploadProfileDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-3xl">
+      <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-5xl">
         <DialogHeader>
           <DialogTitle>{t('trackers.uploadProfileTitle', { trackerLabel })}</DialogTitle>
         </DialogHeader>
@@ -134,27 +136,16 @@ export function UploadProfileDialog({
         )}
 
         {!isPending && profile && (
-          <div className="grid gap-3">
+          <div className="grid gap-5">
             {profile.source_profile_key && (
               <p className="text-xs text-muted-foreground">
                 {t('trackers.copiedFromBundled', { key: profile.source_profile_key })}
               </p>
             )}
-            <div className="grid gap-1.5">
-              <Label>category_id_map</Label>
-              <Textarea rows={3} className="font-mono text-xs" value={categoryMap} onChange={(e) => setCategoryMapDraft(e.target.value)} />
-            </div>
-            <div className="grid gap-1.5">
-              <Label>type_id_map</Label>
-              <Textarea rows={5} className="font-mono text-xs" value={typeMap} onChange={(e) => setTypeMapDraft(e.target.value)} />
-            </div>
-            <div className="grid gap-1.5">
-              <Label>resolution_id_map</Label>
-              <Textarea rows={5} className="font-mono text-xs" value={resolutionMap} onChange={(e) => setResolutionMapDraft(e.target.value)} />
-            </div>
-            <div className="grid gap-1.5">
-              <div className="flex items-center justify-between gap-2">
-                <Label>{t('trackers.namingRules')}</Label>
+
+            <Section title={t('trackers.section.naming')}>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-xs text-muted-foreground">{t('trackers.namingRulesHelp')}</p>
                 {profile.naming_version != null && (
                   <span className="text-xs text-muted-foreground">
                     {t('trackers.namingVersion', { version: profile.naming_version })}
@@ -180,46 +171,79 @@ export function UploadProfileDialog({
                   </Button>
                 </div>
               )}
-              <p className="text-xs text-muted-foreground">{t('trackers.namingRulesHelp')}</p>
               <NamingRulesEditor
                 key={profile.naming_version ?? 0}
                 trackerId={trackerId}
                 value={namingRules}
                 onChange={setNamingRulesDraft}
               />
-            </div>
-            <div className="grid gap-1.5">
-              <Label>{t('trackers.descriptionTemplate')}</Label>
+            </Section>
+
+            <Section title={t('trackers.section.description')}>
               <Textarea
-                rows={4}
+                rows={5}
                 className="font-mono text-xs"
                 value={descriptionTemplate}
                 onChange={(e) => setDescriptionTemplateDraft(e.target.value)}
               />
-            </div>
-            <div className="flex items-center justify-between">
-              <Label htmlFor="up-anon">{t('trackers.defaultAnonymous')}</Label>
-              <Switch
-                id="up-anon"
-                checked={profile.default_anonymous}
-                onCheckedChange={(v) =>
-                  updateProfile.mutate({ default_anonymous: v }, autosaveFeedback(t('trackers.defaultAnonymous')))
-                }
+            </Section>
+
+            <Section title={t('trackers.section.defaults')}>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="flex items-center justify-between gap-2">
+                  <Label htmlFor="up-anon">{t('trackers.defaultAnonymous')}</Label>
+                  <Switch
+                    id="up-anon"
+                    checked={profile.default_anonymous}
+                    onCheckedChange={(v) =>
+                      updateProfile.mutate({ default_anonymous: v }, autosaveFeedback(t('trackers.defaultAnonymous')))
+                    }
+                  />
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <Label htmlFor="up-personal">{t('trackers.defaultPersonalRelease')}</Label>
+                  <Switch
+                    id="up-personal"
+                    checked={profile.default_personal_release}
+                    onCheckedChange={(v) =>
+                      updateProfile.mutate(
+                        { default_personal_release: v },
+                        autosaveFeedback(t('trackers.defaultPersonalRelease')),
+                      )
+                    }
+                  />
+                </div>
+              </div>
+              <FreeleechField
+                options={profile.freeleech_options}
+                defaultValue={profile.default_freeleech ?? 0}
+                onChange={(body) => updateProfile.mutate(body, autosaveFeedback(t('trackers.freeleech')))}
               />
-            </div>
-            <div className="flex items-center justify-between">
-              <Label htmlFor="up-personal">{t('trackers.defaultPersonalRelease')}</Label>
-              <Switch
-                id="up-personal"
-                checked={profile.default_personal_release}
-                onCheckedChange={(v) =>
-                  updateProfile.mutate(
-                    { default_personal_release: v },
-                    autosaveFeedback(t('trackers.defaultPersonalRelease')),
-                  )
-                }
-              />
-            </div>
+            </Section>
+
+            <Collapsible>
+              <CollapsibleTrigger className="text-sm font-medium hover:underline">
+                {t('trackers.section.advanced')}
+              </CollapsibleTrigger>
+              <CollapsibleContent className="grid gap-3 pt-3">
+                <p className="text-xs text-muted-foreground">{t('trackers.advancedHelp')}</p>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <div className="grid gap-1.5">
+                    <Label>category_id_map</Label>
+                    <Textarea rows={5} className="font-mono text-xs" value={categoryMap} onChange={(e) => setCategoryMapDraft(e.target.value)} />
+                  </div>
+                  <div className="grid gap-1.5">
+                    <Label>type_id_map</Label>
+                    <Textarea rows={5} className="font-mono text-xs" value={typeMap} onChange={(e) => setTypeMapDraft(e.target.value)} />
+                  </div>
+                  <div className="grid gap-1.5">
+                    <Label>resolution_id_map</Label>
+                    <Textarea rows={5} className="font-mono text-xs" value={resolutionMap} onChange={(e) => setResolutionMapDraft(e.target.value)} />
+                  </div>
+                </div>
+              </CollapsibleContent>
+            </Collapsible>
+
             <div className="flex justify-between">
               <Button variant="destructive" onClick={() => deleteProfile.mutate()}>
                 {t('trackers.deleteProfile')}

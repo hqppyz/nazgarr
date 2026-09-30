@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session, object_session
 
-from app import upload_decision, upload_identify, upload_jobs, upload_verify
+from app import upload_decision, upload_identify, upload_jobs, upload_profiles, upload_verify
 from app.adapter_factory import TmdbApiKeyMissingError
 from app.api_errors import coded_detail, from_coded_error
 from app.deps import get_session
@@ -33,12 +33,17 @@ class ForcedIds(BaseModel):
     mal: int | None = None
 
 
+class TrackerChoice(BaseModel):
+    freeleech: int | None = None  # percentuale scelta alla creazione, tra quelle del profilo
+
+
 class UploadCreateRequest(BaseModel):
     disk_id: int
     relative_path: str
     tracker_ids: list[int] | None = None  # None = tutti i tracker con un profilo di upload
     forced_ids: ForcedIds | None = None
     overrides: dict | None = None
+    tracker_choices: dict[int, TrackerChoice] | None = None
 
 
 class UploadMatchRequest(BaseModel):
@@ -57,7 +62,7 @@ class TargetDecision(BaseModel):
     target_id: int
     action: str  # upload | reseed | skip
     name: str | None = None
-    flags: dict[str, bool] | None = None
+    flags: dict[str, bool | int] | None = None  # freeleech è una percentuale
     category_id: int | None = None
     type_id: int | None = None
     resolution_id: int | None = None
@@ -91,6 +96,7 @@ class UploadTargetResponse(BaseModel):
     proposed_name: str | None
     approved_name: str | None
     flags: dict
+    freeleech_options: list[int]
     category_id: int | None
     type_id: int | None
     resolution_id: int | None
@@ -115,7 +121,8 @@ class UploadTargetResponse(BaseModel):
             status=t.status, suggested_action=t.suggested_action, action=t.action,
             dupes=_loads(t.dupes_json, []), reseed_torrent_id=t.reseed_torrent_id,
             proposed_name=t.proposed_name, approved_name=t.approved_name,
-            flags=_loads(t.flags_json, {}), category_id=t.category_id, type_id=t.type_id,
+            flags=_loads(t.flags_json, {}), freeleech_options=upload_profiles.freeleech_options(profile),
+            category_id=t.category_id, type_id=t.type_id,
             resolution_id=t.resolution_id, info_hash=t.info_hash, torrent_id_remote=t.torrent_id_remote,
             remote_url=_remote_url(t),
             error_message=t.error_message, finished_at=t.finished_at,
@@ -246,6 +253,8 @@ class UploadTrackerResponse(BaseModel):
     label: str
     torrent_client_id: int | None  # dove andrà in seed il torrent generato
     torrent_client_label: str | None
+    freeleech_options: list[int]
+    default_freeleech: int | None
 
 
 @router.get("/trackers", response_model=list[UploadTrackerResponse])
@@ -256,9 +265,12 @@ def list_upload_trackers(session: Session = Depends(get_session)):
     for tracker in upload_jobs.upload_trackers(session):
         client_id = upload_jobs.default_client_id(session, tracker)
         client = session.get(TorrentClient, client_id) if client_id is not None else None
+        profile = session.get(TrackerUploadProfile, tracker.id)
         out.append(UploadTrackerResponse(
             id=tracker.id, label=tracker.label, torrent_client_id=client_id,
             torrent_client_label=client.label if client is not None else None,
+            freeleech_options=upload_profiles.freeleech_options(profile),
+            default_freeleech=profile.default_freeleech if profile else None,
         ))
     return out
 
@@ -285,6 +297,7 @@ def create_upload(body: UploadCreateRequest, request: Request, session: Session 
         job = upload_jobs.create_job(
             session, disk, body.relative_path, body.tracker_ids,
             body.forced_ids.model_dump() if body.forced_ids else None, body.overrides,
+            {tid: c.model_dump() for tid, c in (body.tracker_choices or {}).items()},
         )
     except (ScopeViolation, UploadJobError) as exc:
         raise HTTPException(status_code=400, detail=from_coded_error(exc)) from exc

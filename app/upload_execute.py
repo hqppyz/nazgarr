@@ -199,6 +199,7 @@ def upload_fields(job: UploadJob, target: UploadTarget, description: str, resolu
         personal_release=bool(flags.get("personal_release")),
         internal=bool(flags.get("internal")),
         stream=bool(flags.get("stream")),
+        free=int(flags.get("freeleech") or 0),
         sd=resolution_key in SD_RESOLUTIONS,
     )
 

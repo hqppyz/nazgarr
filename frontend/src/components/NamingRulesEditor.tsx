@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 
 import { useNamingPreview } from '@/api/hooks/trackers'
 import { Input } from '@/components/ui/input'
@@ -17,6 +17,10 @@ export type NamingRules = Record<string, unknown> & {
 // Un template per tipo di release (le chiavi type_id dei profili); vuoto =
 // usa quello di default.
 const TEMPLATE_KEYS = ['default', 'REMUX', 'WEBDL', 'WEBRIP', 'ENCODE', 'HDTV', 'DVDRIP', 'BRRIP'] as const
+// Stesse di app/upload_naming.py DEFAULT_TYPE_LABELS.
+const DEFAULT_TYPE_LABELS: Record<string, string> = {
+  REMUX: 'REMUX', WEBDL: 'WEB-DL', WEBRIP: 'WEBRip', ENCODE: '', HDTV: 'HDTV', DVDRIP: 'DVDRip', BRRIP: 'BRRip',
+}
 // Stesso ordine di app/upload_naming.py VARIABLES.
 const VARIABLE_NAMES = [
   'title', 'local_title', 'year', 'season', 'episode', 'edition', 'repack', 'resolution', 'source', 'type',
@@ -31,6 +35,15 @@ function useDebounced<T>(value: T, ms: number): T {
     return () => clearTimeout(id)
   }, [value, ms])
   return debounced
+}
+
+function Group({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <fieldset className="grid gap-2 rounded-md border p-3">
+      <legend className="px-1 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">{title}</legend>
+      <div className="grid gap-3 sm:grid-cols-3">{children}</div>
+    </fieldset>
+  )
 }
 
 function OptionSelect({
@@ -75,10 +88,10 @@ function TextOption({
   onChange: (value: string) => void
 }) {
   return (
-    <div className="grid gap-1">
-      <Label className="text-xs">{label}</Label>
+    <label className="grid gap-1">
+      <span className="text-xs font-medium">{label}</span>
       <Input className="h-8 font-mono text-xs" value={value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} />
-    </div>
+    </label>
   )
 }
 
@@ -102,11 +115,29 @@ export function NamingRulesEditor({
   const { data: preview, isError } = useNamingPreview(trackerId, debounced)
 
   const set = (patch: Partial<NamingRules>) => onChange({ ...value, ...patch })
-  const setTemplate = (key: string, template: string) => {
+  // Un pattern per tipo resta finché non lo si rimuove, anche se vuoto
+  // mentre lo si scrive (vuoto = usa quello principale).
+  const setTemplate = (key: string, template: string) => set({ templates: { ...templates, [key]: template } })
+  const shownKeys = TEMPLATE_KEYS.filter((key) => key === 'default' || key in templates)
+  const missingKeys = TEMPLATE_KEYS.filter((key) => key !== 'default' && !(key in templates))
+  const addTemplate = (key: string) => {
+    set({ templates: { ...templates, [key]: templates.default ?? '' } })
+    setFocused(key)
+  }
+  const removeTemplate = (key: string) => {
     const next = { ...templates }
-    if (template.trim()) next[key] = template
-    else delete next[key]
+    delete next[key]
     set({ templates: next })
+    if (focused === key) setFocused('default')
+  }
+  const typeLabels = (value.type_labels as Record<string, string> | undefined) ?? {}
+  // Un'etichetta vuota nel campo = quella di default; per non scrivere il
+  // tipo si lascia l'etichetta del profilo a "" (come fa ITT per gli encode).
+  const setTypeLabel = (key: string, label: string) => {
+    const next = { ...typeLabels }
+    if (label) next[key] = label
+    else delete next[key]
+    set({ type_labels: next })
   }
   const setLanguages = (field: 'audio_languages' | 'subs_languages', patch: Record<string, unknown>) =>
     set({ [field]: { ...(value[field] ?? {}), ...patch } })
@@ -154,14 +185,25 @@ export function NamingRulesEditor({
       </div>
 
       <div className="grid gap-3">
-        {TEMPLATE_KEYS.map((key) => {
+        {shownKeys.map((key) => {
           const own = templates[key] ?? ''
           const shown = preview?.names[key]
           return (
             <div key={key} className="grid gap-1">
-              <Label htmlFor={`template-${key}`} className="text-xs">
-                {t(`naming.template.${key}`)}
-              </Label>
+              <div className="flex items-center justify-between gap-2">
+                <Label htmlFor={`template-${key}`} className="text-xs">
+                  {key === 'default' ? t('naming.mainPattern') : t('naming.patternFor', { type: t(`naming.template.${key}`) })}
+                </Label>
+                {key !== 'default' && (
+                  <button
+                    type="button"
+                    className="text-[11px] text-muted-foreground hover:text-destructive"
+                    onClick={() => removeTemplate(key)}
+                  >
+                    {t('naming.removePattern')}
+                  </button>
+                )}
+              </div>
               <Input
                 id={`template-${key}`}
                 ref={(node) => {
@@ -169,16 +211,33 @@ export function NamingRulesEditor({
                 }}
                 className={cn('h-8 font-mono text-xs', focused === key && 'ring-1 ring-primary/40')}
                 value={own}
-                placeholder={key === 'default' ? '{title} ({year}) {season} {resolution} {source} {video_codec} {audio} {group}' : t('naming.usesDefault')}
+                placeholder={key === 'default' ? '{title} ({year}) {season} {resolution} {source} {video_codec} {audio} {group}' : ''}
                 onFocus={() => setFocused(key)}
                 onChange={(e) => setTemplate(key, e.target.value)}
               />
-              {own && shown && <p className="truncate font-mono text-[11px] text-muted-foreground" title={shown}>→ {shown}</p>}
+              {shown && <p className="font-mono text-[11px] break-all text-muted-foreground">→ {shown}</p>}
             </div>
           )
         })}
+        {missingKeys.length > 0 && (
+          <div className="flex items-center gap-2">
+            <Select value={null} onValueChange={(key) => key && addTemplate(key)}>
+              <SelectTrigger size="sm" className="w-auto">
+                <SelectValue placeholder={t('naming.addPatternFor')}>{() => t('naming.addPatternFor')}</SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {missingKeys.map((key) => (
+                  <SelectItem key={key} value={key}>
+                    {t(`naming.template.${key}`)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <span className="text-[11px] text-muted-foreground">{t('naming.addPatternHelp')}</span>
+          </div>
+        )}
         {preview && (
-          <p className="text-[11px] text-muted-foreground">
+          <p className="text-[11px] break-words text-muted-foreground">
             {preview.sample.kind === 'job'
               ? t('naming.previewOnJob', { label: preview.sample.label })
               : t('naming.previewOnExample')}
@@ -187,7 +246,7 @@ export function NamingRulesEditor({
         {isError && <p className="text-[11px] text-destructive">{t('naming.previewFailed')}</p>}
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-3">
+      <Group title={t('naming.group.title')}>
         <OptionSelect
           label={t('naming.title')}
           value={String(value.title ?? 'original')}
@@ -204,39 +263,59 @@ export function NamingRulesEditor({
           placeholder="it"
           onChange={(language) => set({ title_language: language || null })}
         />
-        <TextOption label={t('naming.separator')} value={String(value.separator ?? ' ')} onChange={(separator) => set({ separator: separator || ' ' })} />
-        <OptionSelect
-          label={t('naming.audioLanguages')}
-          value={value.audio_languages?.style ?? 'none'}
-          options={languageStyles}
-          onChange={(style) => setLanguages('audio_languages', { style })}
-        />
-        <TextOption
-          label={t('naming.primaryLanguage')}
-          value={value.audio_languages?.primary ?? ''}
-          placeholder="ITA"
-          onChange={(primary) => {
-            setLanguages('audio_languages', { primary: primary.toUpperCase() || undefined })
-          }}
-        />
-        <TextOption
-          label={t('naming.multiFrom')}
-          value={value.audio_languages?.multi_from != null ? String(value.audio_languages.multi_from) : ''}
-          placeholder="3"
-          onChange={(raw) => setLanguages('audio_languages', { multi_from: /^\d+$/.test(raw) ? Number(raw) : undefined })}
-        />
-        <OptionSelect
-          label={t('naming.subsLanguages')}
-          value={value.subs_languages?.style ?? 'all'}
-          options={languageStyles}
-          onChange={(style) => setLanguages('subs_languages', { style, primary: value.audio_languages?.primary })}
-        />
+      </Group>
+
+      {(['audio_languages', 'subs_languages'] as const).map((field) => (
+        <Group key={field} title={t(`naming.group.${field}`)}>
+          <OptionSelect
+            label={t('naming.languagesStyle')}
+            value={value[field]?.style ?? (field === 'subs_languages' ? 'all' : 'none')}
+            options={languageStyles}
+            onChange={(style) => setLanguages(field, { style })}
+          />
+          <TextOption
+            label={t('naming.primaryLanguage')}
+            value={value[field]?.primary ?? ''}
+            placeholder="ITA"
+            onChange={(primary) => setLanguages(field, { primary: primary.toUpperCase() || undefined })}
+          />
+          <TextOption
+            label={t('naming.multiFrom')}
+            value={value[field]?.multi_from != null ? String(value[field]!.multi_from) : ''}
+            placeholder="3"
+            onChange={(raw) => setLanguages(field, { multi_from: /^\d+$/.test(raw) ? Number(raw) : undefined })}
+          />
+        </Group>
+      ))}
+
+      <Group title={t('naming.group.labels')}>
         <TextOption label={t('naming.subsLabel')} value={String(value.subs_label ?? '')} placeholder="SUBS" onChange={(label) => set({ subs_label: label || null })} />
         <TextOption label={t('naming.sdrLabel')} value={String(value.sdr_label ?? '')} placeholder="SDR" onChange={(label) => set({ sdr_label: label || null })} />
+        <TextOption label={t('naming.separator')} value={String(value.separator ?? ' ')} onChange={(separator) => set({ separator: separator || ' ' })} />
         <TextOption label={t('naming.groupSeparator')} value={String(value.group_separator ?? '-')} onChange={(separator) => set({ group_separator: separator || '-' })} />
-      </div>
+      </Group>
 
-      <AudioCodecNames value={(value.audio_codecs as Record<string, string> | undefined) ?? {}} onChange={(audio_codecs) => set({ audio_codecs })} />
+      <fieldset className="grid gap-3 rounded-md border p-3">
+        <legend className="px-1 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+          {t('naming.group.formats')}
+        </legend>
+        <div className="grid gap-1">
+          <Label className="text-xs">{t('naming.typeLabels')}</Label>
+          <p className="text-[11px] text-muted-foreground">{t('naming.typeLabelsHelp')}</p>
+          <div className="grid gap-2 sm:grid-cols-4">
+            {TEMPLATE_KEYS.filter((key) => key !== 'default').map((key) => (
+              <TextOption
+                key={key}
+                label={t(`naming.template.${key}`)}
+                value={typeLabels[key] ?? ''}
+                placeholder={key in typeLabels ? t('naming.notWritten') : DEFAULT_TYPE_LABELS[key] || t('naming.notWritten')}
+                onChange={(label) => setTypeLabel(key, label)}
+              />
+            ))}
+          </div>
+        </div>
+        <AudioCodecNames value={(value.audio_codecs as Record<string, string> | undefined) ?? {}} onChange={(audio_codecs) => set({ audio_codecs })} />
+      </fieldset>
     </div>
   )
 }

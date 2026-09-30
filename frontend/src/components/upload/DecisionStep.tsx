@@ -41,7 +41,7 @@ export function DecisionStep({ job }: { job: UploadJob }) {
         target_id: target.id,
         action: draft.action,
         name: draft.action === 'upload' ? draft.name : null,
-        flags: draft.action === 'upload' ? draft.flags : null,
+        flags: draft.action === 'upload' ? { ...draft.flags, freeleech: draft.freeleech } : null,
         category_id: draft.action === 'upload' ? draft.category_id : null,
         type_id: draft.action === 'upload' ? draft.type_id : null,
         resolution_id: draft.action === 'upload' ? draft.resolution_id : null,

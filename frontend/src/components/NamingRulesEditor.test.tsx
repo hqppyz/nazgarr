@@ -8,42 +8,63 @@ vi.mock('@/api/hooks/trackers', () => ({
   useNamingPreview: () => ({
     isError: false,
     data: {
-      sample: { kind: 'example', label: null },
+      sample: { kind: 'job', label: 'A.Very.Long.Release.Name.2024.2160p.UHD.BluRay.REMUX-GRP' },
       variables: { resolution: '2160p' },
-      names: { REMUX: 'Dune 2024 2160p-GRP' },
+      names: { default: 'Dune 2024 2160p-GRP' },
     },
   }),
 }))
 
 afterEach(cleanup)
 
-let latest: NamingRules = {}
-
-function Harness({ initial }: { initial: NamingRules }) {
+function Harness({ initial, onChange }: { initial: NamingRules; onChange: (rules: NamingRules) => void }) {
   const [rules, setRules] = useState(initial)
-  latest = rules
-  return <NamingRulesEditor trackerId={1} value={rules} onChange={setRules} />
+  return (
+    <NamingRulesEditor
+      trackerId={1}
+      value={rules}
+      onChange={(next) => {
+        setRules(next)
+        onChange(next)
+      }}
+    />
+  )
 }
 
+const lastRules = (spy: ReturnType<typeof vi.fn>) => spy.mock.calls.at(-1)![0] as NamingRules
+
 describe('NamingRulesEditor', () => {
-  it('inserts a variable into the focused template and shows the preview under it', () => {
-    render(<Harness initial={{ templates: { REMUX: '{title} {year}' } }} />)
+  it('has one main pattern, inserts variables at the cursor and previews the name', () => {
+    const onChange = vi.fn()
+    render(<Harness initial={{ templates: { default: '{title} {year}' } }} onChange={onChange} />)
 
     expect(screen.getByText('→ Dune 2024 2160p-GRP')).toBeTruthy()
-    const remux = screen.getByLabelText('REMUX') as HTMLInputElement
-    fireEvent.focus(remux)
-    remux.setSelectionRange(remux.value.length, remux.value.length)
+    expect(screen.queryByLabelText('Pattern for REMUX')).toBeNull()
+    const main = screen.getByLabelText('Release name pattern') as HTMLInputElement
+    fireEvent.focus(main)
+    main.setSelectionRange(main.value.length, main.value.length)
     fireEvent.click(screen.getByRole('button', { name: '{resolution}' }))
 
-    expect(latest.templates).toEqual({ REMUX: '{title} {year} {resolution}' })
+    expect(lastRules(onChange).templates).toEqual({ default: '{title} {year} {resolution}' })
     expect(screen.getByRole('button', { name: '{resolution}' }).getAttribute('title')).toBe('2160p')
   })
 
-  it('removes an emptied template so the default is used', () => {
-    render(<Harness initial={{ templates: { default: '{title}', REMUX: '{title} REMUX' } }} />)
+  it('shows a type pattern only when there is one, and removes it', () => {
+    const onChange = vi.fn()
+    render(<Harness initial={{ templates: { default: '{title}', REMUX: '{title} REMUX' } }} onChange={onChange} />)
 
-    fireEvent.change(screen.getByLabelText('REMUX'), { target: { value: '' } })
+    expect(screen.getByLabelText('Pattern for REMUX')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Remove' }))
 
-    expect(latest.templates).toEqual({ default: '{title}' })
+    expect(lastRules(onChange).templates).toEqual({ default: '{title}' })
+  })
+
+  it('keeps type labels as a value format', () => {
+    const onChange = vi.fn()
+    render(<Harness initial={{ templates: { default: '{title} {type}' } }} onChange={onChange} />)
+
+    fireEvent.change(screen.getByLabelText('REMUX'), { target: { value: '{source} REMUX VU' } })
+
+    expect(lastRules(onChange).type_labels).toEqual({ REMUX: '{source} REMUX VU' })
   })
 })

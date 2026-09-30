@@ -39,6 +39,18 @@ export const trackers = {
     'Copied from the bundled profile "{key}" — double-check the ids against your account before the first real upload.',
   'trackers.descriptionTemplate': 'Description template (Jinja2)',
   'trackers.namingRules': 'Naming rules',
+  'trackers.section.naming': 'Release name',
+  'trackers.section.description': 'Description template (Jinja2)',
+  'trackers.section.defaults': 'Defaults for new uploads',
+  'trackers.section.advanced': 'Advanced: tracker ids',
+  'trackers.advancedHelp':
+    "The ids the tracker uses for category, type and resolution. They come with the profile and shouldn't need changes.",
+  'trackers.freeleech': 'Freeleech',
+  'trackers.freeleechHelp':
+    'The percentages this tracker lets uploaders set. None selected = no freeleech choice in uploads.',
+  'trackers.freeleechOther': 'other %',
+  'trackers.freeleechDefault': 'Preselected:',
+  'trackers.freeleechNone': 'none',
   'trackers.namingVersion': 'version {version}',
   'trackers.namingCustomized': 'edited by you',
   'trackers.namingUpdateAvailable':

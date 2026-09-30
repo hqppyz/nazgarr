@@ -18,7 +18,8 @@ afterEach(cleanup)
 const target = (id: number, label: string, extra = {}) => ({
   id, tracker_label: label, status: 'awaiting_decision', suggested_action: 'upload', error_message: null,
   dupes: [], proposed_name: `Movie (2024) 1080p-GRP`, category_id: 1, type_id: 4, resolution_id: 3,
-  flags: { anonymous: false, personal_release: false, internal: false, stream: false }, reseed_torrent_id: null,
+  flags: { anonymous: false, personal_release: false, internal: false, stream: false, freeleech: 0 },
+  freeleech_options: [], reseed_torrent_id: null,
   category_id_map: { movie: 1 }, type_id_map: { WEBDL: 4 }, resolution_id_map: { '1080p': 3 }, ...extra,
 })
 
@@ -43,7 +44,8 @@ describe('DecisionStep', () => {
 
     expect(approve.mock.calls[0][0]).toEqual([
       { target_id: 1, action: 'upload', name: 'Movie (2024) 1080p-GRP', category_id: 1, type_id: 4, resolution_id: 3,
-        flags: { anonymous: false, personal_release: false, internal: false, stream: false }, reseed_torrent_id: null },
+        flags: { anonymous: false, personal_release: false, internal: false, stream: false, freeleech: 0 },
+        reseed_torrent_id: null },
       { target_id: 2, action: 'skip', name: null, flags: null, category_id: null, type_id: null, resolution_id: null,
         reseed_torrent_id: null },
     ])

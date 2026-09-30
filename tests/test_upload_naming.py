@@ -80,3 +80,27 @@ def test_bundled_naming_rules_are_versioned(db_session, monkeypatch):
     assert (refreshed.naming_version, refreshed.naming_customized, refreshed.naming_update_available) == (
         newest["version"], False, None,
     )
+
+
+def test_multi_above_a_number_of_languages_also_for_all_and_subtitles():
+    from app.upload_naming import _languages_value
+
+    tracks = [{"language": code} for code in ("en", "it", "fr")]
+    assert _languages_value(tracks, {"style": "all", "multi_from": 3}) == "MULTI"
+    assert _languages_value(tracks[:2], {"style": "all", "multi_from": 3}) == "ENG ITA"
+    assert _languages_value(tracks, {"style": "primary_first", "primary": "ITA", "multi_from": 3}) == "ITA MULTI"
+
+
+def test_one_pattern_with_type_labels_that_can_hold_variables():
+    rules = {"templates": {"default": "{title} {resolution} {type} {video_codec} {group}"},
+             "type_labels": {"REMUX": "{source} REMUX VU", "ENCODE": ""}}
+    base = {"title": "Dune", "resolution": "2160p", "source": "UHD BluRay", "video_codec": "HEVC", "group": "G"}
+
+    assert build_name(rules, {**base, "type": "REMUX"}) == "Dune 2160p UHD BluRay REMUX VU HEVC-G"
+    assert build_name(rules, {**base, "type": "ENCODE"}) == "Dune 2160p HEVC-G"
+    # Senza etichetta del profilo: quella di default, non la chiave.
+    assert build_name(rules, {**base, "type": "WEBDL"}) == "Dune 2160p WEB-DL HEVC-G"
+    # Un pattern specifico vuoto usa quello principale.
+    assert build_name({**rules, "templates": {**rules["templates"], "WEBDL": " "}}, {**base, "type": "WEBDL"}) == (
+        "Dune 2160p WEB-DL HEVC-G"
+    )

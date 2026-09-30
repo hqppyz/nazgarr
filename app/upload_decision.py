@@ -12,7 +12,7 @@ import json
 import logging
 import os
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, object_session
 
 from app import upload_jobs
 from app.adapter_factory import TmdbApiKeyMissingError
@@ -26,10 +26,11 @@ from app.upload_naming import (
     release_values,
     rules_from_convention,
 )
+from app.upload_profiles import freeleech_options
 
 logger = logging.getLogger(__name__)
 
-FLAG_KEYS = ("anonymous", "personal_release", "internal", "stream")
+FLAG_KEYS = ("anonymous", "personal_release", "internal", "stream")  # booleani; freeleech è a parte (percentuale)
 # Override oltre ai valori rilevati: anno del nome, numero di screenshot,
 # note in fondo alla descrizione, e non aggiungere il torrent al client.
 EXTRA_OVERRIDES = {"year": int, "screenshot_count": int, "notes": str, "no_seed": bool}
@@ -127,13 +128,17 @@ def propose(session: Session, job: UploadJob) -> None:
         target.category_id = categories.get(job.content_type or "movie")
         target.type_id = types.get(values.get("type") or "")
         target.resolution_id = resolutions.get(values.get("resolution") or "")
-        if target.flags_json is None:
-            target.flags_json = json.dumps({
-                "anonymous": bool(profile and profile.default_anonymous),
-                "personal_release": bool(profile and profile.default_personal_release),
-                "internal": False,
-                "stream": False,
-            })
+        # Default del profilo sotto quello che c'è già (le scelte fatte alla
+        # creazione), mai sopra.
+        existing = json.loads(target.flags_json) if target.flags_json else {}
+        target.flags_json = json.dumps({
+            "anonymous": bool(profile and profile.default_anonymous),
+            "personal_release": bool(profile and profile.default_personal_release),
+            "internal": False,
+            "stream": False,
+            "freeleech": (profile.default_freeleech or 0) if profile else 0,
+            **existing,
+        })
     job.analysis_json = json.dumps(analysis)
     session.commit()
 
@@ -143,6 +148,10 @@ def update_overrides(session: Session, job: UploadJob, overrides: dict | None) -
         raise UploadJobError("upload_job_wrong_status", status=job.status)
     job.overrides_json = json.dumps(clean_overrides(overrides))
     propose(session, job)
+
+
+def _profile_of(target: UploadTarget) -> TrackerUploadProfile | None:
+    return object_session(target).get(TrackerUploadProfile, target.tracker_id)
 
 
 def _validate(target: UploadTarget, decision: dict) -> dict:
@@ -158,7 +167,10 @@ def _validate(target: UploadTarget, decision: dict) -> dict:
         if any(not isinstance(v, int) for v in ids.values()):
             raise UploadJobError("upload_ids_required", tracker=target.tracker.label)
         flags = decision.get("flags") or {}
-        out.update(ids, name=name, flags={key: bool(flags.get(key)) for key in FLAG_KEYS})
+        freeleech = int(flags.get("freeleech") or 0)
+        if freeleech and freeleech not in freeleech_options(_profile_of(target)):
+            raise UploadJobError("upload_freeleech_not_allowed", tracker=target.tracker.label, value=freeleech)
+        out.update(ids, name=name, flags={**{key: bool(flags.get(key)) for key in FLAG_KEYS}, "freeleech": freeleech})
     if action == "reseed":
         dupes = json.loads(target.dupes_json or "[]")
         torrent_id = decision.get("reseed_torrent_id") or target.reseed_torrent_id

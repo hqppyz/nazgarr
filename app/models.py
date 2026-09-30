@@ -445,6 +445,8 @@ class TrackerUploadProfile(Base):
     description_template: Mapped[str | None]
     default_anonymous: Mapped[bool] = mapped_column(nullable=False, server_default=text("0"))
     default_personal_release: Mapped[bool] = mapped_column(nullable=False, server_default=text("0"))
+    freeleech_options_json: Mapped[str | None]
+    default_freeleech: Mapped[int | None]
     source_profile_key: Mapped[str | None]
 
     tracker: Mapped["Tracker"] = relationship()

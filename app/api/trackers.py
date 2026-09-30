@@ -137,6 +137,8 @@ class UploadProfileUpdateRequest(BaseModel):
     description_template: str | None = None
     default_anonymous: bool | None = None
     default_personal_release: bool | None = None
+    freeleech_options: list[int] | None = None
+    default_freeleech: int | None = None
 
 
 class UploadProfileResponse(BaseModel):
@@ -152,6 +154,8 @@ class UploadProfileResponse(BaseModel):
     description_template: str | None
     default_anonymous: bool
     default_personal_release: bool
+    freeleech_options: list[int]
+    default_freeleech: int | None
     source_profile_key: str | None
 
     @classmethod
@@ -169,6 +173,8 @@ class UploadProfileResponse(BaseModel):
             description_template=p.description_template,
             default_anonymous=p.default_anonymous,
             default_personal_release=p.default_personal_release,
+            freeleech_options=upload_profiles.freeleech_options(p),
+            default_freeleech=p.default_freeleech,
             source_profile_key=p.source_profile_key,
         )
 
@@ -234,6 +240,10 @@ def update_upload_profile(
         profile.default_anonymous = body.default_anonymous
     if body.default_personal_release is not None:
         profile.default_personal_release = body.default_personal_release
+    if body.freeleech_options is not None:
+        profile.freeleech_options_json = json.dumps(sorted({v for v in body.freeleech_options if 0 < v <= 100}))
+    if body.default_freeleech is not None:
+        profile.default_freeleech = body.default_freeleech or None
     session.commit()
     return UploadProfileResponse.from_model(profile)
 

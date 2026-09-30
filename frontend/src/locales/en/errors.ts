@@ -77,6 +77,7 @@ export const errors = {
   'errors.upload_seed_path_exists': 'A different file already exists at {path}.',
   'errors.upload_screenshots_failed': 'Could not make or upload the screenshots: {error}',
   'errors.upload_reseed_missing_video': "The tracker's torrent has a video Nazgarr can't find locally: {path}",
+  'errors.upload_freeleech_not_allowed': '{tracker} does not allow a {value}% freeleech.',
   'errors.no_video_files': 'No video file found in the source.',
   'errors.invalid_content_type': 'Invalid content type: {value}',
   'errors.tmdb_not_found': 'Not found on TMDB.',

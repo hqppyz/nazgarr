@@ -42,6 +42,14 @@ DETECTED_FIELDS = (
 )
 
 DEFAULT_TEMPLATE = "{title} ({year}) {season} {resolution} {source} {video_codec} {audio} {group}"
+# Come si scrive {type} nel nome: la chiave del profilo (REMUX, WEBDL, ...)
+# resta per scegliere il type_id, nel nome va la sua etichetta. Un profilo
+# può ridefinirla (rules.type_labels), anche con variabili dentro, es.
+# REMUX: "{source} REMUX VU"; vuota = nel nome non si scrive.
+DEFAULT_TYPE_LABELS = {
+    "REMUX": "REMUX", "WEBDL": "WEB-DL", "WEBRIP": "WEBRip", "ENCODE": "", "HDTV": "HDTV", "DVDRIP": "DVDRip",
+    "BRRIP": "BRRip", "DISC": "",
+}
 DEFAULT_RULES = {
     "version": 0,
     "templates": {"default": DEFAULT_TEMPLATE},
@@ -279,13 +287,14 @@ def _languages_value(tracks: list[dict], config: dict | None) -> str | None:
     langs = list(dict.fromkeys(_lang3(t["language"]) for t in tracks if t.get("language") and not _is_commentary(t)))
     if not langs:
         return None
+    # Da multi_from lingue in su, "MULTI" al posto dell'elenco; con
+    # primary_first la lingua principale del tracker resta davanti.
+    many = len(langs) >= (config.get("multi_from") or 99)
     if style == "all":
-        return " ".join(langs)
-    # primary_first: la lingua principale del tracker per prima; da
-    # multi_from lingue in su, "MULTI" al posto delle altre.
+        return "MULTI" if many else " ".join(langs)
     primary = config.get("primary")
     head = [primary] if primary in langs else []
-    if len(langs) >= (config.get("multi_from") or 99):
+    if many:
         return " ".join([*head, "MULTI"])
     return " ".join([*head, *(lang for lang in langs if lang != primary)])
 
@@ -355,17 +364,31 @@ _TOKEN = re.compile(r"\{(\w+)\}")
 
 def template_for(rules: dict, release_type_key: str | None) -> str:
     templates = rules.get("templates") or {}
-    return templates.get(release_type_key or "") or templates.get("default") or DEFAULT_TEMPLATE
+    return (templates.get(release_type_key or "") or "").strip() or templates.get("default") or DEFAULT_TEMPLATE
+
+
+def _render(template: str, values: dict) -> str:
+    return _TOKEN.sub(lambda m: "" if m.group(1) == "group" else str(values.get(m.group(1)) or ""), template)
+
+
+def type_label(rules: dict, values: dict) -> str | None:
+    key = values.get("type")
+    if not key:
+        return None
+    labels = {**DEFAULT_TYPE_LABELS, **(rules.get("type_labels") or {})}
+    label = labels.get(key, key)
+    return re.sub(r"\s+", " ", _render(label, {**values, "type": key})).strip() or None
 
 
 def build_name(rules: dict | None, values: dict) -> str:
     rules = effective_rules(rules)
     template = template_for(rules, values.get("type"))
+    values = {**values, "type": type_label(rules, values)}
     if values.get("season") and "{season}" not in template:
         anchor = "({year})" if "({year})" in template else "{year}" if "{year}" in template else "{title}"
         template = template.replace(anchor, f"{anchor} {{season}}", 1)
     group = values.get("group")
-    rendered = _TOKEN.sub(lambda m: "" if m.group(1) == "group" else str(values.get(m.group(1)) or ""), template)
+    rendered = _render(template, values)
     rendered = re.sub(r"\(\s*\)|\[\s*\]", "", rendered)
     rendered = re.sub(r"\s+", " ", rendered).strip()
     separator = rules.get("separator") or " "

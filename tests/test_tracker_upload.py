@@ -83,3 +83,19 @@ def test_upload_torrent_raises_on_missing_local_file(tmp_path):
 
     with pytest.raises(UploadError):
         adapter.upload_torrent(_fields(), str(tmp_path / "missing.torrent"))
+
+
+def test_upload_torrent_sends_freeleech_internal_and_mal(tmp_path):
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["body"] = request.content
+        return httpx.Response(200, json={"success": True, "data": "/torrents/download/1.x"})
+
+    adapter = _adapter(handler)
+    adapter.upload_torrent(_fields(free=50, internal=True, mal_id=5114), _torrent_file(tmp_path))
+
+    body = captured["body"]
+    assert b'name="free"\r\n\r\n50\r\n' in body
+    assert b'name="internal"\r\n\r\n1\r\n' in body
+    assert b'name="mal"\r\n\r\n5114\r\n' in body

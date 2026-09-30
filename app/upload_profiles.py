@@ -76,6 +76,8 @@ def create_upload_profile(session: Session, tracker: Tracker, profile_key: str |
             description_template=upload.get("description_template"),
             default_anonymous=bool(flags.get("anonymous", False)),
             default_personal_release=bool(flags.get("personal_release", False)),
+            freeleech_options_json=json.dumps((upload.get("freeleech") or {}).get("options") or []),
+            default_freeleech=(upload.get("freeleech") or {}).get("default") or None,
             source_profile_key=profile_key,
         )
     session.add(profile)
@@ -128,3 +130,9 @@ def update_naming_from_bundled(session: Session, profile: TrackerUploadProfile) 
         raise ProfileNotFoundError("bundled_profile_not_found", key=profile.source_profile_key)
     apply_bundled_naming(profile, naming)
     session.commit()
+
+
+def freeleech_options(profile: TrackerUploadProfile | None) -> list[int]:
+    if profile is None or not profile.freeleech_options_json:
+        return []
+    return sorted({int(v) for v in json.loads(profile.freeleech_options_json) if 0 < int(v) <= 100})

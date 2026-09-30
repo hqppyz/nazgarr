@@ -24,6 +24,12 @@ export function NewUploadPage() {
   const [trackerChoice, setTrackerChoice] = useState<Set<number> | null>(null)
   const selectedTrackers = trackerChoice ?? (trackers ? new Set(trackers.map((tr) => tr.id)) : null)
 
+  // Freeleech scelto per tracker (solo per chi lo concede): undefined = il
+  // default del profilo.
+  const [freeleech, setFreeleech] = useState<Record<number, number>>({})
+  const freeleechOf = (id: number) =>
+    freeleech[id] ?? trackers?.find((tr) => tr.id === id)?.default_freeleech ?? 0
+
   const toggleTracker = (id: number) =>
     setTrackerChoice(() => {
       const next = new Set(selectedTrackers ?? [])
@@ -42,6 +48,11 @@ export function NewUploadPage() {
         relative_path: source.relativePath,
         tracker_ids: [...selectedTrackers],
         forced_ids: toForcedIds(ids),
+        tracker_choices: Object.fromEntries(
+          [...selectedTrackers]
+            .filter((id) => freeleechOf(id) > 0)
+            .map((id) => [id, { freeleech: freeleechOf(id) }]),
+        ),
       },
       {
         onSuccess: (job) => navigate(`/upload/${job.id}`),
@@ -129,6 +140,28 @@ export function NewUploadPage() {
                           ? t('upload.seedsOn', { client: tracker.torrent_client_label })
                           : t('upload.noClient')}
                       </span>
+                      {active && tracker.freeleech_options.length > 0 && (
+                        <span className="mt-1 flex flex-wrap gap-1" onClick={(e) => e.stopPropagation()}>
+                          {[0, ...tracker.freeleech_options].map((value) => (
+                            <span
+                              key={value}
+                              role="radio"
+                              aria-checked={freeleechOf(tracker.id) === value}
+                              tabIndex={0}
+                              onClick={() => setFreeleech((prev) => ({ ...prev, [tracker.id]: value }))}
+                              onKeyDown={(e) => e.key === 'Enter' && setFreeleech((prev) => ({ ...prev, [tracker.id]: value }))}
+                              className={cn(
+                                'cursor-pointer rounded border px-1.5 text-[11px] tabular-nums',
+                                freeleechOf(tracker.id) === value
+                                  ? 'border-primary bg-primary/10 text-primary'
+                                  : 'text-muted-foreground hover:bg-muted',
+                              )}
+                            >
+                              {value === 0 ? t('upload.noFreeleech') : `FL ${value}%`}
+                            </span>
+                          ))}
+                        </span>
+                      )}
                     </span>
                   </button>
                 )

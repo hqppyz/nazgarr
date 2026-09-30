@@ -2751,7 +2751,7 @@ export interface components {
             name?: string | null;
             /** Flags */
             flags?: {
-                [key: string]: boolean;
+                [key: string]: boolean | number;
             } | null;
             /** Category Id */
             category_id?: number | null;
@@ -2830,6 +2830,11 @@ export interface components {
             qui_instance_id?: number | null;
             /** Enabled */
             enabled?: boolean | null;
+        };
+        /** TrackerChoice */
+        TrackerChoice: {
+            /** Freeleech */
+            freeleech?: number | null;
         };
         /** TrackerCreateRequest */
         TrackerCreateRequest: {
@@ -2946,6 +2951,10 @@ export interface components {
             /** Overrides */
             overrides?: {
                 [key: string]: unknown;
+            } | null;
+            /** Tracker Choices */
+            tracker_choices?: {
+                [key: string]: components["schemas"]["TrackerChoice"];
             } | null;
         };
         /** UploadEventResponse */
@@ -3158,6 +3167,10 @@ export interface components {
             default_anonymous: boolean;
             /** Default Personal Release */
             default_personal_release: boolean;
+            /** Freeleech Options */
+            freeleech_options: number[];
+            /** Default Freeleech */
+            default_freeleech: number | null;
             /** Source Profile Key */
             source_profile_key: string | null;
         };
@@ -3187,6 +3200,10 @@ export interface components {
             default_anonymous?: boolean | null;
             /** Default Personal Release */
             default_personal_release?: boolean | null;
+            /** Freeleech Options */
+            freeleech_options?: number[] | null;
+            /** Default Freeleech */
+            default_freeleech?: number | null;
         };
         /** UploadReidentifyRequest */
         UploadReidentifyRequest: {
@@ -3226,6 +3243,8 @@ export interface components {
             flags: {
                 [key: string]: unknown;
             };
+            /** Freeleech Options */
+            freeleech_options: number[];
             /** Category Id */
             category_id: number | null;
             /** Type Id */
@@ -3265,6 +3284,10 @@ export interface components {
             torrent_client_id: number | null;
             /** Torrent Client Label */
             torrent_client_label: string | null;
+            /** Freeleech Options */
+            freeleech_options: number[];
+            /** Default Freeleech */
+            default_freeleech: number | null;
         };
         /** UploadVerifyRequest */
         UploadVerifyRequest: {

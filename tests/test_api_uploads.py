@@ -275,7 +275,8 @@ def test_upload_trackers_lists_only_trackers_with_a_profile_and_their_client(cli
         session.close()
 
     assert client.get("/api/uploads/trackers").json() == [
-        {"id": tracker_id, "label": "with", "torrent_client_id": qbit_id, "torrent_client_label": "qbit"}
+        {"id": tracker_id, "label": "with", "torrent_client_id": qbit_id, "torrent_client_label": "qbit",
+         "freeleech_options": [], "default_freeleech": None}
     ]
 
 

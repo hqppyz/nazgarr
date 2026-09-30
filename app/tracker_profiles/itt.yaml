@@ -53,7 +53,7 @@ upload:
   # Upload-Assistant (src/trackers/ITT.py, riferimento di dominio): da
   # verificare contro il regolamento del tracker prima del primo upload.
   naming:
-    version: 2
+    version: 3
     force: false
     title: local
     title_language: it
@@ -62,15 +62,17 @@ upload:
       primary: ITA
       multi_from: 3
     group_separator: "-"
+    # Un solo pattern: cambia solo come si scrive il tipo.
     templates:
-      REMUX: "{title} {year} {season} {edition} {repack} {resolution} {source} REMUX VU {hdr} {video_codec} {audio_languages} {audio_all} {group}"
-      WEBDL: "{title} {year} {season} {edition} {repack} {resolution} {service} WEB-DL {hdr} {video_codec} {audio_languages} {audio_all} {group}"
-      WEBRIP: "{title} {year} {season} {edition} {repack} {resolution} {service} WEBRip {hdr} {video_codec} {audio_languages} {audio_all} {group}"
-      ENCODE: "{title} {year} {season} {edition} {repack} {resolution} {hdr} {video_codec} {audio_languages} {audio_all} {group}"
-      HDTV: "{title} {year} {season} {edition} {repack} {resolution} {hdr} {video_codec} {audio_languages} {audio_all} {group}"
-      DVDRIP: "{title} {year} {season} {edition} {repack} {resolution} DVDRip {hdr} {video_codec} {audio_languages} {audio_all} {group}"
-      BRRIP: "{title} {year} {season} {edition} {repack} {resolution} BRRip {hdr} {video_codec} {audio_languages} {audio_all} {group}"
-      default: "{title} {year} {season} {resolution} {source} {hdr} {video_codec} {audio_languages} {audio_all} {group}"
+      default: "{title} {year} {season} {edition} {repack} {resolution} {service} {type} {hdr} {video_codec} {audio_languages} {audio_all} {group}"
+    type_labels:
+      REMUX: "{source} REMUX VU"
+      WEBDL: "WEB-DL"
+      WEBRIP: "WEBRip"
+      ENCODE: ""
+      HDTV: ""
+      DVDRIP: "DVDRip"
+      BRRIP: "BRRip"
   description_template: |
     [mediainfo]{{ mediainfo }}[/mediainfo]
 
@@ -79,6 +81,11 @@ upload:
     {% if notes %}
     {{ notes }}
     {% endif %}
+  # Percentuali di freeleech che il tracker lascia scegliere a chi carica
+  # (campo UNIT3D "free"). Vuoto finché non è verificato sul regolamento.
+  freeleech:
+    options: []
+    default: 0
   default_flags:
     anonymous: false
     personal_release: false

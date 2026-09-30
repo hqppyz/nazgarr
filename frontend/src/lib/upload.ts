@@ -59,6 +59,7 @@ export interface TargetDraft {
   type_id: number | null
   resolution_id: number | null
   flags: Record<string, boolean>
+  freeleech: number  // percentuale, 0 = nessuno
   reseed_torrent_id: string | null
   touched: (keyof Omit<TargetDraft, 'touched'>)[]
 }
@@ -85,7 +86,12 @@ export function initialDraft(target: DraftSource): TargetDraft {
     category_id: target.category_id,
     type_id: target.type_id,
     resolution_id: target.resolution_id,
-    flags: Object.fromEntries(Object.entries(target.flags).map(([k, v]) => [k, v === true])),
+    flags: Object.fromEntries(
+      Object.entries(target.flags)
+        .filter(([k]) => k !== 'freeleech')
+        .map(([k, v]) => [k, v === true]),
+    ),
+    freeleech: typeof target.flags.freeleech === 'number' ? target.flags.freeleech : 0,
     reseed_torrent_id: target.reseed_torrent_id ?? identical[0]?.torrent_id_remote ?? null,
     touched: [],
   }
