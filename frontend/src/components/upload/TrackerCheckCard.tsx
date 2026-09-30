@@ -11,6 +11,7 @@ import { t } from '@/lib/i18n'
 import { formatBytes } from '@/lib/library-filters'
 import { dupeUrl } from '@/lib/upload'
 import { cn } from '@/lib/utils'
+import { safeHref } from '@/lib/safeUrl'
 
 interface Dupe {
   torrent_id_remote: string
@@ -134,7 +135,7 @@ export function TrackerCheckCard({
                     </Badge>
                     <div className="grid min-w-0">
                       {url ? (
-                        <a href={url} target="_blank" rel="noreferrer" className="truncate font-mono hover:underline" title={dupe.name}>
+                        <a href={safeHref(url)} target="_blank" rel="noreferrer" className="truncate font-mono hover:underline" title={dupe.name}>
                           {dupe.name}
                         </a>
                       ) : (

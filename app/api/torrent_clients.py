@@ -11,6 +11,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session, object_session
 
 from app import adapter_factory
+from app.api.types import HttpUrlStr
 from app.api_errors import coded_detail
 from app.client_labels import split_tags
 from app.deps import get_session
@@ -25,7 +26,7 @@ SUPPORTED_ADAPTER_TYPES = {"qbittorrent", "qui"}
 class TorrentClientCreateRequest(BaseModel):
     label: str
     adapter_type: str
-    base_url: str
+    base_url: HttpUrlStr
     username: str | None = None
     password: str | None = None
     api_token: str | None = None  # adapter_type="qui": la sua X-API-Key
@@ -34,7 +35,7 @@ class TorrentClientCreateRequest(BaseModel):
 
 class TorrentClientUpdateRequest(BaseModel):
     label: str | None = None
-    base_url: str | None = None
+    base_url: HttpUrlStr | None = None
     username: str | None = None
     password: str | None = None
     api_token: str | None = None

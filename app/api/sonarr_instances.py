@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from app.api.types import HttpUrlStr
 from app.api_errors import coded_detail
 from app.deps import get_session
 from app.models import SonarrInstance
@@ -18,7 +19,7 @@ DEFAULT_TIMEOUT_SECONDS = 15
 
 class SonarrInstanceCreateRequest(BaseModel):
     label: str
-    base_url: str
+    base_url: HttpUrlStr
     api_key: str
     priority: int = DEFAULT_PRIORITY
     timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS
@@ -28,7 +29,7 @@ class SonarrInstanceCreateRequest(BaseModel):
 
 class SonarrInstanceUpdateRequest(BaseModel):
     label: str | None = None
-    base_url: str | None = None
+    base_url: HttpUrlStr | None = None
     api_key: str | None = None
     enabled: bool | None = None
     priority: int | None = None
@@ -66,7 +67,7 @@ class SonarrConnectionTestRequest(BaseModel):
     """Senza instance_id: usata dal dialog "Add instance" per testare prima
     ancora di salvare, con i valori appena digitati nel form."""
 
-    base_url: str
+    base_url: HttpUrlStr
     api_key: str
     timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS
     basic_auth_username: str | None = None

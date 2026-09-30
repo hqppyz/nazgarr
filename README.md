@@ -49,6 +49,17 @@ curl http://localhost:8080/api/health
 # {"status":"ok"}
 ```
 
+### Creating your account
+
+Nazgarr is closed until you create its single administrator account. On the first start (and at every restart until the account exists) the container log prints a one-time **setup code**:
+
+```bash
+docker logs nazgarr
+# No account yet: open Nazgarr and create it with this setup code: 3fT9-kQ2xY
+```
+
+Open the web UI, enter the code, a username and a password. Only someone who can read the container log can create the account, so nobody else on your network can take it over. To set the code yourself (for automated setups), use the `NAZGARR_SETUP_CODE` environment variable.
+
 ### Unraid
 
 A Community-Applications-style template is published at [`unraid/nazgarr-template.xml`](unraid/nazgarr-template.xml) — add it as a custom template pointing at that raw GitHub URL, or download it and add it manually via "Add Container" → "Template" in the Unraid Docker UI. It follows the same TrashGuide layout as the compose file above (one combined `/data` mount).
@@ -65,6 +76,15 @@ Every version is also published as `:X.Y.Z`. **Configuration → Application →
 ## First run: registering a disk and scanning your library
 
 There's no setup wizard yet — this is the sequence a future UI would drive, done by hand against the API.
+
+Every call needs your login token. Get one once and reuse it (valid 30 days):
+
+```bash
+TOKEN=$(curl -s -X POST http://localhost:8080/api/auth/login -H 'Content-Type: application/json' \
+  -d '{"username": "admin", "password": "your-password"}' | python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])')
+```
+
+and add `-H "Authorization: Bearer $TOKEN"` to the commands below.
 
 **1. Register a disk.** Point `root_path` at wherever you mounted your combined torrents+media folder inside the container (`/data` by default, matching `config.example.yaml`):
 

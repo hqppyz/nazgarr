@@ -7,6 +7,7 @@ import { UploadStatusBadge } from '@/components/upload/UploadStatusBadge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { t } from '@/lib/i18n'
 import { eventMessage, executionSteps } from '@/lib/upload'
+import { safeHref } from '@/lib/safeUrl'
 
 // Esito finale, tracker per tracker: cosa è stato fatto, il link al
 // torrent sul tracker e, se qualcosa è andato storto, perché (l'ultimo
@@ -38,7 +39,7 @@ export function ResultStep({ job }: { job: UploadJob }) {
                 <UploadStatusBadge status={target.status} />
                 {target.remote_url && (
                   <a
-                    href={target.remote_url}
+                    href={safeHref(target.remote_url)}
                     target="_blank"
                     rel="noreferrer"
                     className="ml-auto inline-flex items-center gap-1 text-xs hover:underline"

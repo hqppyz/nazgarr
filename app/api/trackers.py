@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session, object_session
 
 from app import tracker_icons, upload_decision, upload_profiles
+from app.api.types import HttpUrlStr
 from app.api_errors import coded_detail, from_coded_error
 from app.deps import get_session
 from app.models import Tracker, TrackerUploadProfile
@@ -24,9 +25,9 @@ SUPPORTED_ADAPTER_TYPES = {"unit3d"}
 class TrackerCreateRequest(BaseModel):
     label: str
     adapter_type: str
-    base_url: str
+    base_url: HttpUrlStr
     api_token: str
-    announce_url: str | None = None  # necessario solo per creare un nuovo .torrent da caricare (Fase 6, §9)
+    announce_url: HttpUrlStr | None = None  # necessario solo per creare un nuovo .torrent da caricare (Fase 6, §9)
     rate_limit_per_min: int | None = None
     rss_key: str | None = None  # facoltativa: appresa in automatico dall'API
     torrent_client_id: int | None = None  # client per i reseed di questo tracker, None = il primo abilitato
@@ -35,9 +36,9 @@ class TrackerCreateRequest(BaseModel):
 
 class TrackerUpdateRequest(BaseModel):
     label: str | None = None
-    base_url: str | None = None
+    base_url: HttpUrlStr | None = None
     api_token: str | None = None
-    announce_url: str | None = None
+    announce_url: HttpUrlStr | None = None
     rate_limit_per_min: int | None = None
     enabled: bool | None = None
     rss_key: str | None = None  # "" la cancella (torna al solo recupero automatico)

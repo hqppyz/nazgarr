@@ -31,6 +31,7 @@ import { relativeFromNow } from '@/lib/time'
 import { newUploadLink } from '@/lib/upload'
 import { TrackerOverview } from '@/pages/library/TrackerOverview'
 import { cn } from '@/lib/utils'
+import { safeHref } from '@/lib/safeUrl'
 
 type Detail = Schemas['ItemDetailResponse']
 type DetailFile = Schemas['DetailFile']
@@ -69,7 +70,7 @@ function ExternalLinks({ detail }: { detail: Detail }) {
   return (
     <div className="flex flex-wrap gap-1.5">
       {links.map((l) => (
-        <Button key={l.label} size="xs" variant="outline" render={<a href={l.href} target="_blank" rel="noreferrer" />}>
+        <Button key={l.label} size="xs" variant="outline" render={<a href={safeHref(l.href)} target="_blank" rel="noreferrer" />}>
           {l.label}
           <ExternalLinkIcon className="size-3" />
         </Button>
