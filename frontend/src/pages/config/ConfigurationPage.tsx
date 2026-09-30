@@ -11,6 +11,7 @@ import {
   ScrollTextIcon,
   ShieldIcon,
   UploadCloudIcon,
+  WebhookIcon,
   type LucideIcon,
 } from 'lucide-react'
 import type { ReactNode } from 'react'
@@ -34,6 +35,7 @@ import { SecuritySection } from '@/pages/config/SecuritySection'
 import { TorrentClientsSection } from '@/pages/config/TorrentClientsSection'
 import { TrackersSection } from '@/pages/config/TrackersSection'
 import { UploadSettingsSection } from '@/pages/config/UploadSettingsSection'
+import { WebhooksSection } from '@/pages/config/WebhooksSection'
 
 // Impostazioni in gruppi per argomento (Generale, Libreria, Torrent,
 // Reseeding, Sistema). Il tab aperto sta nell'URL (?tab=…), così un link da
@@ -103,6 +105,7 @@ const GROUPS: { title: string; tabs: Tab[] }[] = [
     tabs: [
       { value: 'upload', label: t('config.tabUpload'), icon: UploadCloudIcon, layout: PAIRS, content: <UploadSettingsSection /> },
       { value: 'plugins', label: t('config.tabPlugins'), icon: PuzzleIcon, layout: STACK, content: <PluginsSection /> },
+      { value: 'webhooks', label: t('config.tabWebhooks'), icon: WebhookIcon, layout: STACK, content: <WebhooksSection /> },
       { value: 'logs', label: t('config.tabLogs'), icon: ScrollTextIcon, layout: STACK, content: <LogsSection /> },
     ],
   },

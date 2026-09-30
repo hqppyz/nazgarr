@@ -16,4 +16,5 @@ export const config = {
   'config.tabUpload': 'Upload',
   'config.tabLogs': 'Logs',
   'config.tabPlugins': 'Plugins',
+  'config.tabWebhooks': 'Webhooks',
 } as const

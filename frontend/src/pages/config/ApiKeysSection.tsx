@@ -1,8 +1,9 @@
-import { CheckIcon, CopyIcon, KeyRoundIcon } from 'lucide-react'
+import { KeyRoundIcon } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 
 import { useApiKeys, useCreateApiKey, useRevokeApiKey } from '@/api/hooks/apiKeys'
+import { OneTimeSecretDialog } from '@/components/OneTimeSecretDialog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -30,7 +31,6 @@ export function ApiKeysSection() {
   const [name, setName] = useState('')
   const [level, setLevel] = useState<'read' | 'write'>('read')
   const [created, setCreated] = useState<string | null>(null)
-  const [copied, setCopied] = useState(false)
   const [revoking, setRevoking] = useState<{ id: number; name: string } | null>(null)
 
   function submit() {
@@ -39,7 +39,6 @@ export function ApiKeysSection() {
       {
         onSuccess: (key) => {
           setCreated(key.key)
-          setCopied(false)
           setName('')
         },
         onError: (error) => toast.error(t('common.saveFailed', { message: error.message })),
@@ -104,34 +103,12 @@ export function ApiKeysSection() {
       </CardContent>
 
       {/* La chiave appena creata: l'unica volta che si vede. */}
-      <Dialog open={created !== null} onOpenChange={(open) => !open && setCreated(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t('security.apiKeyCreatedTitle')}</DialogTitle>
-            <DialogDescription>{t('security.apiKeyCreatedDescription')}</DialogDescription>
-          </DialogHeader>
-          <div className="flex items-center gap-2">
-            <code className="min-w-0 flex-1 rounded-md bg-muted px-3 py-2 font-mono text-xs break-all">{created}</code>
-            <Button
-              variant="outline"
-              size="icon-sm"
-              title={t('security.apiKeyCopy')}
-              onClick={() =>
-                created &&
-                navigator.clipboard.writeText(created).then(
-                  () => setCopied(true),
-                  () => toast.error(t('security.apiKeyCopyFailed')),
-                )
-              }
-            >
-              {copied ? <CheckIcon className="size-4" /> : <CopyIcon className="size-4" />}
-            </Button>
-          </div>
-          <DialogFooter>
-            <Button onClick={() => setCreated(null)}>{t('security.apiKeyDone')}</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <OneTimeSecretDialog
+        secret={created}
+        title={t('security.apiKeyCreatedTitle')}
+        description={t('security.apiKeyCreatedDescription')}
+        onClose={() => setCreated(null)}
+      />
 
       <Dialog open={revoking !== null} onOpenChange={(open) => !open && setRevoking(null)}>
         <DialogContent>

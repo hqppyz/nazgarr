@@ -30,6 +30,11 @@ export const errors = {
   'errors.seed_job_not_found': 'SeedJob {id} not found.',
 
   'errors.tracker_not_found': 'Tracker {id} not found.',
+  'errors.webhook_event_unknown': 'Unknown event: {event}',
+  'errors.webhook_events_required': 'Choose at least one event',
+  'errors.webhook_url_invalid': 'The URL must start with http:// or https://',
+  'errors.webhook_name_required': 'Give the webhook a name',
+  'errors.webhook_not_found': 'Webhook not found',
   'errors.api_key_invalid': 'The API key is wrong or has been revoked',
   'errors.api_key_read_only': 'This API key is read only',
   'errors.api_key_not_allowed': 'API keys can only be managed after logging in',

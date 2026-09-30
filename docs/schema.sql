@@ -171,6 +171,43 @@ CREATE TABLE IF NOT EXISTS api_key (
     revoked_at      TIMESTAMP
 );
 
+-- Webhooks (docs/ROADMAP.md Phase 10): POST JSON signed with HMAC-SHA256
+-- (app/webhooks.py) for the events they subscribe to.
+CREATE TABLE IF NOT EXISTS webhook (
+    id              INTEGER PRIMARY KEY,
+    name            TEXT NOT NULL,
+    url             TEXT NOT NULL,
+    secret          TEXT NOT NULL,          -- encrypted at rest; shown once, used to sign every delivery
+    events_json     TEXT NOT NULL,          -- event names (app/events.py CATALOG), or ["*"] for all
+    enabled         BOOLEAN NOT NULL DEFAULT 1,
+    created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Outbox of events and their deliveries: written in the same transaction as
+-- the change that caused the event, sent by the dispatcher with retries. An
+-- event is stored only if someone is subscribed to it. Kept 30 days.
+CREATE TABLE IF NOT EXISTS event (
+    id              INTEGER PRIMARY KEY,
+    name            TEXT NOT NULL,
+    payload_json    TEXT NOT NULL,
+    created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS event_delivery (
+    id              INTEGER PRIMARY KEY,
+    event_id        INTEGER NOT NULL REFERENCES event(id) ON DELETE CASCADE,
+    webhook_id      INTEGER REFERENCES webhook(id) ON DELETE CASCADE,
+    notification_type TEXT,                 -- a notification adapter (Phase 10 step 6) instead of a webhook
+    status          TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','delivered','failed')),
+    attempts        INTEGER NOT NULL DEFAULT 0,
+    next_attempt_at TIMESTAMP,
+    last_status_code INTEGER,
+    last_error      TEXT,
+    delivered_at    TIMESTAMP,
+    created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS ix_event_delivery_due ON event_delivery(status, next_attempt_at);
+
 CREATE TABLE IF NOT EXISTS app_settings (
     key     TEXT PRIMARY KEY,
     value   TEXT NOT NULL

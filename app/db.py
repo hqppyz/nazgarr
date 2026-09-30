@@ -446,4 +446,6 @@ def migrate_schema(engine: Engine) -> None:
 
 
 def make_session_factory(engine: Engine) -> sessionmaker:
+    from app import events  # noqa: F401  (registra gli hook degli eventi: app/events.py)
+
     return sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)

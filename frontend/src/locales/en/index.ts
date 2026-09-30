@@ -27,6 +27,7 @@ import { torrentClients } from './torrentClients'
 import { trackers } from './trackers'
 import { naming } from './naming'
 import { plugins } from './plugins'
+import { webhooks } from './webhooks'
 import { trackerFilter } from './trackerFilter'
 import { upload } from './upload'
 import { uploadSettings } from './uploadSettings'
@@ -67,6 +68,7 @@ export const en = {
   ...upload,
   ...uploadSettings,
   ...plugins,
+  ...webhooks,
 } as const
 
 export type MessageKey = keyof typeof en

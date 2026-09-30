@@ -26,6 +26,7 @@ from app.api.torrent_clients import router as torrent_clients_router
 from app.api.torrents import router as torrents_router
 from app.api.trackers import router as trackers_router
 from app.api.uploads import router as uploads_router
+from app.api.webhooks import router as webhooks_router
 from app.config import load_settings
 from app.frontend import mount_frontend
 from app.logging_config import add_file_handler, configure_logging
@@ -105,6 +106,7 @@ app.include_router(uploads_router, dependencies=[_protected])
 app.include_router(metadata_router, dependencies=[_protected])
 app.include_router(system_router, dependencies=[_protected])
 app.include_router(plugins_router, dependencies=[_protected])
+app.include_router(webhooks_router, dependencies=[_protected])
 # Le API key si gestiscono solo con il login, mai con un'altra API key.
 app.include_router(api_keys_router, dependencies=[Depends(auth.require_login)])
 

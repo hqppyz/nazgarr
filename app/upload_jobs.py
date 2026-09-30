@@ -67,7 +67,26 @@ def transition(session: Session, job: UploadJob, expected: str | tuple[str, ...]
     )
     session.commit()
     session.refresh(job)
+    if result.rowcount == 1 and new in FINAL_STATES:
+        _emit_finished(session, job)
     return result.rowcount == 1
+
+
+def _emit_finished(session: Session, job: UploadJob) -> None:
+    """upload.finished (app/events.py): la transizione è un UPDATE in blocco,
+    che gli hook sul DB non vedono."""
+    from app import events
+
+    events.emit(session, "upload.finished", {
+        "job_id": job.id, "status": job.status, "title": job.title, "year": job.year,
+        "content_type": job.content_type, "tmdb_id": job.tmdb_id,
+        "targets": [
+            {"tracker": t.tracker.label, "action": t.action, "status": t.status,
+             "torrent_id_remote": t.torrent_id_remote, "error": t.error_message}
+            for t in job.targets
+        ],
+    })
+    session.commit()
 
 
 def default_client_id(session: Session, tracker: Tracker) -> int | None:

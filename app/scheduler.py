@@ -55,6 +55,9 @@ def _add_job(scheduler: BackgroundScheduler, cron_expr: str, session_factory: se
 
 
 RECONCILE_JOB_ID = "reconcile_seed_jobs"
+# Consegne di webhook e notifiche (app/webhooks.py): spesso, costa una query.
+EVENTS_JOB_ID = "deliver_events"
+EVENTS_INTERVAL_SECONDS = 15
 RECONCILE_INTERVAL_SECONDS = 120
 
 
@@ -75,6 +78,18 @@ def _reconcile_between_runs(session_factory: sessionmaker) -> None:
         session.close()
 
 
+def _deliver_events(session_factory: sessionmaker) -> None:
+    from app import webhooks
+
+    session = session_factory()
+    try:
+        webhooks.deliver_due(session)
+    except Exception:
+        logger.exception("Consegna degli eventi fallita")
+    finally:
+        session.close()
+
+
 def build_scheduler(session_factory: sessionmaker, data_dir: str) -> BackgroundScheduler:
     scheduler = BackgroundScheduler()
     with session_factory() as session:
@@ -84,6 +99,10 @@ def build_scheduler(session_factory: sessionmaker, data_dir: str) -> BackgroundS
     scheduler.add_job(
         _reconcile_between_runs, IntervalTrigger(seconds=RECONCILE_INTERVAL_SECONDS),
         args=[session_factory], id=RECONCILE_JOB_ID, replace_existing=True, max_instances=1, coalesce=True,
+    )
+    scheduler.add_job(
+        _deliver_events, IntervalTrigger(seconds=EVENTS_INTERVAL_SECONDS),
+        args=[session_factory], id=EVENTS_JOB_ID, replace_existing=True, max_instances=1, coalesce=True,
     )
     return scheduler
 
