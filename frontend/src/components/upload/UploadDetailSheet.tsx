@@ -1,15 +1,17 @@
 import { ExternalLinkIcon } from 'lucide-react'
 import type { ReactNode } from 'react'
-import { Link } from 'react-router-dom'
 
 import { posterUrl, useMetadataDetails } from '@/api/hooks/metadata'
 import { useUpload, type UploadJob } from '@/api/hooks/uploads'
 import { AuthedPoster } from '@/components/AuthedPoster'
+import { DeleteUploadButton } from '@/components/upload/DeleteUploadButton'
 import { MediaInfoPreview } from '@/components/upload/MediaInfoPreview'
+import { MetadataLinks } from '@/components/upload/MetadataLinks'
 import { ActionBadge } from '@/components/upload/TrackerCheckCard'
 import { UploadEventLog } from '@/components/upload/UploadEventLog'
 import { UploadStatusBadge } from '@/components/upload/UploadStatusBadge'
 import { Badge } from '@/components/ui/badge'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { t } from '@/lib/i18n'
@@ -36,10 +38,6 @@ interface Dupe {
 function Facts({ job }: { job: UploadJob }) {
   const analysis = job.analysis as { total_size_bytes?: number; file_count?: number } | null
   const rows: [string, ReactNode][] = []
-  if (job.tmdb_id) rows.push(['TMDB', <a key="tmdb" className="inline-flex items-center gap-1 hover:underline" href={`https://www.themoviedb.org/${job.content_type}/${job.tmdb_id}`} target="_blank" rel="noreferrer">{job.content_type}/{job.tmdb_id}<ExternalLinkIcon className="size-3" /></a>])
-  if (job.imdb_id) rows.push(['IMDB', <a key="imdb" className="inline-flex items-center gap-1 hover:underline" href={`https://www.imdb.com/title/${job.imdb_id}/`} target="_blank" rel="noreferrer">{job.imdb_id}<ExternalLinkIcon className="size-3" /></a>])
-  if (job.tvdb_id) rows.push(['TVDB', job.tvdb_id])
-  if (job.mal_id) rows.push(['MAL', job.mal_id])
   if (job.seasons.length > 0) rows.push([t('upload.history.seasons'), `${job.seasons.join(', ')}${job.episode != null ? ` · E${job.episode}` : ''}`])
   if (analysis?.total_size_bytes != null) rows.push([t('upload.history.size'), `${formatBytes(analysis.total_size_bytes)} · ${t('upload.history.files', { count: analysis.file_count })}`])
   if (job.created_at) rows.push([t('upload.history.created'), parseApiDate(job.created_at).toLocaleString()])
@@ -66,7 +64,7 @@ export function UploadDetailSheet({ uploadId, onClose }: { uploadId: number | nu
 
   return (
     <Sheet open={uploadId !== null} onOpenChange={(open) => !open && onClose()}>
-      <SheetContent side="right" className="w-full gap-0 overflow-y-auto sm:max-w-4xl">
+      <SheetContent side="right" className="w-full gap-0 overflow-y-auto sm:max-w-6xl">
         {job && (
           <>
             <SheetHeader>
@@ -100,6 +98,7 @@ export function UploadDetailSheet({ uploadId, onClose }: { uploadId: number | nu
                     </div>
                   )}
                   <Facts job={job} />
+                  <MetadataLinks job={job} />
                 </div>
               </div>
 
@@ -147,9 +146,24 @@ export function UploadDetailSheet({ uploadId, onClose }: { uploadId: number | nu
 
               <MediaInfoPreview summary={mediainfo} fullText={job.mediainfo_text} />
 
-              <Section title={t('upload.activity')}>
-                <UploadEventLog events={job.events} targets={job.targets} />
-              </Section>
+              <Card className="min-w-0">
+                <Collapsible>
+                  <CardHeader>
+                    <CollapsibleTrigger className="flex w-full items-center justify-between gap-2 text-left">
+                      <CardTitle className="text-base">
+                        {t('upload.activity')}{' '}
+                        <span className="text-xs font-normal text-muted-foreground tabular-nums">{job.events.length}</span>
+                      </CardTitle>
+                      <span className="text-xs text-muted-foreground">{t('upload.history.show')}</span>
+                    </CollapsibleTrigger>
+                  </CardHeader>
+                  <CollapsibleContent>
+                    <CardContent>
+                      <UploadEventLog events={job.events} targets={job.targets} />
+                    </CardContent>
+                  </CollapsibleContent>
+                </Collapsible>
+              </Card>
               {job.screenshot_urls.length > 0 && (
                 <Section title={t('upload.history.screenshots', { count: job.screenshot_urls.length })}>
                   <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -170,9 +184,9 @@ export function UploadDetailSheet({ uploadId, onClose }: { uploadId: number | nu
                     </pre>
                   </Section>
                 ))}
-              <Link to={`/upload/${job.id}`} className="text-sm text-primary hover:underline">
-                {t('upload.history.openPage')}
-              </Link>
+              <div className="flex justify-end border-t pt-4">
+                <DeleteUploadButton uploadId={job.id} onDeleted={onClose} />
+              </div>
             </div>
           </>
         )}

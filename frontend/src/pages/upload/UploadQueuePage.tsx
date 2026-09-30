@@ -94,7 +94,6 @@ function ActiveList({ jobs }: { jobs: UploadJobSummary[] }) {
               <div className="flex flex-wrap items-center gap-2">
                 <span className="truncate text-sm font-medium">{title(job)}</span>
                 {job.kind && <Badge variant="outline">{t(`upload.kind.${job.kind}`)}</Badge>}
-                <UploadStatusBadge status={job.status} />
                 {job.status === 'queued' && (
                   <span className="text-xs text-muted-foreground">#{index + 1}</span>
                 )}

@@ -249,7 +249,7 @@ export const upload = {
   'upload.history.files': '{count} file(s)',
   'upload.history.screenshots': 'Screenshots ({count})',
   'upload.history.description': 'Description sent to {tracker}',
-  'upload.history.openPage': 'Open the full page',
+  'upload.history.show': 'Show',
   'upload.history.matchesOnTracker': 'Already on the tracker:',
   'upload.history.created': 'Created',
   'upload.history.finished': 'Finished',
