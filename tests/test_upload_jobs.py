@@ -263,3 +263,22 @@ def test_itt_description_puts_screenshots_two_per_row_centered(db_session):
     shot = "[url=https://img.example/{0}.png][img=700]https://img.example/{0}.png[/img][/url]".format
     assert rendered.startswith(f"[center]{shot(0)} {shot(1)}\n{shot(2)} {shot(3)}[/center]")
     assert "MEDIAINFO" not in rendered
+
+
+def test_the_description_template_runs_in_a_sandbox(db_session, tmp_path):
+    import pytest
+
+    tracker = make_tracker(db_session, with_profile=False)
+    profile = upload_profiles.create_upload_profile(db_session, tracker, None)
+    marker = tmp_path / "pwned"
+    profile.description_template = (
+        "{{ cycler.__init__.__globals__.os.system('touch " + str(marker) + "') }}"
+    )
+    db_session.commit()
+
+    with pytest.raises(upload.DescriptionTemplateError):
+        upload.render_description(db_session, profile, "MI", [])
+    assert not marker.exists()
+    # Un template normale funziona come sempre.
+    profile.description_template = "{% for u in screenshot_urls %}[img]{{ u }}[/img]{% endfor %}{{ notes }}"
+    assert upload.render_description(db_session, profile, "", ["a"], notes="n").startswith("[img]a[/img]n")
