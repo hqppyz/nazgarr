@@ -56,3 +56,16 @@ def media_links(session: Session, media_file_ids: list[int] | None = None) -> di
         for sf_id, path in seeds.get((disk_id, st_dev, inode), ()):
             links[mf_id][sf_id] = path
     return {mf_id: sorted(sfs.items(), key=lambda item: item[1]) for mf_id, sfs in links.items()}
+
+
+def seed_copies_by_inode(session: Session) -> dict[tuple[int, int, int], set[int]]:
+    """(disk_id, st_dev, inode) -> seed_file attuali con quell'inode, solo
+    dove sono più di uno: le copie (hardlink) dello stesso file lato torrent."""
+    latest = latest_scan_by_disk(session, SeedFile)
+    groups: dict[tuple[int, int, int], set[int]] = {}
+    for sf_id, disk_id, st_dev, inode, last_scan_id in session.query(
+        SeedFile.id, SeedFile.disk_id, SeedFile.st_dev, SeedFile.inode, SeedFile.last_scan_id,
+    ).all():
+        if last_scan_id == latest.get(disk_id, last_scan_id):
+            groups.setdefault((disk_id, st_dev, inode), set()).add(sf_id)
+    return {key: ids for key, ids in groups.items() if len(ids) > 1}

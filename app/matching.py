@@ -30,7 +30,7 @@ from app.adapters.tracker.base import (
 from app.arr import ArrGrab, ArrIndex, host_of
 from app.exclusions import CompiledExclusions, load_exclusions
 from app.file_types import is_video
-from app.hardlinks import media_links
+from app.hardlinks import media_links, seed_copies_by_inode
 from app.mediainfo_util import compute_unique_id
 from app.models import (
     Candidate,
@@ -334,6 +334,11 @@ def orphan_seed_files_with_identity(
         .filter(ClientTorrentFile.seed_file_id.isnot(None))
         .all()
     }
+    # Un'altra copia (hardlink) di un file in seed da un altro percorso: gli
+    # stessi byte sono già in seed, niente da cercare (app/library.py).
+    for group in seed_copies_by_inode(session).values():
+        if group & tracked_ids:
+            tracked_ids |= group
     result = []
     latest = latest_scan_by_disk(session, SeedFile)
     for sf in session.query(SeedFile).filter(SeedFile.media_file_id.isnot(None)).all():

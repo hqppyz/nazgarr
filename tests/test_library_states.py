@@ -191,7 +191,7 @@ def test_a_deleted_torrent_file_is_no_longer_a_hardlink(db_session, tmp_path):
     assert (state["linked_paths"], state["state"]) == ([], "orphan_media")
 
 
-def test_an_orphan_copy_of_a_file_seeding_elsewhere_says_where(db_session, tmp_path):
+def test_a_copy_of_a_file_seeding_elsewhere_counts_as_seeding(db_session, tmp_path):
     root = tmp_path / "disk1"
     (root / "media").mkdir(parents=True)
     (root / "torrents" / "ITT").mkdir(parents=True)
@@ -215,5 +215,10 @@ def test_an_orphan_copy_of_a_file_seeding_elsewhere_says_where(db_session, tmp_p
     old = states[os.path.join("torrents", "old", "Movie.mkv")]
     itt = states[os.path.join("torrents", "ITT", "Movie.mkv")]
 
-    assert (old["state"], old["seeding_copies"]) == ("orphan_torrent", [os.path.join("torrents", "ITT", "Movie.mkv")])
+    # Gli stessi byte sono in seed: la copia conta come in seed, e dice da dove.
+    assert (old["state"], old["seeding_copies"]) == ("seeding", [os.path.join("torrents", "ITT", "Movie.mkv")])
     assert (itt["state"], itt["seeding_copies"]) == ("seeding", [])
+    # Mai cercata sui tracker per un reseed.
+    from app.matching import orphan_seed_files_with_identity
+
+    assert orphan_seed_files_with_identity(db_session) == []

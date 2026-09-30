@@ -22,7 +22,7 @@ from app.adapters.torrent_client.base import is_stopped_state
 from app.duplicates import find_duplicate_media_files
 from app.exclusions import CompiledExclusions
 from app.file_types import is_video
-from app.hardlinks import media_links
+from app.hardlinks import media_links, seed_copies_by_inode
 from app.models import ClientTorrent, ClientTorrentFile, MatchReview, MediaFile, MediaItem, SeedFile, SeedJob
 from app.scan_state import is_current, latest_scan_by_disk
 from app.tracker_scope import enabled_torrent_ids, scoped_torrent_ids
@@ -119,12 +119,10 @@ def seed_file_states(
         query = query.filter_by(disk_id=disk_id)
 
     scope_ids = scoped_torrent_ids(session, tracker)
-    tracked_seed_file_ids, active_seed_file_ids = _tracking(session, scope_ids)
+    directly_tracked, directly_active = _tracking(session, scope_ids)
     # Con un filtro, un file in torrent solo di client disattivati è orfano come
     # uno in nessun torrent (app/tracker_scope.py): i client spenti non contano.
-    tracked_anywhere = (
-        tracked_seed_file_ids if scope_ids is None else _tracking(session, enabled_torrent_ids(session))[0]
-    )
+    anywhere = directly_tracked if scope_ids is None else _tracking(session, enabled_torrent_ids(session))[0]
     media_paths_by_id = {
         row[0]: row[1] for row in session.query(MediaFile.id, MediaFile.relative_path).all()
     }
@@ -133,21 +131,26 @@ def seed_file_states(
     identity = _identity_by_media_file(session)
     rows = [sf for sf in query.order_by(SeedFile.relative_path).all() if is_current(sf, latest_seed)]
 
-    # Un file lato torrent orfano può essere un'altra copia (hardlink, stesso
-    # inode) di un file che è in seed da un altro percorso, es. il torrent
-    # rimosso dal client dopo un cross-seed: lo stato resta orfano (quel
-    # percorso nessun client lo usa), ma la vista dice da dove è in seed.
-    by_inode: dict[tuple[int, int, int], list[SeedFile]] = {}
-    for sf in rows:
-        by_inode.setdefault((sf.disk_id, sf.st_dev, sf.inode), []).append(sf)
+    # Un file lato torrent che nessun client usa, ma che è un'altra copia
+    # (hardlink, stesso inode) di un file in seed da un altro percorso (es. il
+    # torrent rimosso dal client dopo un cross-seed): gli stessi byte sono in
+    # seed, quindi conta come in seed, con lo stato di quel torrent, e la vista
+    # dice da dove (seeding_copies). Mai orfano, mai cercato sui tracker.
+    copies = seed_copies_by_inode(session)
+
+    def _through_copies(ids: set[int]) -> set[int]:
+        return ids | {sf_id for group in copies.values() if group & ids for sf_id in group}
+
+    tracked_seed_file_ids = _through_copies(directly_tracked)
+    active_seed_file_ids = _through_copies(directly_active)
+    tracked_anywhere = _through_copies(anywhere)
+    path_by_id = {sf.id: sf.relative_path for sf in rows}
 
     def _seeding_copies(sf: SeedFile) -> list[str]:
-        if sf.id in tracked_seed_file_ids:
+        if sf.id in directly_tracked or sf.id not in tracked_seed_file_ids:
             return []
-        return [
-            other.relative_path for other in by_inode.get((sf.disk_id, sf.st_dev, sf.inode), [])
-            if other.id != sf.id and other.id in tracked_seed_file_ids
-        ]
+        group = copies.get((sf.disk_id, sf.st_dev, sf.inode), set())
+        return sorted(path_by_id.get(i) or "" for i in group if i != sf.id and i in directly_tracked)
 
     def _state(sf: SeedFile) -> str:
         if sf.id not in tracked_seed_file_ids:
