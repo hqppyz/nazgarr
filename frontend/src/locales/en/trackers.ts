@@ -28,6 +28,10 @@ export const trackers = {
   'trackers.rateLimit': 'Requests/min',
   'trackers.enabled': 'Enabled',
   'trackers.noTrackers': 'No trackers configured.',
+  'trackers.languageColumn': 'Language',
+  'trackers.languageHelp':
+    'Used in upload names: the title in this language, this language first among the audio tracks, and how subtitles are written.',
+  'trackers.noLanguage': 'None',
   'trackers.uploadProfile': 'Upload profile',
   'trackers.uploadProfileTitle': 'Upload profile — {trackerLabel}',
   'trackers.invalidJson': '{label} is not valid JSON',

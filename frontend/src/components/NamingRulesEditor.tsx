@@ -261,12 +261,7 @@ export function NamingRulesEditor({
           ]}
           onChange={(title) => set({ title })}
         />
-        <TextOption
-          label={t('naming.titleLanguage')}
-          value={String(value.title_language ?? '')}
-          placeholder="it"
-          onChange={(language) => set({ title_language: language || null })}
-        />
+        <p className="text-[11px] text-muted-foreground sm:col-span-2">{t('naming.trackerLanguageNote')}</p>
       </Group>
 
       {(['audio_languages', 'subs_languages'] as const).map((field) => (
@@ -278,12 +273,6 @@ export function NamingRulesEditor({
             onChange={(style) => setLanguages(field, { style })}
           />
           <TextOption
-            label={t('naming.primaryLanguage')}
-            value={value[field]?.primary ?? ''}
-            placeholder="ITA"
-            onChange={(primary) => setLanguages(field, { primary: primary.toUpperCase() || undefined })}
-          />
-          <TextOption
             label={t('naming.multiFrom')}
             value={value[field]?.multi_from != null ? String(value[field]!.multi_from) : ''}
             placeholder="3"
@@ -293,6 +282,15 @@ export function NamingRulesEditor({
       ))}
 
       <Group title={t('naming.group.labels')}>
+        <OptionSelect
+          label={t('naming.subsStyle')}
+          value={String(value.subs_style ?? 'format')}
+          options={[
+            { value: 'format', label: t('naming.subsStyleFormat') },
+            { value: 'tracker_language', label: t('naming.subsStyleTrackerLanguage') },
+          ]}
+          onChange={(style) => set({ subs_style: style === 'format' ? null : style })}
+        />
         <TextOption
           label={t('naming.subsFormat')}
           value={String(value.subs_format ?? value.subs_label ?? '')}

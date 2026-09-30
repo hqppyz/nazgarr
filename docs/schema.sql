@@ -56,10 +56,13 @@ CREATE TABLE IF NOT EXISTS tracker (
     history_session_cookie  TEXT,                   -- if history_mode='scrape'
     rate_limit_per_min      INTEGER DEFAULT 30,
     enabled                 BOOLEAN NOT NULL DEFAULT 1,
-    torrent_client_id       INTEGER
+    torrent_client_id       INTEGER,
         -- client where torrents of this tracker are added when reseeding (e.g. a private-trackers
         -- instance); null or a disabled/deleted client = the first enabled client. No FK: a deleted
         -- client must just fall back, never block deleting it.
+    language                TEXT
+        -- ISO 639-1 (e.g. 'it'): the tracker's language, for upload names (localized title, that
+        -- language first among the audio tracks, how subtitles are written). Null = none.
 );
 
 CREATE TABLE IF NOT EXISTS torrent_client (

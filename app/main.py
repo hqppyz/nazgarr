@@ -50,6 +50,7 @@ async def lifespan(app: FastAPI):
         startup_checks.verify_secret_key(session)
         pipeline.close_interrupted_runs(session)
         review.reset_interrupted_verifications(session)
+        upload_profiles.sync_tracker_languages(session)
         upload_profiles.sync_naming_rules(session)
         upload_profiles.sync_description_templates(session)
     app.state.settings = settings

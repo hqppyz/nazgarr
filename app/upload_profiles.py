@@ -64,6 +64,8 @@ def create_upload_profile(session: Session, tracker: Tracker, profile_key: str |
         data = _load_bundled_profile(profile_key)
         upload = data.get("upload", {})
         flags = upload.get("default_flags", {})
+        if tracker.language is None and upload.get("language"):
+            tracker.language = upload["language"]
         profile = TrackerUploadProfile(
             tracker_id=tracker.id,
             category_id_map_json=json.dumps(upload.get("category_id", {})),
@@ -97,6 +99,29 @@ def apply_bundled_naming(profile: TrackerUploadProfile, naming: dict) -> None:
     profile.naming_version = naming.get("version")
     profile.naming_customized = False
     profile.naming_update_available = None
+
+
+def sync_tracker_languages(session: Session) -> list[str]:
+    """All'avvio, una volta: la lingua che stava nelle regole di naming
+    (title_language, prima che fosse un'impostazione del tracker) passa al
+    tracker, e dalle regole sparisce, così un tracker lasciato senza lingua
+    dall'utente resta tale. Senza, quella del profilo bundlato."""
+    updated = []
+    for profile in session.query(TrackerUploadProfile):
+        tracker = profile.tracker
+        if tracker is None:
+            continue
+        rules = json.loads(profile.naming_rules_json) if profile.naming_rules_json else None
+        legacy = (rules or {}).pop("title_language", None)
+        if rules is not None and legacy is not None:
+            profile.naming_rules_json = json.dumps(rules)
+        if tracker.language is not None or legacy is None:
+            continue
+        tracker.language = legacy
+        updated.append(tracker.label)
+        logger.info("Lingua di %s spostata dalle regole di naming al tracker: %s", tracker.label, legacy)
+    session.commit()
+    return updated
 
 
 def sync_naming_rules(session: Session) -> list[str]:

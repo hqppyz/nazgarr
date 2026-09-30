@@ -2981,6 +2981,8 @@ export interface components {
             rss_key?: string | null;
             /** Torrent Client Id */
             torrent_client_id?: number | null;
+            /** Language */
+            language?: string | null;
         };
         /** TrackerResponse */
         TrackerResponse: {
@@ -3008,6 +3010,8 @@ export interface components {
             has_rss_key: boolean;
             /** Torrent Client Id */
             torrent_client_id?: number | null;
+            /** Language */
+            language?: string | null;
             upload_profile?: components["schemas"]["TrackerUploadProfileSummary"] | null;
         };
         /** TrackerUpdateRequest */
@@ -3028,6 +3032,8 @@ export interface components {
             rss_key?: string | null;
             /** Torrent Client Id */
             torrent_client_id?: number | null;
+            /** Language */
+            language?: string | null;
         };
         /** TrackerUploadProfileSummary */
         TrackerUploadProfileSummary: {

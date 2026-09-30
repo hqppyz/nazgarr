@@ -30,6 +30,7 @@ export const errors = {
   'errors.seed_job_not_found': 'SeedJob {id} not found.',
 
   'errors.tracker_not_found': 'Tracker {id} not found.',
+  'errors.tracker_language_invalid': 'Unknown language: {language}',
   'errors.tracker_adapter_type_unsupported': 'Unsupported adapter_type: {adapter_type} (supported: {supported})',
   'errors.tracker_no_upload_profile': 'Tracker {tracker} has no upload profile.',
   'errors.tracker_upload_profile_conflict': 'Tracker {id} already has an upload profile.',

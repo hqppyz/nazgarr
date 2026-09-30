@@ -25,6 +25,7 @@ from app.upload_naming import (
     detect,
     release_values,
     rules_from_convention,
+    with_tracker_language,
 )
 from app.upload_profiles import freeleech_options
 
@@ -120,7 +121,7 @@ def propose(session: Session, job: UploadJob) -> None:
     for target in job.targets:
         profile = _profile(session, target)
         categories, types, resolutions = _maps(profile)
-        rules = profile_rules(profile) or {}
+        rules = with_tracker_language(profile_rules(profile), target.tracker.language) or {}
         language = rules.get("title_language")
         local_title = _local_title(session, job, language, analysis) if language else None
         values = release_values(job, from_name, mediainfo, overrides, rules, local_title)
@@ -224,7 +225,7 @@ def approve(session: Session, job: UploadJob, decisions: list[dict]) -> None:
     session.commit()
 
 
-def preview_names(session: Session, rules: dict) -> dict:
+def preview_names(session: Session, rules: dict, tracker_language: str | None = None) -> dict:
     """Anteprima delle regole di naming nell'editor del profilo: il nome per
     ogni template, sull'ultimo upload già analizzato (valori veri) o, se
     non ce n'è, su un esempio fisso."""
@@ -234,6 +235,7 @@ def preview_names(session: Session, rules: dict) -> dict:
         .order_by(UploadJob.id.desc())
         .first()
     )
+    rules = with_tracker_language(rules, tracker_language) or {}
     if job is not None:
         analysis = json.loads(job.analysis_json or "{}")
         language = rules.get("title_language")

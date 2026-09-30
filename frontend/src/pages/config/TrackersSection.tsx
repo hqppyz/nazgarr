@@ -61,6 +61,48 @@ function RssKeyField({
 }
 
 const FIRST_ENABLED = 'first'
+const NO_LANGUAGE = 'none'
+// Le lingue che il naming sa scrivere (app/upload_naming.py LANG3), ISO 639-1.
+const LANGUAGES = [
+  'ar', 'cs', 'da', 'de', 'el', 'en', 'es', 'fi', 'fr', 'he', 'hi', 'hu', 'it', 'ja', 'ko', 'nl', 'no', 'pl', 'pt',
+  'ro', 'ru', 'sv', 'th', 'tr', 'uk', 'zh',
+]
+
+function languageName(code: string) {
+  try {
+    return new Intl.DisplayNames(['en'], { type: 'language' }).of(code) ?? code
+  } catch {
+    return code
+  }
+}
+
+// La lingua del tracker: per i nomi degli upload (titolo localizzato, lingua
+// messa per prima, SUB/SUBS con la lingua).
+function TrackerLanguageSelect({ value, onChange }: { value: string | null; onChange: (code: string | null) => void }) {
+  const options = [
+    { value: NO_LANGUAGE, label: t('trackers.noLanguage') },
+    ...LANGUAGES.map((code) => ({ value: code, label: `${languageName(code)} (${code})` })).sort((a, b) =>
+      a.label.localeCompare(b.label),
+    ),
+  ]
+  const current = value ?? NO_LANGUAGE
+  return (
+    <Select value={current} onValueChange={(v) => onChange(v === NO_LANGUAGE || v == null ? null : v)}>
+      <SelectTrigger size="sm" className="w-44">
+        <SelectValue>
+          {(v: string | null) => selectLabel(options, v, (o) => o.value, (o) => o.label, t('trackers.noLanguage'))}
+        </SelectValue>
+      </SelectTrigger>
+      <SelectContent>
+        {options.map((o) => (
+          <SelectItem key={o.value} value={o.value}>
+            {o.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  )
+}
 
 // In quale client aggiungere i torrent di questo tracker quando si ricrea
 // un seed (es. l'istanza dei tracker privati). "First enabled" = il primo
@@ -374,6 +416,18 @@ export function TrackersSection() {
                       updateTracker.mutate(
                         { id: tracker.id, body: { torrent_client_id: torrentClientId } },
                         autosaveFeedback(`${tracker.label} · ${t('trackers.clientColumn')}`),
+                      )
+                    }
+                  />
+                  <span className="text-muted-foreground" title={t('trackers.languageHelp')}>
+                    {t('trackers.languageColumn')}
+                  </span>
+                  <TrackerLanguageSelect
+                    value={tracker.language ?? null}
+                    onChange={(language) =>
+                      updateTracker.mutate(
+                        { id: tracker.id, body: { language } },
+                        autosaveFeedback(`${tracker.label} · ${t('trackers.languageColumn')}`),
                       )
                     }
                   />

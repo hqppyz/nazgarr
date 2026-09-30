@@ -66,6 +66,10 @@ DEFAULT_RULES = {
     "subs_languages": {"style": "all"},  # come audio_languages, per {subs_languages}
     "subs_format": "SUBS {subs_languages}",  # come si scrive {subs} se ci sono sottotitoli; "" = mai
     "subs_multi_format": None,  # es. "MULTI SUBS": {subs} quando le lingue diventano MULTI (multi_from)
+    # "tracker_language": {subs} è SUB (una lingua) o SUBS (più lingue), più la
+    # lingua del tracker se l'audio non ce l'ha e un sottotitolo sì. Altrimenti
+    # subs_format.
+    "subs_style": None,
     "sdr_label": None,  # es. "SDR": scritto al posto dell'HDR quando non c'è
     "separator": " ",
     "group_separator": "-",
@@ -83,7 +87,7 @@ DEFAULT_AUDIO_CODECS = {
     "MPEG Audio": "MP3", "Vorbis": "Vorbis",
 }
 # ISO 639-1 (MediaInfo) -> codice a tre lettere scritto nei nomi.
-_LANG3 = {
+LANG3 = {
     "it": "ITA", "en": "ENG", "fr": "FRA", "de": "DEU", "es": "SPA", "pt": "POR", "ja": "JPN", "ko": "KOR",
     "zh": "ZHO", "ru": "RUS", "nl": "NLD", "sv": "SWE", "da": "DAN", "no": "NOR", "nb": "NOR", "fi": "FIN",
     "pl": "POL", "cs": "CES", "hu": "HUN", "tr": "TUR", "el": "ELL", "he": "HEB", "ar": "ARA", "hi": "HIN",
@@ -331,7 +335,7 @@ def _audio_values(tracks: list[dict], rules: dict) -> dict:
 
 def _lang3(language: str) -> str:
     code = language.split("-")[0].lower()
-    return _LANG3.get(code, code.upper()[:3])
+    return LANG3.get(code, code.upper()[:3])
 
 
 def _languages_value(tracks: list[dict], config: dict | None) -> str | None:
@@ -362,6 +366,36 @@ def season_token(kind: str, seasons: list[int], episode: int | None) -> str | No
     if kind == "complete_pack" and len(seasons) > 1:
         return f"S{min(seasons):02d}-S{max(seasons):02d}"
     return f"S{seasons[0]:02d}"
+
+
+def with_tracker_language(rules: dict | None, language: str | None) -> dict | None:
+    """La lingua del tracker (tracker.language, ISO 639-1) al posto di quelle
+    delle regole: titolo localizzato, lingua messa per prima fra audio e
+    sottotitoli, e "language" (codice a tre lettere) per subs_style."""
+    lang3 = LANG3.get(language or "")
+    if not lang3:
+        return rules
+    rules = dict(rules or {})
+    rules["title_language"] = language
+    rules["language"] = lang3
+    for field in ("audio_languages", "subs_languages"):
+        config = dict(rules.get(field) or {})
+        if config.get("style") == "primary_first" or config.get("primary"):
+            config["primary"] = lang3
+        rules[field] = config
+    return rules
+
+
+def _tracker_language_subs(rules: dict, tracks: list[dict], subtitles: list[dict]) -> str:
+    """subs_style "tracker_language": SUB o SUBS secondo le lingue dei
+    sottotitoli, con la lingua del tracker solo se l'audio non ce l'ha e un
+    sottotitolo sì (es. audio ENG + sub ITA su un tracker italiano: SUB ITA)."""
+    # Un sottotitolo senza lingua conta come una lingua a sé.
+    languages = {_lang3(s["language"]) if s.get("language") else None for s in subtitles}
+    word = "SUBS" if len(languages) > 1 else "SUB"
+    lang = rules.get("language")
+    audio = {_lang3(t["language"]) for t in tracks if t.get("language") and not _is_commentary(t)}
+    return f"{word} {lang}" if lang and lang in languages and lang not in audio else word
 
 
 def effective_rules(rules: dict | None) -> dict:
@@ -405,6 +439,8 @@ def release_values(
         if rules.get("subs_multi_format") and "MULTI" in (values.get("subs_languages") or "").split():
             subs_format = rules["subs_multi_format"]
         values["subs"] = re.sub(r"\s+", " ", _render(subs_format or "", values)).strip() or None
+        if rules.get("subs_style") == "tracker_language":
+            values["subs"] = _tracker_language_subs(rules, tracks, subtitles)
     for key in DETECTED_FIELDS:
         if overrides.get(key) not in (None, ""):
             values[key] = overrides[key]

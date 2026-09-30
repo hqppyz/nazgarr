@@ -12,6 +12,9 @@ from app import tracker_icons, upload_decision, upload_profiles
 from app.api_errors import coded_detail, from_coded_error
 from app.deps import get_session
 from app.models import Tracker, TrackerUploadProfile
+from app.upload_naming import LANG3
+
+LANGUAGE_CODES = frozenset(LANG3)
 
 router = APIRouter(prefix="/api/trackers", tags=["trackers"])
 
@@ -27,6 +30,7 @@ class TrackerCreateRequest(BaseModel):
     rate_limit_per_min: int | None = None
     rss_key: str | None = None  # facoltativa: appresa in automatico dall'API
     torrent_client_id: int | None = None  # client per i reseed di questo tracker, None = il primo abilitato
+    language: str | None = None  # ISO 639-1, es. "it": per i nomi degli upload (app/upload_naming.py)
 
 
 class TrackerUpdateRequest(BaseModel):
@@ -38,6 +42,7 @@ class TrackerUpdateRequest(BaseModel):
     enabled: bool | None = None
     rss_key: str | None = None  # "" la cancella (torna al solo recupero automatico)
     torrent_client_id: int | None = None  # esplicitamente null = torna al primo client abilitato
+    language: str | None = None  # esplicitamente null o "" = nessuna lingua
 
 
 class TrackerUploadProfileSummary(BaseModel):
@@ -59,6 +64,7 @@ class TrackerResponse(BaseModel):
     enabled: bool
     has_rss_key: bool = False  # mai la chiave stessa, solo se ce n'è una (manuale o appresa)
     torrent_client_id: int | None = None
+    language: str | None = None
     upload_profile: TrackerUploadProfileSummary | None = None  # per la scheda: senza profilo niente upload
 
     @classmethod
@@ -75,8 +81,19 @@ class TrackerResponse(BaseModel):
         return cls(
             id=t.id, label=t.label, adapter_type=t.adapter_type, base_url=t.base_url,
             has_announce_url=bool(t.announce_url), rate_limit_per_min=t.rate_limit_per_min, enabled=t.enabled,
-            has_rss_key=bool(t.rss_key), torrent_client_id=t.torrent_client_id, upload_profile=summary,
+            has_rss_key=bool(t.rss_key), torrent_client_id=t.torrent_client_id, language=t.language,
+            upload_profile=summary,
         )
+
+
+def _language(raw: str | None) -> str | None:
+    """Un codice ISO 639-1 ("it"), o None; qualunque altra cosa è un errore."""
+    value = (raw or "").strip().lower()
+    if not value:
+        return None
+    if value not in LANGUAGE_CODES:
+        raise HTTPException(status_code=400, detail=coded_detail("tracker_language_invalid", language=raw))
+    return value
 
 
 def _get_tracker_or_404(session: Session, tracker_id: int) -> Tracker:
@@ -106,7 +123,7 @@ def create_tracker(body: TrackerCreateRequest, session: Session = Depends(get_se
         api_token=body.api_token, announce_url=body.announce_url,
         rate_limit_per_min=body.rate_limit_per_min or 30,
         rss_key=body.rss_key.strip() if body.rss_key and body.rss_key.strip() else None,
-        torrent_client_id=body.torrent_client_id,
+        torrent_client_id=body.torrent_client_id, language=_language(body.language),
     )
     session.add(tracker)
     session.commit()
@@ -136,6 +153,8 @@ def update_tracker(
         tracker.rss_key = body.rss_key.strip() or None
     if "torrent_client_id" in body.model_fields_set:
         tracker.torrent_client_id = body.torrent_client_id
+    if "language" in body.model_fields_set:
+        tracker.language = _language(body.language)
     session.commit()
     return TrackerResponse.from_model(tracker)
 
@@ -302,7 +321,8 @@ def preview_naming_rules(tracker_id: int, body: NamingPreviewRequest, session: S
     """Le regole in modifica (non ancora salvate) applicate a un upload
     reale o a un esempio: un nome per template e il valore di ogni variabile."""
     _get_upload_profile_or_404(session, tracker_id)
-    return upload_decision.preview_names(session, body.naming_rules)
+    tracker = _get_tracker_or_404(session, tracker_id)
+    return upload_decision.preview_names(session, body.naming_rules, tracker.language)
 
 
 @router.delete("/{tracker_id}/upload-profile", status_code=204)

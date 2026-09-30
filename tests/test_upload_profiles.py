@@ -50,3 +50,26 @@ def test_create_upload_profile_unknown_key_raises(db_session):
 
     with pytest.raises(upload_profiles.ProfileNotFoundError):
         upload_profiles.create_upload_profile(db_session, tracker, "does-not-exist")
+
+
+def test_the_language_in_the_naming_rules_moves_to_the_tracker_once(db_session):
+    from app.models import TrackerUploadProfile
+    from tests.upload_helpers import make_tracker
+
+    tracker = make_tracker(db_session, "itt", with_profile=False)
+    profile = upload_profiles.create_upload_profile(db_session, tracker, "itt")
+    assert tracker.language == "it"  # dal profilo bundlato
+
+    # Un'istanza di prima: lingua solo nelle regole.
+    tracker.language = None
+    profile.naming_rules_json = json.dumps({"title": "local", "title_language": "fr"})
+    db_session.commit()
+    assert upload_profiles.sync_tracker_languages(db_session) == [tracker.label]
+    refreshed = db_session.get(TrackerUploadProfile, tracker.id)
+    assert tracker.language == "fr" and "title_language" not in json.loads(refreshed.naming_rules_json)
+
+    # Tolta dall'utente: resta tolta.
+    tracker.language = None
+    db_session.commit()
+    assert upload_profiles.sync_tracker_languages(db_session) == []
+    assert tracker.language is None

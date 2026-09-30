@@ -17,6 +17,10 @@ adapter_type: unit3d
 # verificato contro il codice reale di Upload-Assistant (src/trackers/ITT.py).
 base_url: "https://itatorrents.xyz"
 upload:
+  # La lingua del tracker (ISO 639-1): alla creazione del profilo va sul
+  # tracker (tracker.language, modificabile nelle sue impostazioni) e da lì
+  # decide titolo localizzato, lingua messa per prima e SUB/SUBS ITA.
+  language: it
   category_id:
     movie: 1
     tv: 2
@@ -53,21 +57,19 @@ upload:
   # Upload-Assistant (src/trackers/ITT.py, riferimento di dominio): da
   # verificare contro il regolamento del tracker prima del primo upload.
   naming:
-    version: 8
+    version: 9
     force: false
     title: local
-    title_language: it
     audio_languages:
       style: primary_first
-      primary: ITA
       multi_from: 10
     subs_languages:
       style: primary_first
-      primary: ITA
       multi_from: 3
     group_separator: "-"
-    # Da 3 lingue di sottotitoli in su (subs_languages.multi_from).
-    subs_multi_format: "MULTI SUBS"
+    # SUB o SUBS, più ITA solo se l'audio non è in italiano e c'è un
+    # sottotitolo italiano (decisione dell'utente, 2026-09-30).
+    subs_style: tracker_language
     # Pattern indicati dall'utente (2026-09-30). {source_full} è il campo
     # "Source" della wiki di ITT: il servizio per WEB-DL/WEBRip/WEBMux/DLMux,
     # la sorgente (BluRay, UHD BluRay, HDTV, ...) per remux, encode e HDTV.

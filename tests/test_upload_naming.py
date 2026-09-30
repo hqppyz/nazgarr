@@ -7,11 +7,12 @@ from pymediainfo import MediaInfo
 from app import upload_profiles
 from app.mediainfo_util import summarize
 from app.models import TrackerUploadProfile
-from app.upload_naming import build_name, detect, release_values, resolution_format
+from app.upload_naming import build_name, detect, release_values, resolution_format, with_tracker_language
 from tests.upload_helpers import make_tracker
 
 MEDIAINFO = summarize(MediaInfo((Path(__file__).parent / "fixtures" / "mediainfo_remux.xml").read_text()), "x.mkv")
-ITT_RULES = upload_profiles._load_bundled_profile("itt")["upload"]["naming"]
+# Le regole di ITT con la lingua del suo tracker, come nella proposta vera.
+ITT_RULES = with_tracker_language(upload_profiles._load_bundled_profile("itt")["upload"]["naming"], "it")
 
 
 def _job(**extra):
@@ -30,7 +31,7 @@ def test_itt_remux_name_from_mediainfo_with_the_italian_title():
     assert (values["audio_codec"], values["audio_channels"], values["audio_atmos"]) == ("TrueHD", "5.1", None)
     assert (values["audio_languages"], values["subs_languages"], values["bit_depth"]) == ("ITA ENG", "ITA ENG", "8bit")
     assert build_name(ITT_RULES, values) == (
-        "17 Again - Ritorno al liceo 2009 1080p FullHD VU REMUX TrueHD 5.1 DD 5.1 ITA ENG SUBS ITA ENG VC-1-MaTiTa"
+        "17 Again - Ritorno al liceo 2009 1080p FullHD VU REMUX TrueHD 5.1 DD 5.1 ITA ENG SUBS VC-1-MaTiTa"
     )
 
 
@@ -202,9 +203,28 @@ def test_an_untouched_bundled_description_moves_to_the_current_one(db_session):
     assert profile.description_template == old + "mine"
 
 
-def test_itt_writes_multi_from_three_subtitle_languages():
-    subs = release_values(_job(), detect("Movie.2009.1080p.BluRay.x264-GRP"), {
-        "video": {}, "audio": [],
-        "subtitles": [{"language": "it"}, {"language": "en"}, {"language": "fr"}],
-    }, {}, ITT_RULES)["subs"]
-    assert subs == "MULTI SUBS"
+def test_itt_subs_follow_the_tracker_language():
+    def subs(audio: list[str], subtitles: list[str]) -> str | None:
+        mediainfo = {
+            "video": {}, "audio": [{"language": lang} for lang in audio],
+            "subtitles": [{"language": lang} for lang in subtitles],
+        }
+        return release_values(_job(), detect("Movie.2009.1080p.BluRay.x264-GRP"), mediainfo, {}, ITT_RULES)["subs"]
+
+    # Audio già in italiano: solo SUB/SUBS, secondo le lingue (non le tracce).
+    assert subs(["it", "en"], ["en"]) == "SUB"
+    assert subs(["it"], ["it", "it"]) == "SUB"
+    assert subs(["it", "en"], ["it", "en"]) == "SUBS"
+    # Audio non in italiano e un sottotitolo italiano: la lingua.
+    assert subs(["en"], ["it"]) == "SUB ITA"
+    assert subs(["en"], ["it", "en", "fr"]) == "SUBS ITA"
+    # Nessun sottotitolo italiano: senza lingua. Nessun sottotitolo: niente.
+    assert subs(["en"], ["en", "fr"]) == "SUBS"
+    assert subs(["en"], []) is None
+
+
+def test_the_tracker_language_replaces_the_one_in_the_rules():
+    rules = with_tracker_language({"audio_languages": {"style": "primary_first", "primary": "ENG"}}, "it")
+
+    assert (rules["title_language"], rules["language"], rules["audio_languages"]["primary"]) == ("it", "ITA", "ITA")
+    assert with_tracker_language({"title": "local"}, None) == {"title": "local"}

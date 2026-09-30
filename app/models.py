@@ -103,6 +103,7 @@ class Tracker(Base):
     # Client in cui aggiungere i torrent di questo tracker (es. l'istanza per
     # i tracker privati); None = il primo client abilitato.
     torrent_client_id: Mapped[int | None]
+    language: Mapped[str | None]
 
 
 class TorrentClient(Base):
