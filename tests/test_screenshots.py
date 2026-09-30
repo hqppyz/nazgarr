@@ -71,3 +71,13 @@ def test_black_and_flat_frames_are_blank(tmp_path):
     assert is_blank(luma_stats(str(black)))
     assert is_blank(luma_stats(str(gray)))  # piatto: nessuna escursione
     assert is_blank(None) is False
+
+
+def test_a_grainy_black_frame_from_a_10_bit_source_is_blank(tmp_path):
+    # Da una sorgente a 10 bit ffmpeg scrive PNG a 16 bit: il nero con un po'
+    # di grana non deve passare per un'immagine vera.
+    path = tmp_path / "grain16.png"
+    subprocess.run(["ffmpeg", "-y", "-f", "lavfi", "-i", "color=black:size=64x64,noise=alls=6:allf=t",
+                    "-frames:v", "1", "-pix_fmt", "rgb48be", str(path)], check=True, capture_output=True)
+
+    assert is_blank(luma_stats(str(path)))

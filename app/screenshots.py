@@ -51,6 +51,9 @@ def luma_stats(image_path: str) -> dict[str, float] | None:
         _out, err = (
             ffmpeg.input(image_path)
             .filter("scale", 160, -1)
+            # Sempre a 8 bit: da una sorgente a 10 bit il PNG è a 16 bit e
+            # signalstats risponderebbe su quella scala (il nero è 4096).
+            .filter("format", "gray")
             .filter("signalstats")
             .filter("metadata", mode="print")
             .output("-", format="null")

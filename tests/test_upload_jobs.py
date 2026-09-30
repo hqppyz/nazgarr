@@ -260,6 +260,6 @@ def test_itt_description_puts_screenshots_two_per_row_centered(db_session):
 
     rendered = upload.render_description(db_session, profile, "MEDIAINFO", urls)
 
-    shot = "[url=https://img.example/{0}.png][img=400]https://img.example/{0}.png[/img][/url]".format
+    shot = "[url=https://img.example/{0}.png][img=700]https://img.example/{0}.png[/img][/url]".format
     assert rendered.startswith(f"[center]{shot(0)} {shot(1)}\n{shot(2)} {shot(3)}[/center]")
     assert "MEDIAINFO" not in rendered
