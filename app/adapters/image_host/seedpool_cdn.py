@@ -32,7 +32,8 @@ class SeedpoolCdnAdapter(ImageHostAdapter):
             raise ImageHostError(f"Risposta Seedpool CDN senza file caricati: {data!r}")
         entry = files[0]
         variants = entry.get("variants") or {}
-        url = entry.get("thumbnail_url") or variants.get("thumb") or variants.get("medium") or entry.get("url")
+        # L'originale prima di tutto (vedi chevereto_image_url).
+        url = entry.get("url") or variants.get("medium") or entry.get("thumbnail_url") or variants.get("thumb")
         if not url:
             raise ImageHostError(f"Risposta Seedpool CDN senza URL riconoscibile: {data!r}")
         return url

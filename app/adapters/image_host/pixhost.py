@@ -4,10 +4,13 @@ Shape della richiesta verificata contro Upload-Assistant (src/uploadscreens.py,
 riferimento di dominio, nessun codice riusato)."""
 
 import os
+import re
 
 import httpx
 
 from app.adapters.image_host.base import ImageHostAdapter, ImageHostError
+
+_THUMB = re.compile(r"^https?://t(\d*)\.pixhost\.to/thumbs/(.+)$")
 
 
 class PixhostAdapter(ImageHostAdapter):
@@ -27,7 +30,11 @@ class PixhostAdapter(ImageHostAdapter):
         except (httpx.HTTPError, ValueError, OSError) as exc:
             raise ImageHostError(f"Upload Pixhost fallito: {exc}") from exc
 
-        show_url = data.get("show_url")
-        if not show_url:
-            raise ImageHostError(f"Risposta Pixhost senza show_url: {data!r}")
-        return show_url
+        # show_url è la pagina HTML dell'immagine, non l'immagine: dentro [img]
+        # non si vede. L'originale si ricava dalla miniatura (th_url), come
+        # fa Upload-Assistant: t<N>.pixhost.to/thumbs/ -> img<N>.pixhost.to/images/.
+        th_url = data.get("th_url") or ""
+        match = _THUMB.match(th_url)
+        if not match:
+            raise ImageHostError(f"Risposta Pixhost senza un'immagine riconoscibile: {data!r}")
+        return f"https://img{match.group(1)}.pixhost.to/images/{match.group(2)}"

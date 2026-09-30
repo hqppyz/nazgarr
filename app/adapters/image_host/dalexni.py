@@ -29,7 +29,11 @@ class DalexniAdapter(ImageHostAdapter):
             raise ImageHostError(f"Upload Dalexni fallito: {data!r}")
 
         payload = data.get("data", {})
-        url = (payload.get("medium") or {}).get("url") or (payload.get("thumb") or {}).get("url")
+        # L'originale prima di tutto (vedi chevereto_image_url).
+        url = (
+            (payload.get("image") or {}).get("url") or payload.get("url")
+            or (payload.get("medium") or {}).get("url") or (payload.get("thumb") or {}).get("url")
+        )
         if not url:
             raise ImageHostError(f"Risposta Dalexni senza URL riconoscibile: {data!r}")
         return url

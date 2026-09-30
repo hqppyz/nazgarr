@@ -10,13 +10,16 @@ di apertura già accettata per ptpimg/imgbb/pixhost)."""
 
 
 def chevereto_image_url(data: dict) -> str | None:
+    """L'immagine a risoluzione piena: la descrizione la mostra ridotta
+    ([img=larghezza]) e al clic apre proprio questa. La versione media solo
+    se la risposta non ha l'originale."""
     candidates = [
-        lambda d: d["data"]["image"]["medium"]["url"],
         lambda d: d["data"]["image"]["url"],
-        lambda d: d["image"]["medium"]["url"],
         lambda d: d["image"]["url"],
-        lambda d: d["data"]["medium"]["url"],
         lambda d: d["data"]["url"],
+        lambda d: d["data"]["image"]["medium"]["url"],
+        lambda d: d["image"]["medium"]["url"],
+        lambda d: d["data"]["medium"]["url"],
     ]
     for get_url in candidates:
         try:

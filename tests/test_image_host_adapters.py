@@ -93,13 +93,15 @@ def test_pixhost_upload_returns_public_url(tmp_path):
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.host == "api.pixhost.to"
         return httpx.Response(
-            200, json={"show_url": "https://pixhost.to/show/1/x.png", "th_url": "https://t.pixhost.to/1/x.png"}
+            200,
+            json={"show_url": "https://pixhost.to/show/1/x.png", "th_url": "https://t77.pixhost.to/thumbs/1/x.png"},
         )
 
     adapter = PixhostAdapter(client=_client(handler))
     url = adapter.upload(str(image))
 
-    assert url == "https://pixhost.to/show/1/x.png"
+    # L'immagine vera, non la pagina HTML di show_url.
+    assert url == "https://img77.pixhost.to/images/1/x.png"
 
 
 def test_pixhost_upload_raises_on_missing_show_url(tmp_path):
@@ -165,6 +167,8 @@ def test_chain_requires_at_least_one_adapter():
 
 def test_chevereto_image_url_tries_multiple_shapes():
     assert chevereto_image_url({"data": {"image": {"medium": {"url": "a"}}}}) == "a"
+    # L'originale vince sulla versione media.
+    assert chevereto_image_url({"image": {"url": "full", "medium": {"url": "m"}}}) == "full"
     assert chevereto_image_url({"data": {"image": {"url": "b"}}}) == "b"
     assert chevereto_image_url({"image": {"medium": {"url": "c"}}}) == "c"
     assert chevereto_image_url({"image": {"url": "d"}}) == "d"
@@ -219,6 +223,19 @@ def test_utppm_upload_returns_public_url(tmp_path):
     assert adapter.upload(str(image)) == "https://utp.pm/x.png"
 
 
+def test_dalexni_upload_prefers_the_full_image(tmp_path):
+    image = tmp_path / "shot.png"
+    image.write_bytes(b"fake png bytes")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"success": True, "data": {
+            "url": "https://dalexni.com/full.png", "medium": {"url": "https://dalexni.com/x.png"},
+        }})
+
+    adapter = DalexniAdapter(api_key="key123", client=_client(handler))
+    assert adapter.upload(str(image)) == "https://dalexni.com/full.png"
+
+
 def test_dalexni_upload_returns_medium_url(tmp_path):
     image = tmp_path / "shot.png"
     image.write_bytes(b"fake png bytes")
@@ -255,7 +272,7 @@ def test_dalexni_raises_on_unsuccessful_response(tmp_path):
         adapter.upload(str(image))
 
 
-def test_seedpool_cdn_upload_prefers_thumbnail_url(tmp_path):
+def test_seedpool_cdn_upload_prefers_the_full_image(tmp_path):
     image = tmp_path / "shot.png"
     image.write_bytes(b"fake png bytes")
 
@@ -267,7 +284,7 @@ def test_seedpool_cdn_upload_prefers_thumbnail_url(tmp_path):
         )
 
     adapter = SeedpoolCdnAdapter(api_key="key123", client=_client(handler))
-    assert adapter.upload(str(image)) == "https://i.seedpool.org/t.png"
+    assert adapter.upload(str(image)) == "https://i.seedpool.org/full.png"
 
 
 def test_seedpool_cdn_falls_back_to_base_url(tmp_path):
