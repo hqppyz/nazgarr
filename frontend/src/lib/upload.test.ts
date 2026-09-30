@@ -6,6 +6,7 @@ import {
   effectiveDraft,
   eventMessage,
   fromForcedIds,
+  commonFolder,
   missingEpisodes,
   newUploadLink,
   parseNewUploadParams,
@@ -72,7 +73,20 @@ describe('new upload link from the poster view', () => {
     expect(link).toBe('/upload/new?disk=2&path=media%2FTV%2FShow%2FSeason+01&dir=1&tmdb=tv%2F1399')
 
     const parsed = parseNewUploadParams(new URLSearchParams(link.split('?')[1]))
-    expect(parsed).toEqual({ source: { diskId: 2, relativePath: 'media/TV/Show/Season 01', isDir: true }, tmdb: 'tv/1399' })
-    expect(parseNewUploadParams(new URLSearchParams(''))).toEqual({ source: null, tmdb: '' })
+    expect(parsed).toEqual({
+      source: { diskId: 2, relativePath: 'media/TV/Show/Season 01', isDir: true }, tmdb: 'tv/1399', trackers: null,
+    })
+    expect(parseNewUploadParams(new URLSearchParams(''))).toEqual({ source: null, tmdb: '', trackers: null })
+    const forItt = newUploadLink({ diskId: 1, path: 'm.mkv', isDir: false }, 'movie/1', [3])
+    expect(parseNewUploadParams(new URLSearchParams(forItt.split('?')[1])).trackers).toEqual([3])
+  })
+})
+
+describe('commonFolder', () => {
+  it('finds the folder holding every file of a series, on one disk', () => {
+    const f = (disk_id: number, relative_path: string) => ({ disk_id, relative_path })
+    expect(commonFolder([f(1, 'tv/Show/S01/a.mkv'), f(1, 'tv/Show/S02/b.mkv')])).toEqual({ diskId: 1, path: 'tv/Show' })
+    expect(commonFolder([f(1, 'tv/Show/S01/a.mkv'), f(2, 'tv/Show/S02/b.mkv')])).toBeNull()
+    expect(commonFolder([f(1, 'a.mkv'), f(1, 'b.mkv')])).toBeNull()
   })
 })

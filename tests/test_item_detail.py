@@ -68,7 +68,37 @@ def test_detail_shows_hardlinks_with_the_torrent_client_and_tracker(db_session):
     (link,) = f["hardlinks"]
     assert link["relative_path"] == "torrents/Interstellar.2014.1080p/Interstellar.mkv"
     assert link["torrents"] == [{"name": "Interstellar.2014.1080p", "client": "qbit private",
-                                 "tracker": "itatorrents.xyz", "state": "uploading"}]
+                                 "tracker": "itatorrents.xyz", "state": "uploading", "client_enabled": True}]
+
+
+def test_detail_sums_up_seeding_per_tracker_configured_or_not(db_session):
+    disk, tracker, item, mf, run = _movie(db_session)
+    other = Tracker(label="Other", adapter_type="unit3d", base_url="https://other.example", api_token="x")
+    sf = SeedFile(disk_id=disk.id, relative_path="torrents/public/Interstellar.mkv", size_bytes=100,
+                  st_dev=1, inode=1, media_file_id=mf.id, last_scan_id=run.id, last_seen_at=datetime.now(UTC))
+    public = TorrentClient(label="qbit public", adapter_type="qbittorrent", base_url="http://q", enabled=False)
+    db_session.add_all([other, sf, public])
+    db_session.commit()
+    ct = ClientTorrent(torrent_client_id=public.id, info_hash="p", name="Interstellar.PUBLIC", save_path="/t",
+                       state="stalledUP", tracker_url="udp://tracker.torrent.eu.org:451/announce",
+                       last_polled_at=datetime.now(UTC))
+    db_session.add(ct)
+    db_session.commit()
+    db_session.add(ClientTorrentFile(client_torrent_id=ct.id, path_in_torrent="Interstellar.mkv", size_bytes=100,
+                                     seed_file_id=sf.id, last_scan_id=run.id))
+    db_session.commit()
+
+    overview = library_detail.item_detail(db_session, "movie", 157336)["trackers"]
+
+    # Il tracker configurato di _movie e "Other" compaiono anche a zero; il
+    # pubblico, non configurato, per host, con il client disattivato.
+    assert [(g["label"], g["configured"], g["seeding"], g["total"]) for g in overview] == [
+        (tracker.label, True, 0, 1), ("Other", True, 0, 1), ("tracker.torrent.eu.org", False, 1, 1),
+    ]
+    (entry,) = overview[2]["entries"]
+    assert (entry["seed_path"], entry["client"], entry["client_enabled"]) == (
+        "torrents/public/Interstellar.mkv", "qbit public", False,
+    )
 
 
 def test_detail_explains_what_was_searched_and_found(db_session):

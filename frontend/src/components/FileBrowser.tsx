@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
 import { FileFilterBar } from '@/components/FileFilterBar'
-import { FileTree, type TreeFileEntry } from '@/components/FileTree'
+import { FileTree, type TreeFileEntry, type TreeRowActions } from '@/components/FileTree'
 import { LibrarySummaryCards } from '@/components/LibrarySummaryCards'
 import { Card } from '@/components/ui/card'
 import {
@@ -22,6 +22,7 @@ export function FileBrowser({
   statusOptions,
   duplicateKeys,
   header,
+  actions,
 }: {
   files: TreeFileEntry[]
   statusOptions: StatusOption[]
@@ -29,6 +30,8 @@ export function FileBrowser({
   duplicateKeys?: Set<string>
   // Sopra le card di riepilogo, es. il selettore Folder | Poster della libreria.
   header?: React.ReactNode
+  // Azioni a fine riga dell'albero (Torrent files: upload/reseed degli orfani).
+  actions?: TreeRowActions
 }) {
   // ?status=… apre la vista già filtrata (link delle card della dashboard),
   // solo se è uno stato offerto da questa vista.
@@ -66,6 +69,7 @@ export function FileBrowser({
           files={filtered}
           expandAll={hasActiveSearchFilters(filters)}
           duplicateKeys={duplicateKeys}
+          actions={actions}
           onOpenFile={(file) =>
             file.content_type && file.tmdb_id != null &&
             setOpenItem({ contentType: file.content_type, tmdbId: file.tmdb_id })

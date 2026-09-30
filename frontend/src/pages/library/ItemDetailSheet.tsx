@@ -29,6 +29,7 @@ import { formatBytes } from '@/lib/library-filters'
 import { STATUS_STYLES } from '@/lib/status-styles'
 import { relativeFromNow } from '@/lib/time'
 import { newUploadLink } from '@/lib/upload'
+import { TrackerOverview } from '@/pages/library/TrackerOverview'
 import { cn } from '@/lib/utils'
 
 type Detail = Schemas['ItemDetailResponse']
@@ -456,6 +457,9 @@ export function ItemDetailSheet({ item, onClose }: { item: OpenItem | null; onCl
             </SheetHeader>
             <div className="grid gap-6 px-4 pb-6">
               <Reviews detail={detail} />
+              <Section title={t('itemDetail.trackers')}>
+                <TrackerOverview detail={detail} />
+              </Section>
               <Section title={t('itemDetail.files')}>
                 {detail.content_type === 'tv' ? (
                   <Seasons files={detail.files} uploadTmdb={`${detail.content_type}/${detail.tmdb_id}`} />

@@ -153,6 +153,7 @@ class DetailTorrent(BaseModel):
     client: str
     tracker: str | None
     state: str
+    client_enabled: bool = True
 
 
 class DetailHardlink(BaseModel):
@@ -180,6 +181,29 @@ class DetailFile(BaseModel):
     in_review: bool
     hardlinks: list[DetailHardlink]
     duplicates: list[DetailDuplicate]
+
+
+class DetailTrackerEntry(BaseModel):
+    media_file_id: int
+    season_number: int | None
+    episode_number: int | None
+    seed_path: str
+    client: str
+    client_enabled: bool
+    state: str
+    torrent: str
+
+
+class DetailTracker(BaseModel):
+    """Panoramica per tracker (app/library_detail.py tracker_overview)."""
+
+    tracker_id: int | None  # None = un tracker non configurato, riconosciuto dall'host
+    label: str
+    configured: bool
+    has_upload_profile: bool
+    seeding: int  # video del contenuto in seed su questo tracker
+    total: int
+    entries: list[DetailTrackerEntry]
 
 
 class DetailSearch(BaseModel):
@@ -224,6 +248,7 @@ class ItemDetailResponse(BaseModel):
     quality: str | None
     total_size_bytes: int
     files: list[DetailFile]
+    trackers: list[DetailTracker]
     searches: list[DetailSearch]
     candidates: list[DetailCandidate]
     reviews: list[ReviewResponse]

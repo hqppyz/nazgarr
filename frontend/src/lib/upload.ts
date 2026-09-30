@@ -131,10 +131,16 @@ export function dupeUrl(target: { tracker_base_url: string | null }, torrentId: 
 // Link alla pagina di nuovo upload con sorgente e id già compilati (dalla
 // vista poster): il match con quel TMDB è immediato, e se il tracker ha già
 // la release identica il flusso stesso propone il reseed.
-export function newUploadLink(source: { diskId: number; path: string; isDir: boolean }, tmdb?: string) {
+export function newUploadLink(
+  source: { diskId: number; path: string; isDir: boolean },
+  tmdb?: string,
+  trackerIds?: number[],
+) {
   const params = new URLSearchParams({ disk: String(source.diskId), path: source.path })
   if (source.isDir) params.set('dir', '1')
   if (tmdb) params.set('tmdb', tmdb)
+  // Solo questi tracker selezionati (es. "Upload to ITT" dalla panoramica).
+  if (trackerIds?.length) params.set('trackers', trackerIds.join(','))
   return `/upload/new?${params}`
 }
 
@@ -142,5 +148,21 @@ export function parseNewUploadParams(params: URLSearchParams) {
   const disk = Number(params.get('disk'))
   const path = params.get('path')
   const source = disk && path ? { diskId: disk, relativePath: path, isDir: params.get('dir') === '1' } : null
-  return { source, tmdb: params.get('tmdb') ?? '' }
+  const trackers = (params.get('trackers') ?? '')
+    .split(',')
+    .map(Number)
+    .filter((id) => Number.isInteger(id) && id > 0)
+  return { source, tmdb: params.get('tmdb') ?? '', trackers: trackers.length ? trackers : null }
+}
+
+// La cartella che contiene tutti i percorsi dati (sullo stesso disco), o null.
+export function commonFolder(files: { disk_id: number; relative_path: string }[]): { diskId: number; path: string } | null {
+  if (files.length === 0 || new Set(files.map((f) => f.disk_id)).size !== 1) return null
+  const parts = files.map((f) => f.relative_path.split('/').slice(0, -1))
+  const common: string[] = []
+  for (let i = 0; i < parts[0].length; i++) {
+    if (parts.every((p) => p[i] === parts[0][i])) common.push(parts[0][i])
+    else break
+  }
+  return common.length ? { diskId: files[0].disk_id, path: common.join('/') } : null
 }

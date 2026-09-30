@@ -24,7 +24,9 @@ export function NewUploadPage() {
   const [source, setSource] = useState<UploadSource | null>(initial.source)
   const [ids, setIds] = useState({ ...EMPTY_IDS, tmdb: initial.tmdb })
   // null = scelta non ancora toccata: tutti i tracker con un profilo di upload.
-  const [trackerChoice, setTrackerChoice] = useState<Set<number> | null>(null)
+  const [trackerChoice, setTrackerChoice] = useState<Set<number> | null>(
+    () => (initial.trackers ? new Set(initial.trackers) : null),
+  )
   const selectedTrackers = trackerChoice ?? (trackers ? new Set(trackers.map((tr) => tr.id)) : null)
 
   // Freeleech scelto per tracker (solo per chi lo concede): undefined = il

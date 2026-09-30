@@ -31,4 +31,12 @@ export const itemDetail = {
   'itemDetail.uploadOrReseedHelp':
     'Opens a new upload on this file: if a tracker already has the identical release, it proposes a reseed instead.',
   'itemDetail.uploadSeason': 'Upload / reseed season {n} as a pack',
+  'itemDetail.trackers': 'Trackers',
+  'itemDetail.trackerSeeding': '{seeding}/{total} seeding',
+  'itemDetail.trackerNotConfigured': 'not configured',
+  'itemDetail.clientDisabled': 'client disabled',
+  'itemDetail.disabled': 'disabled',
+  'itemDetail.uploadToTracker': 'Upload / reseed to {tracker}',
+  'itemDetail.uploadToTrackerHelp':
+    'Opens a new upload of this content for this tracker only: a reseed if the tracker already has the identical release.',
 } as const

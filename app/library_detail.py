@@ -37,6 +37,7 @@ from app.models import (
     SonarrInstance,
     TorrentClient,
     Tracker,
+    TrackerUploadProfile,
 )
 from app.review import READY_FOR_DECISION_STATUSES, hashes_in_clients, seed_job_display_status
 from app.scan_state import is_current, latest_scan_by_disk
@@ -73,6 +74,53 @@ def _arr_url(session: Session, item: MediaItem) -> str | None:
     return f"{instance.base_url.rstrip('/')}/{'movie' if item.arr_kind == 'radarr' else 'series'}/{item.arr_slug}"
 
 
+def tracker_overview(session: Session, files: list[dict]) -> list[dict]:
+    """Per ogni tracker configurato e abilitato (anche a zero) e per ogni
+    altro tracker trovato nei torrent (es. uno pubblico): quanti video del
+    contenuto sono in seed lì, e dove. Il tracker di un torrent si riconosce
+    dall'host del suo announce, confrontato con announce e base_url dei
+    tracker configurati."""
+    configured = session.query(Tracker).filter(Tracker.enabled.is_(True)).order_by(Tracker.label).all()
+    profiled = {tid for (tid,) in session.query(TrackerUploadProfile.tracker_id)}
+    by_host: dict[str, Tracker] = {}
+    for tracker in configured:
+        for url in (tracker.announce_url, tracker.base_url):
+            host = _host(url)
+            if host:
+                by_host.setdefault(host, tracker)
+
+    videos = [f for f in files if f["is_video"] and not f["excluded"]]
+    groups: dict[str, dict] = {}
+    for tracker in configured:
+        groups[f"t{tracker.id}"] = {
+            "tracker_id": tracker.id, "label": tracker.label, "configured": True,
+            "has_upload_profile": tracker.id in profiled, "seeding": set(), "entries": [],
+        }
+    for f in videos:
+        for link in f["hardlinks"]:
+            for torrent in link["torrents"]:
+                host = torrent["tracker"]
+                tracker = by_host.get(host) if host else None
+                key = f"t{tracker.id}" if tracker else f"h{host or ''}"
+                group = groups.setdefault(key, {
+                    "tracker_id": None, "label": host or "?", "configured": False,
+                    "has_upload_profile": False, "seeding": set(), "entries": [],
+                })
+                group["seeding"].add(f["media_file_id"])
+                group["entries"].append({
+                    "media_file_id": f["media_file_id"], "season_number": f["season_number"],
+                    "episode_number": f["episode_number"], "seed_path": link["relative_path"],
+                    "client": torrent["client"], "client_enabled": torrent["client_enabled"],
+                    "state": torrent["state"], "torrent": torrent["name"],
+                })
+    out = []
+    for group in groups.values():
+        out.append({**group, "seeding": len(group["seeding"]), "total": len(videos)})
+    # Prima i tracker configurati, poi gli altri; dentro, chi ne ha di più.
+    out.sort(key=lambda g: (not g["configured"], -g["seeding"], g["label"].lower()))
+    return out
+
+
 def item_detail(session: Session, content_type: str, tmdb_id: int) -> dict | None:
     items = session.query(MediaItem).filter_by(content_type=content_type, tmdb_id=tmdb_id).all()
     if not items:
@@ -104,16 +152,16 @@ def item_detail(session: Session, content_type: str, tmdb_id: int) -> dict | Non
     torrents_by_seed: dict[int, list[dict]] = defaultdict(list)
     if seed_ids:
         rows = (
-            session.query(ClientTorrentFile.seed_file_id, ClientTorrent, TorrentClient.label)
+            session.query(ClientTorrentFile.seed_file_id, ClientTorrent, TorrentClient.label, TorrentClient.enabled)
             .join(ClientTorrent, ClientTorrent.id == ClientTorrentFile.client_torrent_id)
             .join(TorrentClient, TorrentClient.id == ClientTorrent.torrent_client_id)
             .filter(ClientTorrentFile.seed_file_id.in_(seed_ids))
             .all()
         )
-        for seed_file_id, torrent, client_label in rows:
+        for seed_file_id, torrent, client_label, client_enabled in rows:
             torrents_by_seed[seed_file_id].append({
                 "name": torrent.name, "client": client_label, "tracker": _host(torrent.tracker_url),
-                "state": torrent.state,
+                "state": torrent.state, "client_enabled": bool(client_enabled),
             })
 
     duplicate_peers: dict[int, list[dict]] = {}
@@ -225,6 +273,7 @@ def item_detail(session: Session, content_type: str, tmdb_id: int) -> dict | Non
         "quality": _quality(first_video.rsplit("/", 1)[-1]) if first_video else None,
         "total_size_bytes": sum(f["size_bytes"] for f in files if not f["excluded"]),
         "files": files,
+        "trackers": tracker_overview(session, files),
         "searches": searches,
         "candidates": candidates,
         "reviews": reviews,  # MatchReview: l'API li serializza con ReviewResponse (riepilogo pack incluso)

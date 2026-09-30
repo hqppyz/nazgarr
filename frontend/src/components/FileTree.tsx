@@ -1,5 +1,5 @@
 import { ChevronRightIcon, FileIcon, FileVideoIcon, FolderIcon, FolderOpenIcon } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 
 import { HardlinkInfo } from "@/components/HardlinkInfo";
 import { StateBadge, StatusBadge, StoppedBadge } from "@/components/StateBadge";
@@ -83,7 +83,25 @@ interface FlatRow {
   open: boolean;
 }
 
-export function FileTree({ files, expandAll = false, duplicateKeys, onOpenFile }: { files: TreeFileEntry[]; expandAll?: boolean; duplicateKeys?: Set<string>; onOpenFile?: (file: TreeFileEntry) => void }) {
+// I file di una cartella dell'albero, a qualunque profondità.
+export function filesUnder(node: TreeNode): TreeFileEntry[] {
+  const out: TreeFileEntry[] = []
+  const walk = (n: TreeNode) => {
+    if (n.file) out.push(n.file)
+    n.children.forEach(walk)
+  }
+  walk(node)
+  return out
+}
+
+// Azioni facoltative a fine riga (es. "Upload / reseed" sui torrent orfani):
+// un nodo senza azione non mostra niente.
+export interface TreeRowActions {
+  file?: (file: TreeFileEntry) => ReactNode
+  folder?: (node: TreeNode) => ReactNode
+}
+
+export function FileTree({ files, expandAll = false, duplicateKeys, onOpenFile, actions }: { files: TreeFileEntry[]; expandAll?: boolean; duplicateKeys?: Set<string>; onOpenFile?: (file: TreeFileEntry) => void; actions?: TreeRowActions }) {
   // Cartelle il cui stato aperto/chiuso differisce dal default (aperte al
   // primo livello, chiuse sotto) — così il default resta quello anche
   // quando i dati cambiano, senza dover pre-popolare un Set di path.
@@ -147,6 +165,11 @@ export function FileTree({ files, expandAll = false, duplicateKeys, onOpenFile }
                       <span aria-hidden>·</span>
                       {t("library.filesCount", { count: node.fileCount })}
                     </span>
+                    {actions?.folder && (
+                      <span className="ml-auto shrink-0 font-sans" onClick={(e) => e.stopPropagation()}>
+                        {actions.folder(node)}
+                      </span>
+                    )}
                   </div>
                 </TableCell>
                 <TableCell />
@@ -165,6 +188,11 @@ export function FileTree({ files, expandAll = false, duplicateKeys, onOpenFile }
                     {node.name}
                   </span>
                   <HardlinkInfo linkedPaths={file.linked_paths} />
+                  {actions?.file && (
+                    <span className="ml-auto shrink-0 font-sans" onClick={(e) => e.stopPropagation()}>
+                      {actions.file(file)}
+                    </span>
+                  )}
                 </div>
               </TableCell>
               <TableCell>

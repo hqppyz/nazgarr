@@ -1824,6 +1824,50 @@ export interface components {
             tracker: string | null;
             /** State */
             state: string;
+            /**
+             * Client Enabled
+             * @default true
+             */
+            client_enabled: boolean;
+        };
+        /**
+         * DetailTracker
+         * @description Panoramica per tracker (app/library_detail.py tracker_overview).
+         */
+        DetailTracker: {
+            /** Tracker Id */
+            tracker_id: number | null;
+            /** Label */
+            label: string;
+            /** Configured */
+            configured: boolean;
+            /** Has Upload Profile */
+            has_upload_profile: boolean;
+            /** Seeding */
+            seeding: number;
+            /** Total */
+            total: number;
+            /** Entries */
+            entries: components["schemas"]["DetailTrackerEntry"][];
+        };
+        /** DetailTrackerEntry */
+        DetailTrackerEntry: {
+            /** Media File Id */
+            media_file_id: number;
+            /** Season Number */
+            season_number: number | null;
+            /** Episode Number */
+            episode_number: number | null;
+            /** Seed Path */
+            seed_path: string;
+            /** Client */
+            client: string;
+            /** Client Enabled */
+            client_enabled: boolean;
+            /** State */
+            state: string;
+            /** Torrent */
+            torrent: string;
         };
         /** DiskAssociationResponse */
         DiskAssociationResponse: {
@@ -2083,6 +2127,8 @@ export interface components {
             total_size_bytes: number;
             /** Files */
             files: components["schemas"]["DetailFile"][];
+            /** Trackers */
+            trackers: components["schemas"]["DetailTracker"][];
             /** Searches */
             searches: components["schemas"]["DetailSearch"][];
             /** Candidates */
