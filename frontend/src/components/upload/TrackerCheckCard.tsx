@@ -1,4 +1,4 @@
-import { LoaderCircleIcon, ShieldCheckIcon } from 'lucide-react'
+import { LoaderCircleIcon, ScanSearchIcon } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { toast } from 'sonner'
 
@@ -166,7 +166,7 @@ export function TrackerCheckCard({
                           {verifying ? (
                             <LoaderCircleIcon className="size-3.5 animate-spin" />
                           ) : (
-                            <ShieldCheckIcon className="size-3.5" />
+                            <ScanSearchIcon className="size-3.5" />
                           )}
                           {verifying ? t('upload.dupes.verifying') : t('upload.dupes.verify')}
                         </Button>

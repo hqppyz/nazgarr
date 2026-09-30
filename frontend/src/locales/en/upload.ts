@@ -203,6 +203,12 @@ export const upload = {
   'upload.decision.ready': 'Every tracker has a decision.',
   'upload.decision.busy': 'Wait for the running checks to finish.',
   'upload.decision.approve': 'Approve…',
+  'upload.decision.summaryTitle': 'What will happen',
+  'upload.decision.summaryTracker': 'Tracker',
+  'upload.decision.summaryWhat': 'Release',
+  'upload.decision.summaryClient': 'Seeds on',
+  'upload.decision.summarySkip': 'Nothing is sent to this tracker.',
+  'upload.decision.summaryMissing': '{count} tracker(s) still need something before approving.',
   'upload.decision.confirmTitle': 'Approve and queue?',
   'upload.decision.confirmDescription':
     'This is the final confirmation: from here Nazgarr creates the torrents and publishes them on its own, without asking again.',

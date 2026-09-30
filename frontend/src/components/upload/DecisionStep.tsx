@@ -3,12 +3,13 @@ import { toast } from 'sonner'
 
 import { useApproveUpload, type UploadJob } from '@/api/hooks/uploads'
 import { AnalysisSummary } from '@/components/upload/AnalysisSummary'
+import { DecisionSummary } from '@/components/upload/DecisionSummary'
+import { MatchSummaryCard } from '@/components/upload/MatchSummaryCard'
 import { MediaInfoPreview } from '@/components/upload/MediaInfoPreview'
 import { OverridesPanel } from '@/components/upload/OverridesPanel'
 import { TargetDecisionForm } from '@/components/upload/TargetDecisionForm'
 import { ActionBadge, TrackerCheckCard } from '@/components/upload/TrackerCheckCard'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent } from '@/components/ui/card'
 import {
   Dialog,
   DialogContent,
@@ -19,7 +20,7 @@ import {
 } from '@/components/ui/dialog'
 import { t } from '@/lib/i18n'
 import type { MediaInfoSummary } from '@/lib/mediainfo'
-import { draftProblem, effectiveDraft, type TargetDraft } from '@/lib/upload'
+import { effectiveDraft, type TargetDraft } from '@/lib/upload'
 
 // Secondo punto di approvazione (docs/SPEC.md §9): cosa ha trovato
 // l'analisi, i valori rilevati da correggere e, per ogni tracker, dupe
@@ -31,9 +32,6 @@ export function DecisionStep({ job }: { job: UploadJob }) {
   const approve = useApproveUpload(job.id)
 
   const drafts = job.targets.map((target) => ({ target, draft: effectiveDraft(edits[target.id], target) }))
-  const problems = drafts
-    .map(({ target, draft }) => ({ target, problem: draftProblem(draft) }))
-    .filter((p) => p.problem !== null)
   const busy = job.targets.some((target) => target.status !== 'awaiting_decision')
 
   function submit() {
@@ -57,12 +55,21 @@ export function DecisionStep({ job }: { job: UploadJob }) {
 
   return (
     <div className="grid min-w-0 gap-4 [&>*]:min-w-0">
-      <AnalysisSummary job={job} />
-      <MediaInfoPreview
-        summary={((job.analysis as Record<string, unknown> | null)?.mediainfo ?? null) as MediaInfoSummary | null}
-        fullText={job.mediainfo_text}
-      />
-      <OverridesPanel key={JSON.stringify(job.overrides)} job={job} />
+      {/* Due colonne indipendenti: a sinistra il contenuto e i valori per il
+          nome, a destra MediaInfo e l'esito dell'analisi. */}
+      <div className="grid min-w-0 items-start gap-4 lg:grid-cols-2">
+        <div className="grid min-w-0 gap-4">
+          <MatchSummaryCard job={job} />
+          <OverridesPanel key={JSON.stringify(job.overrides)} job={job} />
+        </div>
+        <div className="grid min-w-0 gap-4">
+          <MediaInfoPreview
+            summary={((job.analysis as Record<string, unknown> | null)?.mediainfo ?? null) as MediaInfoSummary | null}
+            fullText={job.mediainfo_text}
+          />
+          <AnalysisSummary job={job} />
+        </div>
+      </div>
       {drafts.map(({ target, draft }) => (
         <TrackerCheckCard key={target.id} job={job} target={target}>
           <TargetDecisionForm
@@ -73,25 +80,7 @@ export function DecisionStep({ job }: { job: UploadJob }) {
           />
         </TrackerCheckCard>
       ))}
-      <Card>
-        <CardContent className="flex flex-wrap items-center justify-between gap-3 py-4">
-          <div className="grid gap-0.5 text-sm">
-            {problems.length === 0 ? (
-              <span>{t('upload.decision.ready')}</span>
-            ) : (
-              problems.map(({ target, problem }) => (
-                <span key={target.id} className="text-amber-600 dark:text-amber-400">
-                  {target.tracker_label}: {t(problem!)}
-                </span>
-              ))
-            )}
-            {busy && <span className="text-muted-foreground">{t('upload.decision.busy')}</span>}
-          </div>
-          <Button disabled={problems.length > 0 || busy} onClick={() => setConfirmOpen(true)}>
-            {t('upload.decision.approve')}
-          </Button>
-        </CardContent>
-      </Card>
+      <DecisionSummary drafts={drafts} busy={busy} onApprove={() => setConfirmOpen(true)} />
 
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <DialogContent>

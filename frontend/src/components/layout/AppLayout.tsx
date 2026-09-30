@@ -1,6 +1,8 @@
+import { useState } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
 
 import { useSetting } from '@/api/hooks/settings'
+import { FloatingSlotContext } from '@/lib/floatingSlot'
 
 import { ActivityStack } from '@/components/ActivityStack'
 import { AppSidebar } from '@/components/layout/AppSidebar'
@@ -39,20 +41,25 @@ function useSizeUnitsSync() {
 
 export function AppLayout() {
   useSizeUnitsSync()
+  const [floatingSlot, setFloatingSlot] = useState<HTMLElement | null>(null)
   return (
-    <SidebarProvider className="h-svh">
-      <AppSidebar />
-      <SidebarInset className="h-svh overflow-hidden">
-        <TopHeader />
-        <div className="flex-1 overflow-auto p-6">
-          <Outlet />
+    <FloatingSlotContext.Provider value={floatingSlot}>
+      <SidebarProvider className="h-svh">
+        <AppSidebar />
+        <SidebarInset className="h-svh overflow-hidden">
+          <TopHeader />
+          <div className="flex-1 overflow-auto p-6">
+            <Outlet />
+          </div>
+        </SidebarInset>
+        {/* In basso a destra, impilati: feedback delle azioni sopra, run sotto. */}
+        <div className="fixed right-4 bottom-4 z-50 flex flex-col items-end gap-2">
+          {/* Pannelli flottanti di una pagina (es. il registro di un upload). */}
+          <div ref={setFloatingSlot} className="flex flex-col items-end gap-2 empty:hidden" />
+          <ActivityStack />
+          <RunStatusIndicator />
         </div>
-      </SidebarInset>
-      {/* In basso a destra, impilati: feedback delle azioni sopra, run sotto. */}
-      <div className="fixed right-4 bottom-4 z-50 flex flex-col items-end gap-2">
-        <ActivityStack />
-        <RunStatusIndicator />
-      </div>
-    </SidebarProvider>
+      </SidebarProvider>
+    </FloatingSlotContext.Provider>
   )
 }

@@ -11,6 +11,8 @@ vi.mock('@/api/hooks/uploads', () => ({
   useVerifyTarget: () => ({ mutate: vi.fn(), isPending: false }),
 }))
 
+vi.mock('@/components/upload/MatchSummaryCard', () => ({ MatchSummaryCard: () => null }))
+
 afterEach(cleanup)
 
 const target = (id: number, label: string, extra = {}) => ({
@@ -52,7 +54,8 @@ describe('DecisionStep', () => {
 
     fireEvent.change(screen.getByLabelText('Release name'), { target: { value: ' ' } })
 
-    expect(screen.getByText('ITT: the release name is empty')).toBeTruthy()
+    expect(screen.getByText('the release name is empty')).toBeTruthy()
+    expect(screen.getByText('1 tracker(s) still need something before approving.')).toBeTruthy()
     expect((screen.getByRole('button', { name: 'Approve…' }) as HTMLButtonElement).disabled).toBe(true)
   })
 })

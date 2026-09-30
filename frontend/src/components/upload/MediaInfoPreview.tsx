@@ -85,7 +85,7 @@ export function MediaInfoPreview({ summary, fullText }: { summary: MediaInfoSumm
       <CardContent className="grid min-w-0 gap-4">
         {summary?.file_name && <p className="truncate font-mono text-xs" title={summary.file_name}>{summary.file_name}</p>}
         {summary && (
-          <div className="grid gap-6 sm:grid-cols-[auto_auto_1fr]">
+          <div className="grid grid-cols-[repeat(auto-fit,minmax(14rem,1fr))] gap-6">
             {general && (
               <Block title={t('upload.mediainfo.general')}>
                 <Rows
