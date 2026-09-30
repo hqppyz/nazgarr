@@ -58,8 +58,8 @@ CREDIT_LOGO_URL = "https://raw.githubusercontent.com/lktorrentz/nazgarr/main/doc
 def credit_line() -> str:
     """La riga sempre in fondo a ogni descrizione, dopo la firma dell'utente."""
     return (
-        f"[center][url={PROJECT_URL}][img=16]{CREDIT_LOGO_URL}[/img][/url] "
-        f"[size=10]Uploaded with [url={PROJECT_URL}]Nazgarr[/url] v{__version__}[/size][/center]"
+        f"[url={PROJECT_URL}][img=16]{CREDIT_LOGO_URL}[/img][/url] "
+        f"[size=11]Uploaded with [url={PROJECT_URL}]Nazgarr[/url] v{__version__}[/size]"
     )
 
 
