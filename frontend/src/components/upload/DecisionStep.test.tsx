@@ -38,8 +38,8 @@ describe('DecisionStep', () => {
     render(<DecisionStep job={job} />)
 
     expect(screen.getByText('Every tracker has a decision.')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Approve…' }))
     fireEvent.click(screen.getByRole('button', { name: 'Approve' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm and queue' }))
 
     expect(approve.mock.calls[0][0]).toEqual([
       { target_id: 1, action: 'upload', name: 'Movie (2024) 1080p-GRP', category_id: 1, type_id: 4, resolution_id: 3,
@@ -56,6 +56,6 @@ describe('DecisionStep', () => {
 
     expect(screen.getByText('the release name is empty')).toBeTruthy()
     expect(screen.getByText('1 tracker(s) still need something before approving.')).toBeTruthy()
-    expect((screen.getByRole('button', { name: 'Approve…' }) as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByRole('button', { name: 'Approve' }) as HTMLButtonElement).disabled).toBe(true)
   })
 })

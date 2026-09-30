@@ -155,8 +155,7 @@ export const upload = {
   'upload.dupes.verifyError': 'Check failed: {reason}',
 
   'upload.overrides.title': 'Detected details',
-  'upload.overrides.description':
-    'Read from the MediaInfo and the release name. Fill a field only where the detected value (in grey) is wrong: the names below follow, each with its tracker\'s rules.',
+  'upload.overrides.description': 'In grey the detected value: write only where it is wrong, the names of every tracker follow.',
   'upload.overrides.changed': '{count} changed',
   'upload.overrides.field.type': 'Type',
   'upload.overrides.field.resolution': 'Resolution',
@@ -173,12 +172,14 @@ export const upload = {
   'upload.overrides.field.screenshot_count': 'Screenshots',
   'upload.overrides.field.notes': 'Notes at the end of the description',
   'upload.overrides.advanced': 'Advanced',
+  'upload.overrides.edit': 'Edit',
+  'upload.overrides.close': 'Close',
   'upload.overrides.readFrom.hardlink': 'Read from the torrent already seeding these files:',
   'upload.overrides.readFrom.radarr': 'Read from the original name Radarr recorded:',
   'upload.overrides.readFrom.sonarr': 'Read from the original name Sonarr recorded:',
   'upload.overrides.readFrom.source': 'Read from the source name:',
   'upload.overrides.screenshotDefault': 'from the settings',
-  'upload.overrides.noSeed': "Don't add the torrents to the client",
+  'upload.overrides.noSeed': "Don't seed",
   'upload.overrides.save': 'Apply',
   'upload.overrides.discard': 'Discard',
   'upload.overrides.saved': 'Names updated.',
@@ -202,7 +203,7 @@ export const upload = {
   'upload.decision.problem.reseed': 'choose the torrent to reseed',
   'upload.decision.ready': 'Every tracker has a decision.',
   'upload.decision.busy': 'Wait for the running checks to finish.',
-  'upload.decision.approve': 'Approve…',
+  'upload.decision.approve': 'Approve',
   'upload.decision.summaryTitle': 'What will happen',
   'upload.decision.summaryTracker': 'Tracker',
   'upload.decision.summaryWhat': 'Release',
@@ -212,7 +213,7 @@ export const upload = {
   'upload.decision.confirmTitle': 'Approve and queue?',
   'upload.decision.confirmDescription':
     'This is the final confirmation: from here Nazgarr creates the torrents and publishes them on its own, without asking again.',
-  'upload.decision.confirm': 'Approve',
+  'upload.decision.confirm': 'Confirm and queue',
   'upload.decision.approveFailed': 'Could not approve: {message}',
 
   'upload.progress.hashing': 'Hashing the pieces…',

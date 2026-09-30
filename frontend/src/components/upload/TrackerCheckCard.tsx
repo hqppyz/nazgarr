@@ -149,7 +149,6 @@ export function TrackerCheckCard({
                       )}
                     </div>
                     <div className="flex items-center gap-3">
-                      <span className="text-muted-foreground tabular-nums">{formatBytes(dupe.size_bytes)}</span>
                       {dupe.verdict === 'identical' && !dupe.verification && (
                         <Button
                           size="sm"
@@ -171,6 +170,7 @@ export function TrackerCheckCard({
                           {verifying ? t('upload.dupes.verifying') : t('upload.dupes.verify')}
                         </Button>
                       )}
+                      <span className="text-muted-foreground tabular-nums">{formatBytes(dupe.size_bytes)}</span>
                     </div>
                   </li>
                 )

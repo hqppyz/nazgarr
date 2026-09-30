@@ -43,8 +43,7 @@ export function JobActions({ job }: { job: UploadJob }) {
         )}
         {!working && (
           <Button
-            variant="ghost"
-            className="text-destructive"
+            className="bg-destructive text-white hover:bg-destructive/90"
             disabled={remove.isPending}
             onClick={() => setConfirmDelete(true)}
           >
@@ -63,7 +62,7 @@ export function JobActions({ job }: { job: UploadJob }) {
               {t('common.cancel')}
             </Button>
             <Button
-              variant="destructive"
+              className="bg-destructive text-white hover:bg-destructive/90"
               disabled={remove.isPending}
               onClick={() =>
                 remove

@@ -4,10 +4,9 @@ import { toast } from 'sonner'
 
 import { useUpdateOverrides, type UploadJob } from '@/api/hooks/uploads'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { t } from '@/lib/i18n'
@@ -28,18 +27,19 @@ function toDraft(overrides: Record<string, unknown>): Draft {
 }
 
 // Solo i quattro id sono sempre visibili (pagina di creazione): qui i valori
-// rilevati dal nome della sorgente, ognuno con il suo valore come
-// placeholder, da toccare solo dove è sbagliato. Salvando si rifanno i nomi
-// proposti per ogni tracker.
+// rilevati per il nome. Chiuso: i valori come tag. Aperto: una riga per
+// campo, etichetta e valore, con il valore rilevato come placeholder; si
+// scrive solo dove è sbagliato. Salvando si rifanno i nomi proposti.
 export function OverridesPanel({ job }: { job: UploadJob }) {
   const analysis = (job.analysis ?? {}) as Record<string, unknown>
   const detected = (analysis.detected ?? {}) as Record<string, string | null>
   const nameSource = analysis.name_source as { name: string; origin: string } | undefined
   const [draft, setDraft] = useState<Draft>(() => toDraft(job.overrides))
+  const [open, setOpen] = useState(false)
   const save = useUpdateOverrides(job.id)
   const saved = toDraft(job.overrides)
   const dirty = JSON.stringify(draft) !== JSON.stringify(saved)
-  const changed = DETECTED_FIELDS.filter((key) => draft[key]).length + (draft.year ? 1 : 0)
+  const changed = [...DETECTED_FIELDS, 'year'].filter((key) => saved[key]).length
 
   const text = (key: string) => (typeof draft[key] === 'string' ? (draft[key] as string) : '')
   const set = (key: string, value: string | boolean) =>
@@ -49,34 +49,38 @@ export function OverridesPanel({ job }: { job: UploadJob }) {
       else next[key] = value
       return next
     })
+  const detectedOf = (key: string) => (key === 'year' ? (job.year != null ? String(job.year) : null) : detected[key])
 
-  const field = (key: string, placeholder: string | null | undefined, className?: string) => (
-    <div key={key} className={cn('grid gap-1', className)}>
-      <Label htmlFor={`override-${key}`} className="text-xs">
-        {t(`upload.overrides.field.${key}`)}
-      </Label>
+  const row = (key: string, placeholder: string | null | undefined) => (
+    <label key={key} className="grid min-w-0 grid-cols-[7rem_minmax(0,1fr)] items-center gap-2">
+      <span className="truncate text-xs text-muted-foreground">{t(`upload.overrides.field.${key}`)}</span>
       <Input
-        id={`override-${key}`}
-        className={cn('h-8 font-mono text-xs', text(key) && 'border-primary ring-1 ring-primary/40')}
+        className={cn(
+          'h-7 px-2 font-mono text-xs',
+          text(key) ? 'border-primary/60 bg-primary/5' : 'border-transparent bg-muted/60 shadow-none',
+        )}
         placeholder={placeholder ?? '—'}
         value={text(key)}
         onChange={(e) => set(key, e.target.value)}
       />
-    </div>
+    </label>
   )
 
   return (
-    <Card>
-      <Collapsible defaultOpen={changed > 0}>
-        <CardHeader>
-          <CollapsibleTrigger className="group flex items-center gap-2 text-left">
-            <ChevronRightIcon className="size-4 transition-transform group-data-[panel-open]:rotate-90" />
+    <Card className="min-w-0">
+      <Collapsible open={open} onOpenChange={setOpen}>
+        <CardHeader className="grid gap-2">
+          <CollapsibleTrigger className="flex items-center gap-2 text-left">
+            <ChevronRightIcon className={cn('size-4 transition-transform', open && 'rotate-90')} />
             <CardTitle className="text-base">{t('upload.overrides.title')}</CardTitle>
             {changed > 0 && (
               <span className="rounded bg-primary/15 px-1.5 text-xs text-primary">
                 {t('upload.overrides.changed', { count: changed })}
               </span>
             )}
+            <span className="ml-auto text-xs text-muted-foreground">
+              {open ? t('upload.overrides.close') : t('upload.overrides.edit')}
+            </span>
           </CollapsibleTrigger>
           {nameSource && (
             <p className="min-w-0 truncate text-xs text-muted-foreground" title={nameSource.name}>
@@ -84,66 +88,60 @@ export function OverridesPanel({ job }: { job: UploadJob }) {
               <span className="font-mono">{nameSource.name}</span>
             </p>
           )}
-          {/* Chiuso: i valori usati per il nome come tag, quelli cambiati a mano
-              in evidenza. Aperto: i campi per correggerli. */}
-          <div className="flex flex-wrap gap-1.5 pt-1">
-            {[...DETECTED_FIELDS, 'year' as const].map((key) => {
-              const override = typeof saved[key] === 'string' ? (saved[key] as string) : ''
-              const value = override || (key === 'year' ? (job.year != null ? String(job.year) : null) : detected[key])
-              if (!value) return null
-              return (
-                <span
-                  key={key}
-                  title={t(`upload.overrides.field.${key}`)}
-                  className={cn(
-                    'rounded border px-1.5 py-0.5 font-mono text-[11px]',
-                    override ? 'border-primary/50 bg-primary/10 text-primary' : 'bg-muted text-muted-foreground',
-                  )}
-                >
-                  {value}
-                </span>
-              )
-            })}
-          </div>
+          {!open && (
+            <div className="flex flex-wrap gap-1.5">
+              {[...DETECTED_FIELDS, 'year' as const].map((key) => {
+                const override = typeof saved[key] === 'string' ? (saved[key] as string) : ''
+                const value = override || detectedOf(key)
+                if (!value) return null
+                return (
+                  <span
+                    key={key}
+                    title={t(`upload.overrides.field.${key}`)}
+                    className={cn(
+                      'rounded border px-1.5 py-0.5 font-mono text-[11px]',
+                      override ? 'border-primary/50 bg-primary/10 text-primary' : 'bg-muted text-muted-foreground',
+                    )}
+                  >
+                    {value}
+                  </span>
+                )
+              })}
+            </div>
+          )}
         </CardHeader>
         <CollapsibleContent>
-          <CardContent className="grid gap-5">
-            <CardDescription>{t('upload.overrides.description')}</CardDescription>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-              {DETECTED_FIELDS.map((key) => field(key, detected[key]))}
-              {field('year', job.year != null ? String(job.year) : null)}
+          <CardContent className="grid gap-4">
+            <p className="text-xs text-muted-foreground">{t('upload.overrides.description')}</p>
+            <div className="grid gap-x-6 gap-y-1.5 sm:grid-cols-2">
+              {DETECTED_FIELDS.map((key) => row(key, detected[key]))}
+              {row('year', job.year != null ? String(job.year) : null)}
             </div>
-            <Collapsible>
-              <CollapsibleTrigger className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground">
+            <div className="grid gap-1.5 border-t pt-3">
+              <p className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
                 {t('upload.overrides.advanced')}
-              </CollapsibleTrigger>
-              <CollapsibleContent className="grid gap-4 pt-3 sm:grid-cols-2">
-                {field('screenshot_count', t('upload.overrides.screenshotDefault'))}
-                <div className="flex items-center gap-2 self-end pb-1.5">
-                  <Switch
-                    id="override-no_seed"
-                    checked={draft.no_seed === true}
-                    onCheckedChange={(checked) => set('no_seed', checked)}
-                  />
-                  <Label htmlFor="override-no_seed" className="text-xs">
-                    {t('upload.overrides.noSeed')}
-                  </Label>
-                </div>
-                <div className="grid gap-1 sm:col-span-2">
-                  <Label htmlFor="override-notes" className="text-xs">
-                    {t('upload.overrides.field.notes')}
-                  </Label>
-                  <Textarea
-                    id="override-notes"
-                    rows={3}
-                    className="font-mono text-xs"
-                    value={text('notes')}
-                    onChange={(e) => set('notes', e.target.value)}
-                  />
-                </div>
-              </CollapsibleContent>
-            </Collapsible>
-            <div className="flex gap-2">
+              </p>
+              <div className="grid gap-x-6 gap-y-1.5 sm:grid-cols-2">
+                {row('screenshot_count', t('upload.overrides.screenshotDefault'))}
+                <label className="grid grid-cols-[7rem_minmax(0,1fr)] items-center gap-2">
+                  <span className="truncate text-xs text-muted-foreground">{t('upload.overrides.noSeed')}</span>
+                  <Switch size="sm" checked={draft.no_seed === true} onCheckedChange={(checked) => set('no_seed', checked)} />
+                </label>
+              </div>
+              <Textarea
+                rows={2}
+                className="font-mono text-xs"
+                placeholder={t('upload.overrides.field.notes')}
+                value={text('notes')}
+                onChange={(e) => set('notes', e.target.value)}
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              {dirty && (
+                <Button size="sm" variant="ghost" onClick={() => setDraft(saved)}>
+                  {t('upload.overrides.discard')}
+                </Button>
+              )}
               <Button
                 size="sm"
                 disabled={!dirty || save.isPending}
@@ -156,11 +154,6 @@ export function OverridesPanel({ job }: { job: UploadJob }) {
               >
                 {t('upload.overrides.save')}
               </Button>
-              {dirty && (
-                <Button size="sm" variant="ghost" onClick={() => setDraft(saved)}>
-                  {t('upload.overrides.discard')}
-                </Button>
-              )}
             </div>
           </CardContent>
         </CollapsibleContent>

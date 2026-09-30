@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { toast } from 'sonner'
 
 import { useApproveUpload, type UploadJob } from '@/api/hooks/uploads'
+import { Masonry } from '@/components/Masonry'
 import { AnalysisSummary } from '@/components/upload/AnalysisSummary'
 import { DecisionSummary } from '@/components/upload/DecisionSummary'
 import { MatchSummaryCard } from '@/components/upload/MatchSummaryCard'
@@ -55,21 +56,17 @@ export function DecisionStep({ job }: { job: UploadJob }) {
 
   return (
     <div className="grid min-w-0 gap-4 [&>*]:min-w-0">
-      {/* Due colonne indipendenti: a sinistra il contenuto e i valori per il
-          nome, a destra MediaInfo e l'esito dell'analisi. */}
-      <div className="grid min-w-0 items-start gap-4 lg:grid-cols-2">
-        <div className="grid min-w-0 gap-4">
-          <MatchSummaryCard job={job} />
-          <OverridesPanel key={JSON.stringify(job.overrides)} job={job} />
-        </div>
-        <div className="grid min-w-0 gap-4">
-          <MediaInfoPreview
-            summary={((job.analysis as Record<string, unknown> | null)?.mediainfo ?? null) as MediaInfoSummary | null}
-            fullText={job.mediainfo_text}
-          />
-          <AnalysisSummary job={job} />
-        </div>
-      </div>
+      {/* Masonry: ogni scheda nella colonna più corta, così un MediaInfo
+          lungo non spinge l'esito dell'analisi sotto di sé. */}
+      <Masonry>
+        <MatchSummaryCard job={job} />
+        <MediaInfoPreview
+          summary={((job.analysis as Record<string, unknown> | null)?.mediainfo ?? null) as MediaInfoSummary | null}
+          fullText={job.mediainfo_text}
+        />
+        <OverridesPanel key={JSON.stringify(job.overrides)} job={job} />
+        <AnalysisSummary job={job} />
+      </Masonry>
       {drafts.map(({ target, draft }) => (
         <TrackerCheckCard key={target.id} job={job} target={target}>
           <TargetDecisionForm

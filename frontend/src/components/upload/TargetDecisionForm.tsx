@@ -73,14 +73,13 @@ export function TargetDecisionForm({
           value={draft.action}
           onValueChange={(value) => set({ action: value as TargetDraft['action'] })}
           variant="outline"
-          size="sm"
           disabled={disabled}
         >
-          <ToggleGroupItem value="upload">{t('upload.action.upload')}</ToggleGroupItem>
-          <ToggleGroupItem value="reseed" disabled={identical.length === 0}>
+          <ToggleGroupItem value="upload" className="min-w-24 px-4">{t('upload.action.upload')}</ToggleGroupItem>
+          <ToggleGroupItem value="reseed" className="min-w-24 px-4" disabled={identical.length === 0}>
             {t('upload.action.reseed')}
           </ToggleGroupItem>
-          <ToggleGroupItem value="skip">{t('upload.action.skip')}</ToggleGroupItem>
+          <ToggleGroupItem value="skip" className="min-w-24 px-4">{t('upload.action.skip')}</ToggleGroupItem>
         </ToggleGroupSingle>
       </div>
 
