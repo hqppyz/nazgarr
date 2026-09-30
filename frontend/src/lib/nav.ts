@@ -74,7 +74,7 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     title: 'Upload',
     icon: UploadCloud,
-    items: [{ title: 'Upload', to: '/upload', badge: 'WIP' }],
+    items: [{ title: 'Upload', to: '/upload' }],
   },
   {
     title: 'Configuration',
