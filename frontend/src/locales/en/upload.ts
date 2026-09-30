@@ -255,8 +255,9 @@ export const upload = {
   'upload.history.finished': 'Finished',
 
   'upload.mediainfo.expand': 'Show the full MediaInfo',
-  'upload.mediainfo.collapse': 'Hide the full MediaInfo',
   'upload.mediainfo.copy': 'Copy',
+  'upload.mediainfo.copied': 'MediaInfo copied.',
+  'upload.mediainfo.copyFailed': 'Could not copy: select the text in the full MediaInfo instead.',
   'upload.mediainfo.general': 'General',
   'upload.mediainfo.video': 'Video',
   'upload.mediainfo.audio': 'Audio',

@@ -70,7 +70,12 @@ export function useUpdateUploadProfile(trackerId: number) {
   return useMutation({
     mutationFn: (body: Schemas['UploadProfileUpdateRequest']) =>
       unwrap(api.PATCH('/api/trackers/{tracker_id}/upload-profile', { params: { path: { tracker_id: trackerId } }, body })),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['trackers', trackerId, 'upload-profile'] }),
+    // Anche gli upload: le opzioni del profilo (freeleech, mappe) arrivano
+    // sui target di un job già aperto e nella pagina di creazione.
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['uploads'] })
+      return queryClient.invalidateQueries({ queryKey: ['trackers', trackerId, 'upload-profile'] })
+    },
   })
 }
 

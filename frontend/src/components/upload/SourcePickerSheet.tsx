@@ -166,7 +166,7 @@ export function SourcePickerSheet({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-full gap-0 sm:max-w-2xl">
+      <SheetContent side="right" className="w-full gap-0 sm:max-w-5xl">
         <SheetHeader>
           <SheetTitle>{t('upload.picker.title')}</SheetTitle>
           <SheetDescription>{t('upload.picker.description')}</SheetDescription>

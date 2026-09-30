@@ -313,3 +313,14 @@ def test_overrides_and_approve_through_the_api(client, tmp_path, setup):
         assert job.targets[0].approved_name == "Movie Name (2024)"
     finally:
         session.close()
+
+
+def test_targets_expose_the_freeleech_options_of_their_profile(client, tmp_path, setup):
+    client.patch(f"/api/trackers/{setup['tracker_id']}/upload-profile", json={"freeleech_options": [50, 25]})
+    job_id = _awaiting_match(client, tmp_path, setup, "Movie.2024.mkv", ["Movie.2024.mkv"])
+    client.post(f"/api/uploads/{job_id}/match", json={"content_type": "movie", "tmdb_id": 1, "kind": "movie"})
+
+    target = client.get(f"/api/uploads/{job_id}").json()["targets"][0]
+
+    assert target["freeleech_options"] == [25, 50]
+    assert target["flags"]["freeleech"] == 0

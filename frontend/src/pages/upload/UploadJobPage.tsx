@@ -2,6 +2,7 @@ import { FileVideoIcon, FolderIcon, LoaderCircleIcon } from 'lucide-react'
 import { useParams } from 'react-router-dom'
 
 import { useUpload, WORKER_STATES, type UploadJob } from '@/api/hooks/uploads'
+import { DecisionSkeleton } from '@/components/upload/DecisionSkeleton'
 import { DecisionStep } from '@/components/upload/DecisionStep'
 import { MatchStep } from '@/components/upload/MatchStep'
 import { ProgressStep } from '@/components/upload/ProgressStep'
@@ -86,8 +87,8 @@ export function UploadJobPage() {
     <div className="grid min-w-0 gap-4 pb-16 [&>*]:min-w-0">
       <JobToolbar job={job} />
       {!matched && <JobHeader job={job} />}
-      {matched && job.status !== 'awaiting_decision' && <MatchSummaryCard job={job} />}
-      <JobBody job={job} />
+      {matched && !['analyzing', 'awaiting_decision'].includes(job.status) && <MatchSummaryCard job={job} />}
+      {job.status === 'analyzing' && matched ? <DecisionSkeleton job={job} /> : <JobBody job={job} />}
       <FloatingActivity job={job} />
     </div>
   )

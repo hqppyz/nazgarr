@@ -1,8 +1,11 @@
-import { CheckIcon, CopyIcon, InfoIcon, MinusIcon, PlusIcon } from 'lucide-react'
+import { CheckIcon, CopyIcon, InfoIcon, PlusIcon } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
+import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { copyText } from '@/lib/clipboard'
 import { t } from '@/lib/i18n'
 import { formatBytes } from '@/lib/library-filters'
 import {
@@ -42,8 +45,16 @@ function Block({ title, children }: { title: string; children: ReactNode }) {
 // audio, sottotitoli; il report completo solo a richiesta, nel suo riquadro
 // con lo scroll orizzontale (le righe di mediainfo sono lunghissime).
 export function MediaInfoPreview({ summary, fullText }: { summary: MediaInfoSummary | null; fullText: string | null }) {
-  const [expanded, setExpanded] = useState(false)
+  const [fullOpen, setFullOpen] = useState(false)
   const [copied, setCopied] = useState(false)
+  const copy = () =>
+    fullText &&
+    copyText(fullText).then((ok) => {
+      if (!ok) return toast.error(t('upload.mediainfo.copyFailed'))
+      toast.success(t('upload.mediainfo.copied'))
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    })
   if (!summary && !fullText) return null
   const { general, video } = summary ?? { general: null, video: null }
 
@@ -56,25 +67,15 @@ export function MediaInfoPreview({ summary, fullText }: { summary: MediaInfoSumm
         </CardTitle>
         <div className="flex gap-1">
           {fullText && (
-            <Button
-              variant="ghost"
-              size="sm"
-              title={expanded ? t('upload.mediainfo.collapse') : t('upload.mediainfo.expand')}
-              onClick={() => setExpanded((v) => !v)}
-            >
-              {expanded ? <MinusIcon className="size-4" /> : <PlusIcon className="size-4" />}
+            <Button variant="ghost" size="sm" title={t('upload.mediainfo.expand')} onClick={() => setFullOpen(true)}>
+              <PlusIcon className="size-4" />
             </Button>
           )}
           {fullText && (
             <Button
               variant="ghost"
               size="sm"
-              onClick={() =>
-                navigator.clipboard?.writeText(fullText).then(() => {
-                  setCopied(true)
-                  setTimeout(() => setCopied(false), 1500)
-                })
-              }
+              onClick={copy}
             >
               {copied ? <CheckIcon className="size-4" /> : <CopyIcon className="size-4" />}
               {t('upload.mediainfo.copy')}
@@ -139,8 +140,21 @@ export function MediaInfoPreview({ summary, fullText }: { summary: MediaInfoSumm
             ))}
           </div>
         )}
-        {expanded && fullText && (
-          <pre className="max-h-[32rem] overflow-auto rounded bg-muted p-3 font-mono text-[11px] leading-snug">{fullText}</pre>
+        {fullText && (
+          <Dialog open={fullOpen} onOpenChange={setFullOpen}>
+            <DialogContent className="max-h-[90vh] grid-rows-[auto_minmax(0,1fr)] sm:max-w-5xl">
+              <DialogHeader className="flex flex-row items-center justify-between gap-2 pr-8">
+                <DialogTitle className="min-w-0 truncate">
+                  MediaInfo{summary?.file_name ? ` · ${summary.file_name}` : ''}
+                </DialogTitle>
+                <Button variant="outline" size="sm" onClick={copy}>
+                  {copied ? <CheckIcon className="size-4" /> : <CopyIcon className="size-4" />}
+                  {t('upload.mediainfo.copy')}
+                </Button>
+              </DialogHeader>
+              <pre className="min-h-0 overflow-auto rounded bg-muted p-3 font-mono text-[11px] leading-snug">{fullText}</pre>
+            </DialogContent>
+          </Dialog>
         )}
       </CardContent>
     </Card>

@@ -6,6 +6,7 @@ import { Switch } from '@/components/ui/switch'
 import { ToggleGroupItem, ToggleGroupSingle } from '@/components/ui/toggle-group'
 import { t } from '@/lib/i18n'
 import { editDraft, type TargetDraft } from '@/lib/upload'
+import { cn } from '@/lib/utils'
 
 const FLAGS = ['anonymous', 'personal_release', 'internal', 'stream'] as const
 
@@ -126,28 +127,29 @@ export function TargetDecisionForm({
               onChange={(resolution_id) => set({ resolution_id })}
             />
           </div>
-          <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
-            {target.freeleech_options.length > 0 && (
-              <div className="flex items-center gap-2">
-                <Label className="text-xs">{t('upload.decision.freeleech')}</Label>
-                <Select
-                  value={String(draft.freeleech)}
-                  onValueChange={(v) => v != null && set({ freeleech: Number(v) })}
-                  disabled={disabled}
-                >
-                  <SelectTrigger size="sm" className="w-24">
-                    <SelectValue>{(v: string | null) => (v === '0' || v == null ? t('upload.decision.noFreeleech') : `${v}%`)}</SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    {[0, ...target.freeleech_options].map((value) => (
-                      <SelectItem key={value} value={String(value)}>
-                        {value === 0 ? t('upload.decision.noFreeleech') : `${value}%`}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+          {target.freeleech_options.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2">
+              <Label className="text-xs">{t('upload.decision.freeleech')}</Label>
+              <div className="inline-flex overflow-hidden rounded-md border">
+                {[0, ...target.freeleech_options].map((value) => (
+                  <button
+                    key={value}
+                    type="button"
+                    aria-pressed={draft.freeleech === value}
+                    disabled={disabled}
+                    onClick={() => set({ freeleech: value })}
+                    className={cn(
+                      'h-8 border-r px-3 text-xs tabular-nums last:border-r-0',
+                      draft.freeleech === value ? 'bg-primary/15 text-primary' : 'text-muted-foreground hover:bg-muted',
+                    )}
+                  >
+                    {value === 0 ? t('upload.decision.noFreeleech') : `${value}%`}
+                  </button>
+                ))}
               </div>
-            )}
+            </div>
+          )}
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
             {FLAGS.map((flag) => (
               <div key={flag} className="flex items-center gap-2">
                 <Switch
