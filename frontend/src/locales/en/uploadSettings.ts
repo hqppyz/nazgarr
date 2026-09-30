@@ -14,7 +14,7 @@ export const uploadSettings = {
   'uploadSettings.saveHeaderButton': 'Save header',
   'uploadSettings.signatureLabel': 'Signature',
   'uploadSettings.signatureHelp':
-    'Text (e.g. BBCode) appended at the end of every description — leave empty to add nothing.',
+    'Text (e.g. BBCode) appended at the end of every description — leave empty to add nothing. A short "Uploaded with Nazgarr" line with the version always follows it.',
   'uploadSettings.signatureSaved': 'Signature saved.',
   'uploadSettings.saveSignatureButton': 'Save signature',
   'uploadSettings.apiKeysLabel': 'API keys',

@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from app import settings_repo
 from app.api_errors import CodedError
 from app.models import TrackerUploadProfile
+from app.version import __version__
 
 logger = logging.getLogger(__name__)
 
@@ -49,13 +50,27 @@ def guess_release_type_key(source_path: str, type_map: dict) -> str | None:
     return _DEFAULT_TYPE_GUESS if _DEFAULT_TYPE_GUESS in type_map else None
 
 
+PROJECT_URL = "https://github.com/lktorrentz/nazgarr"
+# Servito da GitHub (repo pubblico): il tracker non vede mai l'istanza.
+CREDIT_LOGO_URL = "https://raw.githubusercontent.com/lktorrentz/nazgarr/main/docs/assets/nazgarr-credit.png"
+
+
+def credit_line() -> str:
+    """La riga sempre in fondo a ogni descrizione, dopo la firma dell'utente."""
+    return (
+        f"[center][url={PROJECT_URL}][img=16]{CREDIT_LOGO_URL}[/img][/url] "
+        f"[size=10]Uploaded with [url={PROJECT_URL}]Nazgarr[/url] v{__version__}[/size][/center]"
+    )
+
+
 def render_description(
     session: Session, profile: TrackerUploadProfile, mediainfo: str, screenshot_urls: list[str], notes: str = ""
 ) -> str:
     """Il template Jinja2 del profilo, con l'intestazione in cima e la firma
-    in fondo, entrambe facoltative (Configuration > Upload)."""
+    in fondo, entrambe facoltative (Configuration > Upload), e per ultima la
+    riga di Nazgarr (credit_line), sempre."""
     template = Template(profile.description_template or "{{ mediainfo }}")
     rendered = template.render(mediainfo=mediainfo or "", screenshot_urls=screenshot_urls, notes=notes)
     header = settings_repo.get_setting(session, "upload_description_header")
     signature = settings_repo.get_setting(session, "upload_description_signature")
-    return "\n\n".join(part for part in (header, rendered, signature) if part)
+    return "\n\n".join(part for part in (header, rendered, signature, credit_line()) if part)
