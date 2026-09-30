@@ -28,6 +28,7 @@ from app.api.uploads import router as uploads_router
 from app.config import load_settings
 from app.frontend import mount_frontend
 from app.logging_config import add_file_handler, configure_logging
+from app.security_headers import SecurityMiddleware
 from app.upload_worker import UploadWorker
 from app.version import __commit__, __version__
 
@@ -87,6 +88,7 @@ app = FastAPI(title="Nazgarr", lifespan=lifespan)
 # Le viste della libreria restituiscono JSON da diversi MB (decine di
 # migliaia di file): compressi in gzip pesano una frazione in rete.
 app.add_middleware(GZipMiddleware, minimum_size=1024)
+app.add_middleware(SecurityMiddleware)
 app.include_router(auth_router)
 
 # API JSON pura sotto /api/* fin dall'inizio (docs/SPEC.md §10). Protette da
