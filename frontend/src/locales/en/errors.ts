@@ -77,6 +77,8 @@ export const errors = {
     'A hardlink cannot cross filesystems: {path} is on another device than the folder for uploads.',
   'errors.upload_seed_path_exists': 'A different file already exists at {path}.',
   'errors.upload_screenshots_failed': 'Could not make or upload the screenshots: {error}',
+  'errors.upload_tracker_torrent_unavailable':
+    "Could not download the torrent back from the tracker, so it can't be seeded: add it to the client from the tracker's page.",
   'errors.upload_reseed_missing_video': "The tracker's torrent has a video Nazgarr can't find locally: {path}",
   'errors.upload_freeleech_not_allowed': '{tracker} does not allow a {value}% freeleech.',
   'errors.tracker_icon_not_available': 'This tracker has no usable icon.',

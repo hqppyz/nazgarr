@@ -21,6 +21,7 @@ stesso layout del torrent, si fa seed sul posto. Stesso filesystem o errore
 esplicito, come nel reseeding. Un tracker che fallisce non ferma gli altri.
 """
 
+import io
 import json
 import logging
 import os
@@ -278,6 +279,26 @@ def _upload_pairs(job: UploadJob, torrent: torf.Torrent, root: str) -> list[tupl
     return pairs
 
 
+def _tracker_copy(adapter, uploaded, torrent: torf.Torrent, job_dir: str, tracker_id: int) -> tuple[str, bool]:
+    """Il .torrent come l'ha salvato il tracker (UploadedTorrent: il suo info
+    hash è quello che il tracker conosce), e se ha gli stessi piece e gli
+    stessi file di quello creato da Nazgarr."""
+    if not uploaded.download_link:
+        raise UploadJobError("upload_tracker_torrent_unavailable")
+    try:
+        content = adapter.download_torrent(uploaded.download_link)
+        theirs = torf.Torrent.read_stream(io.BytesIO(content))
+    except Exception as exc:
+        raise UploadJobError("upload_tracker_torrent_unavailable", error=str(exc)) from exc
+    path = os.path.join(job_dir, f"tracker-{tracker_id}-seed.torrent")
+    with open(path, "wb") as f:
+        f.write(content)
+    mine_info, their_info = torrent.metainfo["info"], theirs.metainfo["info"]
+    keys = ("pieces", "piece length", "name", "files", "length")
+    same = all(mine_info.get(key) == their_info.get(key) for key in keys)
+    return path, same
+
+
 def run_upload(session: Session, job: UploadJob, target: UploadTarget, ctx: dict) -> None:
     tracker = target.tracker
     if not tracker.announce_url:
@@ -306,7 +327,8 @@ def run_upload(session: Session, job: UploadJob, target: UploadTarget, ctx: dict
     session.commit()
     adapter = adapter_factory.build_tracker_adapter(tracker)
     fields = upload_fields(job, target, description, resolution_key)
-    target.torrent_id_remote = adapter.upload_torrent(fields, torrent_path)
+    uploaded = adapter.upload_torrent(fields, torrent_path)
+    target.torrent_id_remote = uploaded.torrent_id_remote
     upload_jobs.log_event(session, job, "uploaded", target=target, torrent=target.torrent_id_remote)
     session.commit()
 
@@ -320,7 +342,13 @@ def run_upload(session: Session, job: UploadJob, target: UploadTarget, ctx: dict
         pairs = _upload_pairs(job, torrent, root)
         link_files(pairs, root)
         save_path = root if pairs else os.path.dirname(job.source_path.rstrip(os.sep))
-        _add_to_client(session, job, target, torrent_path, save_path, torrent)
+        seed_path, same_content = _tracker_copy(adapter, uploaded, torrent, ctx["dir"], tracker.id)
+        target.torrent_path = seed_path
+        target.info_hash = torf.Torrent.read(seed_path).infohash
+        session.commit()
+        # Gli stessi piece di quelli appena calcolati: niente recheck (vedi
+        # _add_to_client); se il tracker ha cambiato il contenuto, recheck.
+        _add_to_client(session, job, target, seed_path, save_path, torrent if same_content else None)
     except Exception as exc:
         # L'upload è andato: mai ripeterlo per un problema del client.
         logger.warning("Upload %s su %s riuscito ma il seed no", job.id, tracker.label, exc_info=True)

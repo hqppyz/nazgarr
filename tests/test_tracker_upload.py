@@ -33,9 +33,11 @@ def test_upload_torrent_returns_torrent_id_on_success(tmp_path):
         )
 
     adapter = _adapter(handler)
-    torrent_id = adapter.upload_torrent(_fields(), _torrent_file(tmp_path))
+    uploaded = adapter.upload_torrent(_fields(), _torrent_file(tmp_path))
 
-    assert torrent_id == "12345"
+    assert uploaded.torrent_id_remote == "12345"
+    # Il .torrent da seedare è quello del tracker, da questo link.
+    assert uploaded.download_link == "https://tracker.example/torrents/download/12345.abcde"
 
 
 def test_upload_torrent_sends_expected_form_fields(tmp_path):

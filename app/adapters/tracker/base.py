@@ -16,7 +16,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from email.utils import parsedate_to_datetime
 from typing import Literal
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 
 import httpx
 
@@ -135,11 +135,25 @@ class TrackerAdapter(ABC):
         lo sappia. NotSupportedError se l'adapter non lo implementa."""
         raise NotSupportedError(f"{self.__class__.__name__} non supporta download_torrent()")
 
-    def upload_torrent(self, fields: UploadFields, torrent_path: str) -> str:
-        """Pubblica un nuovo upload (docs/SPEC.md §9). Ritorna
-        torrent_id_remote. NotSupportedError se l'adapter non lo implementa,
-        UploadError se il tracker rifiuta la richiesta."""
+    def upload_torrent(self, fields: UploadFields, torrent_path: str) -> "UploadedTorrent":
+        """Pubblica un nuovo upload (docs/SPEC.md §9): l'id sul tracker e il
+        link per riscaricarne il .torrent, che è quello da seedare (il
+        tracker può averlo riscritto: vedi UploadedTorrent). NotSupportedError
+        se l'adapter non lo implementa, UploadError se il tracker rifiuta la
+        richiesta."""
         raise NotSupportedError(f"{self.__class__.__name__} non supporta upload_torrent()")
+
+
+@dataclass(frozen=True)
+class UploadedTorrent:
+    """Esito di upload_torrent. Un tracker UNIT3D riscrive il dizionario info
+    del .torrent che riceve (campo source col suo valore, private): l'info
+    hash sul tracker non è quello del file inviato, e un client che seeda il
+    file inviato riceve "InfoHash not found". Si seeda quindi il .torrent
+    riscaricato da download_link."""
+
+    torrent_id_remote: str
+    download_link: str | None
 
 
 class _RateLimiter:
@@ -311,10 +325,11 @@ class Unit3dTrackerAdapter(TrackerAdapter):
         if not response_data.get("success"):
             raise UploadError(f"UNIT3D upload rejected by the tracker: {response_data.get('message', response_data)}")
 
-        match = self._TORRENT_ID_RE.search(response_data.get("data", ""))
+        link = response_data.get("data") or ""
+        match = self._TORRENT_ID_RE.search(link)
         if not match:
             raise UploadError(f"UNIT3D upload response has no recognizable torrent id: {response_data!r}")
-        return match.group(1)
+        return UploadedTorrent(torrent_id_remote=match.group(1), download_link=urljoin(self.base_url + "/", link))
 
     _DOWNLOAD_KEY_RE = re.compile(r"(/torrent/download/\d+\.)([A-Za-z0-9]+)$")
 

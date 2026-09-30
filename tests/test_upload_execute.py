@@ -1,3 +1,4 @@
+import io
 import json
 import os
 import types
@@ -6,7 +7,7 @@ import pytest
 import torf
 
 from app import torrent_create, upload_decision, upload_execute, upload_jobs
-from app.adapters.tracker.base import UploadError
+from app.adapters.tracker.base import UploadedTorrent, UploadError
 from app.models import Disk, TrackerUploadProfile
 from app.upload_worker import UploadWorker
 from tests.upload_helpers import InlineExecutor, make_client, make_tracker, write_video
@@ -18,14 +19,23 @@ class _Tracker:
     def __init__(self, torrent_id="100", error=None, torrent_bytes=None):
         self.torrent_id, self.error, self.torrent_bytes = torrent_id, error, torrent_bytes
         self.uploads = []
+        self.changed_content = False
 
     def upload_torrent(self, fields, torrent_path):
         if self.error:
             raise self.error
         self.uploads.append((fields, torrent_path))
-        return self.torrent_id
+        return UploadedTorrent(self.torrent_id, f"https://tracker/torrent/download/{self.torrent_id}.key")
 
     def download_torrent(self, url):
+        if url.startswith("https://tracker/torrent/download/"):
+            # Come UNIT3D: riscrive il campo source, quindi un altro info hash.
+            with open(self.uploads[-1][1], "rb") as f:
+                torrent = torf.Torrent.read_stream(io.BytesIO(f.read()))
+            torrent.source = f"Tracker{self.torrent_id}"
+            if self.changed_content:
+                torrent.metainfo["info"]["name"] = "Renamed by the tracker"
+            return torrent.dump()
         return self.torrent_bytes
 
 
@@ -142,6 +152,10 @@ def test_uploads_to_every_tracker_and_seeds_from_hardlinks(db_session, tmp_path,
                                    (b.torrent_path, str(env["root"] / "torrents"))]
     # Il torrent l'ha creato Nazgarr da quei file: niente recheck del client.
     assert env["client"].skipped == [True, True] and env["client"].rechecked == []
+    # Nel client il .torrent del tracker (source riscritto), non quello inviato.
+    seeded = torf.Torrent.read(a.torrent_path)
+    assert seeded.source == "Tracker100" and a.info_hash == seeded.infohash
+    assert seeded.infohash != torf.Torrent.read(env["trackers"]["a"].uploads[0][1]).infohash
     assert json.loads(job.screenshot_urls_json) == [f"https://img.example/{i}.png" for i in range(4)]
 
 
@@ -283,3 +297,14 @@ def test_files_in_place_needs_every_file_with_its_size(tmp_path):
     (folder / "e2.mkv").write_bytes(b"short")
     assert not upload_execute.files_in_place(torrent, str(tmp_path))
     assert not upload_execute.files_in_place(torrent, str(tmp_path / "elsewhere"))
+
+
+def test_a_torrent_changed_by_the_tracker_is_rechecked(db_session, tmp_path, env):
+    video = write_video(env["root"] / "media" / "The.Matrix.1999.1080p.WEB-DL.H.264-GRP.mkv", 300 * KB)
+    job = _approved(db_session, env, "media/" + video.name, {"a": _upload("Matrix A"), "b": {"action": "skip"}})
+    env["trackers"]["a"].changed_content = True
+
+    _run(db_session, tmp_path, job)
+
+    assert job.status == "done"
+    assert env["client"].skipped == [False]  # non più gli stessi file: recheck
