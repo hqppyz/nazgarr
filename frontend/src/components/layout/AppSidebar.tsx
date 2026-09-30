@@ -1,4 +1,4 @@
-import { LogOutIcon } from 'lucide-react'
+import { LogOutIcon, PaletteIcon } from 'lucide-react'
 import { useEffect, useRef } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 
@@ -6,8 +6,7 @@ import { useDashboard } from '@/api/hooks/dashboard'
 import { useHealth } from '@/api/hooks/health'
 import { RingLogo } from '@/components/RingLogo'
 import type { RingHandle } from '@/components/ring/types'
-import { ThemeToggle } from '@/components/ThemeToggle'
-import { Button } from '@/components/ui/button'
+import { Button, buttonVariants } from '@/components/ui/button'
 import { useAuth } from '@/contexts/AuthContext'
 import { t } from '@/lib/i18n'
 import {
@@ -58,6 +57,8 @@ function StatBox({ dotClassName, label, value }: { dotClassName: string; label: 
 // dell'ultima scansione, sempre visibili senza dover aprire la
 // Dashboard. Auditorr non mostra una versione in UI; qui aggiunta su
 // richiesta esplicita (GET /api/health, app/version.py).
+const COPYRIGHT_YEAR = new Date().getFullYear()
+
 function AppSidebarFooter() {
   const { data: dashboard } = useDashboard()
   const { data: health } = useHealth()
@@ -80,22 +81,29 @@ function AppSidebarFooter() {
       <p className="font-mono text-[11px] text-muted-foreground">
         {t('layout.lastRun', { time: relativeTime(dashboard?.last_run?.finished_at) })}
       </p>
-      <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-        <a href="/docs" target="_blank" rel="noreferrer" className="hover:underline">
-          {t('layout.apiDocs')}
-        </a>
-        <span title={health?.commit ? `commit ${health.commit}` : undefined}>
-          v{health?.version ?? '…'}
-          {health?.commit && <span className="opacity-60"> · {health.commit}</span>}
-        </span>
-      </div>
-      <div className="flex items-center justify-between border-t pt-2">
-        <ThemeToggle />
-        {username && (
-          <Button variant="ghost" size="icon-sm" title={t('layout.logout', { username })} onClick={logout}>
-            <LogOutIcon className="size-4" />
-          </Button>
-        )}
+      {/* Versione e copyright a sinistra, tema (Interface) e logout a destra. */}
+      <div className="mt-1 flex items-center justify-between gap-2">
+        <div className="grid min-w-0 gap-0.5 text-xs text-muted-foreground">
+          <span className="truncate font-medium" title={health?.commit ? `commit ${health.commit}` : undefined}>
+            {t('layout.version', { version: health?.version ?? '…' })}
+          </span>
+          <span className="truncate">© {COPYRIGHT_YEAR} lktorrentz</span>
+        </div>
+        <div className="flex shrink-0 items-center gap-0.5">
+          <Link
+            to="/config?tab=interface"
+            title={t('layout.themeSettings')}
+            aria-label={t('layout.themeSettings')}
+            className={buttonVariants({ variant: 'ghost', size: 'icon-sm' })}
+          >
+            <PaletteIcon className="size-4" />
+          </Link>
+          {username && (
+            <Button variant="ghost" size="icon-sm" title={t('layout.logout', { username })} onClick={logout}>
+              <LogOutIcon className="size-4" />
+            </Button>
+          )}
+        </div>
       </div>
     </SidebarFooter>
   )

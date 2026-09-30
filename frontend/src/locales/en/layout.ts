@@ -9,6 +9,7 @@ export const layout = {
   'layout.timeMinutesAgo': '{minutes} min ago',
   'layout.timeHoursAgo': '{hours} h ago',
   'layout.timeDaysAgo': '{days} d ago',
-  'layout.apiDocs': 'API docs',
+  'layout.version': 'Version v{version}',
+  'layout.themeSettings': 'Theme and interface',
   'layout.logout': 'Log out ({username})',
 } as const
