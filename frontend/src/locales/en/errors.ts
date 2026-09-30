@@ -36,6 +36,9 @@ export const errors = {
   'errors.seed_job_not_found': 'SeedJob {id} not found.',
 
   'errors.tracker_not_found': 'Tracker {id} not found.',
+  'errors.secret_required_for_new_host':
+    'The address points to another host: enter {fields} again, so they are never sent to a new server by mistake',
+  'errors.setting_safety_for_api_key': 'API keys cannot change the safety settings: log in to change them',
   'errors.setting_protected': 'This setting is managed from its own page',
   'errors.setting_secret_for_api_key': 'API keys cannot read or change secret settings',
   'errors.webhook_event_unknown': 'Unknown event: {event}',

@@ -33,3 +33,19 @@ def test_urls_that_end_up_in_links_must_be_http(client):
     assert client.patch(f"/api/trackers/{tracker_id}", json={"announce_url": evil}).status_code == 422
     client_body = {"label": "q", "adapter_type": "qbittorrent", "base_url": evil}
     assert client.post("/api/torrent-clients", json=client_body).status_code == 422
+
+
+def test_moving_a_service_to_another_host_needs_its_secrets_again(client):
+    created = client.post("/api/trackers", json={"label": "t", "adapter_type": "unit3d",
+                                                 "base_url": "https://t.example", "api_token": "tok"}).json()
+    # Stesso host: nessun problema.
+    assert client.patch(f"/api/trackers/{created['id']}", json={"base_url": "https://t.example/"}).status_code == 200
+    # Un altro host senza il token: rifiutato, il token non parte verso il nuovo server.
+    moved = client.patch(f"/api/trackers/{created['id']}", json={"base_url": "https://attacker.example"})
+    assert moved.status_code == 400 and moved.json()["detail"]["params"]["fields"] == "api_token"
+    ok = client.patch(f"/api/trackers/{created['id']}", json={"base_url": "https://new.example", "api_token": "t2"})
+    assert ok.status_code == 200
+
+    qbit = client.post("/api/torrent-clients", json={"label": "q", "adapter_type": "qbittorrent",
+                                                     "base_url": "http://qbit:8080", "password": "pw"}).json()
+    assert client.patch(f"/api/torrent-clients/{qbit['id']}", json={"base_url": "http://evil:8080"}).status_code == 400

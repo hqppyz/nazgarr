@@ -151,3 +151,17 @@ def public_for_row(row, kind: str) -> dict:
     from app.plugins.registry import REGISTRY
 
     return public(REGISTRY.get(kind, row.adapter_type), loads(getattr(row, "adapter_config_json", None)))
+
+
+def secrets_not_resent(row, kind: str, incoming: dict | None) -> list[str]:
+    """I campi segreti salvati sulla riga di un adapter di un plugin che la
+    richiesta non reinvia (per require_secrets_for_new_host)."""
+    from app.plugins.registry import REGISTRY
+
+    spec = REGISTRY.get(kind, row.adapter_type)
+    if spec is None:
+        return []
+    stored = loads(getattr(row, "adapter_config_json", None))
+    incoming = incoming or {}
+    return [f.key for f in spec.config_fields
+            if f.type == "secret" and stored.get(f.key) and incoming.get(f.key) in (None, "")]

@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.api.types import HttpUrlStr
+from app.api.types import HttpUrlStr, require_secrets_for_new_host
 from app.api_errors import coded_detail
 from app.deps import get_session
 from app.models import RadarrInstance
@@ -146,6 +146,11 @@ def update_radarr_instance(
     instance_id: int, body: RadarrInstanceUpdateRequest, session: Session = Depends(get_session)
 ):
     instance = _get_or_404(session, instance_id)
+    missing = [name for name, stored, sent in (
+        ("api_key", instance.api_key, body.api_key),
+        ("basic_auth_password", instance.basic_auth_password, body.basic_auth_password),
+    ) if stored and sent is None]
+    require_secrets_for_new_host(instance.base_url, body.base_url, missing)
     if body.label is not None:
         instance.label = body.label
     if body.base_url is not None:

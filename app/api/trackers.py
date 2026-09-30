@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session, object_session
 
 from app import tracker_icons, upload_decision, upload_profiles
-from app.api.types import HttpUrlStr
+from app.api.types import HttpUrlStr, host_changed, require_secrets_for_new_host
 from app.api_errors import coded_detail, from_coded_error
 from app.deps import get_session
 from app.models import Tracker, TrackerUploadProfile
@@ -150,6 +150,12 @@ def update_tracker(
     tracker_id: int, body: TrackerUpdateRequest, request: Request, session: Session = Depends(get_session)
 ):
     tracker = _get_tracker_or_404(session, tracker_id)
+    missing = [name for name, stored, sent in (
+        ("api_token", tracker.api_token, body.api_token),
+    ) if stored and sent is None] + plugin_config.secrets_not_resent(tracker, "tracker", body.config)
+    require_secrets_for_new_host(tracker.base_url, body.base_url, missing)
+    if body.base_url is not None and host_changed(tracker.base_url, body.base_url) and body.rss_key is None:
+        tracker.rss_key = None  # si riimpara dal nuovo host, non gli si manda quella del vecchio
     if body.label is not None:
         tracker.label = body.label
     if body.base_url is not None:

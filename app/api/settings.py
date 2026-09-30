@@ -50,11 +50,22 @@ _AUTH = re.compile(r"^auth_")
 _SECRET = re.compile(r"(api_key|token|password|secret)")
 
 
+# Le protezioni: la verifica prima di eseguire, il recheck del client,
+# l'esecuzione automatica e le sue soglie. Una API key le legge ma non le
+# cambia: spegnerle vorrebbe dire hardlink e torrent aggiunti senza controlli.
+_SAFETY = re.compile(
+    r"^(verify_before_execute|skip_client_recheck_when_verified|auto_execute_above_threshold|confidence_threshold_auto_.+)$"
+)
+
+
 def _check_access(request: Request, key: str) -> None:
     if _AUTH.match(key):
         raise HTTPException(status_code=403, detail=coded_detail("setting_protected", key=key))
-    if getattr(request.state, "api_key_id", None) is not None and _SECRET.search(key):
+    by_api_key = getattr(request.state, "api_key_id", None) is not None
+    if by_api_key and _SECRET.search(key):
         raise HTTPException(status_code=403, detail=coded_detail("setting_secret_for_api_key", key=key))
+    if by_api_key and request.method != "GET" and _SAFETY.match(key):
+        raise HTTPException(status_code=403, detail=coded_detail("setting_safety_for_api_key", key=key))
 
 
 @router.get("/{key}", response_model=SettingResponse)

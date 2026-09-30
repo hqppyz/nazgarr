@@ -75,3 +75,14 @@ def test_keys_never_reach_secret_settings_and_nobody_reaches_the_login_ones(clie
     assert client.get("/api/settings/auth_password_hash", headers=auth).status_code == 403
     assert client.put("/api/settings/auth_password_hash", json={"value": "x"},
                       headers={"X-Api-Key": write["key"]}).status_code == 403
+
+
+def test_a_key_cannot_switch_off_the_safety_settings(client):
+    auth = _login(client)
+    write = {"X-Api-Key": _key(client, auth, "write")["key"], **NO_LOGIN}
+    for key in ("verify_before_execute", "skip_client_recheck_when_verified", "auto_execute_above_threshold",
+                "confidence_threshold_auto_media_to_torrent"):
+        assert client.put(f"/api/settings/{key}", json={"value": "false"}, headers=write).status_code == 403, key
+        assert client.get(f"/api/settings/{key}", headers=write).status_code == 200
+    assert client.put("/api/settings/verify_before_execute", json={"value": "true"}, headers=auth).status_code == 200
+    assert client.put("/api/settings/upload_screenshot_count", json={"value": "6"}, headers=write).status_code == 200

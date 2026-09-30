@@ -11,7 +11,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session, object_session
 
 from app import adapter_factory
-from app.api.types import HttpUrlStr
+from app.api.types import HttpUrlStr, require_secrets_for_new_host
 from app.api_errors import coded_detail, from_coded_error
 from app.client_labels import split_tags
 from app.deps import get_session
@@ -189,6 +189,10 @@ def update_torrent_client(
     torrent_client_id: int, body: TorrentClientUpdateRequest, session: Session = Depends(get_session)
 ):
     tc = _get_torrent_client_or_404(session, torrent_client_id)
+    missing = [name for name, stored, sent in (
+        ("password", tc.password, body.password), ("api_token", tc.api_token, body.api_token),
+    ) if stored and sent is None] + plugin_config.secrets_not_resent(tc, "torrent_client", body.config)
+    require_secrets_for_new_host(tc.base_url, body.base_url, missing)
     if body.label is not None:
         tc.label = body.label
     if body.base_url is not None:
