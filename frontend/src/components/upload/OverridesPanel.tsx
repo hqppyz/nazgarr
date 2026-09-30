@@ -1,4 +1,4 @@
-import { ChevronRightIcon } from 'lucide-react'
+import { ChevronDownIcon } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 
@@ -69,17 +69,17 @@ export function OverridesPanel({ job }: { job: UploadJob }) {
   return (
     <Card className="min-w-0">
       <Collapsible open={open} onOpenChange={setOpen}>
-        <CardHeader className="grid gap-2">
+        <CardHeader className="grid gap-3 py-1">
           <CollapsibleTrigger className="flex items-center gap-2 text-left">
-            <ChevronRightIcon className={cn('size-4 transition-transform', open && 'rotate-90')} />
             <CardTitle className="text-base">{t('upload.overrides.title')}</CardTitle>
             {changed > 0 && (
               <span className="rounded bg-primary/15 px-1.5 text-xs text-primary">
                 {t('upload.overrides.changed', { count: changed })}
               </span>
             )}
-            <span className="ml-auto text-xs text-muted-foreground">
+            <span className="ml-auto flex items-center gap-1 text-xs text-muted-foreground">
               {open ? t('upload.overrides.close') : t('upload.overrides.edit')}
+              <ChevronDownIcon className={cn('size-4 transition-transform', open && 'rotate-180')} />
             </span>
           </CollapsibleTrigger>
           {nameSource && (
@@ -89,7 +89,7 @@ export function OverridesPanel({ job }: { job: UploadJob }) {
             </p>
           )}
           {!open && (
-            <div className="flex flex-wrap gap-1.5">
+            <div className="flex flex-wrap gap-2 pb-1">
               {[...DETECTED_FIELDS, 'year' as const].map((key) => {
                 const override = typeof saved[key] === 'string' ? (saved[key] as string) : ''
                 const value = override || detectedOf(key)
@@ -99,7 +99,7 @@ export function OverridesPanel({ job }: { job: UploadJob }) {
                     key={key}
                     title={t(`upload.overrides.field.${key}`)}
                     className={cn(
-                      'rounded border px-1.5 py-0.5 font-mono text-[11px]',
+                      'rounded-md border px-2 py-1 font-mono text-xs',
                       override ? 'border-primary/50 bg-primary/10 text-primary' : 'bg-muted text-muted-foreground',
                     )}
                   >

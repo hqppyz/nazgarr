@@ -123,6 +123,13 @@ export const upload = {
   'upload.analysis.grabbed':
     'Radarr/Sonarr downloaded this from {tracker} (torrent {id}): it is probably not your own release, a reseed may be what you want.',
   'upload.analysis.onClient': 'Already on a client, check before uploading:',
+  'upload.analysis.grabbedRecap':
+    'Radarr/Sonarr downloaded this from {tracker} ({count} torrent(s)): probably not your own release.',
+  'upload.analysis.torrentId': 'torrent {id}',
+  'upload.analysis.onClientRecap': 'On {client} for {tracker}: {count} torrent(s) with the same size.',
+  'upload.analysis.onClientRecapHardlink':
+    'Already seeding on {client} for {tracker}: {count} torrent(s), {hardlinks} with these very files.',
+  'upload.analysis.noTracker': 'no tracker',
   'upload.analysis.hardlink': 'same files (hardlink)',
   'upload.analysis.sameSize': 'same size, {matched}/{total} video(s)',
 

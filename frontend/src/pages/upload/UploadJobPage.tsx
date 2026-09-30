@@ -1,5 +1,5 @@
-import { ArrowLeftIcon, FileVideoIcon, FolderIcon, LoaderCircleIcon } from 'lucide-react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { FileVideoIcon, FolderIcon, LoaderCircleIcon } from 'lucide-react'
+import { useParams } from 'react-router-dom'
 
 import { useUpload, WORKER_STATES, type UploadJob } from '@/api/hooks/uploads'
 import { DecisionStep } from '@/components/upload/DecisionStep'
@@ -7,7 +7,7 @@ import { MatchStep } from '@/components/upload/MatchStep'
 import { ProgressStep } from '@/components/upload/ProgressStep'
 import { ResultStep } from '@/components/upload/ResultStep'
 import { FloatingActivity } from '@/components/upload/FloatingActivity'
-import { JobActions } from '@/components/upload/JobActions'
+import { JobToolbar } from '@/components/upload/JobToolbar'
 import { MatchSummaryCard } from '@/components/upload/MatchSummaryCard'
 import { UploadStatusBadge } from '@/components/upload/UploadStatusBadge'
 import { Badge } from '@/components/ui/badge'
@@ -20,7 +20,6 @@ function JobHeader({ job }: { job: UploadJob }) {
   return (
     <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
       <div className="grid min-w-0 flex-1 gap-1">
-        <BackLink />
         <h1 className="flex min-w-0 flex-wrap items-center gap-2 text-lg font-semibold break-words">
           {job.title ? `${job.title}${job.year ? ` (${job.year})` : ''}` : t('upload.untitled')}
           {job.kind && <Badge variant="outline">{t(`upload.kind.${job.kind}`)}</Badge>}
@@ -31,22 +30,7 @@ function JobHeader({ job }: { job: UploadJob }) {
           <span className="truncate">{job.relative_path}</span>
         </p>
       </div>
-      <JobActions job={job} />
     </div>
-  )
-}
-
-function BackLink() {
-  const navigate = useNavigate()
-  return (
-    <button
-      type="button"
-      onClick={() => navigate('/upload')}
-      className="flex w-fit items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-    >
-      <ArrowLeftIcon className="size-3" />
-      {t('upload.backToList')}
-    </button>
   )
 }
 
@@ -100,6 +84,7 @@ export function UploadJobPage() {
   const matched = job.tmdb_id != null && !['identifying', 'awaiting_match'].includes(job.status)
   return (
     <div className="grid min-w-0 gap-4 pb-16 [&>*]:min-w-0">
+      <JobToolbar job={job} />
       {!matched && <JobHeader job={job} />}
       {matched && job.status !== 'awaiting_decision' && <MatchSummaryCard job={job} />}
       <JobBody job={job} />
