@@ -7,6 +7,8 @@ export const naming = {
   'naming.template.REMUX': 'REMUX',
   'naming.template.WEBDL': 'WEB-DL',
   'naming.template.WEBRIP': 'WEBRip',
+  'naming.template.WEBMUX': 'WEBMux',
+  'naming.template.DLMUX': 'DLMux',
   'naming.template.ENCODE': 'Encode',
   'naming.template.HDTV': 'HDTV',
   'naming.template.DVDRIP': 'DVDRip',

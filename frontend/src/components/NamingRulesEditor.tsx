@@ -17,14 +17,17 @@ export type NamingRules = Record<string, unknown> & {
 // Un template per tipo di release (le chiavi type_id dei profili); vuoto =
 // usa quello di default.
 // 'tv': il pattern per le serie (di solito senza anno), prima di quelli per tipo.
-const TEMPLATE_KEYS = ['default', 'tv', 'REMUX', 'WEBDL', 'WEBRIP', 'ENCODE', 'HDTV', 'DVDRIP', 'BRRIP'] as const
+const TEMPLATE_KEYS = [
+  'default', 'tv', 'REMUX', 'WEBDL', 'WEBRIP', 'WEBMUX', 'DLMUX', 'ENCODE', 'HDTV', 'DVDRIP', 'BRRIP',
+] as const
 // Stesse di app/upload_naming.py DEFAULT_TYPE_LABELS.
 const DEFAULT_TYPE_LABELS: Record<string, string> = {
-  REMUX: 'REMUX', WEBDL: 'WEB-DL', WEBRIP: 'WEBRip', ENCODE: '', HDTV: 'HDTV', DVDRIP: 'DVDRip', BRRIP: 'BRRip',
+  REMUX: 'REMUX', WEBDL: 'WEB-DL', WEBRIP: 'WEBRip', WEBMUX: 'WEBMux', DLMUX: 'DLMux', ENCODE: '', HDTV: 'HDTV',
+  DVDRIP: 'DVDRip', BRRIP: 'BRRip',
 }
 // Stesso ordine di app/upload_naming.py VARIABLES.
 const VARIABLE_NAMES = [
-  'title', 'local_title', 'year', 'season', 'episode', 'edition', 'repack', 'resolution', 'format', 'source', 'type',
+  'title', 'local_title', 'year', 'season', 'episode', 'edition', 'repack', 'resolution', 'format', 'source', 'source_full', 'type',
   'service', 'video_codec', 'hdr', 'bit_depth', 'audio', 'audio_codec', 'audio_channels', 'audio_atmos',
   'audio_all', 'audio_languages', 'subs_languages', 'subs', 'group',
 ]

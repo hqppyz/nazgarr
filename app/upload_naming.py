@@ -22,6 +22,7 @@ import re
 
 import guessit
 
+from app import streaming_services
 from app.upload_dupes import traits_of
 
 # Le variabili dei template, uguali per tutti i tracker, con un esempio:
@@ -29,7 +30,7 @@ from app.upload_dupes import traits_of
 VARIABLES = {
     "title": "Dune: Part Two", "local_title": "Dune - Parte due", "year": "2024", "season": "S02",
     "episode": "E03", "edition": "Extended", "repack": "REPACK", "resolution": "2160p", "format": "UHD",
-    "source": "UHD BluRay",
+    "source": "UHD BluRay", "source_full": "UHD BluRay",
     "type": "REMUX", "service": "ATVP", "video_codec": "HEVC", "hdr": "DV HDR", "bit_depth": "10bit",
     "audio": "TrueHD 7.1 Atmos", "audio_codec": "TrueHD", "audio_channels": "7.1", "audio_atmos": "Atmos",
     "audio_all": "TrueHD 7.1 Atmos DD+ 5.1", "audio_languages": "ITA ENG", "subs_languages": "ITA ENG",
@@ -49,8 +50,13 @@ DEFAULT_TEMPLATE = "{title} ({year}) {season} {resolution} {source} {video_codec
 # REMUX: "{source} REMUX VU"; vuota = nel nome non si scrive.
 DEFAULT_TYPE_LABELS = {
     "REMUX": "REMUX", "WEBDL": "WEB-DL", "WEBRIP": "WEBRip", "ENCODE": "", "HDTV": "HDTV", "DVDRIP": "DVDRip",
-    "BRRIP": "BRRip", "DISC": "",
+    "BRRIP": "BRRip", "DISC": "", "WEBMUX": "WEBMux", "DLMUX": "DLMux",
 }
+# I tipi la cui sorgente è un servizio di streaming ({source_full}).
+WEB_TYPES = frozenset({"WEBDL", "WEBRIP", "WEBMUX", "DLMUX"})
+# {format}: la risoluzione in lettere. Un profilo può ridefinire le etichette
+# (rules.format_labels), es. ITT non ha HD e scrive SD anche per il 720p.
+DEFAULT_FORMAT_LABELS = {"UHD": "UHD", "FullHD": "FullHD", "HD": "HD", "SD": "SD"}
 DEFAULT_RULES = {
     "version": 0,
     "templates": {"default": DEFAULT_TEMPLATE},
@@ -64,12 +70,6 @@ DEFAULT_RULES = {
     "group_separator": "-",
 }
 
-_SERVICES = {
-    "Netflix": "NF", "Amazon Prime": "AMZN", "Apple TV+": "ATVP", "AppleTV": "ATVP", "Disney+": "DSNP",
-    "Disney Plus": "DSNP", "HBO Max": "HMAX", "Max": "MAX", "Hulu": "HULU", "Paramount+": "PMTP",
-    "Peacock": "PCOK", "Now TV": "NOW", "NowTV": "NOW", "Sky": "SKY", "RaiPlay": "RAI", "Crunchyroll": "CR",
-    "iTunes": "iT",
-}
 _NAME_AUDIO = {
     "Dolby Digital Plus": "DD+", "Dolby Digital": "DD", "Dolby TrueHD": "TrueHD", "DTS-HD": "DTS-HD",
     "DTS": "DTS", "AAC": "AAC", "FLAC": "FLAC", "Opus": "Opus", "MP3": "MP3", "PCM": "LPCM",
@@ -96,13 +96,15 @@ def _as_list(value) -> list:
     return list(value) if isinstance(value, list) else [value]
 
 
-def release_type(guess: dict) -> str:
+def release_type(guess: dict, name: str = "") -> str:
     """Chiave type_id dei profili (REMUX, ENCODE, WEBDL, ...)."""
     others = {str(o) for o in _as_list(guess.get("other"))}
     source = str(guess.get("source") or "").lower()
     if "Remux" in others:
         return "REMUX"
     if source == "web":
+        if "Mux" in others:  # guessit non distingue WEBMux da DLMux
+            return "DLMUX" if "dlmux" in name.lower() else "WEBMUX"
         return "WEBRIP" if "Rip" in others else "WEBDL"
     if source == "hdtv":
         return "HDTV"
@@ -112,6 +114,9 @@ def release_type(guess: dict) -> str:
 
 
 def _source_label(guess: dict) -> str | None:
+    """La sorgente come si scrive nei nomi di remux ed encode (BluRay, UHD
+    BluRay, 3D BluRay, HDDVD, PAL/NTSC DVD, HDTV, UHDTV, UHDRip). Per il DVD
+    senza PAL/NTSC nel nome decide la risoluzione, in release_values."""
     source = str(guess.get("source") or "")
     others = {str(o) for o in _as_list(guess.get("other"))}
     if source == "Web":
@@ -119,8 +124,32 @@ def _source_label(guess: dict) -> str | None:
     if source == "Ultra HD Blu-ray":
         return "UHD BluRay"
     if source == "Blu-ray":
-        return "BluRay"
+        return "3D BluRay" if "3D" in others else "BluRay"
+    if source == "HD-DVD":
+        return "HDDVD"
+    if source == "Ultra HDTV":
+        return "UHDRip" if "Rip" in others else "UHDTV"
+    if source == "DVD":
+        standard = next((o for o in ("PAL", "NTSC") if o in others), None)
+        return f"{standard} DVD" if standard else "DVD"
     return source or None
+
+
+# La sorgente di un full disc si scrive come il disco (Blu-ray, HD DVD, ...).
+_DISC_SOURCES = {"BluRay": "Blu-ray", "UHD BluRay": "UHD Blu-ray", "3D BluRay": "3D Blu-ray", "HDDVD": "HD DVD"}
+
+
+def source_full(values: dict) -> str | None:
+    """Il campo "Source" come lo intendono i tracker, per ogni tipo: il
+    servizio per le release web, il disco per un full disc, altrimenti la
+    sorgente (BluRay, HDTV, ...)."""
+    kind = values.get("type")
+    if kind in WEB_TYPES:
+        return values.get("service")
+    source = values.get("source")
+    if kind == "DISC":
+        return _DISC_SOURCES.get(source, source)
+    return source
 
 
 def _name_video_codec(guess: dict, release: str) -> str | None:
@@ -155,15 +184,17 @@ def detect(source_name: str) -> dict:
     """I valori che si leggono dal nome della release."""
     guess = guessit.guessit(source_name)
     traits = traits_of(source_name)
-    release = release_type(guess)
+    release = release_type(guess, source_name)
     service = guess.get("streaming_service")
+    if service or release in WEB_TYPES:
+        service = streaming_services.abbreviation(service, source_name)
     return {
         "type": release,
         "resolution": guess.get("screen_size"),
         "source": _source_label(guess),
         "edition": " ".join(str(e) for e in _as_list(guess.get("edition"))) or None,
         "repack": "REPACK" if traits.repack else None,
-        "service": _SERVICES.get(str(service), str(service)) if service else None,
+        "service": service or None,
         "hdr": " ".join(tag for tag in ("DV", "HDR") if tag in traits.hdr) or None,
         "video_codec": _name_video_codec(guess, release),
         "audio": _name_audio(guess),
@@ -193,20 +224,23 @@ def _mi_resolution(video: dict) -> str | None:
     return f"{base}{'i' if interlaced and base in ('1080', '576', '480') else 'p'}"
 
 
-def resolution_format(resolution: str | None) -> str | None:
+def resolution_format(resolution: str | None, labels: dict | None = None) -> str | None:
     """La risoluzione in lettere, come la chiamano i tracker (Format):
-    UHD da 2160p in su, FullHD a 1080, HD a 720, SD sotto."""
+    UHD da 2160p in su, FullHD a 1080, HD a 720, SD sotto; labels
+    (rules.format_labels) cambia come si scrive ognuna."""
     match = re.match(r"(\d+)", resolution or "")
     if not match:
         return None
     height = int(match.group(1))
     if height >= 2160:
-        return "UHD"
-    if height >= 1080:
-        return "FullHD"
-    if height >= 720:
-        return "HD"
-    return "SD"
+        key = "UHD"
+    elif height >= 1080:
+        key = "FullHD"
+    elif height >= 720:
+        key = "HD"
+    else:
+        key = "SD"
+    return {**DEFAULT_FORMAT_LABELS, **(labels or {})}.get(key) or None
 
 
 def _mi_hdr(video: dict) -> str | None:
@@ -371,7 +405,12 @@ def release_values(
     for key in DETECTED_FIELDS:
         if overrides.get(key) not in (None, ""):
             values[key] = overrides[key]
-    values["format"] = resolution_format(values.get("resolution"))  # dopo gli override: segue la risoluzione
+    # Dopo gli override: seguono la risoluzione, il tipo e la sorgente scelti.
+    if values.get("source") == "DVD" and values.get("resolution"):
+        standard = {"576": "PAL", "480": "NTSC"}.get(str(values["resolution"])[:3])
+        values["source"] = f"{standard} DVD" if standard else "DVD"
+    values["format"] = resolution_format(values.get("resolution"), rules.get("format_labels"))
+    values["source_full"] = source_full(values)
 
     title = job.title
     if rules.get("title") == "local" and local_title:

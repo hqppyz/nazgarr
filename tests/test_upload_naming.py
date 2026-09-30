@@ -142,3 +142,42 @@ def test_format_is_the_resolution_in_letters_and_follows_the_override():
     assert release_values(_job(), detected, None, {}, rules)["format"] == "UHD"
     values = release_values(_job(), detected, None, {"resolution": "720p"}, rules)
     assert build_name(rules, values) == "17 Again 2009 HD 720p-GRP"
+
+
+def test_sources_are_written_as_in_the_tracker_rules():
+    assert [detect(name)["source"] for name in (
+        "Movie.2010.1080p.3D.BluRay.x264-GRP", "Movie.2010.1080p.HDDVD.x264-GRP", "Show.S01E01.2160p.UHDTV.x265-GRP",
+        "Movie.2010.2160p.UHDRip.x265-GRP", "Movie.2010.PAL.DVD9-GRP", "Movie.2010.2160p.UHD.BluRay.x265-GRP",
+    )] == ["3D BluRay", "HDDVD", "UHDTV", "UHDRip", "PAL DVD", "UHD BluRay"]
+    # Un DVD senza PAL/NTSC nel nome: lo dice la risoluzione.
+    values = release_values(_job(), detect("Movie.2010.DVDRip.x264-GRP"), None, {"resolution": "576p"}, None)
+    assert values["source"] == "PAL DVD"
+
+
+def test_web_releases_get_the_service_abbreviation_and_mux_types():
+    amazon = detect("Show.S01E01.1080p.AMZN.WEB-DL.DDP5.1.H.264-GRP")
+    timvision = detect("Show.S01E01.1080p.TIMV.WEB-DL.H.264-GRP")  # guessit non conosce TIMvision
+    # Una parola del titolo non è un servizio.
+    title_only = detect("Max.2020.1080p.WEB-DL.H.264-GRP")
+
+    assert (amazon["service"], timvision["service"], title_only["service"]) == ("AMZN", "TIMV", None)
+    assert detect("Show.S01E01.720p.iP.WEBMux-GRP")["type"] == "WEBMUX"
+    assert detect("Show.S01E01.1080p.NF.DLMux-GRP")["type"] == "DLMUX"
+    assert detect("Movie.2010.1080p.BluRay.x264-GRP")["service"] is None
+
+
+def test_source_full_is_the_service_for_web_the_disc_for_a_full_disc_and_the_source_otherwise():
+    web = release_values(_job(), detect("Movie.2019.1080p.NF.WEB-DL.H.264-GRP"), None, {}, None)
+    remux = release_values(_job(), detect("Movie.2019.2160p.UHD.BluRay.REMUX.HEVC-GRP"), None, {}, None)
+    disc = release_values(_job(), detect("Movie.2019.2160p.UHD.BluRay.REMUX.HEVC-GRP"), None, {"type": "DISC"}, None)
+
+    assert (web["source_full"], remux["source_full"], disc["source_full"]) == ("NF", "UHD BluRay", "UHD Blu-ray")
+
+
+def test_itt_names_follow_the_wiki_source_and_format():
+    web = release_values(_job(), detect("Movie.2009.1080p.NF.WEB-DL.DDP5.1.H.264-GRP"), None, {}, ITT_RULES)
+    encode = release_values(_job(), detect("Movie.2009.720p.BluRay.DD5.1.x264-GRP"), None, {}, ITT_RULES)
+
+    assert build_name(ITT_RULES, web) == "17 Again 2009 1080p NF WEB-DL DD+ 5.1 H.264-GRP"
+    assert build_name(ITT_RULES, encode) == "17 Again 2009 720p BluRay DD 5.1 x264-GRP"
+    assert (web["format"], encode["format"]) == ("FullHD", "SD")  # ITT non ha HD
