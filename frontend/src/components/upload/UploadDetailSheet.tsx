@@ -64,7 +64,7 @@ export function UploadDetailSheet({ uploadId, onClose }: { uploadId: number | nu
 
   return (
     <Sheet open={uploadId !== null} onOpenChange={(open) => !open && onClose()}>
-      <SheetContent side="right" className="w-full gap-0 overflow-y-auto sm:max-w-6xl">
+      <SheetContent side="right" className="gap-0 overflow-y-auto data-[side=right]:w-full data-[side=right]:sm:max-w-6xl">
         {job && (
           <>
             <SheetHeader>
