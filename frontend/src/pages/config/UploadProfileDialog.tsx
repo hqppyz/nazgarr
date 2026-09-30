@@ -191,21 +191,18 @@ export function UploadProfileDialog({
             </Section>
 
             <Section title={t('trackers.section.defaults')}>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="flex items-center justify-between gap-2">
-                  <Label htmlFor="up-anon">{t('trackers.defaultAnonymous')}</Label>
+              <div className="flex flex-wrap gap-x-8 gap-y-3">
+                <label className="flex items-center gap-2 text-sm">
                   <Switch
-                    id="up-anon"
                     checked={profile.default_anonymous}
                     onCheckedChange={(v) =>
                       updateProfile.mutate({ default_anonymous: v }, autosaveFeedback(t('trackers.defaultAnonymous')))
                     }
                   />
-                </div>
-                <div className="flex items-center justify-between gap-2">
-                  <Label htmlFor="up-personal">{t('trackers.defaultPersonalRelease')}</Label>
+                  {t('trackers.defaultAnonymous')}
+                </label>
+                <label className="flex items-center gap-2 text-sm">
                   <Switch
-                    id="up-personal"
                     checked={profile.default_personal_release}
                     onCheckedChange={(v) =>
                       updateProfile.mutate(
@@ -214,7 +211,8 @@ export function UploadProfileDialog({
                       )
                     }
                   />
-                </div>
+                  {t('trackers.defaultPersonalRelease')}
+                </label>
               </div>
               <FreeleechField
                 options={profile.freeleech_options}

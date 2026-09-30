@@ -47,10 +47,9 @@ export const trackers = {
   'trackers.advancedHelp':
     "The ids the tracker uses for category, type and resolution. They come with the profile and shouldn't need changes.",
   'trackers.freeleech': 'Freeleech',
-  'trackers.freeleechHelp':
-    'The percentages this tracker lets uploaders set. None selected = no freeleech choice in uploads.',
-  'trackers.freeleechOther': 'other %',
-  'trackers.freeleechDefault': 'Preselected:',
+  'trackers.freeleechHelp': 'The percentages this tracker lets uploaders set: none = no freeleech in uploads.',
+  'trackers.freeleechOther': 'Add another percentage',
+  'trackers.freeleechDefault': 'Preselected',
   'trackers.freeleechNone': 'none',
   'trackers.namingVersion': 'version {version}',
   'trackers.namingCustomized': 'edited by you',

@@ -28,9 +28,9 @@ def test_itt_remux_name_from_mediainfo_with_the_italian_title():
     # Due tracce DD 5.1 (inglese e italiano): una volta sola.
     assert (values["audio"], values["audio_all"]) == ("TrueHD 5.1", "TrueHD 5.1 DD 5.1")
     assert (values["audio_codec"], values["audio_channels"], values["audio_atmos"]) == ("TrueHD", "5.1", None)
-    assert (values["audio_languages"], values["subs_languages"], values["bit_depth"]) == ("ITA ENG", "ENG ITA", "8bit")
+    assert (values["audio_languages"], values["subs_languages"], values["bit_depth"]) == ("ITA ENG", "ITA ENG", "8bit")
     assert build_name(ITT_RULES, values) == (
-        "17 Again - Ritorno al liceo 2009 1080p REMUX VU VC-1 ITA ENG TrueHD 5.1 DD 5.1-MaTiTa"
+        "17 Again - Ritorno al liceo 2009 1080p REMUX VU TrueHD 5.1 DD 5.1 ITA ENG SUBS ITA ENG VC-1-MaTiTa"
     )
 
 
