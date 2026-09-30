@@ -140,10 +140,14 @@ def scan_disk(
     # sotto senza una query per riga. Se più media_file condividono lo stesso inode (raro:
     # hardlink duplicato dentro la libreria stessa), vince quello con id più basso — gli altri
     # restano comunque visibili interrogando media_file per (disk_id, st_dev, inode).
+    # Solo i file visti in QUESTO scan: una riga di un file cancellato resta
+    # (con un last_scan_id vecchio), e se il filesystem ne ha riusato l'inode
+    # per un file nuovo lato torrent, quel file finiva collegato a un file in
+    # libreria che non c'è più.
     inode_to_media_file_id: dict[tuple[int, int], int] = {}
     for media_file_id, st_dev, inode in (
         session.query(MediaFile.id, MediaFile.st_dev, MediaFile.inode)
-        .filter_by(disk_id=disk.id)
+        .filter_by(disk_id=disk.id, last_scan_id=run.id)
         .order_by(MediaFile.id)
         .all()
     ):
@@ -168,6 +172,13 @@ def scan_disk(
         conflict_cols=["disk_id", "relative_path"],
         update_cols=["size_bytes", "st_dev", "inode", "media_file_id", "last_scan_id", "last_seen_at"],
     )
+    # Il lato letto davvero (cartella presente), anche se vuoto: da qui in poi i
+    # suoi file non rivisti sono spariti (app/scan_state.py). Una cartella
+    # irraggiungibile non aggiorna niente, nel dubbio i file restano attuali.
+    if disk.media_rel_path and os.path.isdir(os.path.join(disk.root_path, disk.media_rel_path)):
+        disk.media_scan_id = run.id
+    if disk.torrents_rel_path and os.path.isdir(os.path.join(disk.root_path, disk.torrents_rel_path)):
+        disk.seed_scan_id = run.id
     session.commit()
 
     return {"media_files_scanned": len(media_rows), "seed_files_scanned": len(seed_rows)}

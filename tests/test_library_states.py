@@ -163,3 +163,29 @@ def test_a_second_library_path_of_the_same_inode_is_seeding_too(db_session, tmp_
     assert orphan_media_files(db_session) == []
     groups = find_duplicate_media_files(db_session)
     assert [(g["kind"], len(g["files"])) for g in groups] == [("hardlink", 2)]
+
+
+def test_a_deleted_torrent_file_is_no_longer_a_hardlink(db_session, tmp_path):
+    root = tmp_path / "disk1"
+    (root / "media").mkdir(parents=True)
+    (root / "torrents").mkdir(parents=True)
+    disk = Disk(label="disk1", root_path=str(root), media_rel_path="media", torrents_rel_path="torrents")
+    db_session.add(disk)
+    db_session.commit()
+    movie = root / "media" / "Movie.mkv"
+    movie.write_bytes(b"a")
+    os.link(movie, root / "torrents" / "Movie.mkv")
+
+    run = pipeline.start_run(db_session, run_type="manual")
+    scanner.scan_disk(db_session, disk, run)
+    (state,) = library.media_file_states(db_session)
+    assert state["linked_paths"] == ["torrents/Movie.mkv"]
+
+    # Il file lato torrent viene cancellato: la sua riga resta con la scansione
+    # vecchia, e non deve più risultare un hardlink del film.
+    (root / "torrents" / "Movie.mkv").unlink()
+    run = pipeline.start_run(db_session, run_type="manual")
+    scanner.scan_disk(db_session, disk, run)
+
+    (state,) = library.media_file_states(db_session)
+    assert (state["linked_paths"], state["state"]) == ([], "orphan_media")

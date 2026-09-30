@@ -59,6 +59,8 @@ class Disk(Base):
     torrents_rel_path: Mapped[str | None]
     new_torrent_rel_path: Mapped[str | None]
     upload_rel_path: Mapped[str | None]
+    media_scan_id: Mapped[int | None]
+    seed_scan_id: Mapped[int | None]
     created_at: Mapped[datetime | None] = mapped_column(server_default=text("CURRENT_TIMESTAMP"))
 
     @property

@@ -9,6 +9,12 @@ import doppio di Sonarr/Radarr) il secondo restava senza collegamento,
 matching lo cercava sui tracker. Qui il collegamento è per
 (disk_id, st_dev, inode): ogni percorso in libreria di quell'inode vede
 tutti i suoi hardlink lato torrent.
+
+Solo i file visti dall'ultima scansione del loro disco: lo scanner non
+cancella le righe dei file spariti (restano con un last_scan_id vecchio), e
+un file lato torrent cancellato risultava ancora hardlink del file in
+libreria, per il collegamento esplicito rimasto o perché il filesystem ne
+aveva riusato l'inode per un file nuovo.
 """
 
 from collections import defaultdict
@@ -16,6 +22,7 @@ from collections import defaultdict
 from sqlalchemy.orm import Session
 
 from app.models import MediaFile, SeedFile
+from app.scan_state import latest_scan_by_disk
 
 
 def media_links(session: Session, media_file_ids: list[int] | None = None) -> dict[int, list[tuple[int, str]]]:
@@ -26,18 +33,26 @@ def media_links(session: Session, media_file_ids: list[int] | None = None) -> di
     wanted = set(media_file_ids) if media_file_ids is not None else None
     seeds: dict[tuple[int, int, int], list[tuple[int, str]]] = defaultdict(list)
     links: dict[int, dict[int, str]] = defaultdict(dict)
-    for sf_id, disk_id, st_dev, inode, path, media_file_id in session.query(
-        SeedFile.id, SeedFile.disk_id, SeedFile.st_dev, SeedFile.inode, SeedFile.relative_path, SeedFile.media_file_id
+    latest_seed = latest_scan_by_disk(session, SeedFile)
+    latest_media = latest_scan_by_disk(session, MediaFile)
+    for sf_id, disk_id, st_dev, inode, path, media_file_id, last_scan_id in session.query(
+        SeedFile.id, SeedFile.disk_id, SeedFile.st_dev, SeedFile.inode, SeedFile.relative_path, SeedFile.media_file_id,
+        SeedFile.last_scan_id,
     ).all():
+        if last_scan_id != latest_seed.get(disk_id, last_scan_id):
+            continue  # sparito dal disco: non è più un hardlink di niente
         seeds[(disk_id, st_dev, inode)].append((sf_id, path))
         if media_file_id is not None and (wanted is None or media_file_id in wanted):
             links[media_file_id][sf_id] = path
     if not seeds:
         return {}
-    query = session.query(MediaFile.id, MediaFile.disk_id, MediaFile.st_dev, MediaFile.inode)
+    query = session.query(MediaFile.id, MediaFile.disk_id, MediaFile.st_dev, MediaFile.inode, MediaFile.last_scan_id)
     if wanted is not None:
         query = query.filter(MediaFile.id.in_(wanted))
-    for mf_id, disk_id, st_dev, inode in query.all():
+    for mf_id, disk_id, st_dev, inode, last_scan_id in query.all():
+        if last_scan_id != latest_media.get(disk_id, last_scan_id):
+            links.pop(mf_id, None)
+            continue
         for sf_id, path in seeds.get((disk_id, st_dev, inode), ()):
             links[mf_id][sf_id] = path
     return {mf_id: sorted(sfs.items(), key=lambda item: item[1]) for mf_id, sfs in links.items()}

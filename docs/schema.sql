@@ -24,6 +24,10 @@ CREATE TABLE IF NOT EXISTS disk (
                                                          -- Does NOT narrow the "already seeding" search, which
                                                          -- always stays on the whole torrents_rel_path. If
                                                          -- null, torrents_rel_path is used unchanged.
+    media_scan_id               INTEGER,                -- last run that read media_rel_path successfully, even
+    seed_scan_id                INTEGER,                -- when empty (same for torrents_rel_path): what makes a
+                                                         -- file "current" (app/scan_state.py), so an emptied
+                                                         -- folder doesn't keep its old files alive
     upload_rel_path             TEXT,                   -- optional, relative to root_path: where a NEW UPLOAD
                                                          -- (and a reseed decided in the upload flow) gets its
                                                          -- hardlinks and save_path. If null, torrents_rel_path

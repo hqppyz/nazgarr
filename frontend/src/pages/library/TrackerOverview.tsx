@@ -112,10 +112,12 @@ function TrackerRow({ detail, group }: { detail: Detail; group: Group }) {
 // (anche a zero) e sugli altri trovati nei torrent, con i percorsi a
 // richiesta e, dove manca, l'upload o reseed verso quel tracker.
 export function TrackerOverview({ detail }: { detail: Detail }) {
-  if (detail.trackers.length === 0) return null
+  // Un dettaglio salvato in cache da una versione precedente non ha trackers.
+  const trackers = detail.trackers ?? []
+  if (trackers.length === 0) return null
   return (
     <div className="grid gap-1.5">
-      {detail.trackers.map((group) => (
+      {trackers.map((group) => (
         <TrackerRow key={group.tracker_id ?? `h-${group.label}`} detail={detail} group={group} />
       ))}
     </div>
