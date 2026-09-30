@@ -228,3 +228,22 @@ def test_the_tracker_language_replaces_the_one_in_the_rules():
 
     assert (rules["title_language"], rules["language"], rules["audio_languages"]["primary"]) == ("it", "ITA", "ITA")
     assert with_tracker_language({"title": "local"}, None) == {"title": "local"}
+
+
+def test_atmos_comes_once_after_all_the_audio_codecs():
+    def track(language, fmt, channels, features=None):
+        return {"language": language, "format": fmt, "channels": channels, "format_additional_features": features}
+
+    series = {"video": {}, "subtitles": [], "audio": [
+        {**track("en", "E-AC-3", 6, "JOC"), "default": True}, track("it", "E-AC-3", 6), track("es", "E-AC-3", 6),
+    ]}
+    remux = {"video": {}, "subtitles": [], "audio": [
+        {**track("en", "MLP FBA", 8, "16-ch"), "default": True}, track("it", "E-AC-3", 6), track("en", "DTS", 6, "XLL"),
+    ]}
+    detected = detect("Movie.2009.1080p.BluRay.x264-GRP")
+
+    assert release_values(_job(), detected, series, {}, ITT_RULES)["audio_all"] == "DD+ 5.1 Atmos"
+    values = release_values(_job(), detected, remux, {}, ITT_RULES)
+    assert values["audio_all"] == "TrueHD 7.1 DD+ 5.1 DTS-HD MA 5.1 Atmos"
+    # La traccia principale da sola resta codec, canali, oggetto.
+    assert values["audio"] == "TrueHD 7.1 Atmos"

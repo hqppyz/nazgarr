@@ -121,7 +121,7 @@ def test_naming_preview_uses_an_example_without_uploads(client):
     assert preview["sample"]["kind"] == "example"
     # Il tracker ha preso l'italiano dal profilo ITT: titolo localizzato.
     assert preview["names"]["REMUX"] == "Dune - Parte due 2024 2160p TrueHD-FraMeSToR"
-    assert preview["variables"]["audio_all"] == "TrueHD 7.1 Atmos DD+ 5.1 DTS-HD MA 5.1"
+    assert preview["variables"]["audio_all"] == "TrueHD 7.1 DD+ 5.1 DTS-HD MA 5.1 Atmos"
     names = {example["key"]: example["name"] for example in preview["examples"]}
     assert set(names) == {"uhd_remux", "fhd_encode", "web_subbed", "series"}
     assert " 1080p FullHD NF WEB-DL " in names["web_subbed"] and " SUBS ITA " in names["web_subbed"]

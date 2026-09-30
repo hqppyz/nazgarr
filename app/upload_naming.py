@@ -33,7 +33,7 @@ VARIABLES = {
     "source": "BluRay", "source_full": "BluRay",
     "type": "REMUX", "service": "ATVP", "video_codec": "HEVC", "hdr": "DV HDR", "bit_depth": "10bit",
     "audio": "TrueHD 7.1 Atmos", "audio_codec": "TrueHD", "audio_channels": "7.1", "audio_atmos": "Atmos",
-    "audio_all": "TrueHD 7.1 Atmos DD+ 5.1", "audio_languages": "ITA ENG", "subs_languages": "ITA ENG",
+    "audio_all": "TrueHD 7.1 DD+ 5.1 Atmos", "audio_languages": "ITA ENG", "subs_languages": "ITA ENG",
     "subs": "SUBS ITA ENG", "group": "GRP",
 }
 
@@ -329,9 +329,13 @@ def _audio_values(tracks: list[dict], rules: dict) -> dict:
     main = next((t for t in usable if t.get("default")), usable[0])
     codec, channels, atmos = _audio_parts(main, codecs)
     # Stesso codec e stessi canali una volta sola (due tracce DD 5.1 in lingue
-    # diverse sono "DD 5.1", le lingue le dice {audio_languages}).
-    labels = dict.fromkeys(label for label in (_audio_label(t, codecs) for t in usable) if label)
-    every = " ".join(labels) or None
+    # diverse sono "DD 5.1", le lingue le dice {audio_languages}). L'oggetto
+    # (Atmos) è a parte: una volta sola, dopo tutti i codec, come vuole la
+    # convenzione ACodec Channels ... Object (decisione dell'utente, 2026-09-30).
+    parts = [_audio_parts(t, codecs) for t in usable]
+    labels = dict.fromkeys(" ".join(p for p in (c, ch) if p) for c, ch, _obj in parts if c)
+    objects = dict.fromkeys(obj for c, _ch, obj in parts if c and obj)
+    every = " ".join([*labels, *objects]) or None
     return {
         "audio": every if rules.get("audio") == "all" else _audio_label(main, codecs),  # "all": regole v1
         "audio_codec": codec, "audio_channels": channels, "audio_atmos": atmos, "audio_all": every,
