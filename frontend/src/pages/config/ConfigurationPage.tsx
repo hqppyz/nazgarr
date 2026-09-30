@@ -48,6 +48,8 @@ interface Tab {
   icon: LucideIcon
   layout: 'masonry' | 'stack'
   content: ReactNode
+  // Clienti e tracker hanno già il loro titolo, con accanto il pulsante "Add".
+  ownHeading?: boolean
 }
 
 const GROUPS: { title: string; tabs: Tab[] }[] = [
@@ -83,8 +85,8 @@ const GROUPS: { title: string; tabs: Tab[] }[] = [
   {
     title: t('config.groupTorrent'),
     tabs: [
-      { value: 'clients', label: t('config.tabClients'), icon: HardDriveDownloadIcon, layout: STACK, content: <TorrentClientsSection /> },
-      { value: 'trackers', label: t('config.tabTrackers'), icon: RadioTowerIcon, layout: STACK, content: <TrackersSection /> },
+      { value: 'clients', label: t('config.tabClients'), icon: HardDriveDownloadIcon, layout: STACK, content: <TorrentClientsSection />, ownHeading: true },
+      { value: 'trackers', label: t('config.tabTrackers'), icon: RadioTowerIcon, layout: STACK, content: <TrackersSection />, ownHeading: true },
     ],
   },
   {
@@ -134,8 +136,14 @@ export function ConfigurationPage() {
         ))}
       </TabsList>
       {ALL_TABS.map((tab) => (
-        <TabsContent key={tab.value} value={tab.value} className={cn('min-w-0', tab.layout === 'stack' && 'grid content-start gap-6')}>
-          {tab.layout === 'masonry' ? <Masonry gap={24}>{tab.content}</Masonry> : tab.content}
+        <TabsContent key={tab.value} value={tab.value} className="grid min-w-0 content-start gap-4">
+          {/* Lo stesso titolo di Clients e Trackers per ogni impostazione. */}
+          {!tab.ownHeading && <h2 className="text-lg font-semibold">{tab.label}</h2>}
+          {tab.layout === 'masonry' ? (
+            <Masonry gap={24}>{tab.content}</Masonry>
+          ) : (
+            <div className="grid min-w-0 content-start gap-6">{tab.content}</div>
+          )}
         </TabsContent>
       ))}
     </Tabs>

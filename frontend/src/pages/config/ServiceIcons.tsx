@@ -16,7 +16,8 @@ const CLIENT_LOGOS: Record<string, string> = {
 }
 
 
-const BOX = 'size-9 shrink-0 rounded-md border bg-muted/40 p-1.5'
+// Liberi, senza riquadro, come i loghi di Radarr/Sonarr (components/ServiceLogo.tsx).
+const BOX = 'size-8 shrink-0'
 
 export function ClientLogo({ type }: { type: string }) {
   const logo = CLIENT_LOGOS[type]

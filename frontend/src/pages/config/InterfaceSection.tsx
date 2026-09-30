@@ -48,7 +48,7 @@ function ThemePreview({ theme }: { theme: Theme }) {
 }
 
 const THEME_CHOICES: Choice<Theme>[] = [
-  { value: 'system', title: t('interface.themeSystem'), description: t('interface.themeSystemHelp'), preview: <ThemePreview theme="system" /> },
+  { value: 'system', title: t('interface.themeSystem'), preview: <ThemePreview theme="system" /> },
   { value: 'light', title: t('interface.themeLight'), preview: <ThemePreview theme="light" /> },
   { value: 'dark', title: t('interface.themeDark'), preview: <ThemePreview theme="dark" /> },
 ]
@@ -262,10 +262,10 @@ function FileSizesCard({ className }: { className?: string }) {
 export function InterfaceSection() {
   return (
     <>
-      <ThemeCard />
-      <LibraryViewCard />
       <LanguageRegionCard />
+      <ThemeCard />
       <FileSizesCard />
+      <LibraryViewCard />
     </>
   )
 }

@@ -4,7 +4,6 @@ export const interfaceSettings = {
   'interface.themeTitle': 'Theme',
   'interface.themeDescription': 'Saved in this browser: each device keeps its own.',
   'interface.themeSystem': 'System',
-  'interface.themeSystemHelp': 'Follows your device, light or dark.',
   'interface.themeLight': 'Light',
   'interface.themeDark': 'Dark',
   'interface.languageRegionTitle': 'Language & region',
