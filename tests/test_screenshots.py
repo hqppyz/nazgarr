@@ -9,7 +9,7 @@ import subprocess
 
 import pytest
 
-from app.screenshots import ScreenshotError, generate_screenshots
+from app.screenshots import ScreenshotError, generate_screenshots, is_blank, luma_stats
 
 pytestmark = pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="richiede il binario ffmpeg")
 
@@ -42,3 +42,32 @@ def test_generate_screenshots_raises_on_undecodable_file(tmp_path):
 
     with pytest.raises(ScreenshotError):
         generate_screenshots(str(fake_video), str(tmp_path / "shots"))
+
+
+def test_a_black_frame_is_retried_a_bit_later(tmp_path):
+    video = tmp_path / "video.mp4"
+    # Nero fra 4 e 6 secondi: l'unico screenshot (a metà, 5s) cadrebbe lì.
+    subprocess.run(
+        [
+            "ffmpeg", "-y", "-f", "lavfi", "-i",
+            "testsrc=duration=10:size=160x120:rate=5,drawbox=enable='between(t,4,6)':color=black:t=fill",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p", str(video),
+        ],
+        check=True, capture_output=True,
+    )
+
+    [path] = generate_screenshots(str(video), str(tmp_path / "shots"), count=1)
+
+    assert not is_blank(luma_stats(path))
+    assert os.listdir(tmp_path / "shots") == ["screenshot_0.png"]  # nessun tentativo rimasto
+
+
+def test_black_and_flat_frames_are_blank(tmp_path):
+    black, gray = tmp_path / "black.png", tmp_path / "gray.png"
+    for path, color in ((black, "black"), (gray, "gray")):
+        subprocess.run(["ffmpeg", "-y", "-f", "lavfi", "-i", f"color={color}:size=64x64", "-frames:v", "1", str(path)],
+                       check=True, capture_output=True)
+
+    assert is_blank(luma_stats(str(black)))
+    assert is_blank(luma_stats(str(gray)))  # piatto: nessuna escursione
+    assert is_blank(None) is False

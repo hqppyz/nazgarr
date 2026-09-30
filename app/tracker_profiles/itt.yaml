@@ -91,15 +91,23 @@ upload:
       HD: SD
   # Senza il MediaInfo: UNIT3D lo riceve nel suo campo (mediainfo) e lo
   # mostra da sé.
+  # Gli screenshot due per riga, centrati, ognuno col link all'immagine
+  # intera (decisione dell'utente, 2026-09-30).
   description_template: |
-    {% for url in screenshot_urls %}[img]{{ url }}[/img]
-    {% endfor %}
+    {% if screenshot_urls %}[center]{% for url in screenshot_urls %}[url={{ url }}][img=400]{{ url }}[/img][/url]{% if loop.last %}{% elif loop.index is divisibleby 2 %}
+    {% else %} {% endif %}{% endfor %}[/center]{% endif %}
     {% if notes %}
     {{ notes }}
     {% endif %}
   # Le descrizioni bundlate di prima: un profilo che ha ancora una di queste
   # (mai toccata dall'utente) passa all'attuale all'avvio.
   replaces_description_templates:
+    - |
+      {% for url in screenshot_urls %}[img]{{ url }}[/img]
+      {% endfor %}
+      {% if notes %}
+      {{ notes }}
+      {% endif %}
     - |
       [mediainfo]{{ mediainfo }}[/mediainfo]
 

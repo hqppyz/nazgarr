@@ -250,3 +250,15 @@ def test_reorder_queue(db_session, tmp_path):
         db_session.refresh(job)
     assert [j.queue_position for j in jobs] == [1, 2, 1]  # quello partito non si tocca
     assert jobs[2].queue_position < jobs[1].queue_position
+
+
+def test_itt_description_puts_screenshots_two_per_row_centered(db_session):
+    tracker = make_tracker(db_session, with_profile=False)
+    profile = upload_profiles.create_upload_profile(db_session, tracker, "itt")
+    urls = [f"https://img.example/{i}.png" for i in range(4)]
+
+    rendered = upload.render_description(db_session, profile, "MEDIAINFO", urls)
+
+    shot = "[url=https://img.example/{0}.png][img=400]https://img.example/{0}.png[/img][/url]".format
+    assert rendered.startswith(f"[center]{shot(0)} {shot(1)}\n{shot(2)} {shot(3)}[/center]")
+    assert "MEDIAINFO" not in rendered
