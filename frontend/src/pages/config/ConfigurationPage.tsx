@@ -134,7 +134,7 @@ export function ConfigurationPage() {
         ))}
       </TabsList>
       {ALL_TABS.map((tab) => (
-        <TabsContent key={tab.value} value={tab.value} className={cn('min-w-0', tab.layout === 'stack' && 'grid gap-6')}>
+        <TabsContent key={tab.value} value={tab.value} className={cn('min-w-0', tab.layout === 'stack' && 'grid content-start gap-6')}>
           {tab.layout === 'masonry' ? <Masonry gap={24}>{tab.content}</Masonry> : tab.content}
         </TabsContent>
       ))}

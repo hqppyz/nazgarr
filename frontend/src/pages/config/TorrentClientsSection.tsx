@@ -385,7 +385,7 @@ export function TorrentClientsSection() {
   const diskLabel = (id: number) => disks?.find((d) => d.id === id)?.label ?? `#${id}`
 
   return (
-    <div className="grid gap-4">
+    <div className="grid content-start gap-4">
       <div className="flex items-center justify-between gap-2">
         <h2 className="text-lg font-semibold">Torrent clients</h2>
         <AddTorrentClientDialog />

@@ -324,7 +324,7 @@ export function TrackersSection() {
   const [profileTrackerId, setProfileTrackerId] = useState<number | null>(null)
 
   return (
-    <div className="grid gap-4">
+    <div className="grid content-start gap-4">
       <div className="flex items-center justify-between gap-2">
         <h2 className="text-lg font-semibold">{t('trackers.title')}</h2>
         <AddTrackerDialog />
