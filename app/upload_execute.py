@@ -9,9 +9,10 @@ va fino in fondo senza chiedere altro. Una volta per job:
 
 Poi per ogni tracker, in ordine, la sua azione:
 - upload: .torrent del tracker, descrizione dal suo template, invio, e il
-  torrent aggiunto al client del tracker con recheck forzato;
+  torrent aggiunto al client del tracker senza il suo recheck, dopo aver
+  controllato che i file siano al loro posto (vedi _add_to_client);
 - reseed: il .torrent già sul tracker, i file sistemati con i nomi che si
-  aspetta, e l'aggiunta al client con recheck forzato. Mai skip_checking.
+  aspetta, e l'aggiunta al client con recheck forzato.
 
 Dove seedano: hardlink nella cartella per gli upload del disco
 (disk.effective_upload_rel_path: upload_rel_path, o torrents_rel_path),
@@ -213,15 +214,53 @@ def _client(session: Session, target: UploadTarget):
     return adapter_factory.build_torrent_client_adapter(row), row.id
 
 
-def _add_to_client(session: Session, job: UploadJob, target: UploadTarget, torrent_file: str, save_path: str):
+def files_in_place(torrent: torf.Torrent, save_path: str) -> bool:
+    """Ogni file del torrent è dove il client lo cercherà (save_path più il
+    suo percorso nel torrent), con la sua dimensione esatta."""
+    for file in torrent.files:
+        path = os.path.join(save_path, *file.parts)
+        if not os.path.isfile(path) or os.path.getsize(path) != file.size:
+            return False
+    return True
+
+
+def _add_to_client(
+    session: Session, job: UploadJob, target: UploadTarget, torrent_file: str, save_path: str,
+    torrent: torf.Torrent | None = None,
+):
+    """Senza il recheck del client (decisione dell'utente, 2026-09-30): il
+    torrent l'ha appena creato Nazgarr leggendo ogni piece di questi file (o
+    dei loro hardlink, gli stessi byte), rileggerli tutti non verifica niente
+    di nuovo. Quello che il recheck verificherebbe davvero è che il client li
+    trovi: prima si controlla che ogni file sia nel percorso di seed con la
+    sua dimensione, dopo che il client usi proprio quel percorso. Se una delle
+    due non torna, il recheck normale, così un percorso sbagliato (mount
+    diversi fra i container) risulta in file mancanti invece di un torrent
+    annunciato completo senza i dati. Un reseed (torrent=None, il .torrent è
+    del tracker) ha sempre il recheck."""
     adapter, client_id = _client(session, target)
     if adapter is None:
         target.error_message = "no_client"
         upload_jobs.log_event(session, job, "no_client", level="warning", target=target)
         return None
     visible = client_visible_path(session, job.disk, client_id, save_path)
-    info_hash = adapter.add_torrent(torrent_file, save_path=visible, force_recheck=True)
-    upload_jobs.log_event(session, job, "added_to_client", target=target, client=target.torrent_client.label)
+    skip = torrent is not None and files_in_place(torrent, save_path)
+    info_hash = adapter.add_torrent(torrent_file, save_path=visible, force_recheck=True, skip_check_verified=skip)
+    client = target.torrent_client.label
+    if skip:
+        info = adapter.get_torrent_info(info_hash)
+        seen = os.path.normpath(info.save_path) if info is not None and info.save_path else None
+        if seen != os.path.normpath(visible):
+            adapter.recheck(info_hash)
+            upload_jobs.log_event(session, job, "recheck_after_path_mismatch", level="warning", target=target,
+                                  client=client, expected=visible, seen=seen)
+            skip = False
+    elif torrent is not None:
+        upload_jobs.log_event(session, job, "recheck_files_not_in_place", level="warning", target=target,
+                              path=save_path)
+    # Due codici, due messaggi: con il recheck del client o senza.
+    upload_jobs.log_event(session, job, "added_to_client_verified" if skip else "added_to_client", target=target,
+                          client=client)
     return info_hash
 
 
@@ -281,7 +320,7 @@ def run_upload(session: Session, job: UploadJob, target: UploadTarget, ctx: dict
         pairs = _upload_pairs(job, torrent, root)
         link_files(pairs, root)
         save_path = root if pairs else os.path.dirname(job.source_path.rstrip(os.sep))
-        _add_to_client(session, job, target, torrent_path, save_path)
+        _add_to_client(session, job, target, torrent_path, save_path, torrent)
     except Exception as exc:
         # L'upload è andato: mai ripeterlo per un problema del client.
         logger.warning("Upload %s su %s riuscito ma il seed no", job.id, tracker.label, exc_info=True)

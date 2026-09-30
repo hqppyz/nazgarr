@@ -217,14 +217,14 @@ def test_render_description_wraps_template_with_header_and_signature(db_session)
 
     assert rendered.startswith("HEADER\n\n")
     assert "https://img.example/1.png" in rendered
-    assert rendered.endswith("\n\n[i]Uploaded with Nazgarr[/i]\n\n" + upload.credit_line())
+    assert rendered.endswith("\n\n[i]Uploaded with Nazgarr[/i]\n\n\n" + upload.credit_line())
 
 
 def test_render_description_without_header_or_signature(db_session):
     tracker = make_tracker(db_session, with_profile=False)
     profile = upload_profiles.create_upload_profile(db_session, tracker, None)
 
-    assert upload.render_description(db_session, profile, "MEDIAINFO", []) == "MEDIAINFO\n\n" + upload.credit_line()
+    assert upload.render_description(db_session, profile, "MEDIAINFO", []) == "MEDIAINFO\n\n\n" + upload.credit_line()
 
 
 def test_credit_line_has_version_and_project_link():
@@ -233,7 +233,8 @@ def test_credit_line_has_version_and_project_link():
     line = upload.credit_line()
     assert f"v{__version__}" in line
     assert "[url=https://github.com/lktorrentz/nazgarr]" in line
-    assert f"[img=16]{upload.CREDIT_LOGO_URL}[/img]" in line
+    assert line.startswith("[center]") and line.endswith("[/center]")
+    assert f"[img=20]{upload.CREDIT_LOGO_URL}[/img]" in line and "[size=13]" in line
     assert upload.CREDIT_LOGO_URL.endswith("/main/docs/assets/nazgarr-credit.png")
 
 

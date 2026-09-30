@@ -119,6 +119,9 @@ class QBittorrentAdapter(TorrentClientAdapter):
             f"Nessun nuovo torrent rilevato in qBittorrent entro {self.poll_timeout}s dall'aggiunta"
         )
 
+    def recheck(self, info_hash: str) -> None:
+        self._client.torrents_recheck(torrent_hashes=info_hash)
+
     def get_torrent_status(self, info_hash: str) -> TorrentStatus:
         results = self._client.torrents_info(torrent_hashes=info_hash)
         if not results:

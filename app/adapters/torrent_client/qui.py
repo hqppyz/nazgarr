@@ -156,6 +156,9 @@ class QuiTorrentClientAdapter(TorrentClientAdapter):
         )
         response.raise_for_status()
 
+    def recheck(self, info_hash: str) -> None:
+        self._bulk_action([info_hash], "recheck")
+
     def get_torrent_status(self, info_hash: str) -> TorrentStatus:
         torrent = next((t for t in self._fetch_all_torrents() if t.get("hash") == info_hash), None)
         if torrent is None:

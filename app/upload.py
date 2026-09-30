@@ -56,10 +56,11 @@ CREDIT_LOGO_URL = "https://raw.githubusercontent.com/lktorrentz/nazgarr/main/doc
 
 
 def credit_line() -> str:
-    """La riga sempre in fondo a ogni descrizione, dopo la firma dell'utente."""
+    """La riga sempre in fondo a ogni descrizione, dopo la firma dell'utente:
+    centrata, staccata da quello che c'è sopra (render_description)."""
     return (
-        f"[url={PROJECT_URL}][img=16]{CREDIT_LOGO_URL}[/img][/url] "
-        f"[size=11]Uploaded with [url={PROJECT_URL}]Nazgarr[/url] v{__version__}[/size]"
+        f"[center][url={PROJECT_URL}][img=20]{CREDIT_LOGO_URL}[/img][/url] "
+        f"[size=13]Uploaded with [url={PROJECT_URL}]Nazgarr[/url] v{__version__}[/size][/center]"
     )
 
 
@@ -73,4 +74,6 @@ def render_description(
     rendered = template.render(mediainfo=mediainfo or "", screenshot_urls=screenshot_urls, notes=notes)
     header = settings_repo.get_setting(session, "upload_description_header")
     signature = settings_repo.get_setting(session, "upload_description_signature")
-    return "\n\n".join(part for part in (header, rendered, signature, credit_line()) if part)
+    body = "\n\n".join(part for part in (header, rendered, signature) if part)
+    # Una riga vuota in più prima dei crediti: staccati dal resto.
+    return f"{body}\n\n\n{credit_line()}"

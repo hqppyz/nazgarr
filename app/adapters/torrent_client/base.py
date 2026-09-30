@@ -81,11 +81,13 @@ class TorrentClientAdapter(ABC):
         impostabile a False da nessun chiamante del motore di matching
         (Fase 4). Ritorna l'info_hash del torrent aggiunto.
 
-        skip_check_verified: l'unica eccezione al recheck del client (decisione
-        dell'utente, 2026-09-29, opzione spenta di default). Il chiamante l'ha
-        appena verificato lui al 100% (app/full_check.py), senza extra
-        mancanti e con lo stesso info hash: il client lo aggiunge già
-        completo, senza rileggerlo una seconda volta.
+        skip_check_verified: le sole eccezioni al recheck del client. Il
+        chiamante ha appena verificato lui ogni piece di quei file: un reseed
+        dopo il controllo completo al 100% (decisione dell'utente, 2026-09-29,
+        opzione spenta di default, app/full_check.py), o un upload, il cui
+        torrent Nazgarr ha appena creato leggendo quei file (decisione
+        dell'utente, 2026-09-30, app/upload_execute.py). Il client lo
+        aggiunge già completo, senza rileggerlo una seconda volta.
 
         expected_info_hash (se noto: il .torrent è già stato scaricato e
         analizzato dal matching) rende l'attesa precisa — si aspetta proprio
@@ -95,6 +97,11 @@ class TorrentClientAdapter(ABC):
 
     @abstractmethod
     def get_torrent_status(self, info_hash: str) -> TorrentStatus:
+        raise NotImplementedError
+
+    def recheck(self, info_hash: str) -> None:
+        """Fa ricontrollare al client un torrent già aggiunto: il ripiego di
+        un upload aggiunto senza recheck se qualcosa non torna."""
         raise NotImplementedError
 
     def get_torrent_info(self, info_hash: str) -> "ClientTorrentInfo | None":

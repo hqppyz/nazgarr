@@ -320,6 +320,12 @@ export const upload = {
   'upload.event.uploaded': 'Published on the tracker (torrent {torrent}).',
   'upload.event.not_seeded': 'Not added to the client, as asked.',
   'upload.event.added_to_client': 'Added to {client} with a full recheck.',
+  'upload.event.added_to_client_verified':
+    'Added to {client} ready to seed: Nazgarr created the torrent from these very files, so no recheck is needed.',
+  'upload.event.recheck_after_path_mismatch':
+    '{client} uses {seen} instead of {expected}: recheck started, so missing files show up as missing.',
+  'upload.event.recheck_files_not_in_place':
+    'Some files are not where the client will look for them ({path}): added with a full recheck.',
   'upload.event.no_client': 'No client configured for this tracker.',
   'upload.event.seed_failed': 'Published, but seeding failed: {error}',
   'upload.event.reseeded': 'Torrent {torrent} added back to the client on your files.',

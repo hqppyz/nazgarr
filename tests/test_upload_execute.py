@@ -1,5 +1,6 @@
 import json
 import os
+import types
 
 import pytest
 import torf
@@ -31,11 +32,24 @@ class _Tracker:
 class _Client:
     def __init__(self):
         self.added = []
+        self.skipped = []  # per ogni aggiunta: senza il recheck del client?
+        self.rechecked = []
+        self.save_paths = {}
+        self.reported_path = None  # il percorso che il client dice di usare, se diverso
 
-    def add_torrent(self, torrent_file, save_path, force_recheck=True, **kwargs):
-        assert force_recheck is True  # mai skip_checking dal flusso di upload
+    def add_torrent(self, torrent_file, save_path, force_recheck=True, skip_check_verified=False, **kwargs):
+        assert force_recheck is True
         self.added.append((torrent_file, save_path))
-        return torf.Torrent.read(torrent_file).infohash
+        self.skipped.append(skip_check_verified)
+        info_hash = torf.Torrent.read(torrent_file).infohash
+        self.save_paths[info_hash] = save_path
+        return info_hash
+
+    def get_torrent_info(self, info_hash):
+        return types.SimpleNamespace(save_path=self.reported_path or self.save_paths[info_hash])
+
+    def recheck(self, info_hash):
+        self.rechecked.append(info_hash)
 
 
 class _Chain:
@@ -126,6 +140,8 @@ def test_uploads_to_every_tracker_and_seeds_from_hardlinks(db_session, tmp_path,
     assert os.path.samefile(linked, video)
     assert env["client"].added == [(a.torrent_path, str(env["root"] / "torrents")),
                                    (b.torrent_path, str(env["root"] / "torrents"))]
+    # Il torrent l'ha creato Nazgarr da quei file: niente recheck del client.
+    assert env["client"].skipped == [True, True] and env["client"].rechecked == []
     assert json.loads(job.screenshot_urls_json) == [f"https://img.example/{i}.png" for i in range(4)]
 
 
@@ -176,7 +192,21 @@ def test_reseed_links_the_files_with_the_tracker_names(db_session, tmp_path, env
     linked = env["root"] / "torrents" / "The.Matrix.1999.1080p-GRP" / "The.Matrix.1999.1080p-GRP.mkv"
     assert os.path.samefile(linked, video)
     assert env["client"].added == [(job.targets[0].torrent_path, str(env["root"] / "torrents"))]
+    assert env["client"].skipped == [False]  # il .torrent è del tracker: recheck del client
     assert env["trackers"]["a"].uploads == []  # un reseed non pubblica niente
+
+
+def test_an_upload_seen_elsewhere_by_the_client_is_rechecked(db_session, tmp_path, env):
+    video = write_video(env["root"] / "media" / "The.Matrix.1999.1080p.WEB-DL.H.264-GRP.mkv", 300 * KB)
+    job = _approved(db_session, env, "media/" + video.name, {"a": _upload("Matrix A"), "b": {"action": "skip"}})
+    env["client"].reported_path = "/somewhere/else"
+
+    _run(db_session, tmp_path, job)
+
+    assert job.status == "done"
+    assert env["client"].skipped == [True]
+    assert env["client"].rechecked == [job.targets[0].info_hash]
+    assert "recheck_after_path_mismatch" in [e.code for e in job.events]
 
 
 def test_one_tracker_failing_leaves_the_others_going(db_session, tmp_path, env):
@@ -241,3 +271,15 @@ def test_zero_screenshots_is_a_choice(db_session, tmp_path, env):
 
     assert job.status == "done"
     assert json.loads(job.screenshot_urls_json) == []
+
+
+def test_files_in_place_needs_every_file_with_its_size(tmp_path):
+    folder = tmp_path / "Show.S01"
+    write_video(folder / "e1.mkv", 20 * KB)
+    write_video(folder / "e2.mkv", 20 * KB)
+    torrent = torf.Torrent(path=str(folder))
+
+    assert upload_execute.files_in_place(torrent, str(tmp_path))
+    (folder / "e2.mkv").write_bytes(b"short")
+    assert not upload_execute.files_in_place(torrent, str(tmp_path))
+    assert not upload_execute.files_in_place(torrent, str(tmp_path / "elsewhere"))
