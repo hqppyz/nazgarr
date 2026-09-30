@@ -95,7 +95,8 @@ def test_a_global_adapter_is_configured_from_the_plugins_api(client):
                            json={"config": {"topic": "nazgarr", "token": "s3cret"}, "enabled": False})
         assert saved.status_code == 200, saved.text
         assert saved.json() == {"kind": "notification", "adapter_type": "ntfy", "enabled": False,
-                                "values": {"topic": "nazgarr"}, "secrets_set": ["token"]}
+                                "values": {"topic": "nazgarr"}, "secrets_set": ["token"],
+                                "events": ["*"], "last_delivery": None}
         assert "s3cret" not in client.get("/api/plugins/config/notification/ntfy").text
         # Integrati e sconosciuti non si configurano da qui.
         assert client.get("/api/plugins/config/image_host/ptpimg").status_code == 404
