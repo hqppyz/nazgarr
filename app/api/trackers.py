@@ -12,13 +12,13 @@ from app import tracker_icons, upload_decision, upload_profiles
 from app.api_errors import coded_detail, from_coded_error
 from app.deps import get_session
 from app.models import Tracker, TrackerUploadProfile
+from app.plugins import REGISTRY
 from app.upload_naming import LANG3
 
 LANGUAGE_CODES = frozenset(LANG3)
 
 router = APIRouter(prefix="/api/trackers", tags=["trackers"])
 
-SUPPORTED_ADAPTER_TYPES = {"unit3d"}
 
 
 class TrackerCreateRequest(BaseModel):
@@ -110,12 +110,13 @@ def list_trackers(session: Session = Depends(get_session)):
 
 @router.post("", response_model=TrackerResponse, status_code=201)
 def create_tracker(body: TrackerCreateRequest, session: Session = Depends(get_session)):
-    if body.adapter_type not in SUPPORTED_ADAPTER_TYPES:
+    supported = REGISTRY.types("tracker")  # integrati e plugin (app/plugins)
+    if body.adapter_type not in supported:
         raise HTTPException(
             status_code=400,
             detail=coded_detail(
                 "tracker_adapter_type_unsupported",
-                adapter_type=body.adapter_type, supported=sorted(SUPPORTED_ADAPTER_TYPES),
+                adapter_type=body.adapter_type, supported=sorted(supported),
             ),
         )
     tracker = Tracker(

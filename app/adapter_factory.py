@@ -11,26 +11,15 @@ from sqlalchemy.orm import Session
 from app import settings_repo
 from app.adapters.image_host.base import ImageHostAdapter
 from app.adapters.image_host.chain import ImageHostChain
-from app.adapters.image_host.dalexni import DalexniAdapter
-from app.adapters.image_host.imgbb import ImgbbAdapter
-from app.adapters.image_host.imgbox import ImgboxAdapter
-from app.adapters.image_host.lensdump import LensdumpAdapter
-from app.adapters.image_host.onlyimage import OnlyimageAdapter
-from app.adapters.image_host.pixhost import PixhostAdapter
-from app.adapters.image_host.ptpimg import PtpimgAdapter
-from app.adapters.image_host.ptscreens import PtscreensAdapter
-from app.adapters.image_host.seedpool_cdn import SeedpoolCdnAdapter
-from app.adapters.image_host.utppm import UtppmAdapter
 from app.adapters.media_resolver.arr import ArrResolver
 from app.adapters.media_resolver.base import MediaResolverAdapter
 from app.adapters.media_resolver.filename_parser import FilenameParserResolver
 from app.adapters.torrent_client.base import TorrentClientAdapter
-from app.adapters.torrent_client.qbittorrent import QBittorrentAdapter
-from app.adapters.torrent_client.qui import QuiTorrentClientAdapter
-from app.adapters.tracker.base import TrackerAdapter, Unit3dTrackerAdapter
+from app.adapters.tracker.base import TrackerAdapter
 from app.api_errors import CodedError
 from app.arr import ArrIndex
 from app.models import TorrentClient, Tracker
+from app.plugins import REGISTRY, AdapterContext
 from app.tmdb_cache import CachingTMDBClient
 from app.tmdb_client import TMDBClient
 
@@ -41,26 +30,13 @@ DEFAULT_IMAGE_HOST_PRIORITY = [
 
 
 def build_torrent_client_adapter(torrent_client: TorrentClient) -> TorrentClientAdapter:
-    if torrent_client.adapter_type == "qbittorrent":
-        return QBittorrentAdapter(
-            base_url=torrent_client.base_url,
-            username=torrent_client.username,
-            password=torrent_client.password,
+    spec = REGISTRY.get("torrent_client", torrent_client.adapter_type)
+    if spec is None:
+        raise ValueError(
+            f"adapter_type torrent_client non disponibile: {torrent_client.adapter_type!r} "
+            f"(disponibili: {', '.join(sorted(REGISTRY.types('torrent_client')))})"
         )
-    if torrent_client.adapter_type == "qui":
-        if torrent_client.qui_instance_id is None:
-            raise ValueError(f"TorrentClient {torrent_client.id!r} (qui) senza qui_instance_id configurato")
-        if not torrent_client.api_token:
-            raise ValueError(f"TorrentClient {torrent_client.id!r} (qui) senza api_token configurato")
-        return QuiTorrentClientAdapter(
-            base_url=torrent_client.base_url,
-            api_token=torrent_client.api_token,
-            instance_id=torrent_client.qui_instance_id,
-        )
-    raise ValueError(
-        f"adapter_type torrent_client non ancora implementato: {torrent_client.adapter_type!r} "
-        "(deluge/transmission/rutorrent pianificati, vedi docs/ROADMAP.md Fase 2)"
-    )
+    return spec.build(AdapterContext(row=torrent_client))
 
 
 class TmdbApiKeyMissingError(CodedError):
@@ -89,57 +65,45 @@ def build_media_resolver(session: Session, arr_index: ArrIndex | None = None) ->
 
 
 def build_tracker_adapter(tracker: Tracker) -> TrackerAdapter:
-    if tracker.adapter_type == "unit3d":
-        return Unit3dTrackerAdapter(
-            base_url=tracker.base_url,
-            api_token=tracker.api_token,
-            rate_limit_per_min=tracker.rate_limit_per_min or 30,
-            rss_key=tracker.rss_key,
-        )
-    raise ValueError(f"adapter_type tracker non supportato: {tracker.adapter_type!r}")
+    spec = REGISTRY.get("tracker", tracker.adapter_type)
+    if spec is None:
+        raise ValueError(f"adapter_type tracker non supportato: {tracker.adapter_type!r}")
+    return spec.build(AdapterContext(row=tracker))
 
 
 class ImageHostConfigError(CodedError):
     pass
 
 
+def _image_host_config(session: Session, spec) -> dict | None:
+    """I valori dei campi di un host dalle impostazioni
+    (image_host_<host>_<campo>, es. image_host_ptpimg_api_key); None se ne
+    manca uno obbligatorio."""
+    config = {}
+    for field in spec.config_fields:
+        value = settings_repo.get_setting(session, f"image_host_{spec.adapter_type}_{field.key}")
+        if value in (None, "") and field.required:
+            return None
+        config[field.key] = value if value not in (None, "") else field.default
+    return config
+
+
 def _build_image_host_adapter(session: Session, key: str) -> ImageHostAdapter | None:
     """None = host valido ma non configurato (nessuna api_key impostata),
     saltato in silenzio dalla catena — non un errore finché almeno un
     host della priorità configurata resta utilizzabile."""
-    if key == "ptpimg":
-        api_key = settings_repo.get_setting(session, "image_host_ptpimg_api_key")
-        return PtpimgAdapter(api_key=api_key) if api_key else None
-    if key == "imgbb":
-        api_key = settings_repo.get_setting(session, "image_host_imgbb_api_key")
-        return ImgbbAdapter(api_key=api_key) if api_key else None
-    if key == "imgbox":
-        return ImgboxAdapter()  # nessuna api_key richiesta (upload anonimi)
-    if key == "pixhost":
-        return PixhostAdapter()  # nessuna api_key richiesta (upload anonimi)
-    if key == "lensdump":
-        api_key = settings_repo.get_setting(session, "image_host_lensdump_api_key")
-        return LensdumpAdapter(api_key=api_key) if api_key else None
-    if key == "ptscreens":
-        api_key = settings_repo.get_setting(session, "image_host_ptscreens_api_key")
-        return PtscreensAdapter(api_key=api_key) if api_key else None
-    if key == "onlyimage":
-        api_key = settings_repo.get_setting(session, "image_host_onlyimage_api_key")
-        return OnlyimageAdapter(api_key=api_key) if api_key else None
-    if key == "dalexni":
-        api_key = settings_repo.get_setting(session, "image_host_dalexni_api_key")
-        return DalexniAdapter(api_key=api_key) if api_key else None
-    if key == "utppm":
-        api_key = settings_repo.get_setting(session, "image_host_utppm_api_key")
-        return UtppmAdapter(api_key=api_key) if api_key else None
-    if key == "seedpool_cdn":
-        api_key = settings_repo.get_setting(session, "image_host_seedpool_cdn_api_key")
-        return SeedpoolCdnAdapter(api_key=api_key) if api_key else None
-    raise ImageHostConfigError("image_host_unknown", key=key)
+    spec = REGISTRY.get("image_host", key)
+    if spec is None:
+        raise ImageHostConfigError("image_host_unknown", key=key)
+    config = _image_host_config(session, spec)
+    if config is None:
+        return None
+    return spec.build(AdapterContext(config=config, session=session))
 
 
-# Gli host che funzionano solo con una api_key (gli altri: upload anonimi).
-KEYED_IMAGE_HOSTS = ("ptpimg", "imgbb", "lensdump", "ptscreens", "onlyimage", "dalexni", "utppm", "seedpool_cdn")
+def keyed_image_hosts() -> list[str]:
+    """Gli host che funzionano solo con una api_key (gli altri: upload anonimi)."""
+    return [spec.adapter_type for spec in REGISTRY.of_kind("image_host") if spec.required_fields]
 
 
 def image_host_status(session: Session) -> dict:
@@ -156,7 +120,7 @@ def image_host_status(session: Session) -> dict:
                 usable.append(key)
         except ImageHostConfigError:
             continue
-    keyed = [key for key in KEYED_IMAGE_HOSTS if settings_repo.get_setting(session, f"image_host_{key}_api_key")]
+    keyed = [key for key in keyed_image_hosts() if settings_repo.get_setting(session, f"image_host_{key}_api_key")]
     return {"with_api_key": keyed, "usable": usable}
 
 

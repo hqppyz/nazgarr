@@ -15,11 +15,10 @@ from app.api_errors import coded_detail
 from app.client_labels import split_tags
 from app.deps import get_session
 from app.models import ClientTorrent, Disk, DiskTorrentClient, TorrentClient
+from app.plugins import REGISTRY
 
 router = APIRouter(prefix="/api/torrent-clients", tags=["torrent-clients"])
 
-# deluge/transmission/rutorrent pianificati, vedi docs/ROADMAP.md Fase 2
-SUPPORTED_ADAPTER_TYPES = {"qbittorrent", "qui"}
 
 
 class TorrentClientCreateRequest(BaseModel):
@@ -135,12 +134,13 @@ def list_torrent_clients(session: Session = Depends(get_session)):
 
 @router.post("", response_model=TorrentClientResponse, status_code=201)
 def create_torrent_client(body: TorrentClientCreateRequest, session: Session = Depends(get_session)):
-    if body.adapter_type not in SUPPORTED_ADAPTER_TYPES:
+    supported = REGISTRY.types("torrent_client")  # integrati e plugin (app/plugins)
+    if body.adapter_type not in supported:
         raise HTTPException(
             status_code=400,
             detail=coded_detail(
                 "torrent_client_adapter_type_unsupported",
-                adapter_type=body.adapter_type, supported=sorted(SUPPORTED_ADAPTER_TYPES),
+                adapter_type=body.adapter_type, supported=sorted(supported),
             ),
         )
     tc = TorrentClient(
