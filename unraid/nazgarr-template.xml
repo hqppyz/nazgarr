@@ -11,14 +11,14 @@
   <Project>https://github.com/lktorrentz/nazgarr</Project>
   <Overview>Nazgarr manages your media library, torrent seeding folders, the hardlink correspondence between them, the real state of your configured torrent clients (multi-client, cross-seed included), and publishing new uploads to trackers - all in one place.&#13;
 &#13;
-Web UI on http://[IP]:[PORT:8080]: dashboard, library (poster and folder views), torrent files, reseeding review queue and configuration. The upload module is still a work in progress. This template uses the :stable image; switch the Repository to :nightly to follow every test build.&#13;
+Web UI on http://[IP]:[PORT:8080]: dashboard, library (poster and folder views), torrent files, reseeding review queue, uploads to your trackers (identification, dupe check, release names per tracker, queue and history) and configuration. This template uses the :stable image; switch the Repository to :nightly to follow every test build.&#13;
 &#13;
 Follows the TrashGuide layout: mount your combined torrents+media folder at /data, same as your download client and media manager - this is what makes hardlinks between them work. Only two paths are needed: Config (appdata) and Data (your library). No need to edit any file: once /data is mounted, register it as a disk via the API (POST /api/disks).&#13;
 &#13;
 On first start, if config/config.yaml doesn't exist yet in the "Config" folder below, the container creates it from config.example.yaml with default values.</Overview>
   <Category>Tools: Downloaders:</Category>
   <WebUI>http://[IP]:[PORT:8080]/api/health</WebUI>
-  <TemplateURL/>
+  <TemplateURL>https://raw.githubusercontent.com/lktorrentz/nazgarr/main/unraid/nazgarr-template.xml</TemplateURL>
   <Icon>https://raw.githubusercontent.com/lktorrentz/nazgarr/main/frontend/public/ring.png</Icon>
   <ExtraParams/>
   <PostArgs/>

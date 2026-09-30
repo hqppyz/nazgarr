@@ -14,7 +14,7 @@ import { t } from '@/lib/i18n'
 export function MatchSummaryCard({ job }: { job: UploadJob }) {
   const details = useMetadataDetails(job.tmdb_id ? job.content_type : null, job.tmdb_id ?? null)
   return (
-    <Card className="h-full min-w-0">
+    <Card className="min-w-0">
       <CardContent className="flex min-w-0 gap-4">
         {job.tmdb_id && job.content_type ? (
           <AuthedPoster

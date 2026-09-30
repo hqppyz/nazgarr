@@ -58,3 +58,15 @@ describe('Masonry', () => {
     expect([style('after').top, style('after').left]).toEqual(['382px', '0px'])
   })
 })
+
+describe('Masonry heights', () => {
+  it('never lets a card stretch to the height of the layout', () => {
+    render(
+      <Masonry>
+        <div data-h="100" className="h-full">short</div>
+        <div data-h="500">tall</div>
+      </Masonry>,
+    )
+    expect(screen.getByText('short').style.height).toBe('auto')
+  })
+})

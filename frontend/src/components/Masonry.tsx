@@ -49,7 +49,7 @@ export function Masonry({
     const reset = () => {
       root.style.height = ''
       for (const item of items()) {
-        item.style.position = item.style.top = item.style.left = item.style.width = ''
+        item.style.position = item.style.top = item.style.left = item.style.width = item.style.height = ''
       }
     }
     if (!twoColumns) {
@@ -61,6 +61,9 @@ export function Masonry({
       const heights = [0, 0]
       for (const item of items()) {
         item.style.position = 'absolute'
+        // Mai l'altezza del contenitore (che imposta questo stesso layout):
+        // una card con h-full si allungherebbe fino in fondo.
+        item.style.height = 'auto'
         if (item.dataset.masonry === FULL) {
           const top = Math.max(...heights)
           Object.assign(item.style, { top: `${top}px`, left: '0px', width: '100%' })
