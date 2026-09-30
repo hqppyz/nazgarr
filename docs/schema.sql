@@ -509,6 +509,22 @@ CREATE TABLE IF NOT EXISTS seed_job (
         -- the client the torrent was added to: its recheck is checked there, not on "the first client"
 );
 
+-- Per-tracker health history (the dashboard's tracker filter, app/tracker_scope.py):
+-- the same numbers run_log keeps globally, one row per scope ("configured" or a
+-- tracker id) per finished scan. History for a scope starts from the first scan
+-- after the scope existed; the global history stays on run_log.
+CREATE TABLE IF NOT EXISTS tracker_health_snapshot (
+    id                      INTEGER PRIMARY KEY,
+    run_id                  INTEGER NOT NULL REFERENCES run_log(id) ON DELETE CASCADE,
+    scope                   TEXT NOT NULL,
+    health_snapshot         REAL,
+    orphan_torrent_bytes    INTEGER,
+    ignored_bytes           INTEGER,
+    duplicate_wasted_bytes  INTEGER,
+    UNIQUE(run_id, scope)
+);
+CREATE INDEX IF NOT EXISTS idx_tracker_health_snapshot_scope ON tracker_health_snapshot(scope, run_id);
+
 -- ============ UPLOAD (SPEC.md §9) ============
 
 CREATE TABLE IF NOT EXISTS tracker_upload_profile (

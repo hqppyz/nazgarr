@@ -239,6 +239,24 @@ class RunLog(Base):
 # ============ FISICO (scritto SOLO dal processo di scan, app/scanner.py) ============
 
 
+class TrackerHealthSnapshot(Base):
+    """Vedi docs/schema.sql: lo storico della dashboard per un filtro per
+    tracker (app/tracker_scope.py), una riga per scansione."""
+
+    __tablename__ = "tracker_health_snapshot"
+    __table_args__ = (UniqueConstraint("run_id", "scope"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    run_id: Mapped[int] = mapped_column(ForeignKey("run_log.id", ondelete="CASCADE"), nullable=False)
+    scope: Mapped[str] = mapped_column(nullable=False)
+    health_snapshot: Mapped[float | None]
+    orphan_torrent_bytes: Mapped[int | None]
+    ignored_bytes: Mapped[int | None]
+    duplicate_wasted_bytes: Mapped[int | None]
+
+    run: Mapped["RunLog"] = relationship()
+
+
 class MediaItem(Base):
     """Identità logica risolta — separata dal file fisico (MediaFile)
     perché la vista a griglia (Fase 4) deve raggruppare più file fisici

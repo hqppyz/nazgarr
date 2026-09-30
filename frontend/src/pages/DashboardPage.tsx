@@ -13,6 +13,7 @@ import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from 'recharts'
 
 import type { Schemas } from '@/api/client'
 import { useDashboard, useDashboardHistory } from '@/api/hooks/dashboard'
+import { useTrackerFilter } from '@/lib/trackerFilter'
 import { ChangesCard } from '@/components/ChangesCard'
 import { HealthGauge } from '@/components/HealthGauge'
 import { ScanHistoryCard } from '@/components/ScanHistoryCard'
@@ -295,6 +296,7 @@ export function DashboardPage() {
   const [period, setPeriod] = useState<string>('30')
   const days = WINDOWS.find((w) => w.value === period)?.days ?? null
   const { data: history } = useDashboardHistory(days)
+  const tracker = useTrackerFilter()
 
   if (isPending || !data) {
     return <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
@@ -309,6 +311,10 @@ export function DashboardPage() {
           </ToggleGroupItem>
         ))}
       </ToggleGroupSingle>
+      {/* Lo storico per tracker si salva dalla prima scansione con il filtro. */}
+      {tracker !== 'all' && history?.length === 0 && (
+        <p className="-mt-3 text-xs text-muted-foreground">{t('trackerFilter.historyStartsNextScan')}</p>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-3">
         <HealthCard data={data} history={history} />

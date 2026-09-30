@@ -25,7 +25,7 @@ from fastapi import Request, Response
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.models import AppSetting, Candidate, MatchReview, MediaItem, RunLog, SeedJob
+from app.models import AppSetting, Candidate, MatchReview, MediaItem, RunLog, SeedJob, TorrentClient, Tracker
 
 RUNNING_BUCKET_SECONDS = 15
 # Impostazioni che cambiano stati o contenuti delle viste senza una run.
@@ -50,7 +50,13 @@ def data_version(session: Session) -> str:
     settings = dict(
         session.query(AppSetting.key, AppSetting.value).filter(AppSetting.key.in_(_VERSIONED_SETTINGS)).all()
     )
-    parts = [runs, reviews, jobs, candidates, items, sorted(settings.items())]
+    # Il filtro per tracker (app/tracker_scope.py) dipende da URL e stato dei
+    # tracker e dallo stato dei client: un loro cambio cambia le viste.
+    trackers = (
+        session.query(Tracker.id, Tracker.announce_url, Tracker.base_url, Tracker.enabled).order_by(Tracker.id).all()
+    )
+    clients = session.query(TorrentClient.id, TorrentClient.enabled).order_by(TorrentClient.id).all()
+    parts = [runs, reviews, jobs, candidates, items, sorted(settings.items()), trackers, clients]
     if running:
         parts.append(("running", int(time.time() // RUNNING_BUCKET_SECONDS)))
     return hashlib.sha1(repr(parts).encode()).hexdigest()

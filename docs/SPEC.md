@@ -212,6 +212,10 @@ Two display modes over the same underlying data (the unified per-file state, sec
 
 Both views share the same backend/API — it's just `?view=tree|grid` over the same filtered resource, never two separate data pipelines.
 
+### Tracker filter (user decisions, 2026-09-30)
+
+A global selector in the top bar (dashboard, library and torrent views) shows the seeding status for every torrent ("All trackers", as always), only for the configured trackers (a public tracker doesn't count), or for one tracker. A torrent belongs to a tracker when the host of its announce URL matches the tracker's announce or base URL (`app/tracker_scope.py`). With a filter, a library file is seeding only if it's in a torrent of that tracker; torrents on disabled clients don't count at all; the torrent view shows only that tracker's torrents plus the orphans (in no torrent), which can become an upload for any tracker. The choice is a setting (`tracker_filter`), so it stays as the default. The dashboard's current numbers follow the filter; its history is kept per filter from the first scan after the filter existed (`tracker_health_snapshot`), while "All trackers" keeps the global history on `run_log`.
+
 ## 8. Reseeding engine and execution
 
 Inherits ratio-guardian §9-11 in full:

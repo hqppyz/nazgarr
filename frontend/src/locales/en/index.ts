@@ -26,6 +26,7 @@ import { torrent } from './torrent'
 import { torrentClients } from './torrentClients'
 import { trackers } from './trackers'
 import { naming } from './naming'
+import { trackerFilter } from './trackerFilter'
 import { upload } from './upload'
 import { uploadSettings } from './uploadSettings'
 
@@ -61,6 +62,7 @@ export const en = {
   ...torrentClients,
   ...trackers,
   ...naming,
+  ...trackerFilter,
   ...upload,
   ...uploadSettings,
 } as const

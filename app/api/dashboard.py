@@ -10,9 +10,9 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app import health, not_imported
+from app import health, not_imported, tracker_scope
 from app.deps import get_session
-from app.models import FileChange, NotImportedTorrent, RunLog
+from app.models import FileChange, NotImportedTorrent, RunLog, TrackerHealthSnapshot
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
@@ -128,48 +128,72 @@ def _last_run_summary(session: Session) -> LastRunSummary | None:
     )
 
 
-@router.get("", response_model=DashboardResponse)
-def get_dashboard(disk_id: int | None = None, session: Session = Depends(get_session)):
-    snapshot = health.compute_snapshot(session, disk_id=disk_id)
-    finished = (
-        session.query(RunLog).filter(RunLog.finished_at.isnot(None), RunLog.health_snapshot.isnot(None))
-        .order_by(RunLog.id.desc()).limit(2).all()
+def _scoped_history(session: Session, scope: str):
+    """Le scansioni finite con i loro numeri, dalla più recente: righe RunLog
+    per lo storico globale, (RunLog, TrackerHealthSnapshot) per un filtro."""
+    if scope == tracker_scope.ALL:
+        query = session.query(RunLog).filter(RunLog.finished_at.isnot(None), RunLog.health_snapshot.isnot(None))
+        return query.order_by(RunLog.id.desc())
+    query = (
+        session.query(RunLog, TrackerHealthSnapshot)
+        .join(TrackerHealthSnapshot, TrackerHealthSnapshot.run_id == RunLog.id)
+        .filter(TrackerHealthSnapshot.scope == scope, RunLog.finished_at.isnot(None))
     )
-    previous = finished[1] if len(finished) > 1 else None
-    rows = session.query(NotImportedTorrent.total_bytes).filter(NotImportedTorrent.excluded.isnot(True)).all()
+    return query.order_by(RunLog.id.desc())
+
+
+@router.get("", response_model=DashboardResponse)
+def get_dashboard(disk_id: int | None = None, tracker: str | None = None, session: Session = Depends(get_session)):
+    scope = tracker_scope.normalize(tracker)
+    snapshot = health.compute_snapshot(session, disk_id=disk_id, tracker=scope)
+    finished = _scoped_history(session, scope).limit(2).all()
+    previous = None
+    if len(finished) > 1:
+        run, numbers = finished[1] if scope != tracker_scope.ALL else (finished[1], finished[1])
+        previous = TrendPoint(
+            run_id=run.id, finished_at=run.finished_at, health_snapshot=numbers.health_snapshot,
+            orphan_torrent_bytes=numbers.orphan_torrent_bytes, ignored_bytes=numbers.ignored_bytes,
+            duplicate_wasted_bytes=numbers.duplicate_wasted_bytes,
+        )
+    rows_query = session.query(NotImportedTorrent.total_bytes).filter(NotImportedTorrent.excluded.isnot(True))
+    scope_ids = tracker_scope.scoped_torrent_ids(session, scope)
+    if scope_ids is not None:
+        rows_query = rows_query.filter(NotImportedTorrent.client_torrent_id.in_(scope_ids))
+    rows = rows_query.all()
     computed = bool(rows) or not_imported.load_status(session).get("computed_at") is not None
     return DashboardResponse(
         **snapshot, last_run=_last_run_summary(session),
         not_imported_torrents=len(rows) if computed else None,
         not_imported_bytes=sum(r[0] for r in rows) if computed else None,
-        previous=TrendPoint(
-            run_id=previous.id, finished_at=previous.finished_at, health_snapshot=previous.health_snapshot,
-            orphan_torrent_bytes=previous.orphan_torrent_bytes, ignored_bytes=previous.ignored_bytes,
-            duplicate_wasted_bytes=previous.duplicate_wasted_bytes,
-        ) if previous else None,
+        previous=previous,
     )
 
 
 @router.get("/history", response_model=list[HistoryPoint])
-def get_history(limit: int = 30, days: int | None = None, session: Session = Depends(get_session)):
+def get_history(
+    limit: int = 30, days: int | None = None, tracker: str | None = None, session: Session = Depends(get_session)
+):
     """Dalla più recente. `days`: solo le scansioni finite negli ultimi N
     giorni (finestra 7d/30d/90d della dashboard), fino a 1000; senza, le
-    ultime `limit`."""
-    query = session.query(RunLog).filter(RunLog.health_snapshot.isnot(None))
+    ultime `limit`. `tracker`: lo storico di quel filtro, che parte dalla
+    prima scansione dopo la sua introduzione."""
+    scope = tracker_scope.normalize(tracker)
+    query = _scoped_history(session, scope)
     if days is not None:
         query = query.filter(RunLog.finished_at >= datetime.now(UTC) - timedelta(days=days))
         limit = 1000
-    runs = query.order_by(RunLog.id.desc()).limit(limit).all()
-    return [
-        HistoryPoint(
-            run_id=r.id, run_type=r.run_type, finished_at=r.finished_at, health_snapshot=r.health_snapshot,
-            orphan_torrent_bytes=r.orphan_torrent_bytes, ignored_bytes=r.ignored_bytes,
-            duplicate_wasted_bytes=r.duplicate_wasted_bytes,
-            items_scanned=r.items_scanned, matches_found=r.matches_found, auto_executed=r.auto_executed,
-            pending_review=r.pending_review, errors=r.errors,
-        )
-        for r in runs
-    ]
+    rows = query.limit(limit).all()
+    points = []
+    for row in rows:
+        run, numbers = (row, row) if scope == tracker_scope.ALL else row
+        points.append(HistoryPoint(
+            run_id=run.id, run_type=run.run_type, finished_at=run.finished_at, health_snapshot=numbers.health_snapshot,
+            orphan_torrent_bytes=numbers.orphan_torrent_bytes, ignored_bytes=numbers.ignored_bytes,
+            duplicate_wasted_bytes=numbers.duplicate_wasted_bytes,
+            items_scanned=run.items_scanned, matches_found=run.matches_found, auto_executed=run.auto_executed,
+            pending_review=run.pending_review, errors=run.errors,
+        ))
+    return points
 
 
 @router.get("/changes", response_model=ChangesResponse)

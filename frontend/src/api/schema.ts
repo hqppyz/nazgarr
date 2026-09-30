@@ -1121,7 +1121,8 @@ export interface paths {
          * Get History
          * @description Dalla più recente. `days`: solo le scansioni finite negli ultimi N
          *     giorni (finestra 7d/30d/90d della dashboard), fino a 1000; senza, le
-         *     ultime `limit`.
+         *     ultime `limit`. `tracker`: lo storico di quel filtro, che parte dalla
+         *     prima scansione dopo la sua introduzione.
          */
         get: operations["get_history_api_dashboard_history_get"];
         put?: never;
@@ -3904,6 +3905,7 @@ export interface operations {
         parameters: {
             query?: {
                 disk_id?: number | null;
+                tracker?: string | null;
             };
             header?: never;
             path?: never;
@@ -3935,6 +3937,7 @@ export interface operations {
         parameters: {
             query?: {
                 disk_id?: number | null;
+                tracker?: string | null;
             };
             header?: never;
             path?: never;
@@ -3966,6 +3969,7 @@ export interface operations {
         parameters: {
             query?: {
                 disk_id?: number | null;
+                tracker?: string | null;
             };
             header?: never;
             path?: never;
@@ -5637,6 +5641,7 @@ export interface operations {
         parameters: {
             query?: {
                 disk_id?: number | null;
+                tracker?: string | null;
             };
             header?: never;
             path?: never;
@@ -5669,6 +5674,7 @@ export interface operations {
             query?: {
                 limit?: number;
                 days?: number | null;
+                tracker?: string | null;
             };
             header?: never;
             path?: never;

@@ -53,9 +53,10 @@ from app import (
     scanner,
     settings_repo,
     torrent_indexer,
+    tracker_scope,
 )
 from app.adapter_factory import TmdbApiKeyMissingError
-from app.models import Disk, RunLog, SeedFile, TorrentClient, Tracker
+from app.models import Disk, RunLog, SeedFile, TorrentClient, Tracker, TrackerHealthSnapshot
 from app.run_progress import RunCancelled, RunProgress
 from app.tmdb_client import TMDBClient
 
@@ -128,6 +129,17 @@ def _remember_rss_key(session: Session, tracker_row: Tracker, tracker_adapter) -
 
 def _plural(n: int, singular: str, plural: str) -> str:
     return singular if n == 1 else plural
+
+
+def _save_tracker_snapshots(session: Session, run: RunLog) -> None:
+    """Lo storico della dashboard per ogni filtro per tracker (app/tracker_scope.py)."""
+    for scope in tracker_scope.snapshot_scopes(session):
+        snap = health.compute_snapshot(session, tracker=scope)
+        session.add(TrackerHealthSnapshot(
+            run_id=run.id, scope=scope, health_snapshot=snap["health_pct"],
+            orphan_torrent_bytes=snap["orphan_torrent_bytes"], ignored_bytes=snap["ignored_bytes"],
+            duplicate_wasted_bytes=snap["duplicate_wasted_bytes"],
+        ))
 
 
 def run_bulk_import(session: Session, run: RunLog, data_dir: str) -> RunLog:
@@ -445,6 +457,7 @@ def run_bulk_import(session: Session, run: RunLog, data_dir: str) -> RunLog:
         run.orphan_torrent_bytes = snapshot["orphan_torrent_bytes"]
         run.ignored_bytes = snapshot["ignored_bytes"]
         run.duplicate_wasted_bytes = snapshot["duplicate_wasted_bytes"]
+        _save_tracker_snapshots(session, run)
     except Exception as exc:
         errors = _record_failure(session, run, errors, "library health snapshot", exc)
         run.pending_review = len(review.list_ready_for_review(session))

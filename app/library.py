@@ -25,6 +25,7 @@ from app.file_types import is_video
 from app.hardlinks import media_links
 from app.models import ClientTorrent, ClientTorrentFile, MatchReview, MediaFile, MediaItem, SeedFile, SeedJob
 from app.scan_state import is_current, latest_scan_by_disk
+from app.tracker_scope import enabled_torrent_ids, scoped_torrent_ids
 
 _NO_EXCLUSIONS = CompiledExclusions(patterns=[])
 
@@ -49,18 +50,21 @@ def _identity_by_media_file(session: Session) -> dict[int, tuple[str, int]]:
     }
 
 
-def _tracking(session: Session) -> tuple[set[int], set[int]]:
+def _tracking(session: Session, torrent_ids: set[int] | None = None) -> tuple[set[int], set[int]]:
     """(seed_file tracciati da un client, seed_file tracciati da almeno un
     torrent non fermo): un file in più torrent (cross-seed) è "stopped" solo
-    se lo sono tutti."""
+    se lo sono tutti. torrent_ids: solo questi torrent (filtro per tracker,
+    app/tracker_scope.py); None = tutti."""
     tracked: set[int] = set()
     active: set[int] = set()
-    for seed_file_id, state in (
-        session.query(ClientTorrentFile.seed_file_id, ClientTorrent.state)
+    for torrent_id, seed_file_id, state in (
+        session.query(ClientTorrentFile.client_torrent_id, ClientTorrentFile.seed_file_id, ClientTorrent.state)
         .join(ClientTorrent, ClientTorrent.id == ClientTorrentFile.client_torrent_id)
         .filter(ClientTorrentFile.seed_file_id.isnot(None))
         .all()
     ):
+        if torrent_ids is not None and torrent_id not in torrent_ids:
+            continue
         tracked.add(seed_file_id)
         if not is_stopped_state(state):
             active.add(seed_file_id)
@@ -68,13 +72,16 @@ def _tracking(session: Session) -> tuple[set[int], set[int]]:
 
 
 def media_file_states(
-    session: Session, disk_id: int | None = None, exclusions: CompiledExclusions = _NO_EXCLUSIONS
+    session: Session, disk_id: int | None = None, exclusions: CompiledExclusions = _NO_EXCLUSIONS,
+    tracker: str | None = None,
 ) -> list[dict]:
+    """tracker: filtro per tracker (app/tracker_scope.py). Con un filtro un
+    file è "seeding" solo se è in un torrent di quel tracker."""
     query = session.query(MediaFile)
     if disk_id is not None:
         query = query.filter_by(disk_id=disk_id)
 
-    tracked_seed_file_ids, active_seed_file_ids = _tracking(session)
+    tracked_seed_file_ids, active_seed_file_ids = _tracking(session, scoped_torrent_ids(session, tracker))
     links = media_links(session)  # per inode: anche il secondo percorso di un import doppio
     seeding_media_file_ids = {mf_id for mf_id, sfs in links.items() if any(i in tracked_seed_file_ids for i, _ in sfs)}
     active_media_file_ids = {mf_id for mf_id, sfs in links.items() if any(i in active_seed_file_ids for i, _ in sfs)}
@@ -101,13 +108,23 @@ def media_file_states(
 
 
 def seed_file_states(
-    session: Session, disk_id: int | None = None, exclusions: CompiledExclusions = _NO_EXCLUSIONS
+    session: Session, disk_id: int | None = None, exclusions: CompiledExclusions = _NO_EXCLUSIONS,
+    tracker: str | None = None,
 ) -> list[dict]:
+    """tracker: con un filtro, solo i file dei torrent di quel tracker, più
+    quelli che non sono in nessun torrent (orfani per qualunque tracker):
+    un file in seed solo per altri tracker non compare."""
     query = session.query(SeedFile)
     if disk_id is not None:
         query = query.filter_by(disk_id=disk_id)
 
-    tracked_seed_file_ids, active_seed_file_ids = _tracking(session)
+    scope_ids = scoped_torrent_ids(session, tracker)
+    tracked_seed_file_ids, active_seed_file_ids = _tracking(session, scope_ids)
+    # Con un filtro, un file in torrent solo di client disattivati è orfano come
+    # uno in nessun torrent (app/tracker_scope.py): i client spenti non contano.
+    tracked_anywhere = (
+        tracked_seed_file_ids if scope_ids is None else _tracking(session, enabled_torrent_ids(session))[0]
+    )
     media_paths_by_id = {
         row[0]: row[1] for row in session.query(MediaFile.id, MediaFile.relative_path).all()
     }
@@ -136,17 +153,19 @@ def seed_file_states(
         }
         for sf in query.order_by(SeedFile.relative_path).all()
         if is_current(sf, latest_seed)
+        and (sf.id in tracked_seed_file_ids or sf.id not in tracked_anywhere)
     ]
 
 
 def media_items_overview(
-    session: Session, disk_id: int | None = None, exclusions: CompiledExclusions = _NO_EXCLUSIONS
+    session: Session, disk_id: int | None = None, exclusions: CompiledExclusions = _NO_EXCLUSIONS,
+    tracker: str | None = None,
 ) -> list[dict]:
     """Vista Libreria (sezione 7): un media_item per riga, con tutti i suoi
     media_file fisici raggruppati sotto e lo stato di ciascuno. Stessa
     risorsa per la vista poster e ad albero — differiscono solo nel
     rendering lato frontend."""
-    file_states = media_file_states(session, disk_id=disk_id, exclusions=exclusions)
+    file_states = media_file_states(session, disk_id=disk_id, exclusions=exclusions, tracker=tracker)
     states_by_id = {s["id"]: s["state"] for s in file_states}
     stopped_by_id = {s["id"]: s["stopped"] for s in file_states}
     excluded_by_id = {s["id"]: s["excluded"] for s in file_states}

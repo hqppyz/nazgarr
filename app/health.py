@@ -32,13 +32,19 @@ def _duplicates(session: Session, disk_id: int | None) -> dict:
     }
 
 
-def compute_snapshot(session: Session, disk_id: int | None = None) -> dict:
+def compute_snapshot(session: Session, disk_id: int | None = None, tracker: str | None = None) -> dict:
+    """tracker: filtro per tracker (app/tracker_scope.py), gli stessi stati
+    delle viste della libreria con lo stesso filtro."""
     # Stessi file che si vedono nelle viste: gli esclusi non contano mai.
     exclusions = load_exclusions(session)
-    media_states = [f for f in library.media_file_states(session, disk_id=disk_id, exclusions=exclusions)
-                    if not f["excluded"]]
-    seed_states = [f for f in library.seed_file_states(session, disk_id=disk_id, exclusions=exclusions)
-                   if not f["excluded"]]
+    media_states = [
+        f for f in library.media_file_states(session, disk_id=disk_id, exclusions=exclusions, tracker=tracker)
+        if not f["excluded"]
+    ]
+    seed_states = [
+        f for f in library.seed_file_states(session, disk_id=disk_id, exclusions=exclusions, tracker=tracker)
+        if not f["excluded"]
+    ]
 
     total_media_size = sum(f["size_bytes"] for f in media_states)
     seeding_media_size = sum(f["size_bytes"] for f in media_states if f["state"] == "seeding")

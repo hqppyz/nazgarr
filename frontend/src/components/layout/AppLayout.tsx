@@ -8,10 +8,12 @@ import { ActivityStack } from '@/components/ActivityStack'
 import { AppSidebar } from '@/components/layout/AppSidebar'
 import { RunNowButton } from '@/components/RunNowButton'
 import { RunStatusIndicator } from '@/components/RunStatusIndicator'
+import { TrackerFilterSelect } from '@/components/TrackerFilterSelect'
 import { Separator } from '@/components/ui/separator'
 import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar'
 import { setSizeUnits } from '@/lib/library-filters'
 import { NAV_DASHBOARD, resolveSectionTitle } from '@/lib/nav'
+import { usesTrackerFilter } from '@/lib/trackerFilter'
 
 function TopHeader() {
   const location = useLocation()
@@ -26,6 +28,7 @@ function TopHeader() {
         {parent && <span className="text-muted-foreground">/</span>}
         <span className="font-medium">{title}</span>
       </div>
+      {usesTrackerFilter(location.pathname) && <TrackerFilterSelect />}
       {location.pathname === NAV_DASHBOARD.to && <RunNowButton />}
     </header>
   )

@@ -108,3 +108,10 @@ def test_dashboard_trend_uses_the_scan_before_the_last_and_history_by_days(clien
 
     last_week = client.get("/api/dashboard/history", params={"days": 7}).json()
     assert [p["health_snapshot"] for p in last_week] == [90.0, 80.0]
+
+
+def test_dashboard_and_history_take_a_tracker_filter(client):
+    resp = client.get("/api/dashboard?tracker=configured")
+    assert resp.status_code == 200
+    assert client.get("/api/dashboard/history?tracker=configured").json() == []
+    assert client.get("/api/dashboard?tracker=bogus").status_code == 200  # un filtro sconosciuto = tutti

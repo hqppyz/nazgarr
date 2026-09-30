@@ -12,7 +12,16 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app import adapter_factory, duplicates, library, library_detail, matching, response_cache, settings_repo
+from app import (
+    adapter_factory,
+    duplicates,
+    library,
+    library_detail,
+    matching,
+    response_cache,
+    settings_repo,
+    tracker_scope,
+)
 from app.api.reviews import ReviewResponse
 from app.api_errors import coded_detail
 from app.deps import get_session
@@ -99,26 +108,41 @@ class MediaItemOverview(BaseModel):
 # ha già quella versione, ricalcolo una sola volta quando cambia. Il
 # response_model resta per lo schema OpenAPI (tipi del frontend).
 @router.get("/media-files", response_model=list[MediaFileState])
-def list_media_files(request: Request, disk_id: int | None = None, session: Session = Depends(get_session)):
+def list_media_files(
+    request: Request, disk_id: int | None = None, tracker: str | None = None, session: Session = Depends(get_session)
+):
+    tracker = tracker_scope.normalize(tracker)  # filtro per tracker (app/tracker_scope.py)
     return response_cache.cached_json(
-        request, session, f"media-files:{disk_id}",
-        lambda: library.media_file_states(session, disk_id=disk_id, exclusions=_load_exclusions(session)),
+        request, session, f"media-files:{disk_id}:{tracker}",
+        lambda: library.media_file_states(
+            session, disk_id=disk_id, exclusions=_load_exclusions(session), tracker=tracker
+        ),
     )
 
 
 @router.get("/seed-files", response_model=list[SeedFileState])
-def list_seed_files(request: Request, disk_id: int | None = None, session: Session = Depends(get_session)):
+def list_seed_files(
+    request: Request, disk_id: int | None = None, tracker: str | None = None, session: Session = Depends(get_session)
+):
+    tracker = tracker_scope.normalize(tracker)  # filtro per tracker (app/tracker_scope.py)
     return response_cache.cached_json(
-        request, session, f"seed-files:{disk_id}",
-        lambda: library.seed_file_states(session, disk_id=disk_id, exclusions=_load_exclusions(session)),
+        request, session, f"seed-files:{disk_id}:{tracker}",
+        lambda: library.seed_file_states(
+            session, disk_id=disk_id, exclusions=_load_exclusions(session), tracker=tracker
+        ),
     )
 
 
 @router.get("/library/items", response_model=list[MediaItemOverview])
-def list_library_items(request: Request, disk_id: int | None = None, session: Session = Depends(get_session)):
+def list_library_items(
+    request: Request, disk_id: int | None = None, tracker: str | None = None, session: Session = Depends(get_session)
+):
+    tracker = tracker_scope.normalize(tracker)  # filtro per tracker (app/tracker_scope.py)
     return response_cache.cached_json(
-        request, session, f"items:{disk_id}",
-        lambda: library.media_items_overview(session, disk_id=disk_id, exclusions=_load_exclusions(session)),
+        request, session, f"items:{disk_id}:{tracker}",
+        lambda: library.media_items_overview(
+            session, disk_id=disk_id, exclusions=_load_exclusions(session), tracker=tracker
+        ),
     )
 
 

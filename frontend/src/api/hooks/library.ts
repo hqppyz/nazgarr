@@ -3,25 +3,29 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, unwrap } from '@/api/client'
 import { pushActivity, updateActivity } from '@/lib/activity'
 import { t } from '@/lib/i18n'
+import { useTrackerFilter } from '@/lib/trackerFilter'
 
 export function useLibraryItems(diskId?: number) {
+  const tracker = useTrackerFilter()
   return useQuery({
-    queryKey: ['library', 'items', diskId],
-    queryFn: () => unwrap(api.GET('/api/library/items', { params: { query: { disk_id: diskId } } })),
+    queryKey: ['library', 'items', diskId, tracker],
+    queryFn: () => unwrap(api.GET('/api/library/items', { params: { query: { disk_id: diskId, tracker } } })),
   })
 }
 
 export function useMediaFiles(diskId?: number) {
+  const tracker = useTrackerFilter()
   return useQuery({
-    queryKey: ['library', 'media-files', diskId],
-    queryFn: () => unwrap(api.GET('/api/media-files', { params: { query: { disk_id: diskId } } })),
+    queryKey: ['library', 'media-files', diskId, tracker],
+    queryFn: () => unwrap(api.GET('/api/media-files', { params: { query: { disk_id: diskId, tracker } } })),
   })
 }
 
 export function useSeedFiles(diskId?: number) {
+  const tracker = useTrackerFilter()
   return useQuery({
-    queryKey: ['library', 'seed-files', diskId],
-    queryFn: () => unwrap(api.GET('/api/seed-files', { params: { query: { disk_id: diskId } } })),
+    queryKey: ['library', 'seed-files', diskId, tracker],
+    queryFn: () => unwrap(api.GET('/api/seed-files', { params: { query: { disk_id: diskId, tracker } } })),
   })
 }
 
