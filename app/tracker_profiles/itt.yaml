@@ -53,7 +53,7 @@ upload:
   # Upload-Assistant (src/trackers/ITT.py, riferimento di dominio): da
   # verificare contro il regolamento del tracker prima del primo upload.
   naming:
-    version: 6
+    version: 7
     force: false
     title: local
     title_language: it
@@ -64,7 +64,7 @@ upload:
     subs_languages:
       style: primary_first
       primary: ITA
-      multi_from: 10
+      multi_from: 3
     group_separator: "-"
     # Pattern indicati dall'utente (2026-09-30). {source_full} è il campo
     # "Source" della wiki di ITT: il servizio per WEB-DL/WEBRip/WEBMux/DLMux,
@@ -73,7 +73,7 @@ upload:
       default: "{title} {year} {edition} {repack} {resolution} {source_full} {type} {audio_all} {audio_languages} {subs} {hdr} {video_codec} {group}"
       tv: "{title} {season} {repack} {resolution} {source_full} {type} {audio_all} {audio_languages} {subs} {hdr} {video_codec} {group}"
     type_labels:
-      REMUX: "REMUX VU"
+      REMUX: "VU REMUX"
       WEBDL: "WEB-DL"
       WEBRIP: "WEBRip"
       WEBMUX: "WEBMux"
@@ -85,14 +85,25 @@ upload:
     # {format}: ITT ha solo SD, FullHD e UHD, il 720p è SD.
     format_labels:
       HD: SD
+  # Senza il MediaInfo: UNIT3D lo riceve nel suo campo (mediainfo) e lo
+  # mostra da sé.
   description_template: |
-    [mediainfo]{{ mediainfo }}[/mediainfo]
-
     {% for url in screenshot_urls %}[img]{{ url }}[/img]
     {% endfor %}
     {% if notes %}
     {{ notes }}
     {% endif %}
+  # Le descrizioni bundlate di prima: un profilo che ha ancora una di queste
+  # (mai toccata dall'utente) passa all'attuale all'avvio.
+  replaces_description_templates:
+    - |
+      [mediainfo]{{ mediainfo }}[/mediainfo]
+
+      {% for url in screenshot_urls %}[img]{{ url }}[/img]
+      {% endfor %}
+      {% if notes %}
+      {{ notes }}
+      {% endif %}
   # Percentuali di freeleech che il tracker lascia scegliere a chi carica
   # (campo UNIT3D "free"). Vuoto finché non è verificato sul regolamento.
   freeleech:

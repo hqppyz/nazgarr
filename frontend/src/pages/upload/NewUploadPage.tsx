@@ -1,9 +1,9 @@
-import { CheckIcon, FileVideoIcon, FolderIcon, FolderSearchIcon } from 'lucide-react'
+import { CheckIcon, FileVideoIcon, FolderIcon, FolderSearchIcon, TriangleAlertIcon } from 'lucide-react'
 import { useState } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 
-import { useCreateUpload, useUploadTrackers } from '@/api/hooks/uploads'
+import { useCreateUpload, useImageHostStatus, useUploadTrackers } from '@/api/hooks/uploads'
 import { ForcedIdFields } from '@/components/upload/ForcedIdFields'
 import { SourcePickerSheet, type UploadSource } from '@/components/upload/SourcePickerSheet'
 import { Button } from '@/components/ui/button'
@@ -12,6 +12,40 @@ import { Label } from '@/components/ui/label'
 import { t } from '@/lib/i18n'
 import { EMPTY_IDS, parseNewUploadParams, toForcedIds } from '@/lib/upload'
 import { cn } from '@/lib/utils'
+
+const IMAGE_HOST_LABELS: Record<string, string> = { imgbox: 'Imgbox', pixhost: 'Pixhost' }
+
+// Prima di iniziare: senza una API key gli screenshot vanno solo sugli host
+// anonimi, senza nessun host utilizzabile un upload fallirebbe agli screenshot.
+function ImageHostWarning() {
+  const { data } = useImageHostStatus()
+  if (!data || data.with_api_key.length > 0) return null
+  const none = data.usable.length === 0
+  return (
+    <div
+      role="alert"
+      className={cn(
+        'flex gap-3 rounded-lg border p-4 text-sm',
+        none ? 'border-red-500/40 bg-red-500/10' : 'border-amber-500/40 bg-amber-500/10',
+      )}
+    >
+      <TriangleAlertIcon
+        className={cn('mt-0.5 size-4 shrink-0', none ? 'text-red-600 dark:text-red-400' : 'text-amber-600 dark:text-amber-400')}
+      />
+      <div className="grid gap-1">
+        <p className="font-medium">{t(none ? 'upload.imageHostsNoneTitle' : 'upload.imageHostsNoKeyTitle')}</p>
+        <p className="text-muted-foreground">
+          {none
+            ? t('upload.imageHostsNone')
+            : t('upload.imageHostsNoKey', { hosts: data.usable.map((key) => IMAGE_HOST_LABELS[key] ?? key).join(', ') })}
+        </p>
+        <Link to="/config?tab=upload" className="w-fit font-medium text-primary underline-offset-4 hover:underline">
+          {t('upload.imageHostsSettings')}
+        </Link>
+      </div>
+    </div>
+  )
+}
 
 export function NewUploadPage() {
   const navigate = useNavigate()
@@ -68,6 +102,7 @@ export function NewUploadPage() {
 
   return (
     <div className="grid min-w-0 gap-4">
+      <ImageHostWarning />
       <Card>
         <CardHeader>
           <CardTitle>{t('upload.newUpload')}</CardTitle>

@@ -78,6 +78,14 @@ export function useUploadTrackers() {
   })
 }
 
+// Per l'avviso sugli host di immagini prima di un upload.
+export function useImageHostStatus() {
+  return useQuery({
+    queryKey: ['uploads', 'image-hosts'],
+    queryFn: () => unwrap(api.GET('/api/uploads/image-hosts')),
+  })
+}
+
 export function useConfirmMatch(uploadId: number) {
   const queryClient = useQueryClient()
   return useMutation({

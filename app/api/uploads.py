@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session, object_session
 
-from app import upload_decision, upload_identify, upload_jobs, upload_profiles, upload_verify
+from app import adapter_factory, upload_decision, upload_identify, upload_jobs, upload_profiles, upload_verify
 from app.adapter_factory import TmdbApiKeyMissingError
 from app.api_errors import coded_detail, from_coded_error
 from app.deps import get_session
@@ -273,6 +273,17 @@ def list_upload_trackers(session: Session = Depends(get_session)):
             default_freeleech=profile.default_freeleech if profile else None,
         ))
     return out
+
+
+class ImageHostStatusResponse(BaseModel):
+    with_api_key: list[str]
+    usable: list[str]
+
+
+@router.get("/image-hosts", response_model=ImageHostStatusResponse)
+def image_host_status(session: Session = Depends(get_session)):
+    """Gli host di immagini configurati, per avvisare prima di un upload."""
+    return ImageHostStatusResponse(**adapter_factory.image_host_status(session))
 
 
 @router.put("/queue", response_model=list[UploadJobSummary])

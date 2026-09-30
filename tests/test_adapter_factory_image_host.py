@@ -1,6 +1,6 @@
 import pytest
 
-from app import adapter_factory
+from app import adapter_factory, settings_repo
 from app.adapters.image_host.imgbb import ImgbbAdapter
 from app.adapters.image_host.imgbox import ImgboxAdapter
 from app.adapters.image_host.pixhost import PixhostAdapter
@@ -44,3 +44,12 @@ def test_priority_without_imgbox_and_no_keys_raises_config_error(db_session):
 
     with pytest.raises(adapter_factory.ImageHostConfigError):
         adapter_factory.build_image_host_chain(db_session)
+
+
+def test_image_host_status_lists_keys_and_usable_hosts(db_session):
+    assert adapter_factory.image_host_status(db_session) == {"with_api_key": [], "usable": ["imgbox", "pixhost"]}
+
+    settings_repo.set_setting(db_session, "image_host_imgbb_api_key", "key")
+    settings_repo.set_setting(db_session, "image_host_priority", "imgbb,ptpimg")
+
+    assert adapter_factory.image_host_status(db_session) == {"with_api_key": ["imgbb"], "usable": ["imgbb"]}

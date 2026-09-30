@@ -138,6 +138,28 @@ def _build_image_host_adapter(session: Session, key: str) -> ImageHostAdapter | 
     raise ImageHostConfigError("image_host_unknown", key=key)
 
 
+# Gli host che funzionano solo con una api_key (gli altri: upload anonimi).
+KEYED_IMAGE_HOSTS = ("ptpimg", "imgbb", "lensdump", "ptscreens", "onlyimage", "dalexni", "utppm", "seedpool_cdn")
+
+
+def image_host_status(session: Session) -> dict:
+    """Per l'avviso prima di un upload: quali host hanno una api_key e quali
+    della priorità configurata sono utilizzabili."""
+    raw_priority = settings_repo.get_setting(session, "image_host_priority")
+    priority = (
+        [k.strip() for k in raw_priority.split(",") if k.strip()] if raw_priority else DEFAULT_IMAGE_HOST_PRIORITY
+    )
+    usable = []
+    for key in priority:
+        try:
+            if _build_image_host_adapter(session, key) is not None:
+                usable.append(key)
+        except ImageHostConfigError:
+            continue
+    keyed = [key for key in KEYED_IMAGE_HOSTS if settings_repo.get_setting(session, f"image_host_{key}_api_key")]
+    return {"with_api_key": keyed, "usable": usable}
+
+
 def build_image_host_chain(session: Session) -> ImageHostChain:
     """Ordine di priorità configurabile via app_settings.image_host_priority
     (CSV, es. 'ptpimg,imgbox,imgbb') — default docs/SPEC.md §9/§17: prova

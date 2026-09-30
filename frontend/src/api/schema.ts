@@ -1193,6 +1193,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/uploads/image-hosts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Image Host Status
+         * @description Gli host di immagini configurati, per avvisare prima di un upload.
+         */
+        get: operations["image_host_status_api_uploads_image_hosts_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/uploads/queue": {
         parameters: {
             query?: never;
@@ -2103,6 +2123,13 @@ export interface components {
             pending_review: number;
             /** Errors */
             errors: number;
+        };
+        /** ImageHostStatusResponse */
+        ImageHostStatusResponse: {
+            /** With Api Key */
+            with_api_key: string[];
+            /** Usable */
+            usable: string[];
         };
         /** ItemDetailResponse */
         ItemDetailResponse: {
@@ -5802,6 +5829,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UploadTrackerResponse"][];
+                };
+            };
+        };
+    };
+    image_host_status_api_uploads_image_hosts_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImageHostStatusResponse"];
                 };
             };
         };

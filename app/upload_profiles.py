@@ -122,6 +122,26 @@ def sync_naming_rules(session: Session) -> list[str]:
     return updated
 
 
+def sync_description_templates(session: Session) -> list[str]:
+    """All'avvio: un profilo con ancora una descrizione bundlata di prima
+    (replaces_description_templates, quindi mai modificata dall'utente)
+    passa a quella attuale. Una descrizione modificata non si tocca."""
+    updated = []
+    for profile in session.query(TrackerUploadProfile).filter(TrackerUploadProfile.source_profile_key.isnot(None)):
+        try:
+            upload = _load_bundled_profile(profile.source_profile_key).get("upload") or {}
+        except ProfileNotFoundError:
+            continue
+        current = upload.get("description_template")
+        if current and profile.description_template in (upload.get("replaces_description_templates") or []):
+            profile.description_template = current
+            label = profile.tracker.label if profile.tracker else str(profile.tracker_id)
+            updated.append(label)
+            logger.info("Descrizione di %s aggiornata a quella bundlata attuale", label)
+    session.commit()
+    return updated
+
+
 def update_naming_from_bundled(session: Session, profile: TrackerUploadProfile) -> None:
     """Il pulsante "usa le regole nuove": le regole bundlate al posto di
     quelle modificate dall'utente."""

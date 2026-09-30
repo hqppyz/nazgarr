@@ -1,5 +1,11 @@
 export const upload = {
   'upload.newUpload': 'New upload',
+  'upload.imageHostsNoKeyTitle': 'No image host API key configured',
+  'upload.imageHostsNoKey':
+    'Screenshots will only go to hosts that work without a key ({hosts}). Some trackers do not accept them: add an API key to be safe.',
+  'upload.imageHostsNoneTitle': 'No usable image host',
+  'upload.imageHostsNone': 'Screenshots cannot be uploaded, so uploads will fail. Reseeds still work.',
+  'upload.imageHostsSettings': 'Open image host settings',
   'upload.newUploadDescription':
     'Pick a movie, an episode, a season folder or a whole series, and the trackers to publish it on. Nazgarr identifies it and asks you to confirm before doing anything else.',
   'upload.source': 'Source',
