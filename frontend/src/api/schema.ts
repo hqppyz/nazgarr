@@ -33,8 +33,9 @@ export interface paths {
         /**
          * Setup
          * @description Crea l'unico account amministratore — funziona SOLO se non ne
-         *     esiste già uno. Cambiare le credenziali dopo passa sempre da
-         *     /change-password, protetto dalla password attuale.
+         *     esiste già uno, e solo con il codice monouso scritto nel log del
+         *     container all'avvio (app.state.setup_code). Cambiare le credenziali dopo
+         *     passa sempre da /change-password, protetto dalla password attuale.
          */
         post: operations["setup_api_auth_setup_post"];
         delete?: never;
@@ -3172,6 +3173,8 @@ export interface components {
             username: string;
             /** Password */
             password: string;
+            /** Setup Code */
+            setup_code: string;
         };
         /**
          * SonarrConnectionTestRequest

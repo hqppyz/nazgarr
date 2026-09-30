@@ -1,9 +1,11 @@
 """API key (app/api_keys.py): due livelli, e mai per gestire le chiavi."""
 
 
+NO_LOGIN = {"Authorization": ""}  # il client dei test ha già il token negli header
+
+
 def _login(client):
-    token = client.post("/api/auth/setup", json={"username": "admin", "password": "supersecret1"}).json()
-    return {"Authorization": f"Bearer {token['access_token']}"}
+    return {"Authorization": client.headers["Authorization"]}
 
 
 def _key(client, auth, level, name="script"):
@@ -17,7 +19,7 @@ def test_read_and_write_keys(client):
     read, write = _key(client, auth, "read"), _key(client, auth, "write")
     assert read["key"].startswith("nzg_") and read["prefix"] == read["key"][:12]
 
-    assert client.get("/api/trackers").status_code == 401  # senza niente, con il login attivo
+    assert client.get("/api/trackers", headers=NO_LOGIN).status_code == 401  # senza niente
     assert client.get("/api/trackers", headers={"X-Api-Key": read["key"]}).status_code == 200
     body = {"label": "t", "adapter_type": "unit3d", "base_url": "https://t.example", "api_token": "x"}
     assert client.post("/api/trackers", json=body, headers={"X-Api-Key": read["key"]}).status_code == 403
@@ -42,13 +44,13 @@ def test_a_key_cannot_manage_keys(client):
     auth = _login(client)
     write = _key(client, auth, "write")
 
-    headers = {"X-Api-Key": write["key"]}
+    headers = {"X-Api-Key": write["key"], **NO_LOGIN}
     assert client.get("/api/api-keys", headers=headers).status_code == 403
     assert client.post("/api/api-keys", json={"name": "more", "level": "write"}, headers=headers).status_code == 403
 
 
-def test_a_wrong_key_is_rejected_even_without_a_login(client):
-    # Nessun login configurato: l'app è aperta, ma una chiave sbagliata no.
+def test_a_wrong_key_is_rejected_even_with_a_valid_login(client):
+    # La chiave, se c'è, decide: sbagliata è sempre un 401.
     assert client.get("/api/trackers").status_code == 200
     assert client.get("/api/trackers", headers={"X-Api-Key": "nzg_wrong"}).status_code == 401
 

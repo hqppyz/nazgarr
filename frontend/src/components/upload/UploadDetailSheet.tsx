@@ -19,6 +19,7 @@ import { formatBytes } from '@/lib/library-filters'
 import type { MediaInfoSummary } from '@/lib/mediainfo'
 import { parseApiDate } from '@/lib/time'
 import { dupeUrl } from '@/lib/upload'
+import { safeHref } from '@/lib/safeUrl'
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -112,7 +113,7 @@ export function UploadDetailSheet({ uploadId, onClose }: { uploadId: number | nu
                         {target.action && <ActionBadge action={target.action} />}
                         <UploadStatusBadge status={target.status} />
                         {target.remote_url && (
-                          <a href={target.remote_url} target="_blank" rel="noreferrer" className="ml-auto inline-flex items-center gap-1 text-xs hover:underline">
+                          <a href={safeHref(target.remote_url)} target="_blank" rel="noreferrer" className="ml-auto inline-flex items-center gap-1 text-xs hover:underline">
                             {t('upload.result.openOnTracker')}
                             <ExternalLinkIcon className="size-3" />
                           </a>
@@ -130,7 +131,7 @@ export function UploadDetailSheet({ uploadId, onClose }: { uploadId: number | nu
                               <span key={d.torrent_id_remote} className="flex min-w-0 items-center gap-2">
                                 <Badge variant="outline" className="h-4 px-1 text-[10px]">{t(`upload.dupes.verdict.${d.verdict}`)}</Badge>
                                 {url ? (
-                                  <a href={url} target="_blank" rel="noreferrer" className="truncate font-mono hover:underline" title={d.name}>{d.name}</a>
+                                  <a href={safeHref(url)} target="_blank" rel="noreferrer" className="truncate font-mono hover:underline" title={d.name}>{d.name}</a>
                                 ) : (
                                   <span className="truncate font-mono" title={d.name}>{d.name}</span>
                                 )}
@@ -168,7 +169,7 @@ export function UploadDetailSheet({ uploadId, onClose }: { uploadId: number | nu
                 <Section title={t('upload.history.screenshots', { count: job.screenshot_urls.length })}>
                   <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                     {job.screenshot_urls.map((url) => (
-                      <a key={url} href={url} target="_blank" rel="noreferrer" className="truncate font-mono text-xs hover:underline">
+                      <a key={url} href={safeHref(url)} target="_blank" rel="noreferrer" className="truncate font-mono text-xs hover:underline">
                         {url}
                       </a>
                     ))}

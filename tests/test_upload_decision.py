@@ -132,11 +132,19 @@ def test_approve_needs_a_decision_for_every_tracker_and_no_check_running(db_sess
     assert exc.value.code == "upload_target_busy"
 
 
-def test_reseed_of_an_identical_release(db_session, decision_job):
+def test_reseed_of_an_identical_release_needs_a_passed_hash_check(db_session, decision_job):
     itt, custom = decision_job.targets
     itt.dupes_json = json.dumps([{"torrent_id_remote": "42", "verdict": "identical"}])
     db_session.commit()
+    with pytest.raises(UploadJobError) as exc:
+        upload_decision.approve(db_session, decision_job, [
+            {"target_id": itt.id, "action": "reseed", "reseed_torrent_id": "42"}, _upload(custom),
+        ])
+    assert exc.value.code == "upload_reseed_needs_verification"
 
+    itt.dupes_json = json.dumps([{"torrent_id_remote": "42", "verdict": "identical",
+                                  "verification": {"status": "passed"}}])
+    db_session.commit()
     upload_decision.approve(db_session, decision_job, [
         {"target_id": itt.id, "action": "reseed", "reseed_torrent_id": "42"}, _upload(custom),
     ])

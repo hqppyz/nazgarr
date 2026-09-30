@@ -52,6 +52,32 @@ def client(tmp_path, monkeypatch):
 
     with TestClient(app) as test_client:
         test_client.scan_root = scan_root  # comodo per i test: root disponibile senza rileggere il config
+        # Il login è obbligatorio: ogni test parte con l'account creato e il
+        # token già negli header (i test del login usano anon_client).
+        token = test_client.post("/api/auth/setup", json={
+            "username": "admin", "password": "supersecret1", "setup_code": app.state.setup_code,
+        }).json()["access_token"]
+        test_client.headers["Authorization"] = f"Bearer {token}"
+        yield test_client
+
+    crypto_module._fernet.cache_clear()
+
+
+@pytest.fixture
+def anon_client(tmp_path, monkeypatch):
+    """Un'istanza appena installata: nessun account, nessun token."""
+    data_dir = tmp_path / "data"
+    scan_root = tmp_path / "mnt"
+    scan_root.mkdir()
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(f"disk_scan_root: {scan_root}\ndata_dir: {data_dir}\n")
+    monkeypatch.setenv("CONFIG_PATH", str(config_path))
+    monkeypatch.setenv("APP_SECRET_KEY", base64.urlsafe_b64encode(os.urandom(32)).decode())
+    crypto_module._fernet.cache_clear()
+
+    from app.main import app
+
+    with TestClient(app) as test_client:
         yield test_client
 
     crypto_module._fernet.cache_clear()

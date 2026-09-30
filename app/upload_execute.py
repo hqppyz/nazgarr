@@ -21,6 +21,7 @@ stesso layout del torrent, si fa seed sul posto. Stesso filesystem o errore
 esplicito, come nel reseeding. Un tracker che fallisce non ferma gli altri.
 """
 
+import contextlib
 import io
 import json
 import logging
@@ -92,22 +93,36 @@ def _inside(path: str, folder: str | None) -> bool:
 def link_files(pairs: list[tuple[str, str]], root: str) -> int:
     """Crea gli hardlink (sorgente, destinazione); una destinazione che è già
     lo stesso file (un tentativo precedente) va bene, un file diverso no.
+    Tutto si controlla prima di creare il primo: destinazioni dentro la
+    cartella di seed (sul percorso già risolto, niente symlink piazzati nel
+    mezzo), sorgenti che sono file veri (non symlink) sullo stesso disco. Se
+    un hardlink fallisce a metà, quelli appena creati si tolgono.
     Restituisce quanti hardlink ha creato."""
     root_dev = os.stat(root).st_dev
-    for source, _target in pairs:
+    planned: list[tuple[str, str]] = []
+    for source, target in pairs:
+        if os.path.islink(source) or not os.path.isfile(source):
+            raise UploadJobError("upload_source_not_a_file", path=source)
         if os.stat(source).st_dev != root_dev:
             raise UploadJobError("upload_cross_device", path=source)
-    created = 0
-    for source, target in pairs:
-        resolve_scoped(root, os.path.relpath(target, root))  # mai fuori dalla cartella di seed
-        if os.path.exists(target):
-            if os.path.samefile(source, target):
-                continue
-            raise UploadJobError("upload_seed_path_exists", path=target)
-        os.makedirs(os.path.dirname(target), exist_ok=True)
-        os.link(source, target)
-        created += 1
-    return created
+        resolved = resolve_scoped(root, os.path.relpath(target, root))  # mai fuori dalla cartella di seed
+        if os.path.lexists(resolved):
+            if os.path.islink(resolved) or not os.path.samefile(source, resolved):
+                raise UploadJobError("upload_seed_path_exists", path=target)
+            continue
+        planned.append((source, resolved))
+    created: list[str] = []
+    try:
+        for source, target in planned:
+            os.makedirs(os.path.dirname(target), exist_ok=True)
+            os.link(source, target, follow_symlinks=False)
+            created.append(target)
+    except OSError:
+        for path in created:
+            with contextlib.suppress(OSError):
+                os.unlink(path)
+        raise
+    return len(created)
 
 
 # --- una volta per job --------------------------------------------------------

@@ -18,6 +18,7 @@ import os
 from sqlalchemy.orm import Session
 
 from app import adapter_factory, upload_jobs
+from app.fs_scope import ScopeViolation, resolve_scoped
 from app.full_check import CheckResult, unreadable_pieces, verdict, verify_all_pieces
 from app.models import UploadJob, UploadTarget
 from app.torrent_file import TorrentFileEntry, TorrentInfo, compute_info_hash, parse_torrent_info
@@ -45,8 +46,12 @@ def build_locator(job: UploadJob, parsed: TorrentInfo):
                 by_size.setdefault(size, []).append(path)
 
     def locate(entry: TorrentFileEntry) -> tuple[str | None, str | None]:
-        direct = os.path.join(job.source_path, entry.path)
-        if os.path.isfile(direct) and os.path.getsize(direct) == entry.length:
+        # Il percorso viene dal .torrent del tracker: mai fuori dalla sorgente.
+        try:
+            direct = resolve_scoped(job.source_path, entry.path)
+        except ScopeViolation:
+            direct = None
+        if direct and os.path.isfile(direct) and os.path.getsize(direct) == entry.length:
             return direct, "source"
         found = by_name.get((os.path.basename(entry.path).lower(), entry.length))
         if found is None and len(by_size.get(entry.length, [])) == 1:

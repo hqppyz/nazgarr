@@ -7,7 +7,8 @@ non tocca mai media_item/candidate/match_review/seed_job."""
 import logging
 
 import guessit
-from jinja2 import Template
+from jinja2 import TemplateError
+from jinja2.sandbox import ImmutableSandboxedEnvironment
 from sqlalchemy.orm import Session
 
 from app import settings_repo
@@ -64,14 +65,35 @@ def credit_line() -> str:
     )
 
 
+# Il template lo scrive l'utente (profilo di upload del tracker): sempre in
+# una sandbox, mai jinja2.Template, che permetterebbe di eseguire codice sul
+# server con {{ cycler.__init__.__globals__.os... }}. Nessun escaping HTML: è
+# BBCode, non una pagina.
+_TEMPLATES = ImmutableSandboxedEnvironment(autoescape=False)
+
+
+class DescriptionTemplateError(CodedError):
+    """Il template della descrizione non si può usare (sintassi, o qualcosa
+    che la sandbox non permette)."""
+
+
+def render_template(source: str, **values) -> str:
+    try:
+        return _TEMPLATES.from_string(source).render(**values)
+    except TemplateError as exc:  # SecurityError compresa
+        raise DescriptionTemplateError("upload_description_template_invalid", error=str(exc)) from exc
+
+
 def render_description(
     session: Session, profile: TrackerUploadProfile, mediainfo: str, screenshot_urls: list[str], notes: str = ""
 ) -> str:
     """Il template Jinja2 del profilo, con l'intestazione in cima e la firma
     in fondo, entrambe facoltative (Configuration > Upload), e per ultima la
     riga di Nazgarr (credit_line), sempre."""
-    template = Template(profile.description_template or "{{ mediainfo }}")
-    rendered = template.render(mediainfo=mediainfo or "", screenshot_urls=screenshot_urls, notes=notes)
+    rendered = render_template(
+        profile.description_template or "{{ mediainfo }}",
+        mediainfo=mediainfo or "", screenshot_urls=screenshot_urls, notes=notes,
+    )
     header = settings_repo.get_setting(session, "upload_description_header")
     signature = settings_repo.get_setting(session, "upload_description_signature")
     body = "\n\n".join(part for part in (header, rendered, signature) if part)

@@ -1,4 +1,5 @@
 import { ExternalLinkIcon } from 'lucide-react'
+import { safeHref } from '@/lib/safeUrl'
 
 
 interface Service {
@@ -40,7 +41,7 @@ export function MetadataLinks({ job }: { job: MetadataIds }) {
       {services.map((service) => (
         <a
           key={service.key}
-          href={service.url}
+          href={safeHref(service.url)}
           target="_blank"
           rel="noreferrer"
           title={service.label}

@@ -17,8 +17,11 @@ class ScopeViolation(CodedError):
 
 
 def resolve_scoped(root_path: str, relative: str) -> str:
-    candidate = os.path.realpath(os.path.join(root_path, relative))
-    root_real = os.path.realpath(root_path)
+    try:
+        candidate = os.path.realpath(os.path.join(root_path, relative))
+        root_real = os.path.realpath(root_path)
+    except ValueError as exc:  # un byte nullo nel percorso
+        raise ScopeViolation(repr(relative)) from exc
     if not (candidate == root_real or candidate.startswith(root_real + os.sep)):
         raise ScopeViolation(candidate)
     return candidate

@@ -119,3 +119,19 @@ def test_parse_torrent_info_multi_file_computes_offsets():
 def test_parse_torrent_info_raises_on_missing_info_dict():
     with pytest.raises(TorrentMetainfoError):
         parse_torrent_info(_bencode({"announce": "x"}))
+
+
+@pytest.mark.parametrize("name,parts", [
+    ("Movie", [b"..", b"..", b"etc", b"passwd"]),
+    ("Movie", [b"", b"mnt", b"disk1", b"private.mkv"]),
+    ("Movie", [b"a/b", b"c.mkv"]),
+    ("Movie", [b"ok\x00.mkv"]),
+    ("..", [b"a.mkv"]),
+    ("a/b/c", [b"a.mkv"]),
+])
+def test_a_torrent_with_paths_that_leave_its_folder_is_refused(name, parts):
+    # Un .torrent arriva dal tracker, cioè da chiunque ci abbia caricato qualcosa.
+    info = {b"name": name.encode(), b"piece length": 16384, b"pieces": b"\x00" * 20,
+            b"files": [{b"length": 1, b"path": parts}]}
+    with pytest.raises(TorrentMetainfoError, match="non sicura"):
+        parse_torrent_info(_bencode({b"info": info}))

@@ -22,123 +22,79 @@ def test_decode_access_token_rejects_garbage(monkeypatch):
     assert auth.decode_access_token("not-a-jwt") is None
 
 
-def test_api_untouched_when_auth_never_configured(client):
-    """Nessuna istanza esistente deve rompersi solo perché questa fase è
-    stata aggiunta: senza auth_username/auth_password_hash impostati,
-    ogni endpoint protetto resta raggiungibile senza alcun token."""
-    response = client.get("/api/disks")
-    assert response.status_code == 200
+def _setup(client, **extra):
+    body = {"username": "admin", "password": "supersecret1", "setup_code": client.app.state.setup_code, **extra}
+    return client.post("/api/auth/setup", json=body)
 
 
-def test_auth_status_reports_not_configured_by_default(client):
-    response = client.get("/api/auth/status")
-    assert response.status_code == 200
-    assert response.json() == {"configured": False}
+def _bearer(token):
+    return {"Authorization": f"Bearer {token}"}
 
 
-def test_setup_creates_account_and_returns_token(client):
-    response = client.post("/api/auth/setup", json={"username": "admin", "password": "supersecret1"})
+def test_everything_is_closed_until_the_account_exists(anon_client):
+    # Prima era aperto: chiunque in rete aveva il pieno controllo.
+    assert anon_client.get("/api/disks").status_code == 401
+    assert anon_client.post("/api/reviews/1/approve").status_code == 401
+    assert anon_client.get("/api/auth/status").json() == {"configured": False}
 
+
+def test_setup_needs_the_one_time_code_from_the_log(anon_client):
+    assert _setup(anon_client, setup_code="guess").status_code == 403
+    response = _setup(anon_client)
     assert response.status_code == 201
-    body = response.json()
-    assert body["username"] == "admin"
-    assert body["access_token"]
-
-
-def test_setup_rejects_short_password(client):
-    response = client.post("/api/auth/setup", json={"username": "admin", "password": "short"})
-    assert response.status_code == 400
-
-
-def test_setup_twice_is_rejected(client):
-    client.post("/api/auth/setup", json={"username": "admin", "password": "supersecret1"})
-
-    response = client.post("/api/auth/setup", json={"username": "someoneelse", "password": "supersecret1"})
-
-    assert response.status_code == 409
-
-
-def test_protected_endpoint_requires_token_once_configured(client):
-    client.post("/api/auth/setup", json={"username": "admin", "password": "supersecret1"})
-
-    response = client.get("/api/disks")
-
-    assert response.status_code == 401
-
-
-def test_protected_endpoint_accepts_valid_token(client):
-    setup = client.post("/api/auth/setup", json={"username": "admin", "password": "supersecret1"}).json()
-
-    response = client.get("/api/disks", headers={"Authorization": f"Bearer {setup['access_token']}"})
-
-    assert response.status_code == 200
-
-
-def test_login_with_correct_credentials_returns_token(client):
-    client.post("/api/auth/setup", json={"username": "admin", "password": "supersecret1"})
-
-    response = client.post("/api/auth/login", json={"username": "admin", "password": "supersecret1"})
-
-    assert response.status_code == 200
     assert response.json()["username"] == "admin"
+    assert anon_client.get("/api/disks", headers=_bearer(response.json()["access_token"])).status_code == 200
+    assert anon_client.app.state.setup_code is None  # usato: non vale più
 
 
-def test_login_with_wrong_password_rejected(client):
-    client.post("/api/auth/setup", json={"username": "admin", "password": "supersecret1"})
-
-    response = client.post("/api/auth/login", json={"username": "admin", "password": "wrong"})
-
-    assert response.status_code == 401
-
-
-def test_login_before_setup_rejected(client):
-    response = client.post("/api/auth/login", json={"username": "admin", "password": "supersecret1"})
-    assert response.status_code == 401
+def test_the_setup_code_can_come_from_the_environment(tmp_path, monkeypatch):
+    monkeypatch.setenv(auth.SETUP_CODE_ENV, "my-known-code")
+    assert auth.new_setup_code() == "my-known-code"
+    monkeypatch.delenv(auth.SETUP_CODE_ENV)
+    assert auth.new_setup_code() != auth.new_setup_code()
 
 
-def test_me_returns_username_for_valid_token(client):
-    setup = client.post("/api/auth/setup", json={"username": "admin", "password": "supersecret1"}).json()
-
-    response = client.get("/api/auth/me", headers={"Authorization": f"Bearer {setup['access_token']}"})
-
-    assert response.status_code == 200
-    assert response.json() == {"username": "admin"}
+def test_setup_rejects_short_password(anon_client):
+    assert _setup(anon_client, password="short").status_code == 400
 
 
-def test_me_rejects_missing_token(client):
-    client.post("/api/auth/setup", json={"username": "admin", "password": "supersecret1"})
-
-    response = client.get("/api/auth/me")
-
-    assert response.status_code == 401
-
-
-def test_change_password_requires_current_password(client):
-    setup = client.post("/api/auth/setup", json={"username": "admin", "password": "supersecret1"}).json()
-    headers = {"Authorization": f"Bearer {setup['access_token']}"}
-
-    response = client.post(
-        "/api/auth/change-password",
-        json={"current_password": "wrong", "new_password": "newpassword1"},
-        headers=headers,
-    )
-
-    assert response.status_code == 401
+def test_setup_twice_is_rejected(anon_client):
+    code = anon_client.app.state.setup_code
+    assert _setup(anon_client).status_code == 201
+    assert anon_client.post("/api/auth/setup", json={
+        "username": "other", "password": "supersecret2", "setup_code": code,
+    }).status_code == 409
 
 
-def test_change_password_success_allows_login_with_new_password(client):
-    setup = client.post("/api/auth/setup", json={"username": "admin", "password": "supersecret1"}).json()
-    headers = {"Authorization": f"Bearer {setup['access_token']}"}
+def test_protected_endpoint_requires_a_valid_token(anon_client):
+    token = _setup(anon_client).json()["access_token"]
+    assert anon_client.get("/api/disks").status_code == 401
+    assert anon_client.get("/api/disks", headers=_bearer("garbage")).status_code == 401
+    assert anon_client.get("/api/disks", headers=_bearer(token)).status_code == 200
 
-    response = client.post(
-        "/api/auth/change-password",
-        json={"current_password": "supersecret1", "new_password": "newpassword1"},
-        headers=headers,
-    )
-    assert response.status_code == 204
 
-    old_login = client.post("/api/auth/login", json={"username": "admin", "password": "supersecret1"})
-    assert old_login.status_code == 401
+def test_login(anon_client):
+    creds = {"username": "admin", "password": "supersecret1"}
+    assert anon_client.post("/api/auth/login", json=creds).status_code == 401
+    _setup(anon_client)
+    ok = anon_client.post("/api/auth/login", json={"username": "admin", "password": "supersecret1"})
+    assert ok.status_code == 200 and ok.json()["access_token"]
+    for username, password in (("admin", "wrong-password"), ("root", "supersecret1")):
+        bad = anon_client.post("/api/auth/login", json={"username": username, "password": password})
+        assert bad.status_code == 401
 
-    new_login = client.post("/api/auth/login", json={"username": "admin", "password": "newpassword1"})
-    assert new_login.status_code == 200
+
+def test_me(anon_client):
+    token = _setup(anon_client).json()["access_token"]
+    assert anon_client.get("/api/auth/me").status_code == 401
+    assert anon_client.get("/api/auth/me", headers=_bearer(token)).json() == {"username": "admin"}
+
+
+def test_change_password(anon_client):
+    headers = _bearer(_setup(anon_client).json()["access_token"])
+    wrong = {"current_password": "nope-nope", "new_password": "newsecret123"}
+    assert anon_client.post("/api/auth/change-password", json=wrong, headers=headers).status_code == 401
+    right = {"current_password": "supersecret1", "new_password": "newsecret123"}
+    assert anon_client.post("/api/auth/change-password", json=right, headers=headers).status_code == 204
+    new = {"username": "admin", "password": "newsecret123"}
+    assert anon_client.post("/api/auth/login", json=new).status_code == 200

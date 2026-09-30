@@ -87,10 +87,21 @@ def authenticated_username(request: Request, session: Session) -> str | None:
     return username
 
 
+SETUP_CODE_ENV = "NAZGARR_SETUP_CODE"
+
+
+def new_setup_code() -> str:
+    """Il codice monouso per creare l'account al primo avvio (decisione
+    dell'utente, 2026-10-01): da NAZGARR_SETUP_CODE se c'è, se no casuale.
+    Vive solo in memoria e si scrive nel log del container: chi raggiunge la
+    porta ma non vede il log non può creare l'account al posto tuo."""
+    return os.environ.get(SETUP_CODE_ENV) or secrets.token_urlsafe(9)
+
+
 def _api_key(request: Request, session: Session):
     """La API key dell'header X-Api-Key, se c'è (app/api_keys.py): una
-    chiave sbagliata o revocata è sempre un 401, anche senza login
-    configurato; una di sola lettura su un metodo che scrive un 403."""
+    chiave sbagliata o revocata è sempre un 401; una di sola lettura su un
+    metodo che scrive un 403."""
     raw = request.headers.get(api_keys.HEADER)
     if raw is None:
         return None
@@ -104,17 +115,16 @@ def _api_key(request: Request, session: Session):
 
 
 def require_auth(request: Request, session: Session = Depends(get_session)) -> str | None:
-    """Dependency applicata a ogni router protetto (app/main.py). Ritorna
-    None senza sollevare finché nessun login è mai stato configurato —
-    è l'unico modo per restare compatibili con un'istanza esistente che
-    non ha mai impostato un account, e per far funzionare il primissimo
-    /api/auth/setup (che deve restare raggiungibile senza token).
-    Accetta anche una API key (X-Api-Key), con i suoi limiti."""
+    """Dependency applicata a ogni router protetto (app/main.py). Il login è
+    obbligatorio: finché l'account non esiste, tutto è chiuso tranne
+    /api/auth/* (per crearlo, con il codice monouso del log) — prima era
+    aperto, e chiunque in rete aveva il pieno controllo. Accetta anche una
+    API key (X-Api-Key), con i suoi limiti."""
     key = _api_key(request, session)
     if key is not None:
         return f"api-key:{key.name}"
     if not is_auth_configured(session):
-        return None
+        raise HTTPException(status_code=401, detail=coded_detail("auth_setup_required"))
     username = authenticated_username(request, session)
     if username is None:
         raise HTTPException(status_code=401, detail=coded_detail("auth_required"))

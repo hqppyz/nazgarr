@@ -179,9 +179,16 @@ def _validate(target: UploadTarget, decision: dict) -> dict:
     if action == "reseed":
         dupes = json.loads(target.dupes_json or "[]")
         torrent_id = decision.get("reseed_torrent_id") or target.reseed_torrent_id
-        identical = {d["torrent_id_remote"] for d in dupes if d["verdict"] == "identical"}
+        identical = {d["torrent_id_remote"]: d for d in dupes if d["verdict"] == "identical"}
         if torrent_id not in identical:
             raise UploadJobError("upload_reseed_needs_identical", tracker=target.tracker.label)
+        # Solo dopo un full hash check passato (decisione dell'utente,
+        # 2026-10-01): con byte diversi il client riscaricherebbe i piece
+        # sbagliati dentro l'hardlink, sovrascrivendo il file in libreria. E un
+        # torrent con lo stesso nome e la stessa dimensione lo può caricare
+        # chiunque sul tracker.
+        if (identical[torrent_id].get("verification") or {}).get("status") != "passed":
+            raise UploadJobError("upload_reseed_needs_verification", tracker=target.tracker.label)
         out["reseed_torrent_id"] = torrent_id
     return out
 

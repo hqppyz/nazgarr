@@ -3,6 +3,9 @@
 è protetto esplicitamente, sugli altri la sicurezza sta nel loro stesso
 comportamento (setup rifiuta se già configurato, login verifica l'hash)."""
 
+import hmac
+import threading
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -21,6 +24,7 @@ class AuthStatusResponse(BaseModel):
 class SetupRequest(BaseModel):
     username: str
     password: str
+    setup_code: str  # quello scritto nel log del container al primo avvio
 
 
 class LoginRequest(BaseModel):
@@ -47,19 +51,30 @@ def auth_status(session: Session = Depends(get_session)):
     return AuthStatusResponse(configured=auth.is_auth_configured(session))
 
 
+_setup_lock = threading.Lock()
+# Per verificare comunque una password quando l'account non c'è.
+_DUMMY_HASH = auth.hash_password("nazgarr-no-account")
+
+
 @router.post("/setup", response_model=TokenResponse, status_code=201)
-def setup(body: SetupRequest, session: Session = Depends(get_session)):
+def setup(body: SetupRequest, request: Request, session: Session = Depends(get_session)):
     """Crea l'unico account amministratore — funziona SOLO se non ne
-    esiste già uno. Cambiare le credenziali dopo passa sempre da
-    /change-password, protetto dalla password attuale."""
-    if auth.is_auth_configured(session):
-        raise HTTPException(status_code=409, detail=coded_detail("auth_already_configured"))
-    if not body.username.strip():
-        raise HTTPException(status_code=400, detail=coded_detail("auth_username_required"))
-    if len(body.password) < 8:
-        raise HTTPException(status_code=400, detail=coded_detail("auth_password_too_short"))
-    settings_repo.set_setting(session, "auth_username", body.username.strip())
-    settings_repo.set_setting(session, "auth_password_hash", auth.hash_password(body.password))
+    esiste già uno, e solo con il codice monouso scritto nel log del
+    container all'avvio (app.state.setup_code). Cambiare le credenziali dopo
+    passa sempre da /change-password, protetto dalla password attuale."""
+    with _setup_lock:  # due setup insieme: uno solo vince
+        if auth.is_auth_configured(session):
+            raise HTTPException(status_code=409, detail=coded_detail("auth_already_configured"))
+        expected = getattr(request.app.state, "setup_code", None)
+        if not expected or not hmac.compare_digest(body.setup_code.strip(), expected):
+            raise HTTPException(status_code=403, detail=coded_detail("auth_setup_code_invalid"))
+        if not body.username.strip():
+            raise HTTPException(status_code=400, detail=coded_detail("auth_username_required"))
+        if len(body.password) < 8:
+            raise HTTPException(status_code=400, detail=coded_detail("auth_password_too_short"))
+        settings_repo.set_setting(session, "auth_username", body.username.strip())
+        settings_repo.set_setting(session, "auth_password_hash", auth.hash_password(body.password))
+        request.app.state.setup_code = None
     return TokenResponse(access_token=auth.create_access_token(body.username.strip()), username=body.username.strip())
 
 
@@ -67,12 +82,11 @@ def setup(body: SetupRequest, session: Session = Depends(get_session)):
 def login(body: LoginRequest, session: Session = Depends(get_session)):
     stored_username = settings_repo.get_setting(session, "auth_username")
     stored_hash = settings_repo.get_setting(session, "auth_password_hash")
-    if (
-        not stored_username
-        or not stored_hash
-        or body.username != stored_username
-        or not auth.verify_password(body.password, stored_hash)
-    ):
+    # La password si verifica sempre, anche con un nome sbagliato: lo stesso
+    # tempo di risposta, niente indizi su quale dei due è giusto.
+    password_ok = auth.verify_password(body.password, stored_hash or _DUMMY_HASH)
+    username_ok = bool(stored_username) and hmac.compare_digest(body.username.encode(), stored_username.encode())
+    if not (stored_hash and username_ok and password_ok):
         raise HTTPException(status_code=401, detail=coded_detail("auth_invalid_credentials"))
     return TokenResponse(access_token=auth.create_access_token(stored_username), username=stored_username)
 
