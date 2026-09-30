@@ -170,7 +170,8 @@ export function TargetDecisionForm({
         <div className="grid gap-1">
           <Label className="text-xs">{t('upload.decision.reseedTorrent')}</Label>
           <Select value={draft.reseed_torrent_id} onValueChange={(v) => v != null && set({ reseed_torrent_id: v })}>
-            <SelectTrigger size="sm" className="w-full">
+            {/* Stesso aspetto del campo del nome di un upload. */}
+            <SelectTrigger className="h-8 w-full min-w-0 font-mono text-xs">
               <SelectValue placeholder={t('upload.decision.choose')}>
                 {(v: string | null) => identical.find((d) => d.torrent_id_remote === v)?.name ?? t('upload.decision.choose')}
               </SelectValue>

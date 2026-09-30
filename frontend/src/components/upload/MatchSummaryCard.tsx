@@ -27,7 +27,8 @@ export function MatchSummaryCard({ job }: { job: UploadJob }) {
         ) : (
           <div className="aspect-[2/3] w-28 shrink-0 rounded-md bg-muted sm:w-36" />
         )}
-        <div className="grid min-w-0 flex-1 content-start gap-2">
+        {/* In colonna, con i link ai metadati in fondo alla scheda. */}
+        <div className="flex min-w-0 flex-1 flex-col gap-2">
           <h1 className="text-xl leading-tight font-semibold break-words">
             {job.title ?? t('upload.untitled')}
             {job.year && <span className="font-normal text-muted-foreground"> ({job.year})</span>}
@@ -47,7 +48,9 @@ export function MatchSummaryCard({ job }: { job: UploadJob }) {
             <UploadStatusBadge status={job.status} />
           </div>
           {details.data?.overview && <p className="line-clamp-3 text-xs leading-relaxed">{details.data.overview}</p>}
-          <MetadataLinks job={job} />
+          <div className="mt-auto pt-2">
+            <MetadataLinks job={job} />
+          </div>
         </div>
       </CardContent>
     </Card>

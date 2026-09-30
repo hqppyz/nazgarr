@@ -1,4 +1,3 @@
-import { ChevronDownIcon } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 
@@ -69,7 +68,7 @@ export function OverridesPanel({ job }: { job: UploadJob }) {
   return (
     <Card className="min-w-0">
       <Collapsible open={open} onOpenChange={setOpen}>
-        <CardHeader className="grid gap-3 py-1">
+        <CardHeader className="grid gap-2">
           <CollapsibleTrigger className="flex items-center gap-2 text-left">
             <CardTitle className="text-base">{t('upload.overrides.title')}</CardTitle>
             {changed > 0 && (
@@ -77,9 +76,8 @@ export function OverridesPanel({ job }: { job: UploadJob }) {
                 {t('upload.overrides.changed', { count: changed })}
               </span>
             )}
-            <span className="ml-auto flex items-center gap-1 text-xs text-muted-foreground">
+            <span className="ml-auto text-xs text-muted-foreground hover:text-foreground">
               {open ? t('upload.overrides.close') : t('upload.overrides.edit')}
-              <ChevronDownIcon className={cn('size-4 transition-transform', open && 'rotate-180')} />
             </span>
           </CollapsibleTrigger>
           {nameSource && (
@@ -89,7 +87,7 @@ export function OverridesPanel({ job }: { job: UploadJob }) {
             </p>
           )}
           {!open && (
-            <div className="flex flex-wrap gap-2 pb-1">
+            <div className="flex flex-wrap gap-1.5">
               {[...DETECTED_FIELDS, 'year' as const].map((key) => {
                 const override = typeof saved[key] === 'string' ? (saved[key] as string) : ''
                 const value = override || detectedOf(key)
