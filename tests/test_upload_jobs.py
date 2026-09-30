@@ -234,7 +234,7 @@ def test_credit_line_has_version_and_project_link():
     assert f"v{__version__}" in line
     assert "[url=https://github.com/lktorrentz/nazgarr]" in line
     assert line.startswith("[center]") and line.endswith("[/center]")
-    assert f"[img=20]{upload.CREDIT_LOGO_URL}[/img]" in line and "[size=13]" in line
+    assert f"[img=16]{upload.CREDIT_LOGO_URL}[/img]" in line and "[size=14]" in line
     assert upload.CREDIT_LOGO_URL.endswith("/main/docs/assets/nazgarr-credit.png")
 
 
