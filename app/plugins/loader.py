@@ -32,6 +32,7 @@ import json
 import logging
 import os
 import re
+import shutil
 import subprocess
 import sys
 from dataclasses import asdict, dataclass, field
@@ -94,12 +95,22 @@ def _fingerprint(requested: list[str]) -> str:
     return hashlib.sha256("\n".join(sorted(requested)).encode()).hexdigest()
 
 
+def invalid_requirements(requested: list[str]) -> list[str]:
+    """Le righe che pip leggerebbe come opzioni (--index-url, -e, ...): mai,
+    un'opzione può far installare pacchetti da un indice di chiunque."""
+    return [item for item in requested if item.startswith("-")]
+
+
 def install(data_dir: str, requested: list[str]) -> str | None:
-    """Installa i pacchetti con pip se la lista è cambiata dall'ultima volta.
-    Restituisce l'errore di pip, o None. Un lock evita due installazioni
-    insieme."""
+    """Installa i pacchetti con pip se la lista è cambiata dall'ultima volta,
+    da zero in una cartella nuova che poi sostituisce la vecchia: un plugin
+    tolto dalla lista sparisce davvero. Restituisce l'errore, o None. Un
+    lock evita due installazioni insieme."""
+    bad = invalid_requirements(requested)
+    if bad:
+        return f"not a package, refused: {' '.join(bad)} (options are not allowed in the plugin list)"
     target = site_dir(data_dir)
-    os.makedirs(target, exist_ok=True)
+    os.makedirs(os.path.dirname(target), exist_ok=True)
     marker = os.path.join(data_dir, "plugins", "installed.json")
     wanted = _fingerprint(requested)
     with open(os.path.join(data_dir, "plugins", ".lock"), "w") as lock:
@@ -108,15 +119,20 @@ def install(data_dir: str, requested: list[str]) -> str | None:
             with open(marker, encoding="utf-8") as f:
                 if json.load(f).get("fingerprint") == wanted:
                     return None
+        fresh = f"{target}.new"
+        shutil.rmtree(fresh, ignore_errors=True)
         command = [sys.executable, "-m", "pip", "install", "--disable-pip-version-check", "--no-input",
-                   "--upgrade", "--target", target, *requested]
+                   "--target", fresh, *requested]
         logger.info("Installazione dei plugin: %s", " ".join(requested))
         try:
             result = subprocess.run(command, capture_output=True, text=True, timeout=PIP_TIMEOUT_SECONDS)
         except (OSError, subprocess.TimeoutExpired) as exc:
             return str(exc)
         if result.returncode != 0:
+            shutil.rmtree(fresh, ignore_errors=True)
             return (result.stderr or result.stdout).strip()[-2000:]
+        shutil.rmtree(target, ignore_errors=True)
+        os.replace(fresh, target)
         with open(marker, "w", encoding="utf-8") as f:
             json.dump({"fingerprint": wanted, "packages": requested}, f)
     return None
@@ -180,6 +196,10 @@ def load(data_dir: str) -> PluginState:
     source, requested = requested_plugins(data_dir)
     STATE.source, STATE.requested, STATE.install_error, STATE.plugins = source, requested, None, []
     if not requested:
+        # Lista vuota: niente plugin, e niente resti di quelli di prima.
+        shutil.rmtree(site_dir(data_dir), ignore_errors=True)
+        with contextlib.suppress(OSError):
+            os.remove(os.path.join(data_dir, "plugins", "installed.json"))
         return STATE
     STATE.install_error = install(data_dir, requested)
     if STATE.install_error:
@@ -190,5 +210,22 @@ def load(data_dir: str) -> PluginState:
     if target not in sys.path:
         sys.path.append(target)
     importlib.invalidate_caches()
-    STATE.plugins = load_entry_points()
+    STATE.plugins = load_entry_points(installed_entry_points(target))
     return STATE
+
+
+def installed_entry_points(target: str) -> list:
+    """Solo i plugin che Nazgarr ha installato in data_dir/plugins/site: un
+    pacchetto con l'entry point nazgarr.plugins finito altrove nel percorso
+    di Python non si carica."""
+    root = os.path.realpath(target)
+    found = []
+    for ep in importlib.metadata.entry_points(group=ENTRY_POINT_GROUP):
+        dist = getattr(ep, "dist", None)
+        try:
+            location = os.path.realpath(str(dist.locate_file(""))) if dist is not None else ""
+        except Exception:
+            location = ""
+        if location == root:
+            found.append(ep)
+    return found

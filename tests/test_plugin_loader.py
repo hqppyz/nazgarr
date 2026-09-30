@@ -1,5 +1,6 @@
 """Caricamento dei plugin (app/plugins/loader.py)."""
 
+import os
 import sys
 import textwrap
 from types import SimpleNamespace
@@ -96,20 +97,44 @@ def test_an_installed_plugin_is_found_through_its_entry_point(tmp_path, monkeypa
     sys.modules.pop("nazgarr_demo", None)
 
 
-def test_pip_runs_only_when_the_list_changes(tmp_path, monkeypatch):
-    calls = []
-
+def _fake_pip(calls):
     def fake_run(command, **kwargs):
         calls.append(command)
+        target = command[command.index("--target") + 1]
+        for package in command[command.index("--target") + 2:]:
+            os.makedirs(os.path.join(target, package), exist_ok=True)
         return SimpleNamespace(returncode=0, stdout="", stderr="")
+    return fake_run
 
-    monkeypatch.setattr(loader.subprocess, "run", fake_run)
+
+def test_pip_runs_only_when_the_list_changes_and_starts_from_scratch(tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(loader.subprocess, "run", _fake_pip(calls))
+    site = loader.site_dir(str(tmp_path))
 
     assert loader.install(str(tmp_path), ["nazgarr-a"]) is None
     assert loader.install(str(tmp_path), ["nazgarr-a"]) is None
-    assert len(calls) == 1 and calls[0][-3:] == ["--target", loader.site_dir(str(tmp_path)), "nazgarr-a"]
-    loader.install(str(tmp_path), ["nazgarr-a", "nazgarr-b"])
-    assert len(calls) == 2
+    assert len(calls) == 1 and calls[0][-3:] == ["--target", f"{site}.new", "nazgarr-a"]
+    assert sorted(os.listdir(site)) == ["nazgarr-a"]
+    # Tolto dalla lista: la nuova installazione non lo contiene più.
+    loader.install(str(tmp_path), ["nazgarr-b"])
+    assert len(calls) == 2 and sorted(os.listdir(site)) == ["nazgarr-b"]
+
+
+def test_pip_options_are_never_accepted_from_the_list(tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(loader.subprocess, "run", _fake_pip(calls))
+    error = loader.install(str(tmp_path), ["--index-url", "https://evil.example/simple", "nazgarr-a"])
+    assert "options are not allowed" in error and calls == []
+
+
+def test_only_plugins_installed_by_nazgarr_are_loaded(tmp_path, monkeypatch):
+    site = tmp_path / "site"
+    site.mkdir()
+    ours = SimpleNamespace(name="ours", dist=SimpleNamespace(locate_file=lambda _p: site))
+    stray = SimpleNamespace(name="stray", dist=SimpleNamespace(locate_file=lambda _p: tmp_path / "elsewhere"))
+    monkeypatch.setattr(loader.importlib.metadata, "entry_points", lambda group: [ours, stray])
+    assert [ep.name for ep in loader.installed_entry_points(str(site))] == ["ours"]
 
 
 def test_a_pip_failure_is_reported(tmp_path, monkeypatch):
