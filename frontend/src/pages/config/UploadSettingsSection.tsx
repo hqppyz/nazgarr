@@ -119,14 +119,20 @@ export function UploadSettingsSection() {
       </Card>
 
       {/* A tutta larghezza sotto le due colonne: priorità e API key affiancate. */}
-      <Card className="[column-span:all]">
+      <Card data-masonry="full">
         <CardHeader>
           <CardTitle>{t('uploadSettings.imageHostsTitle')}</CardTitle>
           <CardDescription>{t('uploadSettings.imageHostsDescription')}</CardDescription>
         </CardHeader>
-        <CardContent className="grid gap-6 md:grid-cols-2">
+        {/* content-start: le chiavi restano in cima con la loro spaziatura,
+            non si allargano all'altezza della colonna delle priorità. */}
+        <CardContent className="grid items-start gap-6 md:grid-cols-2">
           <ImageHostPriorityField />
-          <div className="grid gap-2">
+          <div className="grid content-start gap-2">
+            <div className="grid gap-1.5">
+              <Label>{t('uploadSettings.apiKeysLabel')}</Label>
+              <p className="text-xs text-muted-foreground">{t('uploadSettings.apiKeysHelp')}</p>
+            </div>
             <SettingField compact settingKey="image_host_ptpimg_api_key" label="PTPImg" description="https://ptpimg.me" type="password" />
             <SettingField compact settingKey="image_host_imgbb_api_key" label="ImgBB" description="https://api.imgbb.com" type="password" />
             <SettingField compact settingKey="image_host_lensdump_api_key" label="Lensdump" description="https://lensdump.com" type="password" />

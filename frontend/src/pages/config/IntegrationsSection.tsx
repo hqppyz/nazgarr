@@ -220,7 +220,7 @@ function AddArrInstanceDialog({
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger
         render={
-          <Button variant="outline" size="sm">
+          <Button size="sm">
             <PlusIcon className="size-4" />
             {t('integrations.addInstance')}
           </Button>

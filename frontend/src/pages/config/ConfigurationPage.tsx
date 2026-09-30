@@ -16,6 +16,7 @@ import type { ReactNode } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Masonry } from '@/components/Masonry'
 import { t } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 import { ApplicationSection } from '@/pages/config/ApplicationSection'
@@ -35,18 +36,17 @@ import { UploadSettingsSection } from '@/pages/config/UploadSettingsSection'
 // Reseeding, Sistema). Il tab aperto sta nell'URL (?tab=…), così un link da
 // un'altra pagina porta dritto al tab giusto.
 //
-// Layout: le card piccole in due colonne "masonry" (colonne CSS, da lg):
-// ogni colonna impila le sue card, così altezze diverse non lasciano buchi
-// come farebbe una griglia a righe. Le tabelle e le liste larghe restano a
-// tutta larghezza.
-const PAIRS = 'gap-6 lg:columns-2 [&>*]:mb-6 [&>*]:break-inside-avoid'
-const STACK = 'grid gap-6'
+// Layout: le card piccole in un masonry a due colonne (components/Masonry.tsx,
+// da lg): ogni card nella colonna più corta, quelle con data-masonry="full"
+// a tutta larghezza. Le tabelle e le liste larghe restano impilate.
+const PAIRS = 'masonry'
+const STACK = 'stack'
 
 interface Tab {
   value: string
   label: string
   icon: LucideIcon
-  layout: string
+  layout: 'masonry' | 'stack'
   content: ReactNode
 }
 
@@ -71,9 +71,9 @@ const GROUPS: { title: string; tabs: Tab[] }[] = [
         layout: STACK,
         content: (
           <>
-            <div className={PAIRS}>
+            <Masonry gap={24}>
               <MetadataSection />
-            </div>
+            </Masonry>
             <IntegrationsSection />
           </>
         ),
@@ -134,8 +134,8 @@ export function ConfigurationPage() {
         ))}
       </TabsList>
       {ALL_TABS.map((tab) => (
-        <TabsContent key={tab.value} value={tab.value} className={tab.layout}>
-          {tab.content}
+        <TabsContent key={tab.value} value={tab.value} className={cn('min-w-0', tab.layout === 'stack' && 'grid gap-6')}>
+          {tab.layout === 'masonry' ? <Masonry gap={24}>{tab.content}</Masonry> : tab.content}
         </TabsContent>
       ))}
     </Tabs>

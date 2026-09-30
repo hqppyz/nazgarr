@@ -1,6 +1,6 @@
-import { Children, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
+import { useLayoutEffect, useRef, useSyncExternalStore, type ReactNode } from 'react'
 
-const GAP_PX = 16
+import { cn } from '@/lib/utils'
 
 // Senza matchMedia (test in jsdom): una colonna.
 const hasMatchMedia = () => typeof window !== 'undefined' && typeof window.matchMedia === 'function'
@@ -18,55 +18,90 @@ function useMediaQuery(query: string) {
   )
 }
 
+const FULL = 'full'
+
 // Masonry vero: ogni scheda va nella colonna più corta, nell'ordine dato.
-// Con le colonne CSS l'ordine resta "giù e poi a destra", quindi una scheda
-// alta si trascina dietro le successive. Le schede restano sempre figlie
-// dello stesso contenitore (posizionate in assoluto), così spostarsi di
-// colonna non le smonta e non perdono il loro stato. Sotto lg, una colonna.
-export function Masonry({ children, query = '(min-width: 1024px)' }: { children: ReactNode; query?: string }) {
-  const items = Children.toArray(children)
+// Con le colonne CSS l'ordine resta "giù e poi a destra" e column-span: all
+// si impagina male (schede che si sovrappongono). Lavora sui nodi DOM figli,
+// così funziona anche con le sezioni che restituiscono le loro schede in un
+// fragment, e le schede non si smontano mai quando cambiano colonna.
+// Una scheda con data-masonry="full" occupa tutta la larghezza, sotto le
+// colonne fin lì. Sotto lg, una colonna normale.
+export function Masonry({
+  children,
+  gap = 16,
+  className,
+  query = '(min-width: 1024px)',
+}: {
+  children: ReactNode
+  gap?: number
+  className?: string
+  query?: string
+}) {
+  const container = useRef<HTMLDivElement | null>(null)
   const twoColumns = useMediaQuery(query)
-  const refs = useRef<(HTMLDivElement | null)[]>([])
-  const [heights, setHeights] = useState<number[]>([])
 
   useLayoutEffect(() => {
-    if (!twoColumns) return
-    const measure = () => setHeights(refs.current.map((node) => node?.offsetHeight ?? 0))
-    const observer = new ResizeObserver(measure)
-    refs.current.forEach((node) => node && observer.observe(node))
-    measure()
-    return () => observer.disconnect()
-  }, [twoColumns, items.length])
+    const root = container.current
+    if (!root) return
+    const items = () => Array.from(root.children) as HTMLElement[]
 
-  if (!twoColumns) return <div className="grid min-w-0 gap-4 [&>*]:min-w-0">{items}</div>
+    const reset = () => {
+      root.style.height = ''
+      for (const item of items()) {
+        item.style.position = item.style.top = item.style.left = item.style.width = ''
+      }
+    }
+    if (!twoColumns) {
+      reset()
+      return
+    }
 
-  const columnHeights = [0, 0]
-  const placed = items.map((_, i) => {
-    const column = columnHeights[0] <= columnHeights[1] ? 0 : 1
-    const top = columnHeights[column]
-    columnHeights[column] += (heights[i] ?? 0) + GAP_PX
-    return { column, top }
-  })
-  const height = Math.max(0, ...columnHeights) - GAP_PX
+    const layout = () => {
+      const heights = [0, 0]
+      for (const item of items()) {
+        item.style.position = 'absolute'
+        if (item.dataset.masonry === FULL) {
+          const top = Math.max(...heights)
+          Object.assign(item.style, { top: `${top}px`, left: '0px', width: '100%' })
+          heights[0] = heights[1] = top + item.offsetHeight + gap
+          continue
+        }
+        const column = heights[0] <= heights[1] ? 0 : 1
+        Object.assign(item.style, {
+          top: `${heights[column]}px`,
+          left: column === 0 ? '0px' : `calc(50% + ${gap / 2}px)`,
+          width: `calc(50% - ${gap / 2}px)`,
+        })
+        heights[column] += item.offsetHeight + gap
+      }
+      root.style.height = `${Math.max(0, Math.max(...heights) - gap)}px`
+    }
+
+    const resize = new ResizeObserver(layout)
+    const watch = () => {
+      resize.disconnect()
+      items().forEach((item) => resize.observe(item))
+      layout()
+    }
+    // Schede aggiunte o tolte (dati che arrivano, sezioni condizionali).
+    const mutations = new MutationObserver(watch)
+    mutations.observe(root, { childList: true })
+    watch()
+    return () => {
+      resize.disconnect()
+      mutations.disconnect()
+      reset()
+    }
+  }, [twoColumns, gap])
 
   return (
-    <div className="relative min-w-0" style={{ height: Math.max(height, 0) }}>
-      {items.map((item, i) => (
-        <div
-          key={i}
-          ref={(node) => {
-            refs.current[i] = node
-          }}
-          className="absolute min-w-0"
-          style={{
-            top: placed[i].top,
-            left: placed[i].column === 0 ? 0 : `calc(50% + ${GAP_PX / 2}px)`,
-            width: `calc(50% - ${GAP_PX / 2}px)`,
-          }}
-        >
-          {item}
-        </div>
-      ))}
+    <div
+      ref={container}
+      className={cn('min-w-0', twoColumns ? 'relative' : 'grid [&>*]:min-w-0', className)}
+      style={twoColumns ? undefined : { gap }}
+    >
+      {children}
     </div>
   )
 }

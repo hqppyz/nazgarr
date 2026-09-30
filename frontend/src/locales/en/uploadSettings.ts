@@ -17,6 +17,8 @@ export const uploadSettings = {
     'Text (e.g. BBCode) appended at the end of every description — leave empty to add nothing.',
   'uploadSettings.signatureSaved': 'Signature saved.',
   'uploadSettings.saveSignatureButton': 'Save signature',
+  'uploadSettings.apiKeysLabel': 'API keys',
+  'uploadSettings.apiKeysHelp': 'Only the hosts that ask for one; the others upload anonymously.',
   'uploadSettings.imageHostsTitle': 'Image hosts',
   'uploadSettings.imageHostsDescription':
     "Priority and status on the left, API keys on the right — the first enabled host is tried, if it fails the next one is used. Imgbox and Pixhost don't require one.",
