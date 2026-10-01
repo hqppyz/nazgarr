@@ -22,6 +22,8 @@ export function FileNamesCard({ job }: { job: UploadJob }) {
   const chosen = (job.overrides as Record<string, unknown>).file_naming as string | undefined
   const mode = chosen && names.available.includes(chosen) ? chosen : (names.default ?? names.available[0])
   const preview = names.previews[mode]
+  // Il default per primo, senza etichetta: è quello che si usa se non si sceglie.
+  const modes = [...names.available].sort((a, b) => Number(b === names.default) - Number(a === names.default))
   const isFolder = preview?.files.some((f) => f.includes('/'))
 
   return (
@@ -35,13 +37,13 @@ export function FileNamesCard({ job }: { job: UploadJob }) {
           value={mode}
           variant="outline"
           size="sm"
+          className="w-full flex-wrap gap-1.5"
           disabled={save.isPending || job.status !== 'awaiting_decision'}
           onValueChange={(value) => value && save.mutate({ ...job.overrides, file_naming: value })}
         >
-          {names.available.map((m) => (
-            <ToggleGroupItem key={m} value={m}>
+          {modes.map((m) => (
+            <ToggleGroupItem key={m} value={m} className="flex-none rounded-md px-3 whitespace-nowrap">
               {t(`upload.fileNames.mode.${m}`)}
-              {m === names.default && <span className="ml-1 text-muted-foreground">·{t('upload.fileNames.default')}</span>}
             </ToggleGroupItem>
           ))}
         </ToggleGroupSingle>

@@ -343,7 +343,6 @@ export const upload = {
   'upload.fileNames.mode.hardlink': 'From the hardlinked torrent',
   'upload.fileNames.mode.generated': 'Generated',
   'upload.fileNames.mode.original': 'Original',
-  'upload.fileNames.default': 'default',
   'upload.fileNames.more': '… and {count} more',
   'upload.fileNames.help.hardlink': 'The names of the torrent that already seeds these files on a client: the original release.',
   'upload.fileNames.help.generated': 'Built from the pattern in Settings › Upload, from the release name and the MediaInfo.',
@@ -354,4 +353,7 @@ export const upload = {
     'Source not found: no hardlinked torrent or release name says where this comes from (BluRay, WEB-DL, HDTV…), so the name has none. Write it in the Source field.',
   'upload.overrides.setSource': 'Set it',
   'upload.overrides.sourcePlaceholder': 'e.g. BluRay, WEB-DL',
+  'upload.history.delete': 'Remove from the history (nothing changes on trackers, clients or disk)',
+  'upload.history.deleteConfirm': 'Delete',
+  'upload.history.deleted': '{title} removed from the history.',
 } as const

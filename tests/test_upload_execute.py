@@ -386,6 +386,24 @@ def test_a_library_file_is_uploaded_with_a_generated_release_name(db_session, tm
     assert env["client"].added == [(job.targets[0].torrent_path, str(env["root"] / "torrents"))]
 
 
+
+def test_the_mediainfo_names_the_file_in_the_torrent_not_the_local_path(db_session, tmp_path, env, monkeypatch):
+    # Rinominare cambia solo "Complete name"; il percorso locale non esce verso il tracker.
+    monkeypatch.setattr("app.mediainfo_util.extract_full_text", lambda path: None)
+    video = write_video(env["root"] / "media" / "The Matrix (1999) {imdb-tt0133093}.mkv", 300 * KB)
+    job = _approved(db_session, env, "media/" + video.name, {"a": _upload("Matrix A"), "b": {"action": "skip"}},
+                    file_naming=None)
+    job.mediainfo_text = f"General\nComplete name                            : {video}\nFormat : Matroska\n"
+    db_session.commit()
+
+    _run(db_session, tmp_path, job)
+
+    assert job.status == "done", [e.code for e in job.events]
+    assert "Complete name                            : The.Matrix.1999.mkv\n" in job.mediainfo_text
+    assert str(env["root"]) not in job.mediainfo_text
+    assert "Format : Matroska" in job.mediainfo_text
+
+
 def test_the_names_of_the_hardlinked_torrent_win(db_session, tmp_path, env):
     from app.models import ClientTorrent, ClientTorrentFile, RunLog, SeedFile
 

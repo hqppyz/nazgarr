@@ -1,10 +1,10 @@
-import { ArrowDownIcon, ArrowUpIcon, PlusIcon } from 'lucide-react'
-import { useState } from 'react'
+import { ArrowDownIcon, ArrowUpIcon, PlusIcon, Trash2Icon } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 
 import { posterUrl } from '@/api/hooks/metadata'
-import { useReorderQueue, useUploads, type UploadJobSummary } from '@/api/hooks/uploads'
+import { useDeleteUpload, useReorderQueue, useUploads, type UploadJobSummary } from '@/api/hooks/uploads'
 import { AuthedPoster } from '@/components/AuthedPoster'
 import { ActionBadge } from '@/components/upload/TrackerCheckCard'
 import { UploadDetailSheet } from '@/components/upload/UploadDetailSheet'
@@ -119,6 +119,39 @@ function ActiveList({ jobs }: { jobs: UploadJobSummary[] }) {
   )
 }
 
+// Cestino di una riga dello storico: il primo click chiede conferma sul posto
+// (torna com'era dopo qualche secondo), il secondo elimina. Solo il record:
+// tracker, client e disco restano come sono.
+function QuickDelete({ job }: { job: UploadJobSummary }) {
+  const remove = useDeleteUpload()
+  const [armed, setArmed] = useState(false)
+  useEffect(() => {
+    if (!armed) return
+    const timer = setTimeout(() => setArmed(false), 4000)
+    return () => clearTimeout(timer)
+  }, [armed])
+  return (
+    <Button
+      variant={armed ? 'destructive' : 'ghost'}
+      size={armed ? 'sm' : 'icon-sm'}
+      className="shrink-0"
+      disabled={remove.isPending}
+      title={t('upload.history.delete')}
+      aria-label={t('upload.history.delete')}
+      onClick={(event) => {
+        event.stopPropagation()
+        if (!armed) return setArmed(true)
+        remove
+          .mutateAsync(job.id)
+          .then(() => toast.success(t('upload.history.deleted', { title: title(job) })))
+          .catch((error: Error) => toast.error(error.message))
+      }}
+    >
+      {armed ? t('upload.history.deleteConfirm') : <Trash2Icon />}
+    </Button>
+  )
+}
+
 function HistoryList({ jobs, onOpen }: { jobs: UploadJobSummary[]; onOpen: (id: number) => void }) {
   if (jobs.length === 0) return <p className="py-6 text-center text-sm text-muted-foreground">{t('upload.noUploadsYet')}</p>
   return (
@@ -141,6 +174,7 @@ function HistoryList({ jobs, onOpen }: { jobs: UploadJobSummary[]; onOpen: (id: 
           <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
             {job.finished_at && parseApiDate(job.finished_at).toLocaleString()}
           </span>
+          <QuickDelete job={job} />
         </li>
       ))}
     </ul>

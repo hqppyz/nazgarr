@@ -32,7 +32,15 @@ from datetime import UTC, datetime
 import torf
 from sqlalchemy.orm import Session
 
-from app import adapter_factory, client_labels, screenshots, settings_repo, upload_file_names, upload_jobs
+from app import (
+    adapter_factory,
+    client_labels,
+    mediainfo_util,
+    screenshots,
+    settings_repo,
+    upload_file_names,
+    upload_jobs,
+)
 from app.adapter_factory import ImageHostConfigError
 from app.adapters.image_host.base import ImageHostError
 from app.adapters.tracker.base import UploadFields
@@ -149,12 +157,37 @@ def prepare_content(session: Session, job: UploadJob, ctx: dict) -> str:
     upload_jobs.log_event(session, job, "file_names", mode=plan.mode, name=plan.content_name)
     session.commit()
     if not plan.renamed:
+        refresh_mediainfo(session, job, plan, None)
         return job.source_path
     root = ctx["seed_root"]()
     pairs = [(source, os.path.join(root, *target.split("/"))) for source, target in plan.files]
     ctx["created_links"] = link_files(pairs, root)
     ctx["prelinked"] = True
+    refresh_mediainfo(session, job, plan, root)
     return os.path.join(root, *plan.content_name.split("/"))
+
+
+_COMPLETE_NAME = re.compile(r"^(Complete name\s*:\s*).*$", re.MULTILINE)
+
+
+def refresh_mediainfo(session: Session, job: UploadJob, plan, root: str | None) -> None:
+    """Il MediaInfo per il tracker, dal file del torrent: rinominare cambia
+    solo "Complete name" (i flussi sono gli stessi byte), che ora è il
+    percorso dentro il torrent, non quello locale (le tue cartelle non escono
+    verso il tracker). Rigenerato sul nome nuovo; se mediainfo non riesce, il
+    testo dell'analisi con la sola riga corretta."""
+    main_video = (json.loads(job.layout_json or "{}").get("main_video")) or job.source_path
+    target = next((t for source, t in plan.files if source == main_video), None)
+    if target is None:
+        return
+    text = None
+    if root is not None:
+        text = mediainfo_util.extract_full_text(os.path.join(root, *target.split("/")))
+    text = text or job.mediainfo_text
+    if not text:
+        return
+    job.mediainfo_text = _COMPLETE_NAME.sub(lambda m: m.group(1) + target, text, count=1)
+    session.commit()
 
 
 def hash_pieces(session: Session, job: UploadJob, path: str | None = None) -> torf.Torrent:

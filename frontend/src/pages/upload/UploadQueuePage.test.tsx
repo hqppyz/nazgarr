@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { UploadQueuePage } from '@/pages/upload/UploadQueuePage'
 
 const reorder = vi.fn()
+const remove = vi.fn(() => Promise.resolve())
 const job = (id: number, status: string, extra = {}) => ({
   id, status, title: `Movie ${id}`, year: 2024, kind: 'movie', relative_path: `m${id}.mkv`, tmdb_id: null,
   content_type: null, poster_path: null, queue_position: null, progress_done: null, progress_total: null,
@@ -26,6 +27,7 @@ vi.mock('@/api/hooks/uploads', () => ({
   }),
   useReorderQueue: () => ({ mutate: reorder, isPending: false }),
   useUpload: () => ({ data: undefined }),
+  useDeleteUpload: () => ({ mutateAsync: remove, isPending: false }),
 }))
 vi.mock('@/api/hooks/metadata', () => ({ posterUrl: () => '', useMetadataDetails: () => ({ data: undefined }) }))
 vi.mock('@/components/AuthedPoster', () => ({ AuthedPoster: () => null }))
@@ -40,5 +42,15 @@ describe('UploadQueuePage', () => {
     expect(titles).toEqual(['Movie 1 (2024)', 'Movie 2 (2024)', 'Movie 3 (2024)'])
     fireEvent.click(screen.getAllByTitle('Later in the queue')[0])
     expect(reorder).toHaveBeenCalledWith([3, 2], expect.anything())
+  })
+
+  it('removes a history entry with two clicks on its trash button, without opening it', () => {
+    render(<MemoryRouter initialEntries={['/?tab=history']}><UploadQueuePage /></MemoryRouter>)
+
+    const button = screen.getByLabelText(/Remove from the history/)
+    fireEvent.click(button)
+    expect(remove).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: /Remove from the history/ }))
+    expect(remove).toHaveBeenCalledWith(4)
   })
 })
