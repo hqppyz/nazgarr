@@ -176,6 +176,198 @@ Raise `TorrentAddTimeoutError` if the torrent never shows up after adding it, an
 
 ---
 
+## Developing a plugin step by step
+
+### 1. Set up a development copy of Nazgarr
+
+`nazgarr_sdk` lives in the Nazgarr repository, and your plugin's tests import it, so develop against a checkout:
+
+```sh
+git clone https://github.com/lktorrentz/nazgarr && cd nazgarr
+python3.12 -m venv .venv
+./.venv/bin/pip install -r requirements.txt && ./.venv/bin/pip install -r requirements-dev.txt
+```
+
+Keep your plugin in its own folder or repository next to it:
+
+```
+nazgarr-myclient/
+├── pyproject.toml
+├── nazgarr_myclient/
+│   └── __init__.py      # REQUIRES_SDK, setup(), the adapter
+└── tests/
+    └── test_myclient.py
+```
+
+Run the plugin's tests with Nazgarr on the path:
+
+```sh
+PYTHONPATH=/path/to/nazgarr /path/to/nazgarr/.venv/bin/python -m pytest tests
+```
+
+### 2. Write the adapter, and make its network calls injectable
+
+Pass the HTTP client in the constructor (with a real one as the default). Your tests can then use `httpx.MockTransport` instead of a real tracker or client, as the ntfy example does:
+
+```python
+class NtfyNotifier(sdk.NotificationAdapter):
+    def __init__(self, server, topic, token=None, client: httpx.Client | None = None):
+        self.client = client or httpx.Client(timeout=10.0)
+```
+
+#### A torrent client, minimal
+
+```python
+import httpx
+import nazgarr_sdk as sdk
+
+REQUIRES_SDK = ">=1.0,<2"
+
+# Your client's states -> the names Nazgarr reads (table below).
+STATES = {"seeding": "uploading", "paused": "stoppedUP", "checking": "checkingUP", "downloading": "downloading"}
+
+
+class MyClient(sdk.TorrentClientAdapter):
+    def __init__(self, base_url: str, token: str, client: httpx.Client | None = None):
+        self.http = client or httpx.Client(base_url=base_url, timeout=30.0, headers={"Authorization": token})
+
+    def list_torrents(self, on_progress=None) -> list[sdk.ClientTorrentInfo]:
+        torrents = self.http.get("/torrents").json()
+        return [
+            sdk.ClientTorrentInfo(
+                info_hash=t["hash"], name=t["name"], save_path=t["path"], state=STATES.get(t["status"], "error"),
+                category=t.get("label"), tracker_url=t.get("tracker"),
+                files=[sdk.ClientTorrentFileInfo(path_in_torrent=f["path"], size_bytes=f["size"]) for f in t["files"]],
+            )
+            for t in torrents
+        ]
+
+    def add_torrent(self, torrent_file_or_url, save_path, force_recheck=True, expected_info_hash=None,
+                    skip_check_verified=False, category=None, tags=None) -> str:
+        ...  # add it at save_path, recheck unless skip_check_verified, return the info hash
+
+    def get_torrent_status(self, info_hash) -> sdk.TorrentStatus:
+        t = self.http.get(f"/torrents/{info_hash}").json()
+        state = STATES.get(t["status"], "error")
+        recheck = "pending" if state.startswith("checking") else "failed" if state == "error" else "ok"
+        return sdk.TorrentStatus(info_hash=info_hash, state=state, recheck_status=recheck, progress=t["progress"])
+
+
+def setup() -> None:
+    sdk.register(sdk.AdapterSpec(
+        kind="torrent_client", adapter_type="myclient", label="My client",
+        config_fields=(sdk.ConfigField("token", "API token", type="secret", required=True),),
+        build=lambda ctx: MyClient(ctx.row.base_url, ctx.config["token"]),
+    ))
+```
+
+**States**: Nazgarr reads torrent states with qBittorrent's names, so map your client's states to them:
+
+| State | Meaning |
+|---|---|
+| `uploading`, `stalledUP`, `forcedUP`, `queuedUP` | complete, seeding |
+| `pausedUP` / `stoppedUP` (anything starting with `paused` or `stopped`) | complete, stopped |
+| `checkingUP`, `checkingDL`, `checkingResumeData` | being rechecked |
+| `downloading`, `stalledDL`, `metaDL` | incomplete |
+| `error`, `missingFiles` | the client can't read the data |
+
+The client's base URL is a column of every client (`ctx.row.base_url`). Only your extra settings go in `config_fields`.
+
+#### A tracker, minimal
+
+```python
+class MyTracker(sdk.TrackerAdapter):
+    def __init__(self, base_url: str, api_token: str, client: httpx.Client | None = None):
+        self.http = client or httpx.Client(base_url=base_url, timeout=30.0)
+        self.api_token = api_token
+
+    def search_by_tmdb(self, tmdb_id: int) -> list[sdk.TorrentCandidate]:
+        results = self.http.get("/api/search", params={"tmdb": tmdb_id, "key": self.api_token}).json()
+        return [
+            sdk.TorrentCandidate(
+                torrent_id_remote=str(r["id"]), info_hash=r.get("infohash"), name=r["name"], size_bytes=r["size"],
+                file_list=[f["name"] for f in r["files"]], mediainfo_unique_id=None,
+                folder=r.get("folder"), download_link=r["download"],
+                file_sizes={f["name"]: f["size"] for f in r["files"]},
+            )
+            for r in results
+        ]
+
+    def download_torrent(self, url: str) -> bytes:
+        response = self.http.get(url)
+        response.raise_for_status()
+        return response.content
+
+
+def setup() -> None:
+    sdk.register(sdk.AdapterSpec(
+        kind="tracker", adapter_type="mytracker", label="My tracker",
+        build=lambda ctx: MyTracker(ctx.row.base_url, ctx.row.api_token),
+    ))
+```
+
+Every tracker has `base_url`, `api_token`, `announce_url` and `rss_key` as columns (`ctx.row`), so most trackers need no `config_fields` at all. A tracker's `.torrent` files are untrusted: Nazgarr validates the paths inside them itself, so pass the bytes through unchanged.
+
+### 3. Test it with fakes
+
+```python
+import httpx
+import nazgarr_sdk as sdk
+from app.plugins import REGISTRY          # tests only: your plugin code imports nazgarr_sdk alone
+
+import nazgarr_myclient
+
+
+def test_setup_registers_the_client():
+    nazgarr_myclient.setup()
+    spec = REGISTRY.get("torrent_client", "myclient")
+    assert spec.label == "My client"
+    REGISTRY.unregister("torrent_client", "myclient")
+
+
+def test_list_torrents_maps_the_states():
+    def handler(request):
+        return httpx.Response(200, json=[{"hash": "abc", "name": "x", "path": "/data", "status": "seeding",
+                                          "files": [{"path": "x.mkv", "size": 1}]}])
+
+    client = httpx.Client(base_url="http://myclient", transport=httpx.MockTransport(handler))
+    [torrent] = nazgarr_myclient.MyClient("http://myclient", "t", client=client).list_torrents()
+    assert torrent.state == "uploading"
+```
+
+Unregister what your tests register, or the next test that registers the same type fails with `AdapterAlreadyRegisteredError`.
+
+### 4. Try it in Nazgarr
+
+Add the plugin to the list as a path, then restart:
+
+- **Running Nazgarr from source**: put the absolute path of the plugin folder in `<data_dir>/plugins.txt`.
+- **In Docker**: mount the folder (for example `- ./nazgarr-myclient:/plugins/nazgarr-myclient`) and list `/plugins/nazgarr-myclient`. Mount it read-write: pip builds a local package inside its own folder (`build/`, `*.egg-info`, which you can gitignore).
+
+Nazgarr reinstalls plugins only when the list changes. After editing your code, delete `<data_dir>/plugins/installed.json` and restart: the next start installs everything again.
+
+Then check **Settings > Plugins**:
+
+If pip fails, nothing new is installed and the page shows **Installing the plugins failed** with pip's own output (the log has it too). Otherwise each plugin has a status:
+
+| Status | What to do |
+|---|---|
+| `loaded` | it works: its adapters are listed, and a client or tracker type appears in the "Add" dialogs |
+| `failed` | `setup()` or the import raised: the error is shown, the full traceback is in the log (`Plugin <name> non caricato`) |
+| `incompatible` | `REQUIRES_SDK` is missing or doesn't include this Nazgarr's SDK version |
+
+A plugin that fails never registers anything, and the rest of Nazgarr works as usual.
+
+### 5. Publish it
+
+- Name the package `nazgarr-<something>` and the module `nazgarr_<something>`, so people can recognize plugins.
+- Publish it on PyPI, or just in a git repository: users can list `git+https://github.com/you/nazgarr-myclient@v1.0.0`.
+- Tell users to pin a version (`nazgarr-myclient==1.0.0`), so an update only arrives when they choose it.
+- Declare the SDK range you tested with: `REQUIRES_SDK = ">=1.0,<2"`. A new minor SDK version only adds things, so `<2` is safe; a new major version may break your plugin, and Nazgarr won't load it until you update the range.
+- Keep secrets in `secret` fields: Nazgarr encrypts them and never returns them. Never log them yourself, and never put them in exception messages: errors are shown in the UI.
+
+---
+
 ## Events
 
 | Event | When | `data` |
