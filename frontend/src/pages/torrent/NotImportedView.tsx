@@ -38,8 +38,11 @@ function formatSeedTime(seconds: number | null | undefined): string {
 
 // Se il torrent ha già dato quello che il suo tracker chiede (seedtime e/o
 // ratio, impostati sul tracker: app/seed_requirements.py) e si può togliere.
-function SeedRequirementCell({ requirement }: { requirement: Torrent['seed_requirement'] }) {
-  const { status, remaining, tracker_label: tracker } = requirement
+// Una risposta in cache di prima di questo campo non lo ha: come "tracker sconosciuto".
+const NO_REQUIREMENT: Torrent['seed_requirement'] = { status: 'unknown_tracker', remaining: {} }
+
+function SeedRequirementCell({ requirement = NO_REQUIREMENT }: { requirement?: Torrent['seed_requirement'] }) {
+  const { status, remaining = {}, tracker_label: tracker } = requirement
   const rule = [
     requirement.min_seed_time_seconds != null && formatSeedTime(requirement.min_seed_time_seconds),
     requirement.min_ratio != null && t('notImported.removable.ratio', { ratio: requirement.min_ratio }),
@@ -130,12 +133,12 @@ export function NotImportedView() {
       (tor) =>
         (showExcluded || !tor.excluded) &&
         (category === 'all' || tor.category === category) &&
-        (!onlyRemovable || tor.seed_requirement.status === 'met') &&
+        (!onlyRemovable || tor.seed_requirement?.status === 'met') &&
         (!query || tor.name.toLowerCase().includes(query) || (contentLabel(tor) ?? '').toLowerCase().includes(query)),
     )
   }, [data, category, search, showExcluded, onlyRemovable])
   const removableCount = (data?.torrents ?? []).filter(
-    (tor) => (showExcluded || !tor.excluded) && tor.seed_requirement.status === 'met',
+    (tor) => (showExcluded || !tor.excluded) && tor.seed_requirement?.status === 'met',
   ).length
 
   if (isPending) return <p className="text-sm text-muted-foreground">{t('common.loading')}</p>

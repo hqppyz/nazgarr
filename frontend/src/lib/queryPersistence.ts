@@ -12,7 +12,7 @@ export const CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
 
 // Da incrementare quando cambia la forma delle risposte persistite: una
 // cache vecchia con campi diversi viene scartata invece di rompere la vista.
-export const CACHE_BUSTER = 'library-v2'
+export const CACHE_BUSTER = 'library-v3' // v3: seed_requirement in Not imported
 
 export const queryPersister = createAsyncStoragePersister({
   storage: { getItem: get, setItem: set, removeItem: del },

@@ -31,7 +31,8 @@ vi.mock('@/api/hooks/library', () => ({
             remaining: { seed_time_seconds: 4 * 86_400 },
           },
         }),
-        torrent(3, 'never_imported', 'Excluded.Sample.mkv', { excluded: true }),
+        // Da una cache di prima del campo: senza seed_requirement non deve rompersi.
+        torrent(3, 'never_imported', 'Excluded.Sample.mkv', { excluded: true, seed_requirement: undefined }),
       ],
     },
   }),
