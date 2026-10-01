@@ -282,3 +282,17 @@ def test_the_description_template_runs_in_a_sandbox(db_session, tmp_path):
     # Un template normale funziona come sempre.
     profile.description_template = "{% for u in screenshot_urls %}[img]{{ u }}[/img]{% endfor %}{{ notes }}"
     assert upload.render_description(db_session, profile, "", ["a"], notes="n").startswith("[img]a[/img]n")
+
+
+def test_an_upload_source_with_symlinks_is_refused(db_session, tmp_path):
+    import pytest
+
+    from app.upload_jobs import UploadJobError
+
+    disk = make_disk(db_session, tmp_path)
+    folder = tmp_path / "Movie.2024"
+    write_video(folder / "Movie.mkv")
+    (folder / "extra.mkv").symlink_to(tmp_path / "elsewhere.db")
+    with pytest.raises(UploadJobError) as exc:
+        upload_jobs.create_job(db_session, disk, "Movie.2024")
+    assert exc.value.code == "upload_source_has_symlinks"

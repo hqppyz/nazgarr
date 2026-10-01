@@ -192,3 +192,16 @@ def test_bulk_upsert_writes_more_rows_than_a_single_sqlite_statement_allows(db_s
     db_session.commit()
 
     assert db_session.query(MediaFile).count() == len(rows)
+
+
+def test_symlinks_are_never_listed(tmp_path):
+    from app.scanner import _list_files
+
+    (tmp_path / "media").mkdir()
+    real = tmp_path / "media" / "Movie.mkv"
+    real.write_bytes(b"x")
+    secret = tmp_path / "nazgarr.db"
+    secret.write_bytes(b"db")
+    (tmp_path / "media" / "innocent.mkv").symlink_to(secret)
+
+    assert _list_files(str(tmp_path / "media")) == [str(real)]

@@ -8,6 +8,7 @@ export const errors = {
   'errors.upload_reseed_needs_verification': '{tracker}: run the full hash check first, only a passed check allows a reseed',
   'errors.upload_source_not_a_file': 'Not a regular file (a symlink?): {path}',
   'errors.cross_site_request': 'Request refused: it came from another website',
+  'errors.upload_source_has_symlinks': '{path} contains symlinks: upload the real files, not links to them',
   'errors.auth_too_many_attempts': 'Too many wrong attempts: try again in {seconds} seconds',
   'errors.auth_setup_code_invalid': 'Wrong setup code: copy it from the container log (it changes at every restart until the account exists)',
   'errors.auth_setup_required': 'Create the account first',
