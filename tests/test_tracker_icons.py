@@ -47,3 +47,23 @@ def test_no_icon_is_remembered_for_a_while_and_forgotten_on_url_change(tmp_path)
 def test_oversized_or_non_image_responses_are_ignored(tmp_path):
     client = _client({"https://t.example/favicon.ico": (b"x" * (tracker_icons.MAX_BYTES + 1), "image/png")})
     assert tracker_icons.fetch_icon(str(tmp_path), 4, "https://t.example", client) is None
+
+
+def test_a_redirect_to_the_cloud_metadata_is_never_followed(tmp_path):
+    seen = []
+
+    def handler(request):
+        seen.append(str(request.url))
+        if request.url.host == "t.example":
+            return httpx.Response(302, headers={"location": "http://169.254.169.254/latest/meta-data/"})
+        return httpx.Response(200, content=PNG, headers={"content-type": "image/png"})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    assert tracker_icons.fetch_icon(str(tmp_path), 4, "https://t.example", client) is None
+    assert not any("169.254" in url for url in seen)
+
+
+def test_a_huge_icon_is_not_read_to_the_end(tmp_path):
+    big = PNG + b"x" * (tracker_icons.MAX_BYTES + 10)
+    client = _client({"https://t.example/favicon.ico": (big, "image/png")})
+    assert tracker_icons.fetch_icon(str(tmp_path), 5, "https://t.example", client) is None

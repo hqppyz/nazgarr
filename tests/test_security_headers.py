@@ -33,3 +33,8 @@ def test_urls_that_end_up_in_links_must_be_http(client):
     assert client.patch(f"/api/trackers/{tracker_id}", json={"announce_url": evil}).status_code == 422
     client_body = {"label": "q", "adapter_type": "qbittorrent", "base_url": evil}
     assert client.post("/api/torrent-clients", json=client_body).status_code == 422
+
+
+def test_a_service_url_pointing_at_the_cloud_metadata_is_refused(client):
+    body = {"label": "t", "adapter_type": "unit3d", "base_url": "http://169.254.169.254", "api_token": "x"}
+    assert client.post("/api/trackers", json=body).status_code == 422

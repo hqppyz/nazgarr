@@ -16,6 +16,8 @@ from urllib.parse import urljoin
 
 import httpx
 
+from app import net_guard
+
 logger = logging.getLogger(__name__)
 
 MAX_BYTES = 256 * 1024
@@ -48,30 +50,56 @@ def _missing_marker(data_dir: str, tracker_id: int) -> str:
     return os.path.join(_icon_dir(data_dir), f"{tracker_id}.missing")
 
 
+MAX_REDIRECTS = 3
+
+
+def _get(client: httpx.Client, url: str, limit: int) -> tuple[httpx.Response, bytes] | None:
+    """Una GET che segue al massimo MAX_REDIRECTS redirect, controllando ogni
+    destinazione (app/net_guard.py: mai i metadati del cloud), e smette di
+    leggere oltre limit byte invece di caricare tutto in memoria."""
+    for _ in range(MAX_REDIRECTS + 1):
+        try:
+            net_guard.check_url(url)
+            with client.stream("GET", url) as response:
+                if response.is_redirect and response.headers.get("location"):
+                    url = urljoin(str(response.url), response.headers["location"])
+                    continue
+                body = b""
+                for chunk in response.iter_bytes():
+                    body += chunk
+                    if len(body) > limit:
+                        return None
+                return response, body
+        except (httpx.HTTPError, net_guard.ForbiddenDestination):
+            return None
+    return None
+
+
 def _download(client: httpx.Client, url: str) -> tuple[bytes, str] | None:
-    try:
-        response = client.get(url)
-    except httpx.HTTPError:
+    got = _get(client, url, MAX_BYTES)
+    if got is None:
         return None
+    response, body = got
     content_type = response.headers.get("content-type", "").split(";")[0].strip().lower()
-    if response.status_code != 200 or content_type not in _TYPES or not response.content:
+    if response.status_code != 200 or content_type not in _TYPES or not body:
         return None
-    if len(response.content) > MAX_BYTES:
-        return None
-    return response.content, _TYPES[content_type]
+    return body, _TYPES[content_type]
 
 
 def _candidates(client: httpx.Client, base_url: str) -> list[str]:
     urls = [urljoin(base_url.rstrip("/") + "/", "favicon.ico")]
-    try:
-        home = client.get(base_url)
-        if home.status_code == 200 and "html" in home.headers.get("content-type", ""):
-            for tag in _LINK_ICON.findall(home.text[:200_000]):
-                href = _HREF.search(tag)
-                if href and not href.group(1).lower().endswith(".svg"):
-                    urls.append(urljoin(str(home.url), href.group(1)))
-    except httpx.HTTPError:
-        pass
+    got = _get(client, base_url, 200_000 + 1)  # basta l'inizio della pagina per i <link>
+    if got is None:
+        return urls
+    home, body = got
+    if home.status_code == 200 and "html" in home.headers.get("content-type", ""):
+        text = body[:200_000].decode("utf-8", "replace")
+        for tag in _LINK_ICON.findall(text):
+            href = _HREF.search(tag)
+            if href and not href.group(1).lower().endswith(".svg"):
+                url = urljoin(str(home.url), href.group(1))
+                if url.lower().startswith(("http://", "https://")):
+                    urls.append(url)
     return urls
 
 
@@ -85,7 +113,7 @@ def fetch_icon(data_dir: str, tracker_id: int, base_url: str, client: httpx.Clie
     if os.path.isfile(marker) and time.time() - os.path.getmtime(marker) < RETRY_SECONDS:
         return None
     owns = client is None
-    client = client or httpx.Client(timeout=TIMEOUT_SECONDS, follow_redirects=True)
+    client = client or httpx.Client(timeout=TIMEOUT_SECONDS, follow_redirects=False)
     try:
         for url in _candidates(client, base_url):
             found = _download(client, url)
