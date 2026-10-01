@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { t } from '@/lib/i18n'
+import { FileNamingCard } from '@/pages/config/FileNamingCard'
 import { ImageHostPriorityField } from '@/pages/config/ImageHostPriorityField'
 import { autosaveFeedback } from '@/lib/autosave'
 
@@ -144,6 +145,7 @@ export function UploadSettingsSection() {
           </div>
         </CardContent>
       </Card>
+      <FileNamingCard />
     </>
   )
 }

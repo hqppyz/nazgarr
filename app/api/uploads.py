@@ -13,7 +13,16 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session, object_session
 
-from app import adapter_factory, upload_decision, upload_identify, upload_jobs, upload_profiles, upload_verify
+from app import (
+    adapter_factory,
+    settings_repo,
+    upload_decision,
+    upload_file_names,
+    upload_identify,
+    upload_jobs,
+    upload_profiles,
+    upload_verify,
+)
 from app.adapter_factory import TmdbApiKeyMissingError
 from app.api_errors import coded_detail, from_coded_error
 from app.deps import get_session
@@ -293,6 +302,34 @@ class ImageHostStatusResponse(BaseModel):
 def image_host_status(session: Session = Depends(get_session)):
     """Gli host di immagini configurati, per avvisare prima di un upload."""
     return ImageHostStatusResponse(**adapter_factory.image_host_status(session))
+
+
+class FileNamingRequest(BaseModel):
+    rules: dict
+
+
+@router.get("/file-naming")
+def get_file_naming(session: Session = Depends(get_session)) -> dict:
+    """Il pattern dei nomi dei file nel torrent (app/upload_file_names.py):
+    quello salvato, e quello di default per tornarci."""
+    return {"rules": upload_file_names.rules(session), "default": upload_file_names.DEFAULT_RULES}
+
+
+@router.put("/file-naming")
+def put_file_naming(body: FileNamingRequest, session: Session = Depends(get_session)) -> dict:
+    settings_repo.set_setting(session, upload_file_names.SETTING, json.dumps(body.rules))
+    return get_file_naming(session)
+
+
+@router.post("/file-naming/preview")
+def preview_file_naming(body: FileNamingRequest, session: Session = Depends(get_session)) -> dict:
+    """Le regole in modifica sugli esempi (e sull'ultimo upload), con i nomi
+    puliti come diventano i file: niente ":" né accenti, un punto alla volta."""
+    preview = upload_decision.preview_names(session, body.rules)
+    preview["names"] = {key: upload_file_names.sanitize(name) + ".mkv" for key, name in preview["names"].items()}
+    for example in preview.get("examples", []):
+        example["name"] = upload_file_names.sanitize(example["name"]) + ".mkv"
+    return preview
 
 
 @router.put("/queue", response_model=list[UploadJobSummary])

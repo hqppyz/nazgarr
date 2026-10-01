@@ -14,7 +14,7 @@ import os
 
 from sqlalchemy.orm import Session, object_session
 
-from app import client_labels, upload_jobs
+from app import client_labels, upload_file_names, upload_jobs
 from app.adapter_factory import TmdbApiKeyMissingError
 from app.models import TrackerUploadProfile, UploadJob, UploadTarget
 from app.upload_jobs import UploadJobError
@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 FLAG_KEYS = ("anonymous", "personal_release", "internal", "stream")  # booleani; freeleech è a parte (percentuale)
 # Override oltre ai valori rilevati: anno del nome, numero di screenshot,
 # note in fondo alla descrizione, e non aggiungere il torrent al client.
-EXTRA_OVERRIDES = {"year": int, "screenshot_count": int, "notes": str, "no_seed": bool}
+EXTRA_OVERRIDES = {"year": int, "screenshot_count": int, "notes": str, "no_seed": bool, "file_naming": str}
 MAX_SCREENSHOTS = 12
 
 
@@ -105,6 +105,8 @@ def clean_overrides(raw: dict | None) -> dict:
             raise UploadJobError("upload_unknown_override", field=key)
     if "screenshot_count" in cleaned and not 0 <= cleaned["screenshot_count"] <= MAX_SCREENSHOTS:
         raise UploadJobError("upload_invalid_override", field="screenshot_count")
+    if "file_naming" in cleaned and cleaned["file_naming"] not in upload_file_names.MODES:
+        raise UploadJobError("upload_invalid_override", field="file_naming")
     return cleaned
 
 
@@ -141,8 +143,34 @@ def propose(session: Session, job: UploadJob) -> None:
             "freeleech": (profile.default_freeleech or 0) if profile else 0,
             **existing,
         })
+    analysis["file_names"] = file_names_preview(session, job)
     job.analysis_json = json.dumps(analysis)
     session.commit()
+
+
+PREVIEW_FILES = 8
+
+
+def file_names_preview(session: Session, job: UploadJob) -> dict:
+    """I nomi dei file nel torrent per ogni modalità disponibile
+    (app/upload_file_names.py), per sceglierla nella decisione."""
+    try:
+        available = upload_file_names.available_modes(session, job)
+        previews = {}
+        for mode in available:
+            plan = upload_file_names.plan(session, job, mode)
+            if plan.mode != mode:
+                continue  # es. "generated" senza titolo ripiega sui nomi originali
+            targets = [target for _source, target in plan.files]
+            previews[mode] = {"name": plan.content_name, "files": targets[:PREVIEW_FILES], "count": len(targets)}
+        return {
+            "available": [m for m in available if m in previews],
+            "default": upload_file_names.default_mode(session, job),
+            "previews": previews,
+        }
+    except OSError:
+        logger.warning("Anteprima dei nomi dei file non disponibile per il job %s", job.id, exc_info=True)
+        return {"available": [], "default": None, "previews": {}}
 
 
 def update_overrides(session: Session, job: UploadJob, overrides: dict | None) -> None:

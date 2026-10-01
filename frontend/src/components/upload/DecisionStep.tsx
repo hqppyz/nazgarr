@@ -5,6 +5,7 @@ import { useApproveUpload, type UploadJob } from '@/api/hooks/uploads'
 import { Masonry } from '@/components/Masonry'
 import { AnalysisSummary } from '@/components/upload/AnalysisSummary'
 import { DecisionSummary } from '@/components/upload/DecisionSummary'
+import { FileNamesCard } from '@/components/upload/FileNamesCard'
 import { MatchSummaryCard } from '@/components/upload/MatchSummaryCard'
 import { MediaInfoPreview } from '@/components/upload/MediaInfoPreview'
 import { OverridesPanel } from '@/components/upload/OverridesPanel'
@@ -66,6 +67,7 @@ export function DecisionStep({ job }: { job: UploadJob }) {
           fullText={job.mediainfo_text}
         />
         <OverridesPanel key={JSON.stringify(job.overrides)} job={job} />
+        <FileNamesCard job={job} />
         <AnalysisSummary job={job} />
       </Masonry>
       {drafts.map(({ target, draft }) => (

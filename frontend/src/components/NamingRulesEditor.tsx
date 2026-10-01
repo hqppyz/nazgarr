@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 
-import { useNamingPreview } from '@/api/hooks/trackers'
+import { useNamingPreview, type NamingPreview } from '@/api/hooks/trackers'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -103,20 +103,29 @@ function TextOption({
 // variabili sono le stesse per tutti i tracker, qui si scrive solo in che
 // ordine e forma usarle. Un clic su una variabile la inserisce dove c'è il
 // cursore; sotto ogni template il nome che ne esce, dal vivo.
+type PreviewHook = (rules: NamingRules | null) => { data?: NamingPreview; isError: boolean }
+
 export function NamingRulesEditor({
   trackerId,
   value,
   onChange,
+  usePreview,
+  forFileNames = false,
 }: {
-  trackerId: number
+  trackerId?: number
   value: NamingRules
   onChange: (rules: NamingRules) => void
+  // Un'anteprima diversa da quella del tracker (es. i nomi dei file nel torrent).
+  usePreview?: PreviewHook
+  // Per i nomi dei file: il titolo è sempre quello originale, niente lingua del tracker.
+  forFileNames?: boolean
 }) {
   const templates = value.templates ?? {}
   const inputs = useRef<Record<string, HTMLInputElement | null>>({})
   const [focused, setFocused] = useState<string>('default')
   const debounced = useDebounced(value, 400)
-  const { data: preview, isError } = useNamingPreview(trackerId, debounced)
+  // L'hook scelto non cambia mai per la stessa istanza: le regole degli hook reggono.
+  const { data: preview, isError } = (usePreview ?? ((rules) => useNamingPreview(trackerId ?? 0, rules)))(debounced)
 
   const set = (patch: Partial<NamingRules>) => onChange({ ...value, ...patch })
   // Un pattern per tipo resta finché non lo si rimuove, anche se vuoto
@@ -267,6 +276,7 @@ export function NamingRulesEditor({
         {isError && <p className="text-[11px] text-destructive">{t('naming.previewFailed')}</p>}
       </div>
 
+      {!forFileNames && (
       <Group title={t('naming.group.title')}>
         <OptionSelect
           label={t('naming.title')}
@@ -280,6 +290,7 @@ export function NamingRulesEditor({
         />
         <p className="text-[11px] text-muted-foreground sm:col-span-2">{t('naming.trackerLanguageNote')}</p>
       </Group>
+      )}
 
       {(['audio_languages', 'subs_languages'] as const).map((field) => (
         <Group key={field} title={t(`naming.group.${field}`)}>

@@ -30,4 +30,8 @@ export const uploadSettings = {
   'uploadSettings.disable': 'Disable',
   'uploadSettings.hostDisabled': '{host} disabled.',
   'uploadSettings.hostEnabled': '{host} enabled.',
+  'uploadSettings.fileNamesTitle': 'File names in the torrent',
+  'uploadSettings.fileNamesDescription':
+    'When there is no torrent on a client with the same files (hardlink), the files of a new upload get a name built from this pattern, dot-separated like a release: no ":" or accents. Each upload can still keep the original names.',
+  'uploadSettings.fileNamesReset': 'Back to the default',
 } as const

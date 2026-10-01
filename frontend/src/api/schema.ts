@@ -1256,6 +1256,49 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/uploads/file-naming": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get File Naming
+         * @description Il pattern dei nomi dei file nel torrent (app/upload_file_names.py):
+         *     quello salvato, e quello di default per tornarci.
+         */
+        get: operations["get_file_naming_api_uploads_file_naming_get"];
+        /** Put File Naming */
+        put: operations["put_file_naming_api_uploads_file_naming_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/uploads/file-naming/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview File Naming
+         * @description Le regole in modifica sugli esempi (e sull'ultimo upload), con i nomi
+         *     puliti come diventano i file: niente ":" né accenti, un punto alla volta.
+         */
+        post: operations["preview_file_naming_api_uploads_file_naming_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/uploads/queue": {
         parameters: {
             query?: never;
@@ -2412,6 +2455,13 @@ export interface components {
             unreadable: number;
             /** First Bad Offset */
             first_bad_offset: number | null;
+        };
+        /** FileNamingRequest */
+        FileNamingRequest: {
+            /** Rules */
+            rules: {
+                [key: string]: unknown;
+            };
         };
         /** ForcedIds */
         ForcedIds: {
@@ -6491,6 +6541,98 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ImageHostStatusResponse"];
+                };
+            };
+        };
+    };
+    get_file_naming_api_uploads_file_naming_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    put_file_naming_api_uploads_file_naming_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FileNamingRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    preview_file_naming_api_uploads_file_naming_preview_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FileNamingRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

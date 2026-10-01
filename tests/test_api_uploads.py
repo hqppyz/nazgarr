@@ -324,3 +324,16 @@ def test_targets_expose_the_freeleech_options_of_their_profile(client, tmp_path,
 
     assert target["freeleech_options"] == [25, 50]
     assert target["flags"]["freeleech"] == 0
+
+
+def test_the_file_naming_pattern_is_editable_and_previewed(client):
+    current = client.get("/api/uploads/file-naming").json()
+    assert current["rules"]["separator"] == "." and current["rules"] == current["default"]
+
+    preview = client.post("/api/uploads/file-naming/preview", json={"rules": current["rules"]}).json()
+    names = {e["key"]: e["name"] for e in preview["examples"]}
+    assert names["uhd_remux"].startswith("Dune.Part.Two.2024.2160p.BluRay.REMUX.")
+    assert names["uhd_remux"].endswith("-FraMeSToR.mkv") and ":" not in names["uhd_remux"]
+
+    mine = {**current["rules"], "templates": {"default": "{title} {year} {group}"}}
+    assert client.put("/api/uploads/file-naming", json={"rules": mine}).json()["rules"] == mine

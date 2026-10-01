@@ -2,6 +2,7 @@ import io
 import json
 import os
 import types
+from datetime import UTC, datetime
 
 import pytest
 import torf
@@ -102,8 +103,11 @@ def env(db_session, tmp_path, monkeypatch):
     return {"root": root, "disk": disk, "trackers": trackers, "client": client, "client_row": client_row}
 
 
-def _approved(db_session, env, relative_path, decisions, **job_values):
+def _approved(db_session, env, relative_path, decisions, file_naming="original", **job_values):
     job = upload_jobs.create_job(db_session, env["disk"], relative_path)
+    # I test di prima dei nomi generati tengono i nomi della sorgente.
+    if file_naming:
+        job.overrides_json = json.dumps({"file_naming": file_naming})
     upload_jobs.transition(
         db_session, job, "identifying", "awaiting_decision", tmdb_id=603, imdb_id="tt0133093", title="The Matrix",
         year=1999, content_type=job_values.pop("content_type", "movie"), kind=job_values.pop("kind", "movie"),
@@ -287,7 +291,7 @@ def test_zero_screenshots_is_a_choice(db_session, tmp_path, env):
 
     _run(db_session, tmp_path, job)
 
-    assert job.status == "done"
+    assert job.status == "done", [(e.code, e.params_json) for e in job.events]
     assert json.loads(job.screenshot_urls_json) == []
 
 
@@ -365,3 +369,63 @@ def test_link_files_checks_everything_first_and_never_follows_symlinks(tmp_path)
     with pytest.raises(Exception):
         upload_execute.link_files([(str(other), str(root / ".." / "escaped.mkv"))], str(root))
     assert not (tmp_path / "escaped.mkv").exists()
+
+
+def test_a_library_file_is_uploaded_with_a_generated_release_name(db_session, tmp_path, env):
+    video = write_video(env["root"] / "media" / "The Matrix (1999) {imdb-tt0133093}.mkv", 300 * KB)
+    job = _approved(db_session, env, "media/" + video.name, {"a": _upload("Matrix A"), "b": {"action": "skip"}},
+                    file_naming=None)  # il default: nessun hardlink, file della libreria -> generato
+
+    _run(db_session, tmp_path, job)
+
+    assert job.status == "done", [e.code for e in job.events]
+    torrent = torf.Torrent.read(job.targets[0].torrent_path)
+    assert torrent.name == "The.Matrix.1999.mkv"
+    linked = env["root"] / "torrents" / "The.Matrix.1999.mkv"
+    assert os.path.samefile(linked, video)  # in seed con quel nome, stessi byte
+    assert env["client"].added == [(job.targets[0].torrent_path, str(env["root"] / "torrents"))]
+
+
+def test_the_names_of_the_hardlinked_torrent_win(db_session, tmp_path, env):
+    from app.models import ClientTorrent, ClientTorrentFile, RunLog, SeedFile
+
+    video = write_video(env["root"] / "media" / "Matrix (1999).mkv", 300 * KB)
+    release = env["root"] / "torrents" / "The.Matrix.1999.1080p.BluRay.x264-GRP.mkv"
+    os.link(video, release)
+    run = RunLog(run_type="manual", started_at=datetime.now(UTC))
+    db_session.add(run)
+    db_session.commit()
+    st = os.stat(release)
+    seed = SeedFile(disk_id=env["disk"].id, relative_path=f"torrents/{release.name}", size_bytes=st.st_size,
+                    st_dev=st.st_dev, inode=st.st_ino, last_scan_id=run.id, last_seen_at=datetime.now(UTC))
+    db_session.add(seed)
+    db_session.commit()
+    torrent_row = ClientTorrent(torrent_client_id=env["client_row"].id, info_hash="h", name=release.name,
+                                save_path=str(release.parent), state="uploading", last_polled_at=datetime.now(UTC))
+    db_session.add(torrent_row)
+    db_session.commit()
+    db_session.add(ClientTorrentFile(client_torrent_id=torrent_row.id, path_in_torrent=release.name,
+                                     size_bytes=st.st_size, seed_file_id=seed.id, last_scan_id=run.id))
+    db_session.commit()
+    job = _approved(db_session, env, "media/" + video.name, {"a": _upload("Matrix A"), "b": {"action": "skip"}},
+                    file_naming=None)
+
+    _run(db_session, tmp_path, job)
+
+    assert job.status == "done", [e.code for e in job.events]
+    assert torf.Torrent.read(job.targets[0].torrent_path).name == "The.Matrix.1999.1080p.BluRay.x264-GRP.mkv"
+
+
+def test_renamed_links_are_removed_when_nothing_is_seeded(db_session, tmp_path, env):
+    video = write_video(env["root"] / "media" / "The Matrix (1999).mkv", 300 * KB)
+    job = _approved(db_session, env, "media/" + video.name, {"a": _upload("Matrix A"), "b": {"action": "skip"}},
+                    file_naming="generated")
+    overrides = json.loads(job.overrides_json)
+    job.overrides_json = json.dumps({**overrides, "no_seed": True})
+    db_session.commit()
+
+    _run(db_session, tmp_path, job)
+
+    assert job.status == "done"
+    assert not (env["root"] / "torrents" / "The.Matrix.1999.mkv").exists()
+    assert video.exists()  # la libreria non si tocca

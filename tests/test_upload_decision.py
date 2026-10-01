@@ -175,3 +175,16 @@ def test_freeleech_from_creation_survives_the_proposal_and_is_validated(db_sessi
     assert exc.value.code == "upload_freeleech_not_allowed"
     upload_decision.approve(db_session, job, [_upload(target, flags={"freeleech": 25})])
     assert json.loads(target.flags_json)["freeleech"] == 25
+
+
+def test_the_decision_offers_the_file_names_of_each_mode(db_session, decision_job):
+    upload_decision.propose(db_session, decision_job)
+    names = json.loads(decision_job.analysis_json)["file_names"]
+
+    assert set(names["available"]) <= {"hardlink", "generated", "original"} and "original" in names["available"]
+    assert names["default"] in names["available"] or names["default"] == "original"
+    assert all(preview["count"] >= 1 for preview in names["previews"].values())
+    with pytest.raises(UploadJobError):
+        upload_decision.update_overrides(db_session, decision_job, {"file_naming": "whatever"})
+    upload_decision.update_overrides(db_session, decision_job, {"file_naming": "original"})
+    assert json.loads(decision_job.overrides_json)["file_naming"] == "original"

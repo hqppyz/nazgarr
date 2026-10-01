@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { api, unwrap } from '@/api/client'
 import type { Schemas } from '@/api/client'
+import type { NamingPreview } from '@/api/hooks/trackers'
 
 export type UploadJob = Schemas['UploadJobDetail']
 export type UploadJobSummary = Schemas['UploadJobSummary']
@@ -160,5 +161,35 @@ export function useReorderQueue() {
   return useMutation({
     mutationFn: (jobIds: number[]) => unwrap(api.PUT('/api/uploads/queue', { body: { job_ids: jobIds } })),
     onSuccess: (jobs) => queryClient.setQueryData(['uploads'], jobs),
+  })
+}
+
+// Il pattern dei nomi dei file nel torrent (Settings > Upload).
+export function useFileNaming() {
+  return useQuery({
+    queryKey: ['uploads', 'file-naming'],
+    queryFn: async () =>
+      (await unwrap(api.GET('/api/uploads/file-naming'))) as unknown as { rules: NamingRulesShape; default: NamingRulesShape },
+  })
+}
+
+type NamingRulesShape = Record<string, unknown>
+
+export function useSaveFileNaming() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (rules: NamingRulesShape) => unwrap(api.PUT('/api/uploads/file-naming', { body: { rules } })),
+    onSuccess: (data) => queryClient.setQueryData(['uploads', 'file-naming'], data),
+  })
+}
+
+export function useFileNamingPreview(rules: NamingRulesShape | null) {
+  return useQuery({
+    queryKey: ['uploads', 'file-naming', 'preview', rules],
+    queryFn: async () =>
+      (await unwrap(api.POST('/api/uploads/file-naming/preview', { body: { rules: rules! } }))) as unknown as NamingPreview,
+    enabled: rules !== null,
+    placeholderData: (previous) => previous,
+    retry: false,
   })
 }

@@ -32,7 +32,7 @@ from datetime import UTC, datetime
 import torf
 from sqlalchemy.orm import Session
 
-from app import adapter_factory, client_labels, screenshots, settings_repo, upload_jobs
+from app import adapter_factory, client_labels, screenshots, settings_repo, upload_file_names, upload_jobs
 from app.adapter_factory import ImageHostConfigError
 from app.adapters.image_host.base import ImageHostError
 from app.adapters.tracker.base import UploadFields
@@ -97,7 +97,7 @@ def link_files(pairs: list[tuple[str, str]], root: str) -> int:
     cartella di seed (sul percorso già risolto, niente symlink piazzati nel
     mezzo), sorgenti che sono file veri (non symlink) sullo stesso disco. Se
     un hardlink fallisce a metà, quelli appena creati si tolgono.
-    Restituisce quanti hardlink ha creato."""
+    Restituisce gli hardlink creati."""
     root_dev = os.stat(root).st_dev
     planned: list[tuple[str, str]] = []
     for source, target in pairs:
@@ -122,7 +122,7 @@ def link_files(pairs: list[tuple[str, str]], root: str) -> int:
             with contextlib.suppress(OSError):
                 os.unlink(path)
         raise
-    return len(created)
+    return created
 
 
 # --- una volta per job --------------------------------------------------------
@@ -139,8 +139,26 @@ def _progress(session: Session, job: UploadJob, stage: str, done: int | None = N
     session.commit()
 
 
-def hash_pieces(session: Session, job: UploadJob) -> torf.Torrent:
-    torrent = torf.Torrent(path=job.source_path, private=True, exclude_globs=EXCLUDE_GLOBS)
+def prepare_content(session: Session, job: UploadJob, ctx: dict) -> str:
+    """Il percorso da cui creare il torrent. Con i nomi della sorgente
+    (upload_file_names "original") è la sorgente stessa; con nomi nuovi
+    (dal torrent in hardlink, o generati) si creano prima gli hardlink con
+    quei nomi nella cartella di seed, e il torrent nasce da lì: quello
+    pubblicato e quello in seed sono per forza gli stessi file."""
+    plan = upload_file_names.plan(session, job)
+    upload_jobs.log_event(session, job, "file_names", mode=plan.mode, name=plan.content_name)
+    session.commit()
+    if not plan.renamed:
+        return job.source_path
+    root = ctx["seed_root"]()
+    pairs = [(source, os.path.join(root, *target.split("/"))) for source, target in plan.files]
+    ctx["created_links"] = link_files(pairs, root)
+    ctx["prelinked"] = True
+    return os.path.join(root, *plan.content_name.split("/"))
+
+
+def hash_pieces(session: Session, job: UploadJob, path: str | None = None) -> torf.Torrent:
+    torrent = torf.Torrent(path=path or job.source_path, private=True, exclude_globs=EXCLUDE_GLOBS)
     if not torrent.files:
         raise UploadJobError("no_video_files")
 
@@ -357,9 +375,12 @@ def run_upload(session: Session, job: UploadJob, target: UploadTarget, ctx: dict
     session.commit()
     try:
         root = ctx["seed_root"]()
-        pairs = _upload_pairs(job, torrent, root)
-        link_files(pairs, root)
-        save_path = root if pairs else os.path.dirname(job.source_path.rstrip(os.sep))
+        if ctx.get("prelinked"):  # già in seed con i nomi del torrent (prepare_content)
+            save_path = root
+        else:
+            pairs = _upload_pairs(job, torrent, root)
+            link_files(pairs, root)
+            save_path = root if pairs else os.path.dirname(job.source_path.rstrip(os.sep))
         seed_path, same_content = _tracker_copy(adapter, uploaded, torrent, ctx["dir"], tracker.id)
         target.torrent_path = seed_path
         target.info_hash = torf.Torrent.read(seed_path).infohash
@@ -426,6 +447,30 @@ class _Cancelled(Exception):
     pass
 
 
+def _cleanup_unused_links(session: Session, job: UploadJob, ctx: dict, overrides: dict) -> None:
+    """Gli hardlink creati per dare al torrent i suoi nomi (prepare_content)
+    si tolgono se non seedano niente: "non mettere in seed", o nessun
+    upload riuscito. Solo quelli creati da questo job, e le cartelle che
+    restano vuote."""
+    created = ctx.get("created_links") or []
+    uploaded = any(t.action == "upload" and t.status == "done" for t in job.targets)
+    if not created or (uploaded and not overrides.get("no_seed")):
+        return
+    root = os.path.realpath(ctx["seed_root"]())
+    for path in created:
+        with contextlib.suppress(OSError):
+            os.unlink(path)
+        parent = os.path.dirname(path)
+        while os.path.realpath(parent).startswith(root + os.sep):
+            try:
+                os.rmdir(parent)  # solo se vuota
+            except OSError:
+                break
+            parent = os.path.dirname(parent)
+    upload_jobs.log_event(session, job, "file_links_removed", count=len(created))
+    session.commit()
+
+
 def handle(session: Session, job: UploadJob, worker) -> None:
     if not upload_jobs.transition(session, job, "queued", "running", queue_position=None):
         return
@@ -446,7 +491,7 @@ def handle(session: Session, job: UploadJob, worker) -> None:
 
     try:
         if any(t.action == "upload" for t in targets):
-            ctx["torrent"] = hash_pieces(session, job)
+            ctx["torrent"] = hash_pieces(session, job, prepare_content(session, job, ctx))
             # Per la barra degli step (ProgressStep): i passaggi conclusi restano segnati.
             upload_jobs.log_event(session, job, "torrent_created")
             session.commit()
@@ -491,6 +536,7 @@ def handle(session: Session, job: UploadJob, worker) -> None:
         target.finished_at = datetime.now(UTC)
         session.commit()
 
+    _cleanup_unused_links(session, job, ctx, overrides)
     outcomes = [t.status for t in job.targets if t.action != "skip"]
     if all(s == "done" for s in outcomes):
         final = "done"
