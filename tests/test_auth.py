@@ -113,3 +113,27 @@ def test_changing_the_password_or_logging_out_everywhere_revokes_every_token(ano
     assert anon_client.get("/api/disks", headers=_bearer(token)).status_code == 200
     assert anon_client.post("/api/auth/logout-everywhere", headers=_bearer(token)).status_code == 204
     assert anon_client.get("/api/disks", headers=_bearer(token)).status_code == 401
+
+
+def test_too_many_wrong_passwords_are_slowed_down(anon_client):
+    from app import login_limiter
+
+    _setup(anon_client)
+    wrong = {"username": "admin", "password": "wrong-password"}
+    for _ in range(login_limiter.MAX_FAILURES):
+        assert anon_client.post("/api/auth/login", json=wrong).status_code == 401
+    right = {"username": "admin", "password": "supersecret1"}
+    blocked = anon_client.post("/api/auth/login", json=right)
+    assert blocked.status_code == 429 and int(blocked.headers["Retry-After"]) > 0
+    login_limiter.reset()
+    assert anon_client.post("/api/auth/login", json=right).status_code == 200
+
+
+def test_the_window_forgets_old_failures():
+    from app import login_limiter
+
+    login_limiter.reset()
+    for i in range(login_limiter.MAX_FAILURES):
+        login_limiter.failed("1.2.3.4", now=100.0 + i)
+    assert login_limiter.retry_after("1.2.3.4", now=110.0) is not None
+    assert login_limiter.retry_after("1.2.3.4", now=100.0 + login_limiter.WINDOW_SECONDS + 1) is None
