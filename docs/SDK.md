@@ -31,7 +31,7 @@ At startup Nazgarr installs them with pip into `<data_dir>/plugins/site`, so the
 
 Each line is a package (a name, `name==version`, or a `git+https://…` URL). Lines starting with `-` are refused: pip options such as `--index-url` could make it install packages from anyone's index. Only plugins installed there are loaded: a package with a `nazgarr.plugins` entry point installed anywhere else is ignored. Pin versions (`nazgarr-ntfy==0.3.1`) so an update never arrives by surprise.
 
-**Settings > Plugins** shows:
+**Settings > Extensions > Plugins** shows:
 
 - the plugins that were loaded, with their version and the adapters they add;
 - the plugins that failed to install or load, or that need another SDK version, with the error. They stay off and the rest of Nazgarr works as usual;
@@ -120,9 +120,9 @@ An adapter whose required fields are not all filled in is skipped, like a built-
 |---|---|---|
 | `tracker` | on the tracker, in Settings > Trackers | search, reseeding, uploads |
 | `torrent_client` | on the client, in Settings > Clients | indexing torrents, reseeding, uploads |
-| `media_resolver` | Settings > Plugins | recognizing files: plugin resolvers are tried **before** Radarr/Sonarr and TMDB, and the first that recognizes a file wins; they also work without a TMDB key |
-| `image_host` | Settings > Plugins | upload screenshots: plugin hosts go at the end of the image host priority |
-| `notification` | Settings > Plugins, with the events to send | the events below, as readable messages |
+| `media_resolver` | Settings > Extensions > Plugins | recognizing files: plugin resolvers are tried **before** Radarr/Sonarr and TMDB, and the first that recognizes a file wins; they also work without a TMDB key |
+| `image_host` | Settings > Extensions > Plugins | upload screenshots: plugin hosts go at the end of the image host priority |
+| `notification` | Settings > Extensions > Plugins, with the events to send | the events below, as readable messages |
 
 ---
 
@@ -346,7 +346,7 @@ Add the plugin to the list as a path, then restart:
 
 A plugin listed as a local folder is reinstalled at the next restart whenever its code changes: Nazgarr compares the folder's files (names, sizes, modification times) with the last install, ignoring `build/`, `*.egg-info`, `__pycache__`, `.git` and virtual environments. So the loop is: edit, restart, check. When nothing changed, pip doesn't run.
 
-Then check **Settings > Plugins**:
+Then check **Settings > Extensions > Plugins**:
 
 If pip fails, nothing new is installed and the page shows **Installing the plugins failed** with pip's own output (the log has it too). Otherwise each plugin has a status:
 
@@ -387,7 +387,7 @@ Events are written in the same database transaction as the change that causes th
 
 ## Webhooks
 
-Configure them in **Settings > Webhooks**: a name, a URL and the events (all, or some). The secret used to sign them is shown once, after saving; "New secret" replaces it.
+Configure them in **Settings > Extensions > Webhooks**: a name, a URL and the events (all, or some). The secret used to sign them is shown once, after saving; "New secret" replaces it.
 
 Every delivery is a `POST` with a JSON body:
 
@@ -423,7 +423,7 @@ A `2xx` answer (within 10 seconds) is a success. Anything else is retried after 
 
 ## API keys
 
-Create them in **Settings > Security > API keys**. A key is shown once and Nazgarr keeps only its SHA-256 hash. Send it in the `X-Api-Key` header:
+Create them in **Settings > Extensions > API keys**. A key is shown once and Nazgarr keeps only its SHA-256 hash. Send it in the `X-Api-Key` header:
 
 ```sh
 curl -H "X-Api-Key: nzg_..." http://nazgarr:8080/api/dashboard

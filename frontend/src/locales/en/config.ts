@@ -4,6 +4,7 @@ export const config = {
   'config.groupTorrent': 'Torrent',
   'config.groupReseeding': 'Reseeding',
   'config.groupSystem': 'System',
+  'config.groupExtensions': 'Extensions',
   'config.tabApplication': 'Application',
   'config.tabInterface': 'Interface',
   'config.tabSecurity': 'Security',
@@ -17,4 +18,5 @@ export const config = {
   'config.tabLogs': 'Logs',
   'config.tabPlugins': 'Plugins',
   'config.tabWebhooks': 'Webhooks',
+  'config.tabApiKeys': 'API keys',
 } as const

@@ -4,6 +4,7 @@ import {
   HardDriveDownloadIcon,
   HardDriveIcon,
   InfoIcon,
+  KeyRoundIcon,
   LayoutGridIcon,
   PlugIcon,
   PuzzleIcon,
@@ -63,7 +64,7 @@ const GROUPS: { title: string; tabs: Tab[] }[] = [
     tabs: [
       { value: 'application', label: t('config.tabApplication'), icon: InfoIcon, layout: PAIRS, content: <ApplicationSection /> },
       { value: 'interface', label: t('config.tabInterface'), icon: LayoutGridIcon, layout: PAIRS, content: <InterfaceSection /> },
-      { value: 'security', label: t('config.tabSecurity'), icon: ShieldIcon, layout: PAIRS, content: <><SecuritySection /><ApiKeysSection /></> },
+      { value: 'security', label: t('config.tabSecurity'), icon: ShieldIcon, layout: PAIRS, content: <SecuritySection /> },
     ],
   },
   {
@@ -104,9 +105,17 @@ const GROUPS: { title: string; tabs: Tab[] }[] = [
     title: t('config.groupSystem'),
     tabs: [
       { value: 'upload', label: t('config.tabUpload'), icon: UploadCloudIcon, layout: PAIRS, content: <UploadSettingsSection /> },
+      { value: 'logs', label: t('config.tabLogs'), icon: ScrollTextIcon, layout: STACK, content: <LogsSection /> },
+    ],
+  },
+  {
+    // Quello che estende Nazgarr o lo collega ad altri servizi: plugin,
+    // webhook e API key (docs/SDK.md).
+    title: t('config.groupExtensions'),
+    tabs: [
       { value: 'plugins', label: t('config.tabPlugins'), icon: PuzzleIcon, layout: STACK, content: <PluginsSection /> },
       { value: 'webhooks', label: t('config.tabWebhooks'), icon: WebhookIcon, layout: STACK, content: <WebhooksSection /> },
-      { value: 'logs', label: t('config.tabLogs'), icon: ScrollTextIcon, layout: STACK, content: <LogsSection /> },
+      { value: 'api-keys', label: t('config.tabApiKeys'), icon: KeyRoundIcon, layout: STACK, content: <ApiKeysSection /> },
     ],
   },
 ]
