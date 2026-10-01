@@ -24,6 +24,15 @@ _HDR_TONEMAP_FILTER = (
     "tonemap=tonemap=mobius:desat=0,zscale=t=bt709:m=bt709:r=tv,format=yuv420p"
 )
 
+# Sempre PNG a 8 bit per canale (come Upload-Assistant, format=rgb24): da una
+# sorgente a 10 bit ffmpeg scriverebbe un PNG a 16 bit, che in 4K passa i
+# 30 MB e gli host lo rifiutano (imgbb: 32 MB per richiesta).
+_PNG_OUTPUT = {"pix_fmt": "rgb24", "compression_level": 9}
+# Tetto per screenshot: sopra, lo stesso frame a piena risoluzione in JPEG di
+# alta qualità (qscale 2 = la migliore usata in pratica, poi a scendere).
+MAX_SCREENSHOT_BYTES = 5 * 1024 * 1024
+_JPEG_QUALITIES = (2, 3, 5)
+
 
 def _get_duration_seconds(file_path: str) -> float:
     media_info = MediaInfo.parse(file_path)
@@ -85,6 +94,29 @@ def _capture(video_path: str, timestamp: float, output_path: str, output_kwargs:
     return os.path.isfile(output_path)
 
 
+def _fit_size(path: str) -> str:
+    """Il file da tenere: il PNG se sta sotto MAX_SCREENSHOT_BYTES, se no un
+    JPEG dello stesso frame (stessa risoluzione) alla qualità più alta che ci
+    sta; nel dubbio il JPEG più piccolo, meglio del PNG troppo grande."""
+    if os.path.getsize(path) <= MAX_SCREENSHOT_BYTES:
+        return path
+    jpeg = os.path.splitext(path)[0] + ".jpg"
+    for quality in _JPEG_QUALITIES:
+        try:
+            ffmpeg.input(path).output(jpeg, vframes=1, qscale=quality, pix_fmt="yuvj444p").overwrite_output().run(
+                quiet=True, capture_stdout=True, capture_stderr=True
+            )
+        except ffmpeg.Error:
+            logger.warning("Compressione JPEG fallita per %r", path, exc_info=True)
+            return path
+        if os.path.getsize(jpeg) <= MAX_SCREENSHOT_BYTES:
+            break
+    logger.info("Screenshot %r di %d byte, tenuto in JPEG (%d byte)",
+                path, os.path.getsize(path), os.path.getsize(jpeg))
+    os.remove(path)
+    return jpeg
+
+
 def generate_screenshots(video_path: str, output_dir: str, count: int = 4, tonemap: bool = False) -> list[str]:
     """Cattura `count` frame equidistanti, escludendo il primo/ultimo 5%
     della durata (titoli/loghi/nero in apertura o coda). Un frame singolo
@@ -104,7 +136,7 @@ def generate_screenshots(video_path: str, output_dir: str, count: int = 4, tonem
     if usable <= 0:
         margin, usable = 0.0, duration
 
-    output_kwargs = {"vframes": 1}
+    output_kwargs = {"vframes": 1, **_PNG_OUTPUT}
     if tonemap:
         output_kwargs["vf"] = _HDR_TONEMAP_FILTER
 
@@ -131,7 +163,7 @@ def generate_screenshots(video_path: str, output_dir: str, count: int = 4, tonem
             continue
         if best[1] != output_path:
             os.replace(best[1], output_path)
-        paths.append(output_path)
+        paths.append(_fit_size(output_path))
         for leftover in os.listdir(output_dir):
             if leftover.startswith(f"screenshot_{i}_retry"):
                 os.remove(os.path.join(output_dir, leftover))

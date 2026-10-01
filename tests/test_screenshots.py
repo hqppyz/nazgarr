@@ -81,3 +81,34 @@ def test_a_grainy_black_frame_from_a_10_bit_source_is_blank(tmp_path):
                     "-frames:v", "1", "-pix_fmt", "rgb48be", str(path)], check=True, capture_output=True)
 
     assert is_blank(luma_stats(str(path)))
+
+
+def _bit_depth(path):
+    # Byte 24 del PNG (IHDR): bit per canale.
+    with open(path, "rb") as f:
+        return f.read(25)[24]
+
+
+def test_a_10_bit_source_gives_an_8_bit_png(tmp_path):
+    # Un PNG a 16 bit da una sorgente 4K a 10 bit passa i 30 MB: gli host lo rifiutano.
+    video = tmp_path / "video10.mkv"
+    subprocess.run(["ffmpeg", "-y", "-f", "lavfi", "-i", "testsrc=duration=4:size=160x120:rate=5",
+                    "-c:v", "libx264", "-pix_fmt", "yuv420p10le", str(video)], check=True, capture_output=True)
+
+    paths = generate_screenshots(str(video), str(tmp_path / "shots"), count=1)
+
+    assert paths[0].endswith(".png") and _bit_depth(paths[0]) == 8
+
+
+def test_a_screenshot_over_the_cap_is_kept_as_a_full_size_jpeg(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.screenshots.MAX_SCREENSHOT_BYTES", 1)
+    video = tmp_path / "video.mp4"
+    _make_test_video(video)
+
+    [path] = generate_screenshots(str(video), str(tmp_path / "shots"), count=1)
+
+    assert path.endswith(".jpg") and os.path.isfile(path)
+    assert not os.path.exists(path[:-4] + ".png")
+    probe = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "stream=width,height", "-of", "csv=p=0", path],
+                           check=True, capture_output=True, text=True)
+    assert probe.stdout.strip() == "160,120"
