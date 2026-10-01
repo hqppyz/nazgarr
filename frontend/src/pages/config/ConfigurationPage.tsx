@@ -39,7 +39,7 @@ import { UploadSettingsSection } from '@/pages/config/UploadSettingsSection'
 import { WebhooksSection } from '@/pages/config/WebhooksSection'
 
 // Impostazioni in gruppi per argomento (Generale, Libreria, Torrent,
-// Reseeding, Sistema). Il tab aperto sta nell'URL (?tab=…), così un link da
+// Workflows, Estensioni, Sistema). Il tab aperto sta nell'URL (?tab=…), così un link da
 // un'altra pagina porta dritto al tab giusto.
 //
 // Layout: le card piccole in un masonry a due colonne (components/Masonry.tsx,
@@ -96,16 +96,12 @@ const GROUPS: { title: string; tabs: Tab[] }[] = [
     ],
   },
   {
-    title: t('config.groupReseeding'),
+    // I due flussi che portano torrent nei client: ricreare i seed della
+    // libreria (matching e approvazione) e pubblicare nuovi upload.
+    title: t('config.groupWorkflows'),
     tabs: [
       { value: 'matching', label: t('config.tabMatching'), icon: GaugeIcon, layout: PAIRS, content: <AutoApproveSection /> },
-    ],
-  },
-  {
-    title: t('config.groupSystem'),
-    tabs: [
       { value: 'upload', label: t('config.tabUpload'), icon: UploadCloudIcon, layout: PAIRS, content: <UploadSettingsSection /> },
-      { value: 'logs', label: t('config.tabLogs'), icon: ScrollTextIcon, layout: STACK, content: <LogsSection /> },
     ],
   },
   {
@@ -116,6 +112,12 @@ const GROUPS: { title: string; tabs: Tab[] }[] = [
       { value: 'plugins', label: t('config.tabPlugins'), icon: PuzzleIcon, layout: STACK, content: <PluginsSection /> },
       { value: 'webhooks', label: t('config.tabWebhooks'), icon: WebhookIcon, layout: STACK, content: <WebhooksSection /> },
       { value: 'api-keys', label: t('config.tabApiKeys'), icon: KeyRoundIcon, layout: STACK, content: <ApiKeysSection /> },
+    ],
+  },
+  {
+    title: t('config.groupSystem'),
+    tabs: [
+      { value: 'logs', label: t('config.tabLogs'), icon: ScrollTextIcon, layout: STACK, content: <LogsSection /> },
     ],
   },
 ]
