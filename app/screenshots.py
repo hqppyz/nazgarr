@@ -30,7 +30,7 @@ _HDR_TONEMAP_FILTER = (
 _PNG_OUTPUT = {"pix_fmt": "rgb24", "compression_level": 9}
 # Tetto per screenshot: sopra, lo stesso frame a piena risoluzione in JPEG di
 # alta qualità (qscale 2 = la migliore usata in pratica, poi a scendere).
-MAX_SCREENSHOT_BYTES = 5 * 1024 * 1024
+MAX_SCREENSHOT_BYTES = 10 * 1024 * 1024
 _JPEG_QUALITIES = (2, 3, 5)
 
 

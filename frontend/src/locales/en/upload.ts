@@ -350,4 +350,8 @@ export const upload = {
   'upload.fileNames.help.original': 'The names the files have in your folders (in the library, the Plex/Radarr/Sonarr ones).',
   'upload.event.file_names': 'File names in the torrent: {mode} ({name}).',
   'upload.event.file_links_removed': '{count} file(s) linked for the torrent removed: nothing seeds them.',
+  'upload.overrides.missingSource':
+    'Source not found: no hardlinked torrent or release name says where this comes from (BluRay, WEB-DL, HDTV…), so the name has none. Write it in the Source field.',
+  'upload.overrides.setSource': 'Set it',
+  'upload.overrides.sourcePlaceholder': 'e.g. BluRay, WEB-DL',
 } as const

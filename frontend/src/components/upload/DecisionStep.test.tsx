@@ -60,4 +60,18 @@ describe('DecisionStep', () => {
     expect(screen.getByText('1 tracker(s) still need something before approving.')).toBeTruthy()
     expect((screen.getByRole('button', { name: 'Approve' }) as HTMLButtonElement).disabled).toBe(true)
   })
+
+  it('warns when the source is nowhere to be found, until it is written', () => {
+    render(<DecisionStep job={job} />)
+    expect(screen.getByText(/Source not found/)).toBeTruthy()
+    cleanup()
+
+    render(<DecisionStep job={{ ...job, overrides: { source: 'BluRay' } } as UploadJob} />)
+    expect(screen.queryByText(/Source not found/)).toBeNull()
+    cleanup()
+
+    const detected = { ...job.analysis, detected: { group: 'GRP', source: 'WEB-DL' } }
+    render(<DecisionStep job={{ ...job, analysis: detected } as UploadJob} />)
+    expect(screen.queryByText(/Source not found/)).toBeNull()
+  })
 })

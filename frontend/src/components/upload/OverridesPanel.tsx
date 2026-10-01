@@ -1,3 +1,4 @@
+import { TriangleAlertIcon } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 
@@ -48,6 +49,9 @@ export function OverridesPanel({ job }: { job: UploadJob }) {
       else next[key] = value
       return next
     })
+  // La sorgente (BluRay, WEB-DL...) non sta in MediaInfo: senza un torrent in
+  // hardlink o un nome di release da cui leggerla, va scritta a mano.
+  const missingSource = !detected.source && !saved.source
   const detectedOf = (key: string) => (key === 'year' ? (job.year != null ? String(job.year) : null) : detected[key])
 
   const row = (key: string, placeholder: string | null | undefined) => (
@@ -57,8 +61,9 @@ export function OverridesPanel({ job }: { job: UploadJob }) {
         className={cn(
           'h-7 px-2 font-mono text-xs',
           text(key) ? 'border-primary/60 bg-primary/5' : 'border-transparent bg-muted/60 shadow-none',
+          key === 'source' && missingSource && !text(key) && 'border-amber-500/70',
         )}
-        placeholder={placeholder ?? '—'}
+        placeholder={placeholder ?? (key === 'source' && missingSource ? t('upload.overrides.sourcePlaceholder') : '—')}
         value={text(key)}
         onChange={(e) => set(key, e.target.value)}
       />
@@ -85,6 +90,17 @@ export function OverridesPanel({ job }: { job: UploadJob }) {
               {t(`upload.overrides.readFrom.${nameSource.origin}`)}{' '}
               <span className="font-mono">{nameSource.name}</span>
             </p>
+          )}
+          {missingSource && (
+            <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-xs">
+              <TriangleAlertIcon className="mt-0.5 size-3.5 shrink-0 text-amber-500" />
+              <span className="min-w-0 flex-1">{t('upload.overrides.missingSource')}</span>
+              {!open && (
+                <button type="button" className="shrink-0 font-medium underline" onClick={() => setOpen(true)}>
+                  {t('upload.overrides.setSource')}
+                </button>
+              )}
+            </div>
           )}
           {!open && (
             <div className="flex flex-wrap gap-1.5">
