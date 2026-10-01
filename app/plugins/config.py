@@ -16,6 +16,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from app import net_guard
 from app.api_errors import CodedError
 from app.models import AdapterConfig
 from app.plugins.registry import AdapterSpec, ConfigField
@@ -45,8 +46,13 @@ def _coerce(field: ConfigField, value: Any) -> Any:
     text = str(value).strip()
     if field.type == "choice" and field.choices and text not in field.choices:
         raise AdapterConfigError("adapter_config_invalid", field=field.key)
-    if field.type == "url" and not text.lower().startswith(("http://", "https://")):
-        raise AdapterConfigError("adapter_config_invalid", field=field.key)
+    if field.type == "url":
+        if not text.lower().startswith(("http://", "https://")):
+            raise AdapterConfigError("adapter_config_invalid", field=field.key)
+        try:
+            net_guard.check_url(text)
+        except net_guard.ForbiddenDestination as exc:
+            raise AdapterConfigError("adapter_config_invalid", field=field.key) from exc
     return text
 
 

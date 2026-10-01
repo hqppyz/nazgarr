@@ -30,4 +30,9 @@ export const security = {
   'security.apiKeyCopy': 'Copy',
   'security.apiKeyCopyFailed': 'Copy failed: select the key and copy it by hand.',
   'security.apiKeyDone': 'Done',
+  'security.changePasswordRevokes': 'Every other session is logged out: devices still logged in with the old password must log in again.',
+  'security.sessionsTitle': 'Sessions',
+  'security.sessionsDescription':
+    'A login lasts 30 days on each device. If you think someone else is logged in, log out everywhere: every device, this one included, must log in again.',
+  'security.logoutEverywhere': 'Log out everywhere',
 } as const

@@ -28,6 +28,7 @@ from datetime import UTC, datetime, timedelta
 import httpx
 from sqlalchemy.orm import Session
 
+from app import net_guard
 from app.models import Event, EventDelivery
 from app.version import __version__
 
@@ -66,12 +67,17 @@ def _send(client: httpx.Client, delivery: EventDelivery) -> tuple[bool, int | No
         "X-Nazgarr-Signature": signature(webhook.secret, timestamp, body),
     }
     try:
+        net_guard.check_url(webhook.url)
         response = client.post(webhook.url, content=body, headers=headers, timeout=TIMEOUT_SECONDS)
+    except net_guard.ForbiddenDestination as exc:
+        return False, None, str(exc)
     except httpx.HTTPError as exc:
-        return False, None, f"{type(exc).__name__}: {exc}"[:500]
+        return False, None, type(exc).__name__
     if 200 <= response.status_code < 300:
         return True, response.status_code, None
-    return False, response.status_code, response.text[:500] or f"HTTP {response.status_code}"
+    # Solo il codice, mai il corpo della risposta: un webhook verso un
+    # servizio della LAN non deve diventare un modo per leggerlo.
+    return False, response.status_code, f"HTTP {response.status_code} {response.reason_phrase}".strip()
 
 
 def attempt(session: Session, delivery: EventDelivery, client: httpx.Client, now: datetime | None = None) -> None:

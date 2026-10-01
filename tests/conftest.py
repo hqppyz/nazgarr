@@ -48,8 +48,10 @@ def client(tmp_path, monkeypatch):
     # nel container reale non serve, perché lì un processo = un avvio solo.
     crypto_module._fernet.cache_clear()
 
+    from app import login_limiter
     from app.main import app
 
+    login_limiter.reset()
     with TestClient(app) as test_client:
         test_client.scan_root = scan_root  # comodo per i test: root disponibile senza rileggere il config
         # Il login è obbligatorio: ogni test parte con l'account creato e il
@@ -75,8 +77,10 @@ def anon_client(tmp_path, monkeypatch):
     monkeypatch.setenv("APP_SECRET_KEY", base64.urlsafe_b64encode(os.urandom(32)).decode())
     crypto_module._fernet.cache_clear()
 
+    from app import login_limiter
     from app.main import app
 
+    login_limiter.reset()
     with TestClient(app) as test_client:
         yield test_client
 

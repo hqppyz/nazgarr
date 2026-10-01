@@ -33,7 +33,16 @@ class TorrentMetainfoError(Exception):
     — mai indovinare un nome sbagliato."""
 
 
-def _decode(data: bytes, i: int):
+# Un .torrent arriva da un tracker, cioè da chiunque ci abbia caricato
+# qualcosa: niente nidificazione infinita (un RecursionError fermava la run),
+# chiavi dei dizionari sempre stringhe di byte, lunghezze che non escono dal
+# file.
+MAX_DEPTH = 64
+
+
+def _decode(data: bytes, i: int, depth: int = 0):
+    if depth > MAX_DEPTH:
+        raise TorrentMetainfoError("Formato bencode non valido: nidificazione troppo profonda")
     c = data[i:i + 1]
     if c == b"i":
         end = data.index(b"e", i)
@@ -42,21 +51,25 @@ def _decode(data: bytes, i: int):
         i += 1
         result = []
         while data[i:i + 1] != b"e":
-            item, i = _decode(data, i)
+            item, i = _decode(data, i, depth + 1)
             result.append(item)
         return result, i + 1
     if c == b"d":
         i += 1
         result = {}
         while data[i:i + 1] != b"e":
-            key, i = _decode(data, i)
-            value, i = _decode(data, i)
+            key, i = _decode(data, i, depth + 1)
+            if not isinstance(key, bytes):
+                raise TorrentMetainfoError(f"Formato bencode non valido: chiave non stringa a offset {i}")
+            value, i = _decode(data, i, depth + 1)
             result[key] = value
         return result, i + 1
     if c.isdigit():
         colon = data.index(b":", i)
         length = int(data[i:colon])
         start = colon + 1
+        if length < 0 or start + length > len(data):
+            raise TorrentMetainfoError(f"Formato bencode non valido: stringa oltre la fine a offset {i}")
         return data[start:start + length], start + length
     raise TorrentMetainfoError(f"Formato bencode non valido a offset {i}")
 
@@ -64,7 +77,7 @@ def _decode(data: bytes, i: int):
 def decode(data: bytes):
     try:
         value, _ = _decode(data, 0)
-    except (IndexError, ValueError) as exc:
+    except (IndexError, ValueError, RecursionError, TypeError) as exc:
         raise TorrentMetainfoError("Impossibile decodificare il .torrent (bencode malformato)") from exc
     return value
 

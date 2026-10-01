@@ -91,13 +91,13 @@ class Tracker(Base):
     adapter_type: Mapped[str] = mapped_column(nullable=False)
     base_url: Mapped[str] = mapped_column(nullable=False)
     api_token: Mapped[str] = mapped_column(EncryptedString, nullable=False)
-    announce_url: Mapped[str | None]
+    announce_url: Mapped[str | None] = mapped_column(EncryptedString)  # contiene la passkey
     # Chiave dei link di download UNIT3D, vedi docs/schema.sql: appresa in
     # automatico dalle risposte dell'API, impostabile a mano ma non dovrebbe
     # servire. Mai restituita dall'API di configurazione.
     rss_key: Mapped[str | None] = mapped_column(EncryptedString)
     history_mode: Mapped[str] = mapped_column(nullable=False, server_default=text("'unsupported'"))
-    history_session_cookie: Mapped[str | None]
+    history_session_cookie: Mapped[str | None] = mapped_column(EncryptedString)
     rate_limit_per_min: Mapped[int | None] = mapped_column(server_default=text("30"))
     enabled: Mapped[bool] = mapped_column(nullable=False, server_default=text("1"))
     # Client in cui aggiungere i torrent di questo tracker (es. l'istanza per

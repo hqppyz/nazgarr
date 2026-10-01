@@ -40,7 +40,13 @@ def _list_files(abs_root: str) -> list[str]:
     if not os.path.isdir(abs_root):
         logger.warning("Percorso non raggiungibile, salto: %s", abs_root)
         return []
-    return [os.path.join(dirpath, name) for dirpath, _dirs, names in os.walk(abs_root) for name in names]
+    # I symlink no: un link in libreria verso un file qualsiasi dello stesso
+    # disco (il DB, una chiave) finirebbe hardlinkato nella cartella torrent
+    # e messo in seed. os.walk già non entra nelle cartelle-link.
+    return [
+        path for dirpath, _dirs, names in os.walk(abs_root) for name in names
+        if not os.path.islink(path := os.path.join(dirpath, name))
+    ]
 
 
 # stat + hash parziale in parallelo: operazioni di I/O indipendenti, che su

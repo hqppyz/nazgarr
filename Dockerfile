@@ -52,5 +52,9 @@ ENV NAZGARR_VERSION=${NAZGARR_VERSION} \
 
 EXPOSE 8080
 
+# /api/health non richiede il login. Python c'è già: niente curl da aggiungere.
+HEALTHCHECK --interval=60s --timeout=10s --start-period=60s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/api/health', timeout=5)"
+
 ENTRYPOINT ["docker/entrypoint.sh"]
 CMD ["supervisord", "-c", "docker/supervisord.conf"]

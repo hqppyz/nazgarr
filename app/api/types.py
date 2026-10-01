@@ -5,6 +5,8 @@ from urllib.parse import urlsplit
 
 from pydantic import AfterValidator
 
+from app import net_guard
+
 
 def _http_url(value: str) -> str:
     """Solo http(s) con un host: un URL salvato finisce nei link della UI, e
@@ -13,6 +15,7 @@ def _http_url(value: str) -> str:
     parts = urlsplit(value)
     if parts.scheme.lower() not in ("http", "https") or not parts.netloc:
         raise ValueError("must be an http(s) URL")
+    net_guard.check_url(value)  # mai i metadati del cloud o un link-local
     return value
 
 

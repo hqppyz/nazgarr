@@ -47,7 +47,7 @@ def list_exclusion_presets():
 _AUTH = re.compile(r"^auth_")
 # Impostazioni segrete (chiavi API, token, password): la UI dopo il login le
 # usa, una API key no (app/api_keys.py).
-_SECRET = re.compile(r"(api_key|token|password|secret)")
+_SECRET = settings_repo.SECRET_KEY
 
 
 # Le protezioni: la verifica prima di eseguire, il recheck del client,

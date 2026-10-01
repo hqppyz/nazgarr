@@ -95,6 +95,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/auth/logout-everywhere": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Logout Everywhere
+         * @description Esce da tutti i dispositivi: ogni token emesso finora smette di valere.
+         */
+        post: operations["logout_everywhere_api_auth_logout_everywhere_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/disks/available-mounts": {
         parameters: {
             query?: never;
@@ -4160,6 +4180,24 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
+            };
+        };
+    };
+    logout_everywhere_api_auth_logout_everywhere_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

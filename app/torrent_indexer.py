@@ -28,6 +28,7 @@ import logging
 import os
 from collections.abc import Callable
 from datetime import UTC, datetime
+from urllib.parse import urlsplit
 
 from sqlalchemy.orm import Session
 
@@ -45,6 +46,22 @@ from app.models import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def announce_origin(url: str | None) -> str | None:
+    """Dell'announce di un torrent serve solo l'host (a quale tracker
+    appartiene: app/tracker_scope.py): schema e host, senza percorso, che
+    contiene la passkey (/announce/<passkey>, ?passkey=...)."""
+    if not url:
+        return None
+    try:
+        parts = urlsplit(url)
+        port = f":{parts.port}" if parts.port else ""
+    except ValueError:
+        return None
+    if not parts.scheme or not parts.hostname:
+        return None
+    return f"{parts.scheme}://{parts.hostname}{port}"
 
 
 def _resolve_seed_file_id(
@@ -143,7 +160,7 @@ def store_client_torrents(
             "name": t.name,
             "save_path": t.save_path,
             "category": t.category,
-            "tracker_url": t.tracker_url,
+            "tracker_url": announce_origin(t.tracker_url),
             "state": t.state,
             "last_polled_at": now,
             "ratio": t.ratio,

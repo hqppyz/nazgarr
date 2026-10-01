@@ -71,3 +71,6 @@ def test_credentials_never_reach_the_error_messages_stored_in_the_db(db_session)
 
     db_session.refresh(job)
     assert "abcdef123456" not in job.error_message and "<redacted>" in job.error_message
+def test_a_service_url_pointing_at_the_cloud_metadata_is_refused(client):
+    body = {"label": "t", "adapter_type": "unit3d", "base_url": "http://169.254.169.254", "api_token": "x"}
+    assert client.post("/api/trackers", json=body).status_code == 422

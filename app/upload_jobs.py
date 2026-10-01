@@ -121,6 +121,15 @@ def _clean_forced_ids(forced_ids: dict | None) -> dict:
     return cleaned
 
 
+def _has_symlinks(source_path: str) -> bool:
+    if not os.path.isdir(source_path):
+        return False
+    for dirpath, dirnames, filenames in os.walk(source_path):
+        if any(os.path.islink(os.path.join(dirpath, n)) for n in (*dirnames, *filenames)):
+            return True
+    return False
+
+
 def create_job(
     session: Session,
     disk: Disk,
@@ -134,6 +143,9 @@ def create_job(
     per tracker. tracker_ids None = tutti i tracker con un profilo di upload.
     Il percorso passa sempre da resolve_scoped (ScopeViolation al chiamante)."""
     source_path = resolve_scoped(disk.root_path, relative_path)
+    if os.path.islink(os.path.join(disk.root_path, relative_path)) or _has_symlinks(source_path):
+        # Si pubblicherebbe (e si metterebbe in seed) il file a cui punta il link.
+        raise UploadJobError("upload_source_has_symlinks", path=relative_path)
     if not os.path.exists(source_path):
         raise UploadJobError("upload_source_not_found", path=relative_path)
     if source_path == os.path.realpath(disk.root_path):

@@ -135,3 +135,15 @@ def test_a_torrent_with_paths_that_leave_its_folder_is_refused(name, parts):
             b"files": [{b"length": 1, b"path": parts}]}
     with pytest.raises(TorrentMetainfoError, match="non sicura"):
         parse_torrent_info(_bencode({b"info": info}))
+
+
+@pytest.mark.parametrize("data", [
+    b"l" * 5000 + b"e" * 5000,           # nidificazione infinita
+    b"dli1eei2ee",                        # una lista come chiave
+    b"d4:name999:xe",                     # stringa più lunga del file
+    b"i12",                               # intero senza fine
+    b"",
+])
+def test_a_hostile_torrent_is_a_metainfo_error_never_a_crash(data):
+    with pytest.raises(TorrentMetainfoError):
+        decode(data)

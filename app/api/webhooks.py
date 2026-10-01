@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app import events, webhooks
+from app import events, net_guard, webhooks
 from app.api_errors import coded_detail
 from app.deps import get_session
 from app.models import EventDelivery, Webhook
@@ -83,6 +83,10 @@ def _url(url: str) -> str:
     url = url.strip()
     if not url.lower().startswith(("http://", "https://")):
         raise HTTPException(status_code=400, detail=coded_detail("webhook_url_invalid"))
+    try:
+        net_guard.check_url(url)  # mai i metadati del cloud o un link-local
+    except net_guard.ForbiddenDestination as exc:
+        raise HTTPException(status_code=400, detail=coded_detail("webhook_url_invalid")) from exc
     return url
 
 

@@ -197,3 +197,16 @@ def test_a_configured_rss_key_is_used_before_any_api_call():
     assert adapter.rewrite_download_link("https://tracker.example/torrent/download/9.old") == (
         "https://tracker.example/torrent/download/9.manualkey"
     )
+
+
+def test_a_download_link_to_another_host_is_not_followed():
+    seen = []
+    adapter = _adapter(lambda r: (seen.append(r), httpx.Response(200, content=b"d4:infod4:name1:xee"))[1])
+
+    with pytest.raises(UploadError, match="outside the tracker"):
+        adapter.download_torrent("http://169.254.169.254/latest/meta-data/")
+    with pytest.raises(UploadError, match="outside the tracker"):
+        adapter.download_torrent("https://evil.example/torrent/download/1.x")
+    assert seen == []
+    # Un sottodominio del tracker va bene (CDN dei download).
+    assert adapter.download_torrent("https://dl.tracker.example/torrent/download/1.x")

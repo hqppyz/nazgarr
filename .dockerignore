@@ -12,3 +12,13 @@ data/
 
 frontend/node_modules
 frontend/dist
+
+# Mai nell'immagine: dati e configurazione locali, appunti privati non
+# versionati (una build locale manda tutta la cartella come contesto).
+config/
+config.yaml
+**/*.db
+**/*.db-*
+docs/ROADMAP.md
+CLAUDE.md
+examples/

@@ -188,3 +188,18 @@ def test_an_upload_that_finishes_emits_upload_finished(db_session):
     assert (name, data["status"], data["title"]) == ("upload.finished", "done", "Movie")
     assert data["targets"] == [{"tracker": "ITT", "action": "upload", "status": "done", "torrent_id_remote": "42",
                                 "error": None}]
+
+
+def test_a_webhook_to_the_cloud_metadata_is_refused(client):
+    body = {"name": "x", "url": "http://169.254.169.254/latest", "events": ["*"]}
+    assert client.post("/api/webhooks", json=body).status_code == 400
+
+
+def test_a_webhook_never_stores_the_response_body(db_session):
+    _webhook(db_session, names=["run.finished"], url="http://192.168.1.20/hook")
+    events.store(db_session, "run.finished", {"run_id": 1})
+    db_session.commit()
+    secret_page = httpx.Response(500, text="internal admin page: password=hunter2")
+    webhooks.deliver_due(db_session, _transport([secret_page], []))
+    delivery = db_session.query(EventDelivery).one()
+    assert delivery.last_status_code == 500 and "hunter2" not in delivery.last_error

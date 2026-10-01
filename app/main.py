@@ -1,4 +1,5 @@
 import logging
+import os
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
@@ -44,6 +45,8 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = load_settings()
+    # Anche fuori dal container: DB, log e .torrent solo per questo utente.
+    os.umask(0o077)
     add_file_handler(Path(settings.data_dir) / "logs")
     # Prima di tutto il resto: gli adapter dei plugin servono già allo startup.
     plugin_loader.load(settings.data_dir)
@@ -55,6 +58,7 @@ async def lifespan(app: FastAPI):
     db.migrate_legacy_upload_job(engine)
     db.apply_schema(engine)
     db.migrate_schema(engine)
+    db.encrypt_plaintext_secrets(engine)
     session_factory = db.make_session_factory(engine)
     with session_factory() as session:
         startup_checks.verify_secret_key(session)

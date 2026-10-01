@@ -445,6 +445,52 @@ def migrate_schema(engine: Engine) -> None:
                 conn.execute(text(f'ALTER TABLE "{table.name}" ADD COLUMN "{column.name}" {col_type}'))
 
 
+# Colonne diventate cifrate (EncryptedString) dopo che c'erano già dati.
+_NOW_ENCRYPTED = (("tracker", "announce_url"), ("tracker", "history_session_cookie"))
+
+
+def encrypt_plaintext_secrets(engine: Engine) -> int:
+    """All'avvio, una volta: cifra i segreti che erano in chiaro nel DB (la
+    passkey negli announce, il cookie dello storico, le chiavi API nelle
+    impostazioni) e toglie la passkey dagli announce dei torrent dei client,
+    di cui serve solo l'host. Idempotente: un valore già cifrato non si tocca.
+    Restituisce quanti valori ha cambiato."""
+    from app import crypto, settings_repo
+    from app.torrent_indexer import announce_origin
+
+    changed = 0
+    inspector = inspect(engine)
+    with engine.begin() as conn:
+        for table, column in _NOW_ENCRYPTED:
+            if not inspector.has_table(table):
+                continue
+            query = text(f'SELECT id, "{column}" FROM "{table}" WHERE "{column}" IS NOT NULL')
+            for row_id, value in conn.execute(query):
+                try:
+                    crypto.decrypt(value)
+                    continue  # già cifrato
+                except ValueError:
+                    pass
+                conn.execute(text(f'UPDATE "{table}" SET "{column}" = :v WHERE id = :id'),
+                             {"v": crypto.encrypt(value), "id": row_id})
+                changed += 1
+        if inspector.has_table("app_settings"):
+            for key, value in conn.execute(text("SELECT key, value FROM app_settings")):
+                stored = settings_repo.encode(key, value)
+                if stored != value:
+                    conn.execute(text("UPDATE app_settings SET value = :v WHERE key = :k"), {"v": stored, "k": key})
+                    changed += 1
+        if inspector.has_table("client_torrent"):
+            query = text("SELECT id, tracker_url FROM client_torrent WHERE tracker_url IS NOT NULL")
+            for row_id, url in conn.execute(query):
+                origin = announce_origin(url)
+                if origin != url:
+                    conn.execute(text("UPDATE client_torrent SET tracker_url = :v WHERE id = :id"),
+                                 {"v": origin, "id": row_id})
+                    changed += 1
+    return changed
+
+
 def make_session_factory(engine: Engine) -> sessionmaker:
     from app import events, redaction  # noqa: F401  (hook di eventi e redazione: app/events.py, app/redaction.py)
 

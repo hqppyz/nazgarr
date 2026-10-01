@@ -351,11 +351,24 @@ class Unit3dTrackerAdapter(TrackerAdapter):
             return url
         return parts._replace(path=self._DOWNLOAD_KEY_RE.sub(rf"\g<1>{self.rss_key}", parts.path)).geturl()
 
+    MAX_TORRENT_BYTES = 20 * 1024 * 1024
+
     def download_torrent(self, url: str) -> bytes:
         # Il download_link di UNIT3D è già autenticato (passkey nell'URL):
         # nessun header Bearer, il token API non deve seguire un URL che
-        # potrebbe anche puntare fuori da base_url.
-        return self._get(url, authenticated=False).content
+        # potrebbe anche puntare fuori da base_url. E un link che punta a un
+        # altro host non si segue affatto: arriva dal tracker (o da chi ci ha
+        # caricato un torrent), e farebbe chiamare al server indirizzi interni.
+        tracker_host = host_of_url(self.base_url)
+        link_host = host_of_url(urljoin(self.base_url + "/", url))
+        if not link_host or not tracker_host or not (
+            link_host == tracker_host or link_host.endswith("." + tracker_host)
+        ):
+            raise UploadError(f"Download link outside the tracker ({link_host}): not followed")
+        content = self._get(url, authenticated=False).content
+        if len(content) > self.MAX_TORRENT_BYTES:
+            raise UploadError("The tracker sent a .torrent bigger than 20 MB: not used")
+        return content
 
     def _retry_wait_seconds(self, response: httpx.Response, attempt: int) -> float:
         header = response.headers.get("Retry-After")

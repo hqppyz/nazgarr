@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app import auth, settings_repo
+from app import auth, login_limiter, settings_repo
 from app.api_errors import coded_detail
 from app.deps import get_session
 
@@ -51,6 +51,22 @@ def auth_status(session: Session = Depends(get_session)):
     return AuthStatusResponse(configured=auth.is_auth_configured(session))
 
 
+def _client_key(request: Request) -> str:
+    return request.client.host if request.client else "unknown"
+
+
+def _check_limit(request: Request) -> None:
+    wait = login_limiter.retry_after(_client_key(request))
+    if wait is not None:
+        raise HTTPException(status_code=429, detail=coded_detail("auth_too_many_attempts", seconds=wait),
+                            headers={"Retry-After": str(wait)})
+
+
+def _failed(request: Request, status_code: int, code: str) -> HTTPException:
+    login_limiter.failed(_client_key(request))
+    return HTTPException(status_code=status_code, detail=coded_detail(code))
+
+
 _setup_lock = threading.Lock()
 # Per verificare comunque una password quando l'account non c'è.
 _DUMMY_HASH = auth.hash_password("nazgarr-no-account")
@@ -62,12 +78,13 @@ def setup(body: SetupRequest, request: Request, session: Session = Depends(get_s
     esiste già uno, e solo con il codice monouso scritto nel log del
     container all'avvio (app.state.setup_code). Cambiare le credenziali dopo
     passa sempre da /change-password, protetto dalla password attuale."""
+    _check_limit(request)
     with _setup_lock:  # due setup insieme: uno solo vince
         if auth.is_auth_configured(session):
             raise HTTPException(status_code=409, detail=coded_detail("auth_already_configured"))
         expected = getattr(request.app.state, "setup_code", None)
         if not expected or not hmac.compare_digest(body.setup_code.strip(), expected):
-            raise HTTPException(status_code=403, detail=coded_detail("auth_setup_code_invalid"))
+            raise _failed(request, 403, "auth_setup_code_invalid")
         if not body.username.strip():
             raise HTTPException(status_code=400, detail=coded_detail("auth_username_required"))
         if len(body.password) < 8:
@@ -75,11 +92,13 @@ def setup(body: SetupRequest, request: Request, session: Session = Depends(get_s
         settings_repo.set_setting(session, "auth_username", body.username.strip())
         settings_repo.set_setting(session, "auth_password_hash", auth.hash_password(body.password))
         request.app.state.setup_code = None
-    return TokenResponse(access_token=auth.create_access_token(body.username.strip()), username=body.username.strip())
+    token = auth.create_access_token(body.username.strip(), auth.token_version(session))
+    return TokenResponse(access_token=token, username=body.username.strip())
 
 
 @router.post("/login", response_model=TokenResponse)
-def login(body: LoginRequest, session: Session = Depends(get_session)):
+def login(body: LoginRequest, request: Request, session: Session = Depends(get_session)):
+    _check_limit(request)
     stored_username = settings_repo.get_setting(session, "auth_username")
     stored_hash = settings_repo.get_setting(session, "auth_password_hash")
     # La password si verifica sempre, anche con un nome sbagliato: lo stesso
@@ -87,8 +106,10 @@ def login(body: LoginRequest, session: Session = Depends(get_session)):
     password_ok = auth.verify_password(body.password, stored_hash or _DUMMY_HASH)
     username_ok = bool(stored_username) and hmac.compare_digest(body.username.encode(), stored_username.encode())
     if not (stored_hash and username_ok and password_ok):
-        raise HTTPException(status_code=401, detail=coded_detail("auth_invalid_credentials"))
-    return TokenResponse(access_token=auth.create_access_token(stored_username), username=stored_username)
+        raise _failed(request, 401, "auth_invalid_credentials")
+    login_limiter.succeeded(_client_key(request))
+    token = auth.create_access_token(stored_username, auth.token_version(session))
+    return TokenResponse(access_token=token, username=stored_username)
 
 
 @router.get("/me", response_model=MeResponse)
@@ -101,11 +122,22 @@ def me(request: Request, session: Session = Depends(get_session)):
 
 @router.post("/change-password", status_code=204)
 def change_password(
-    body: ChangePasswordRequest, session: Session = Depends(get_session), _: str | None = Depends(auth.require_auth)
+    body: ChangePasswordRequest, request: Request, session: Session = Depends(get_session),
+    _: str | None = Depends(auth.require_auth),
 ):
+    _check_limit(request)
     stored_hash = settings_repo.get_setting(session, "auth_password_hash")
     if not stored_hash or not auth.verify_password(body.current_password, stored_hash):
-        raise HTTPException(status_code=401, detail=coded_detail("auth_wrong_current_password"))
+        raise _failed(request, 401, "auth_wrong_current_password")
     if len(body.new_password) < 8:
         raise HTTPException(status_code=400, detail=coded_detail("auth_password_too_short"))
     settings_repo.set_setting(session, "auth_password_hash", auth.hash_password(body.new_password))
+    # Ogni sessione aperta con la password vecchia smette di valere: chi
+    # l'aveva rubata resta fuori. Il frontend rifà il login.
+    auth.revoke_all_tokens(session)
+
+
+@router.post("/logout-everywhere", status_code=204)
+def logout_everywhere(session: Session = Depends(get_session), _: str | None = Depends(auth.require_auth)):
+    """Esce da tutti i dispositivi: ogni token emesso finora smette di valere."""
+    auth.revoke_all_tokens(session)
