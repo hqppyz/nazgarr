@@ -98,3 +98,18 @@ def test_change_password(anon_client):
     assert anon_client.post("/api/auth/change-password", json=right, headers=headers).status_code == 204
     new = {"username": "admin", "password": "newsecret123"}
     assert anon_client.post("/api/auth/login", json=new).status_code == 200
+
+
+def test_changing_the_password_or_logging_out_everywhere_revokes_every_token(anon_client):
+    old = _setup(anon_client).json()["access_token"]
+    assert anon_client.get("/api/disks", headers=_bearer(old)).status_code == 200
+
+    change = {"current_password": "supersecret1", "new_password": "newsecret123"}
+    assert anon_client.post("/api/auth/change-password", json=change, headers=_bearer(old)).status_code == 204
+    assert anon_client.get("/api/disks", headers=_bearer(old)).status_code == 401  # la sessione rubata è fuori
+
+    new = anon_client.post("/api/auth/login", json={"username": "admin", "password": "newsecret123"}).json()
+    token = new["access_token"]
+    assert anon_client.get("/api/disks", headers=_bearer(token)).status_code == 200
+    assert anon_client.post("/api/auth/logout-everywhere", headers=_bearer(token)).status_code == 204
+    assert anon_client.get("/api/disks", headers=_bearer(token)).status_code == 401

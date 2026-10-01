@@ -43,9 +43,28 @@ export function useLogin() {
   })
 }
 
+// Cambiare la password revoca ogni token (anche questo): si rientra subito
+// con quella nuova, così chi la cambia non viene buttato fuori.
 export function useChangePassword() {
+  const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (body: Schemas['ChangePasswordRequest']) => unwrap(api.POST('/api/auth/change-password', { body })),
+    mutationFn: async ({ username, ...body }: Schemas['ChangePasswordRequest'] & { username: string }) => {
+      await unwrap(api.POST('/api/auth/change-password', { body }))
+      return unwrap(api.POST('/api/auth/login', { body: { username, password: body.new_password } }))
+    },
+    onSuccess: (data) => {
+      setToken(data.access_token)
+      queryClient.invalidateQueries({ queryKey: ['auth'] })
+    },
+  })
+}
+
+// Esce da tutti i dispositivi, questo compreso.
+export function useLogoutEverywhere() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => unwrap(api.POST('/api/auth/logout-everywhere')),
+    onSuccess: () => logout(queryClient),
   })
 }
 

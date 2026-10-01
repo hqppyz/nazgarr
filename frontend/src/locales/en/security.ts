@@ -9,4 +9,9 @@ export const security = {
   'security.passwordChanged': 'Password changed.',
   'security.twoFactorTitle': 'Two-factor authentication',
   'security.twoFactorDescription': 'Not available yet — planned for a future release.',
+  'security.changePasswordRevokes': 'Every other session is logged out: devices still logged in with the old password must log in again.',
+  'security.sessionsTitle': 'Sessions',
+  'security.sessionsDescription':
+    'A login lasts 30 days on each device. If you think someone else is logged in, log out everywhere: every device, this one included, must log in again.',
+  'security.logoutEverywhere': 'Log out everywhere',
 } as const

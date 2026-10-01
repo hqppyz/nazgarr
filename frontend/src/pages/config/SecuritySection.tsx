@@ -1,11 +1,12 @@
 import { useState } from 'react'
 import { toast } from 'sonner'
 
-import { useChangePassword } from '@/api/hooks/auth'
+import { useChangePassword, useLogoutEverywhere } from '@/api/hooks/auth'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { useAuth } from '@/contexts/AuthContext'
 import { t } from '@/lib/i18n'
 
 export function SecuritySection() {
@@ -13,12 +14,14 @@ export function SecuritySection() {
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const changePassword = useChangePassword()
+  const logoutEverywhere = useLogoutEverywhere()
+  const { username } = useAuth()
 
   const mismatch = newPassword.length > 0 && confirmPassword.length > 0 && newPassword !== confirmPassword
 
   function submit() {
     changePassword.mutate(
-      { current_password: currentPassword, new_password: newPassword },
+      { current_password: currentPassword, new_password: newPassword, username: username ?? '' },
       {
         onSuccess: () => {
           toast.success(t('security.passwordChanged'))
@@ -72,6 +75,19 @@ export function SecuritySection() {
               {t('security.changePassword')}
             </Button>
           </div>
+          <p className="text-xs text-muted-foreground">{t('security.changePasswordRevokes')}</p>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>{t('security.sessionsTitle')}</CardTitle>
+          <CardDescription>{t('security.sessionsDescription')}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button variant="outline" disabled={logoutEverywhere.isPending} onClick={() => logoutEverywhere.mutate()}>
+            {t('security.logoutEverywhere')}
+          </Button>
         </CardContent>
       </Card>
 

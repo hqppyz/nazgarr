@@ -75,7 +75,8 @@ def setup(body: SetupRequest, request: Request, session: Session = Depends(get_s
         settings_repo.set_setting(session, "auth_username", body.username.strip())
         settings_repo.set_setting(session, "auth_password_hash", auth.hash_password(body.password))
         request.app.state.setup_code = None
-    return TokenResponse(access_token=auth.create_access_token(body.username.strip()), username=body.username.strip())
+    token = auth.create_access_token(body.username.strip(), auth.token_version(session))
+    return TokenResponse(access_token=token, username=body.username.strip())
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -88,7 +89,8 @@ def login(body: LoginRequest, session: Session = Depends(get_session)):
     username_ok = bool(stored_username) and hmac.compare_digest(body.username.encode(), stored_username.encode())
     if not (stored_hash and username_ok and password_ok):
         raise HTTPException(status_code=401, detail=coded_detail("auth_invalid_credentials"))
-    return TokenResponse(access_token=auth.create_access_token(stored_username), username=stored_username)
+    token = auth.create_access_token(stored_username, auth.token_version(session))
+    return TokenResponse(access_token=token, username=stored_username)
 
 
 @router.get("/me", response_model=MeResponse)
@@ -109,3 +111,12 @@ def change_password(
     if len(body.new_password) < 8:
         raise HTTPException(status_code=400, detail=coded_detail("auth_password_too_short"))
     settings_repo.set_setting(session, "auth_password_hash", auth.hash_password(body.new_password))
+    # Ogni sessione aperta con la password vecchia smette di valere: chi
+    # l'aveva rubata resta fuori. Il frontend rifà il login.
+    auth.revoke_all_tokens(session)
+
+
+@router.post("/logout-everywhere", status_code=204)
+def logout_everywhere(session: Session = Depends(get_session), _: str | None = Depends(auth.require_auth)):
+    """Esce da tutti i dispositivi: ogni token emesso finora smette di valere."""
+    auth.revoke_all_tokens(session)

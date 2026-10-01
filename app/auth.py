@@ -60,17 +60,36 @@ def is_auth_configured(session: Session) -> bool:
     )
 
 
-def create_access_token(username: str) -> str:
-    payload = {"sub": username, "exp": int(time.time()) + _TOKEN_TTL_SECONDS}
+# Versione dei token: è nel token ("ver") e nel DB. Cambiare la password o
+# "esci da tutti i dispositivi" la alza, e ogni token emesso prima smette di
+# valere subito, invece di restare buono fino alla scadenza (30 giorni).
+_TOKEN_VERSION_KEY = "auth_token_version"
+
+
+def token_version(session: Session) -> str:
+    return settings_repo.get_setting(session, _TOKEN_VERSION_KEY) or "1"
+
+
+def revoke_all_tokens(session: Session) -> None:
+    current = int(token_version(session)) if token_version(session).isdigit() else 1
+    settings_repo.set_setting(session, _TOKEN_VERSION_KEY, str(current + 1))
+
+
+def create_access_token(username: str, version: str = "1") -> str:
+    payload = {"sub": username, "ver": version, "exp": int(time.time()) + _TOKEN_TTL_SECONDS}
     return jwt.encode(payload, _jwt_secret(), algorithm="HS256")
 
 
-def decode_access_token(token: str) -> str | None:
+def decode_access_claims(token: str) -> dict | None:
     try:
-        payload = jwt.decode(token, _jwt_secret(), algorithms=["HS256"])
+        return jwt.decode(token, _jwt_secret(), algorithms=["HS256"])
     except jwt.PyJWTError:
         return None
-    return payload.get("sub")
+
+
+def decode_access_token(token: str) -> str | None:
+    claims = decode_access_claims(token)
+    return claims.get("sub") if claims else None
 
 
 def authenticated_username(request: Request, session: Session) -> str | None:
@@ -80,9 +99,13 @@ def authenticated_username(request: Request, session: Session) -> str | None:
     auth_header = request.headers.get("Authorization", "")
     if not auth_header.startswith("Bearer "):
         return None
-    username = decode_access_token(auth_header.removeprefix("Bearer "))
+    claims = decode_access_claims(auth_header.removeprefix("Bearer ")) or {}
+    username = claims.get("sub")
     stored_username = settings_repo.get_setting(session, "auth_username")
     if username is None or stored_username is None or username != stored_username:
+        return None
+    # I token di prima di questa versione non hanno "ver": valgono come "1".
+    if str(claims.get("ver", "1")) != token_version(session):
         return None
     return username
 
