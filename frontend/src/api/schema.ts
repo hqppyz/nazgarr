@@ -2853,6 +2853,7 @@ export interface components {
              */
             excluded: boolean;
             source?: components["schemas"]["TorrentSource"] | null;
+            seed_requirement: components["schemas"]["SeedRequirement"];
         };
         /** NotImportedResponse */
         NotImportedResponse: {
@@ -3225,6 +3226,31 @@ export interface components {
             /** Torrent Added At */
             torrent_added_at?: string | null;
         };
+        /** SeedRequirement */
+        SeedRequirement: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "unknown_tracker" | "no_rules" | "met" | "pending" | "unknown";
+            /** Tracker Id */
+            tracker_id?: number | null;
+            /** Tracker Label */
+            tracker_label?: string | null;
+            /** Min Seed Time Seconds */
+            min_seed_time_seconds?: number | null;
+            /** Min Ratio */
+            min_ratio?: number | null;
+            /** Rule */
+            rule?: string | null;
+            /**
+             * Remaining
+             * @default {}
+             */
+            remaining: {
+                [key: string]: number;
+            };
+        };
         /** SettingResponse */
         SettingResponse: {
             /** Key */
@@ -3526,6 +3552,12 @@ export interface components {
             torrent_client_id?: number | null;
             /** Language */
             language?: string | null;
+            /** Min Seed Time Seconds */
+            min_seed_time_seconds?: number | null;
+            /** Min Ratio */
+            min_ratio?: number | null;
+            /** Seed Rule */
+            seed_rule?: ("any" | "all") | null;
             /** Config */
             config?: {
                 [key: string]: unknown;
@@ -3559,6 +3591,15 @@ export interface components {
             torrent_client_id?: number | null;
             /** Language */
             language?: string | null;
+            /** Min Seed Time Seconds */
+            min_seed_time_seconds?: number | null;
+            /** Min Ratio */
+            min_ratio?: number | null;
+            /**
+             * Seed Rule
+             * @default any
+             */
+            seed_rule: string;
             /**
              * Config
              * @default {}
@@ -3588,6 +3629,12 @@ export interface components {
             torrent_client_id?: number | null;
             /** Language */
             language?: string | null;
+            /** Min Seed Time Seconds */
+            min_seed_time_seconds?: number | null;
+            /** Min Ratio */
+            min_ratio?: number | null;
+            /** Seed Rule */
+            seed_rule?: ("any" | "all") | null;
             /** Config */
             config?: {
                 [key: string]: unknown;

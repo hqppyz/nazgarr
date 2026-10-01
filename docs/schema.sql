@@ -63,6 +63,12 @@ CREATE TABLE IF NOT EXISTS tracker (
     language                TEXT,
         -- ISO 639-1 (e.g. 'it'): the tracker's language, for upload names (localized title, that
         -- language first among the audio tracks, how subtitles are written). Null = none.
+    min_seed_time_seconds   INTEGER,
+    min_ratio               REAL,
+    seed_rule               TEXT,
+        -- the tracker's seeding requirement (hit and run), both optional: a torrent that met it can
+        -- be removed safely (app/seed_requirements.py). seed_rule 'all' = both required when both are
+        -- set; null or 'any' = either one is enough.
     adapter_config_json     TEXT
         -- encrypted at rest: the values of the fields a plugin adapter declares
         -- (app/plugins/config.py). Built-in adapters use the columns above.

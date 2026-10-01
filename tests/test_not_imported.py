@@ -145,3 +145,23 @@ def test_a_skipped_scan_is_reported_until_the_next_computation(db_session, tmp_p
 
     not_imported.classify_not_imported(db_session, index)
     assert list_not_imported(session=db_session).skipped_reason is None
+
+
+def test_api_says_whether_the_tracker_seeding_requirement_is_met(db_session, tmp_path):
+    from app.api.torrents import list_not_imported
+    from app.models import Tracker
+
+    index = _setup(db_session, tmp_path)
+    db_session.add(Tracker(label="T", adapter_type="unit3d", base_url="https://t.example", api_token="x",
+                           min_seed_time_seconds=7 * 86400, min_ratio=1.0, seed_rule="all"))
+    rows = {t.info_hash: t for t in db_session.query(ClientTorrent).all()}
+    rows["h-old"].tracker_url, rows["h-old"].seeding_time_seconds = "https://t.example", 8 * 86400
+    rows["h-name"].tracker_url, rows["h-name"].seeding_time_seconds = "https://www.t.example", 86400
+    db_session.commit()
+    not_imported.classify_not_imported(db_session, index)
+
+    body = {t.info_hash: t.seed_requirement for t in list_not_imported(session=db_session).torrents}
+
+    assert body["h-old"].status == "met" and body["h-old"].tracker_label == "T"
+    assert body["h-name"].status == "pending" and body["h-name"].remaining == {"seed_time_seconds": 6 * 86400}
+    assert body["h-random"].status == "unknown_tracker"

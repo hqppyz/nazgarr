@@ -104,6 +104,9 @@ class Tracker(Base):
     # i tracker privati); None = il primo client abilitato.
     torrent_client_id: Mapped[int | None]
     language: Mapped[str | None]
+    min_seed_time_seconds: Mapped[int | None]
+    min_ratio: Mapped[float | None]
+    seed_rule: Mapped[str | None]  # "all" | "any" (None = "any"), app/seed_requirements.py
     adapter_config_json: Mapped[str | None] = mapped_column(EncryptedString)
 
 

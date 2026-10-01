@@ -58,3 +58,20 @@ def test_tracker_icon_and_upload_profile_summary(client, monkeypatch, tmp_path):
     icon.write_bytes(b"\\x89PNG")
     monkeypatch.setattr(trackers_api.tracker_icons, "fetch_icon", lambda data_dir, tid, base_url: str(icon))
     assert client.get(f"/api/trackers/{tracker_id}/icon").status_code == 200
+
+
+def test_the_seeding_requirement_is_optional_and_editable(client):
+    created = client.post("/api/trackers", json={
+        "label": "ITT", "adapter_type": "unit3d", "base_url": "https://t.example", "api_token": "x",
+    }).json()
+    assert (created["min_seed_time_seconds"], created["min_ratio"], created["seed_rule"]) == (None, None, "any")
+
+    url = f"/api/trackers/{created['id']}"
+    set_ = client.patch(url, json={"min_seed_time_seconds": 259200, "min_ratio": 1.0, "seed_rule": "all"}).json()
+    assert (set_["min_seed_time_seconds"], set_["min_ratio"], set_["seed_rule"]) == (259200, 1.0, "all")
+    kept = client.patch(url, json={"label": "ITT 2"}).json()
+    assert kept["min_ratio"] == 1.0
+    cleared = client.patch(url, json={"min_ratio": None}).json()
+    assert (cleared["min_ratio"], cleared["min_seed_time_seconds"]) == (None, 259200)
+    assert client.patch(url, json={"min_ratio": -1}).status_code == 422
+    assert client.patch(url, json={"seed_rule": "maybe"}).status_code == 422

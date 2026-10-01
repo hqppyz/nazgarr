@@ -68,4 +68,15 @@ export const trackers = {
   'trackers.defaultAnonymous': 'Anonymous by default',
   'trackers.defaultPersonalRelease': 'Personal release by default',
   'trackers.deleteProfile': 'Delete profile',
+  'trackers.seedRequirement.column': 'Min. seeding',
+  'trackers.seedRequirement.help':
+    "The tracker's seeding requirement (hit and run), both optional: minimum seed time and minimum ratio. The Not imported view uses it to tell which old torrents can be removed safely.",
+  'trackers.seedRequirement.seedTime': 'Minimum seed time',
+  'trackers.seedRequirement.ratio': 'Minimum ratio',
+  'trackers.seedRequirement.ratioLabel': 'ratio',
+  'trackers.seedRequirement.hours': 'hours',
+  'trackers.seedRequirement.days': 'days',
+  'trackers.seedRequirement.rule': 'Which one is needed',
+  'trackers.seedRequirement.any': 'Either one',
+  'trackers.seedRequirement.all': 'Both',
 } as const

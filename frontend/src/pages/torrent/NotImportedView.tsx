@@ -1,4 +1,4 @@
-import { ArrowRightIcon, EyeOffIcon, Loader2Icon, RefreshCwIcon, SearchIcon, UploadIcon } from 'lucide-react'
+import { ArrowRightIcon, CircleCheckIcon, EyeOffIcon, Loader2Icon, RefreshCwIcon, SearchIcon, UploadIcon } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
@@ -36,6 +36,49 @@ function formatSeedTime(seconds: number | null | undefined): string {
   return t('notImported.hours', { count: Math.max(1, Math.floor(seconds / 3600)) })
 }
 
+// Se il torrent ha già dato quello che il suo tracker chiede (seedtime e/o
+// ratio, impostati sul tracker: app/seed_requirements.py) e si può togliere.
+function SeedRequirementCell({ requirement }: { requirement: Torrent['seed_requirement'] }) {
+  const { status, remaining, tracker_label: tracker } = requirement
+  const rule = [
+    requirement.min_seed_time_seconds != null && formatSeedTime(requirement.min_seed_time_seconds),
+    requirement.min_ratio != null && t('notImported.removable.ratio', { ratio: requirement.min_ratio }),
+  ].filter(Boolean).join(requirement.rule === 'all' ? ` ${t('notImported.removable.and')} ` : ` ${t('notImported.removable.or')} `)
+  if (status === 'met') {
+    return (
+      <Badge
+        variant="outline"
+        title={t('notImported.removable.metHelp', { tracker: tracker ?? '', rule })}
+        className="h-auto gap-1 border-emerald-500/40 bg-emerald-500/10 py-0 text-[length:var(--text-xxs)] leading-4 text-emerald-700 dark:text-emerald-300"
+      >
+        <CircleCheckIcon className="size-3" />
+        {t('notImported.removable.met')}
+      </Badge>
+    )
+  }
+  if (status === 'pending') {
+    const left = [
+      remaining.seed_time_seconds != null && formatSeedTime(remaining.seed_time_seconds),
+      remaining.ratio != null && t('notImported.removable.ratioLeft', { ratio: remaining.ratio.toFixed(2) }),
+    ].filter(Boolean).join(' · ')
+    return (
+      <span
+        className="font-mono text-xs text-amber-600 tabular-nums dark:text-amber-400"
+        title={t('notImported.removable.pendingHelp', { tracker: tracker ?? '', rule })}
+      >
+        {t('notImported.removable.left', { left })}
+      </span>
+    )
+  }
+  const help =
+    status === 'unknown'
+      ? t('notImported.removable.unknownHelp', { tracker: tracker ?? '' })
+      : status === 'no_rules'
+        ? t('notImported.removable.noRulesHelp', { tracker: tracker ?? '' })
+        : t('notImported.removable.unknownTrackerHelp')
+  return <span className="text-xs text-muted-foreground" title={help}>{status === 'unknown' ? '?' : '—'}</span>
+}
+
 function contentLabel(torrent: Torrent): string | null {
   if (!torrent.title) return null
   const base = torrent.year ? `${torrent.title} (${torrent.year})` : torrent.title
@@ -67,6 +110,7 @@ export function NotImportedView() {
   const refresh = useRefreshNotImported()
   const [category, setCategory] = useState('all')
   const [showExcluded, setShowExcluded] = useState(false)
+  const [onlyRemovable, setOnlyRemovable] = useState(false)
   const [search, setSearch] = useState('')
   const [openItem, setOpenItem] = useState<OpenItem | null>(null)
 
@@ -86,9 +130,13 @@ export function NotImportedView() {
       (tor) =>
         (showExcluded || !tor.excluded) &&
         (category === 'all' || tor.category === category) &&
+        (!onlyRemovable || tor.seed_requirement.status === 'met') &&
         (!query || tor.name.toLowerCase().includes(query) || (contentLabel(tor) ?? '').toLowerCase().includes(query)),
     )
-  }, [data, category, search, showExcluded])
+  }, [data, category, search, showExcluded, onlyRemovable])
+  const removableCount = (data?.torrents ?? []).filter(
+    (tor) => (showExcluded || !tor.excluded) && tor.seed_requirement.status === 'met',
+  ).length
 
   if (isPending) return <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
 
@@ -136,6 +184,16 @@ export function NotImportedView() {
           <EyeOffIcon />
           {t('library.showExcluded')} {data?.excluded_count ? `(${data.excluded_count})` : ''}
         </Toggle>
+        <Toggle
+          variant="outline"
+          size="sm"
+          pressed={onlyRemovable}
+          onPressedChange={setOnlyRemovable}
+          title={t('notImported.removable.filterHelp')}
+        >
+          <CircleCheckIcon />
+          {t('notImported.removable.filter')} ({removableCount})
+        </Toggle>
       </div>
       <Card className="py-0">
         <CardContent className="p-0">
@@ -153,6 +211,9 @@ export function NotImportedView() {
                   <TableHead className="w-24 text-right">{t('notImported.size')}</TableHead>
                   <TableHead className="w-16 text-right">{t('notImported.ratio')}</TableHead>
                   <TableHead className="w-24 text-right">{t('notImported.seeding')}</TableHead>
+                  <TableHead className="w-28 text-right" title={t('notImported.removable.columnHelp')}>
+                    {t('notImported.removable.column')}
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -217,6 +278,9 @@ export function NotImportedView() {
                       </TableCell>
                       <TableCell className="text-right font-mono text-xs tabular-nums">
                         {formatSeedTime(tor.seeding_time_seconds)}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <SeedRequirementCell requirement={tor.seed_requirement} />
                       </TableCell>
                     </TableRow>
                     </RowContextMenu>

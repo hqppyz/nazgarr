@@ -2,10 +2,11 @@
 loro profilo di upload opzionale 1:1 (docs/SPEC.md sezione 9, Fase 6)."""
 
 import json
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session, object_session
 
 from app import tracker_icons, upload_decision, upload_profiles
@@ -33,6 +34,10 @@ class TrackerCreateRequest(BaseModel):
     rss_key: str | None = None  # facoltativa: appresa in automatico dall'API
     torrent_client_id: int | None = None  # client per i reseed di questo tracker, None = il primo abilitato
     language: str | None = None  # ISO 639-1, es. "it": per i nomi degli upload (app/upload_naming.py)
+    # Requisito di seed (hit and run), facoltativo: app/seed_requirements.py.
+    min_seed_time_seconds: int | None = Field(default=None, ge=0)
+    min_ratio: float | None = Field(default=None, ge=0)
+    seed_rule: Literal["any", "all"] | None = None
     config: dict | None = None  # campi di un adapter di un plugin (GET /api/plugins)
 
 
@@ -46,6 +51,9 @@ class TrackerUpdateRequest(BaseModel):
     rss_key: str | None = None  # "" la cancella (torna al solo recupero automatico)
     torrent_client_id: int | None = None  # esplicitamente null = torna al primo client abilitato
     language: str | None = None  # esplicitamente null o "" = nessuna lingua
+    min_seed_time_seconds: int | None = Field(default=None, ge=0)  # esplicitamente null = nessun minimo
+    min_ratio: float | None = Field(default=None, ge=0)
+    seed_rule: Literal["any", "all"] | None = None
     config: dict | None = None  # campi di un adapter di un plugin; un segreto null resta com'era
 
 
@@ -69,6 +77,9 @@ class TrackerResponse(BaseModel):
     has_rss_key: bool = False  # mai la chiave stessa, solo se ce n'è una (manuale o appresa)
     torrent_client_id: int | None = None
     language: str | None = None
+    min_seed_time_seconds: int | None = None
+    min_ratio: float | None = None
+    seed_rule: str = "any"
     config: dict = {}  # {"values": {...}, "secrets_set": [...]}, mai i segreti
     upload_profile: TrackerUploadProfileSummary | None = None  # per la scheda: senza profilo niente upload
 
@@ -87,6 +98,7 @@ class TrackerResponse(BaseModel):
             id=t.id, label=t.label, adapter_type=t.adapter_type, base_url=t.base_url,
             has_announce_url=bool(t.announce_url), rate_limit_per_min=t.rate_limit_per_min, enabled=t.enabled,
             has_rss_key=bool(t.rss_key), torrent_client_id=t.torrent_client_id, language=t.language,
+            min_seed_time_seconds=t.min_seed_time_seconds, min_ratio=t.min_ratio, seed_rule=t.seed_rule or "any",
             config=plugin_config.public_for_row(t, "tracker"),
             upload_profile=summary,
         )
@@ -138,6 +150,7 @@ def create_tracker(body: TrackerCreateRequest, session: Session = Depends(get_se
         rate_limit_per_min=body.rate_limit_per_min or 30,
         rss_key=body.rss_key.strip() if body.rss_key and body.rss_key.strip() else None,
         torrent_client_id=body.torrent_client_id, language=_language(body.language),
+        min_seed_time_seconds=body.min_seed_time_seconds, min_ratio=body.min_ratio, seed_rule=body.seed_rule,
     )
     _apply_config(tracker, body.config, creating=True)
     session.add(tracker)
@@ -176,6 +189,9 @@ def update_tracker(
         tracker.torrent_client_id = body.torrent_client_id
     if "language" in body.model_fields_set:
         tracker.language = _language(body.language)
+    for field in ("min_seed_time_seconds", "min_ratio", "seed_rule"):
+        if field in body.model_fields_set:
+            setattr(tracker, field, getattr(body, field))
     if "config" in body.model_fields_set:
         _apply_config(tracker, body.config, creating=False)
     session.commit()

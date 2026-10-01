@@ -32,6 +32,7 @@ import { Switch } from '@/components/ui/switch'
 import { t } from '@/lib/i18n'
 import { TrackerLogo } from '@/pages/config/ServiceIcons'
 import { cn, selectLabel } from '@/lib/utils'
+import { TrackerSeedRequirement } from '@/pages/config/TrackerSeedRequirement'
 import { UploadProfileDialog } from '@/pages/config/UploadProfileDialog'
 import { autosaveFeedback } from '@/lib/autosave'
 
@@ -509,6 +510,18 @@ export function TrackersSection() {
                       updateTracker.mutate(
                         { id: tracker.id, body: { language } },
                         autosaveFeedback(`${tracker.label} · ${t('trackers.languageColumn')}`),
+                      )
+                    }
+                  />
+                  <span className="text-muted-foreground" title={t('trackers.seedRequirement.help')}>
+                    {t('trackers.seedRequirement.column')}
+                  </span>
+                  <TrackerSeedRequirement
+                    tracker={tracker}
+                    onChange={(patch) =>
+                      updateTracker.mutate(
+                        { id: tracker.id, body: patch },
+                        autosaveFeedback(`${tracker.label} · ${t('trackers.seedRequirement.column')}`),
                       )
                     }
                   />

@@ -1,6 +1,6 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { NotImportedView } from '@/pages/torrent/NotImportedView'
 
@@ -9,6 +9,7 @@ const torrent = (id: number, category: string, name: string, extra = {}) => ({
   detail: 'why', matched_by: 'arr', content_type: null, tmdb_id: null, title: null, year: null,
   season_number: null, episode_number: null, quality: '1080p', replaced_by: null, total_bytes: 1e9,
   video_bytes: 1e9, file_count: 2, ratio: 1.5, seeding_time_seconds: 3 * 86_400, added_at: null, state: 'uploading',
+  seed_requirement: { status: 'unknown_tracker', remaining: {} },
   ...extra,
 })
 
@@ -22,14 +23,22 @@ vi.mock('@/api/hooks/library', () => ({
       torrents: [
         torrent(1, 'superseded', 'Old.Movie.1080p.mkv', {
           replaced_by: { relative_path: 'media/movies/Old Movie (2001)/Old.Movie.2160p.mkv', size_bytes: 5e10, quality: '2160p' },
+          seed_requirement: { status: 'met', tracker_label: 'T', min_seed_time_seconds: 3 * 86_400, min_ratio: null, rule: 'any', remaining: {} },
         }),
-        torrent(2, 'never_imported', 'Random.Download.mkv'),
+        torrent(2, 'never_imported', 'Random.Download.mkv', {
+          seed_requirement: {
+            status: 'pending', tracker_label: 'T', min_seed_time_seconds: 7 * 86_400, min_ratio: null, rule: 'any',
+            remaining: { seed_time_seconds: 4 * 86_400 },
+          },
+        }),
         torrent(3, 'never_imported', 'Excluded.Sample.mkv', { excluded: true }),
       ],
     },
   }),
 }))
 vi.mock('@/pages/library/ItemDetailSheet', () => ({ ItemDetailSheet: () => null }))
+
+afterEach(cleanup)
 
 describe('NotImportedView', () => {
   it('shows each torrent with its reason and what replaced it, filterable by category', () => {
@@ -45,5 +54,15 @@ describe('NotImportedView', () => {
     fireEvent.click(screen.getAllByText('Superseded')[0])
     expect(screen.queryByText('Random.Download.mkv')).toBeNull()
     expect(screen.getByText('3d')).toBeTruthy()
+  })
+
+  it("says which torrents met their tracker's seeding requirement, and filters them", () => {
+    render(<MemoryRouter><NotImportedView /></MemoryRouter>)
+
+    expect(screen.getByText('Safe to remove')).toBeTruthy() // il badge (il filtro ha anche il conteggio)
+    expect(screen.getByText('4d left')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: /Safe to remove \(1\)/ }))
+    expect(screen.queryByText('Random.Download.mkv')).toBeNull()
+    expect(screen.getByText('Old.Movie.1080p.mkv')).toBeTruthy()
   })
 })

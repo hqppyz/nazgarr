@@ -4,16 +4,18 @@ in libreria, per torrent, con il perché. Sola lettura."""
 import logging
 import os
 from datetime import datetime
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app import arr, not_imported
+from app import arr, not_imported, seed_requirements
 from app.api_errors import coded_detail
 from app.deps import get_session
 from app.library_detail import _host, _quality
 from app.models import ClientTorrentFile, MediaItem, NotImportedTorrent, RunLog, SeedFile, TorrentClient
+from app.tracker_scope import torrent_host
 
 router = APIRouter(prefix="/api/torrents", tags=["torrents"])
 logger = logging.getLogger(__name__)
@@ -31,6 +33,16 @@ class TorrentSource(BaseModel):
     disk_id: int
     relative_path: str
     is_dir: bool
+
+
+class SeedRequirement(BaseModel):
+    status: Literal["unknown_tracker", "no_rules", "met", "pending", "unknown"]
+    tracker_id: int | None = None
+    tracker_label: str | None = None
+    min_seed_time_seconds: int | None = None
+    min_ratio: float | None = None
+    rule: str | None = None
+    remaining: dict[str, float] = {}  # seed_time_seconds e/o ratio che mancano
 
 
 class NotImportedItem(BaseModel):
@@ -59,6 +71,8 @@ class NotImportedItem(BaseModel):
     state: str
     excluded: bool = False
     source: TorrentSource | None = None  # None se i suoi file non sono nell'indice dell'ultima scan
+    # Requisito di seed del tracker e se è soddisfatto (app/seed_requirements.py).
+    seed_requirement: SeedRequirement
 
 
 def _sources(session: Session) -> dict[int, TorrentSource]:
@@ -113,6 +127,7 @@ def list_not_imported(session: Session = Depends(get_session)):
     summary: dict[str, CategorySummary] = {}
     torrents = []
     sources = _sources(session)
+    requirements = seed_requirements.by_host(session)
     for row in rows:
         ct = row.client_torrent
         if not row.excluded:
@@ -134,6 +149,9 @@ def list_not_imported(session: Session = Depends(get_session)):
             total_bytes=row.total_bytes, video_bytes=row.video_bytes, file_count=row.file_count,
             ratio=ct.ratio, seeding_time_seconds=ct.seeding_time_seconds, added_at=ct.added_at, state=ct.state,
             excluded=bool(row.excluded), source=sources.get(ct.id),
+            seed_requirement=SeedRequirement(**seed_requirements.evaluate(
+                requirements.get(torrent_host(ct.tracker_url)), ct.ratio, ct.seeding_time_seconds,
+            )),
         ))
     torrents.sort(key=lambda t: t.total_bytes, reverse=True)
     status = not_imported.load_status(session)
