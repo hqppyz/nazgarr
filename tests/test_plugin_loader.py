@@ -102,7 +102,7 @@ def _fake_pip(calls):
         calls.append(command)
         target = command[command.index("--target") + 1]
         for package in command[command.index("--target") + 2:]:
-            os.makedirs(os.path.join(target, package), exist_ok=True)
+            os.makedirs(os.path.join(target, os.path.basename(package.rstrip("/"))), exist_ok=True)
         return SimpleNamespace(returncode=0, stdout="", stderr="")
     return fake_run
 
@@ -149,3 +149,27 @@ def test_the_api_lists_plugins_and_adapters(client):
     assert body["sdk_version"] and body["env_var"] == "NAZGARR_PLUGINS"
     ptpimg = next(a for a in body["adapters"] if a["adapter_type"] == "ptpimg")
     assert ptpimg["plugin"] is None and ptpimg["config_fields"][0]["type"] == "secret"
+
+
+def test_a_local_plugin_folder_is_reinstalled_when_its_code_changes(tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(loader.subprocess, "run", _fake_pip(calls))
+    plugin = tmp_path / "nazgarr-dev"
+    (plugin / "nazgarr_dev").mkdir(parents=True)
+    code = plugin / "nazgarr_dev" / "__init__.py"
+    code.write_text("v = 1\n")
+    data = tmp_path / "data"
+    data.mkdir()
+
+    loader.install(str(data), [str(plugin)])
+    loader.install(str(data), [str(plugin)])
+    assert len(calls) == 1  # niente di cambiato: pip non riparte
+    # I file che pip stesso lascia nella cartella non contano.
+    (plugin / "build").mkdir()
+    (plugin / "build" / "x.py").write_text("x")
+    loader.install(str(data), [str(plugin)])
+    assert len(calls) == 1
+
+    code.write_text("v = 2  # una modifica\n")
+    loader.install(str(data), [str(plugin)])
+    assert len(calls) == 2

@@ -91,8 +91,34 @@ def site_dir(data_dir: str) -> str:
     return os.path.join(data_dir, "plugins", "site")
 
 
+# Cartelle che pip e gli editor riempiono da soli, da non contare.
+_IGNORED_DIRS = {"build", "dist", "__pycache__", ".git", ".venv", ".pytest_cache", ".ruff_cache", "node_modules"}
+
+
+def local_folder_signature(path: str) -> str:
+    """Il contenuto di un plugin indicato come cartella locale (sviluppo):
+    percorso, dimensione e data di ogni file. Cambia appena si modifica il
+    codice, così il riavvio successivo lo reinstalla da solo."""
+    entries = []
+    for dirpath, dirnames, filenames in os.walk(path):
+        dirnames[:] = sorted(d for d in dirnames if d not in _IGNORED_DIRS and not d.endswith(".egg-info"))
+        for name in sorted(filenames):
+            full = os.path.join(dirpath, name)
+            with contextlib.suppress(OSError):
+                st = os.stat(full)
+                entries.append(f"{os.path.relpath(full, path)}:{st.st_size}:{st.st_mtime_ns}")
+    return hashlib.sha256("\n".join(entries).encode()).hexdigest()
+
+
 def _fingerprint(requested: list[str]) -> str:
-    return hashlib.sha256("\n".join(sorted(requested)).encode()).hexdigest()
+    """La lista, più il contenuto delle cartelle locali: un plugin in sviluppo
+    si reinstalla quando cambia il suo codice, uno da PyPI o da git solo
+    quando cambia la riga."""
+    parts = [
+        f"{item}@{local_folder_signature(item)}" if os.path.isdir(item) else item
+        for item in sorted(requested)
+    ]
+    return hashlib.sha256("\n".join(parts).encode()).hexdigest()
 
 
 def invalid_requirements(requested: list[str]) -> list[str]:

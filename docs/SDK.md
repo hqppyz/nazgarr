@@ -27,7 +27,7 @@ environment:
 
 Or write them one per line in `plugins.txt` in the data folder (`#` starts a comment). The environment variable wins when both exist.
 
-At startup Nazgarr installs them with pip into `<data_dir>/plugins/site`, so they survive container updates. pip only runs again when the list changes, and then it installs everything from scratch: a plugin you remove from the list is gone after the restart. **Restart the container after changing the list.**
+At startup Nazgarr installs them with pip into `<data_dir>/plugins/site`, so they survive container updates. pip only runs again when the list changes (or, for a plugin listed as a local folder, when its code changes), and then it installs everything from scratch: a plugin you remove from the list is gone after the restart. **Restart the container after changing the list.**
 
 Each line is a package (a name, `name==version`, or a `git+https://…` URL). Lines starting with `-` are refused: pip options such as `--index-url` could make it install packages from anyone's index. Only plugins installed there are loaded: a package with a `nazgarr.plugins` entry point installed anywhere else is ignored. Pin versions (`nazgarr-ntfy==0.3.1`) so an update never arrives by surprise.
 
@@ -344,7 +344,7 @@ Add the plugin to the list as a path, then restart:
 - **Running Nazgarr from source**: put the absolute path of the plugin folder in `<data_dir>/plugins.txt`.
 - **In Docker**: mount the folder (for example `- ./nazgarr-myclient:/plugins/nazgarr-myclient`) and list `/plugins/nazgarr-myclient`. Mount it read-write: pip builds a local package inside its own folder (`build/`, `*.egg-info`, which you can gitignore).
 
-Nazgarr reinstalls plugins only when the list changes. After editing your code, delete `<data_dir>/plugins/installed.json` and restart: the next start installs everything again.
+A plugin listed as a local folder is reinstalled at the next restart whenever its code changes: Nazgarr compares the folder's files (names, sizes, modification times) with the last install, ignoring `build/`, `*.egg-info`, `__pycache__`, `.git` and virtual environments. So the loop is: edit, restart, check. When nothing changed, pip doesn't run.
 
 Then check **Settings > Plugins**:
 
