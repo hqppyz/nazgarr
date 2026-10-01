@@ -15,6 +15,7 @@ export function TrackerFilterSelect() {
   const setValue = useSetSetting(TRACKER_FILTER_SETTING)
   const { data: trackers } = useTrackers()
   const enabled = (trackers ?? []).filter((tracker) => tracker.enabled)
+  const selected = enabled.find((tr) => String(tr.id) === value)
   const labelOf = (v: string | null) => {
     if (v === 'configured') return t('trackerFilter.configured')
     const tracker = enabled.find((tr) => String(tr.id) === v)
@@ -23,7 +24,14 @@ export function TrackerFilterSelect() {
   return (
     <Select value={value} onValueChange={(v) => v != null && setValue.mutate(v)}>
       <SelectTrigger size="sm" className="w-52" title={t('trackerFilter.help')}>
-        <FilterIcon className="size-3.5 text-muted-foreground" />
+        {/* Con un tracker scelto, la sua icona al posto di quella del filtro. */}
+        {selected ? (
+          <span className="flex shrink-0 [&>*]:size-4">
+            <TrackerLogo trackerId={selected.id} />
+          </span>
+        ) : (
+          <FilterIcon className="size-3.5 text-muted-foreground" />
+        )}
         <SelectValue>{(v: string | null) => labelOf(v)}</SelectValue>
       </SelectTrigger>
       <SelectContent>
