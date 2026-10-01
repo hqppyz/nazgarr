@@ -1,0 +1,21 @@
+# Dipendenze dirette di Nazgarr. Il lock con versioni e hash (quello che
+# installano il Dockerfile e la CI) è requirements.txt, generato da qui:
+#   uv pip compile requirements.in --python-version 3.12 --generate-hashes -o requirements.txt
+# Si rigenera per aggiornare; mai a mano.
+fastapi
+uvicorn[standard]
+sqlalchemy
+apscheduler
+httpx
+qbittorrent-api
+pymediainfo
+guessit
+torf
+ffmpeg-python
+pyimgbox
+jinja2
+python-multipart
+pyyaml
+cryptography
+pyjwt
+supervisor

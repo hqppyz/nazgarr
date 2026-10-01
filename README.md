@@ -165,7 +165,7 @@ Full endpoint reference: `http://<host>:8080/docs`.
 
 ```bash
 python3 -m venv .venv
-./.venv/bin/pip install -r requirements-dev.txt
+./.venv/bin/pip install -r requirements.txt && ./.venv/bin/pip install -r requirements-dev.txt
 cp config.example.yaml config.yaml   # edit disk_scan_root/data_dir as needed
 export APP_SECRET_KEY=$(openssl rand -base64 32 | tr '+/' '-_')
 ./.venv/bin/uvicorn app.main:app --reload --port 8080
