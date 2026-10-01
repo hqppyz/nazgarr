@@ -19,6 +19,14 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useTorrentClients } from '@/api/hooks/torrentClients'
+import { usePlugins } from '@/api/hooks/plugins'
+import {
+  AdapterConfigFields,
+  configPayload,
+  initialConfigValues,
+  missingRequired,
+  type ConfigValues,
+} from '@/components/AdapterConfigFields'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { t } from '@/lib/i18n'
@@ -132,8 +140,22 @@ function TrackerClientSelect({ value, onChange }: { value: number | null; onChan
   )
 }
 
+// I tracker dei plugin, con i campi che dichiarano.
+function usePluginTrackerTypes() {
+  const { data } = usePlugins()
+  return (data?.adapters ?? []).filter((a) => a.kind === 'tracker' && a.plugin)
+}
+
 function AddTrackerDialog() {
   const [open, setOpen] = useState(false)
+  const [adapterType, setAdapterType] = useState('unit3d')
+  const pluginTypes = usePluginTrackerTypes()
+  const pluginSpec = pluginTypes.find((a) => a.adapter_type === adapterType)
+  const [config, setConfig] = useState<ConfigValues>({})
+  const typeOptions = [
+    { value: 'unit3d', label: 'UNIT3D' },
+    ...pluginTypes.map((a) => ({ value: a.adapter_type, label: `${a.label} · ${a.plugin}` })),
+  ]
   const [presetKey, setPresetKey] = useState('')
   const [label, setLabel] = useState('')
   const [baseUrl, setBaseUrl] = useState('')
@@ -158,17 +180,19 @@ function AddTrackerDialog() {
     setApiToken('')
     setAnnounceUrl('')
     setRssKey('')
+    setConfig({})
   }
 
   function submit() {
     createTracker.mutate(
       {
         label,
-        adapter_type: 'unit3d',
+        adapter_type: adapterType,
         base_url: baseUrl,
         api_token: apiToken,
         announce_url: announceUrl || undefined,
         rss_key: rssKey || undefined,
+        ...(pluginSpec ? { config: configPayload(pluginSpec.config_fields, config) } : {}),
       },
       {
         onSuccess: () => {
@@ -214,7 +238,26 @@ function AddTrackerDialog() {
           </div>
           <div className="grid gap-1.5">
             <Label>{t('trackers.type')}</Label>
-            <Input value="unit3d" disabled />
+            <Select
+              value={adapterType}
+              onValueChange={(v) => {
+                if (v == null) return
+                setAdapterType(v)
+                const spec = pluginTypes.find((a) => a.adapter_type === v)
+                setConfig(spec ? initialConfigValues(spec.config_fields, undefined) : {})
+              }}
+            >
+              <SelectTrigger>
+                <SelectValue>{(v: string | null) => selectLabel(typeOptions, v, (o) => o.value, (o) => o.label, 'UNIT3D')}</SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {typeOptions.map((o) => (
+                  <SelectItem key={o.value} value={o.value}>
+                    {o.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           <div className="grid gap-1.5">
             <Label htmlFor="t-base-url">{t('trackers.apiUrl')}</Label>
@@ -239,9 +282,22 @@ function AddTrackerDialog() {
             />
           </div>
           <RssKeyField id="t-rss-key" value={rssKey} onChange={setRssKey} placeholder={t('trackers.rssKeyPlaceholder')} />
+          {pluginSpec && (
+            <AdapterConfigFields idPrefix="t-config" fields={pluginSpec.config_fields} values={config} onChange={setConfig} />
+          )}
         </div>
         <DialogFooter>
-          <Button onClick={submit} disabled={!label || !baseUrl || !apiToken || createTracker.isPending}>
+          <Button
+            onClick={submit}
+            disabled={
+              !label ||
+              !baseUrl ||
+              // Un tracker di un plugin può non usare il token API di UNIT3D.
+              (!pluginSpec && !apiToken) ||
+              (pluginSpec != null && missingRequired(pluginSpec.config_fields, config)) ||
+              createTracker.isPending
+            }
+          >
             {t('trackers.create')}
           </Button>
         </DialogFooter>
@@ -259,6 +315,12 @@ function EditTrackerDialog({ tracker }: { tracker: Tracker }) {
   const [rateLimit, setRateLimit] = useState(tracker.rate_limit_per_min?.toString() ?? '')
   const [rssKey, setRssKey] = useState('')
   const updateTracker = useUpdateTracker()
+  const pluginSpec = usePluginTrackerTypes().find((a) => a.adapter_type === tracker.adapter_type)
+  const secretsSet = (tracker.config as { secrets_set?: string[] }).secrets_set ?? []
+  const [config, setConfig] = useState<ConfigValues | null>(null)
+  const configValues =
+    config ??
+    (pluginSpec ? initialConfigValues(pluginSpec.config_fields, (tracker.config as { values?: Record<string, unknown> }).values) : {})
 
   function submit() {
     updateTracker.mutate(
@@ -271,6 +333,7 @@ function EditTrackerDialog({ tracker }: { tracker: Tracker }) {
           announce_url: announceUrl || undefined,
           rate_limit_per_min: rateLimit ? Number(rateLimit) : undefined,
           rss_key: rssKey || undefined,
+          ...(pluginSpec ? { config: configPayload(pluginSpec.config_fields, configValues) } : {}),
         },
       },
       {
@@ -279,6 +342,7 @@ function EditTrackerDialog({ tracker }: { tracker: Tracker }) {
           setApiToken('')
           setAnnounceUrl('')
           setRssKey('')
+          setConfig(null)
         },
         onError: (error) => toast.error(t('common.saveFailed', { message: error.message })),
       },
@@ -335,9 +399,26 @@ function EditTrackerDialog({ tracker }: { tracker: Tracker }) {
               onChange={(e) => setRateLimit(e.target.value)}
             />
           </div>
+          {pluginSpec && (
+            <AdapterConfigFields
+              idPrefix={`t-edit-config-${tracker.id}`}
+              fields={pluginSpec.config_fields}
+              values={configValues}
+              secretsSet={secretsSet}
+              onChange={setConfig}
+            />
+          )}
         </div>
         <DialogFooter>
-          <Button onClick={submit} disabled={!label || !baseUrl || updateTracker.isPending}>
+          <Button
+            onClick={submit}
+            disabled={
+              !label ||
+              !baseUrl ||
+              updateTracker.isPending ||
+              (pluginSpec != null && missingRequired(pluginSpec.config_fields, configValues, secretsSet))
+            }
+          >
             {t('common.save')}
           </Button>
         </DialogFooter>

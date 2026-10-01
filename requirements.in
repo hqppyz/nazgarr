@@ -19,3 +19,4 @@ pyyaml
 cryptography
 pyjwt
 supervisor
+packaging>=24

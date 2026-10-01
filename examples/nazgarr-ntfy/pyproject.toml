@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nazgarr-ntfy"
+version = "0.1.0"
+description = "ntfy notifications for Nazgarr (example plugin)"
+requires-python = ">=3.12"
+license = "GPL-3.0-only"
+# httpx is already in Nazgarr: no dependency to install.
+dependencies = []
+
+# How Nazgarr finds the plugin: the "nazgarr.plugins" entry point group.
+[project.entry-points."nazgarr.plugins"]
+ntfy = "nazgarr_ntfy:setup"

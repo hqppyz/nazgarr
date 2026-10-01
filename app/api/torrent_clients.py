@@ -11,16 +11,17 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session, object_session
 
 from app import adapter_factory
-from app.api.types import HttpUrlStr
-from app.api_errors import coded_detail
+from app.api.types import HttpUrlStr, require_secrets_for_new_host
+from app.api_errors import coded_detail, from_coded_error
 from app.client_labels import split_tags
 from app.deps import get_session
+from app.logging_config import safe_error
 from app.models import ClientTorrent, Disk, DiskTorrentClient, TorrentClient
+from app.plugins import REGISTRY
+from app.plugins import config as plugin_config
 
 router = APIRouter(prefix="/api/torrent-clients", tags=["torrent-clients"])
 
-# deluge/transmission/rutorrent pianificati, vedi docs/ROADMAP.md Fase 2
-SUPPORTED_ADAPTER_TYPES = {"qbittorrent", "qui"}
 
 
 class TorrentClientCreateRequest(BaseModel):
@@ -31,6 +32,7 @@ class TorrentClientCreateRequest(BaseModel):
     password: str | None = None
     api_token: str | None = None  # adapter_type="qui": la sua X-API-Key
     qui_instance_id: int | None = None  # adapter_type="qui": quale istanza gestita da quel deployment
+    config: dict | None = None  # campi di un adapter di un plugin (GET /api/plugins)
 
 
 class TorrentClientUpdateRequest(BaseModel):
@@ -48,6 +50,8 @@ class TorrentClientUpdateRequest(BaseModel):
     category_anime: str | None = None
     tags_upload: str | None = None
     tags_reseed: str | None = None
+    # Campi di un adapter di un plugin: un segreto assente o null resta com'era.
+    config: dict | None = None
 
 
 LABEL_FIELDS = ("category_movie", "category_tv", "category_anime", "tags_upload", "tags_reseed")
@@ -85,6 +89,8 @@ class TorrentClientResponse(BaseModel):
     category_anime: str | None = None
     tags_upload: str | None = None
     tags_reseed: str | None = None
+    # Campi di un adapter di un plugin: {"values": {...}, "secrets_set": [...]}, mai i segreti.
+    config: dict = {}
     disks: list[DiskAssociationResponse]  # dischi abilitati per questo client, con l'eventuale path override
     # Dall'indice dell'ultima scan, per la scheda del client.
     torrent_count: int = 0
@@ -101,11 +107,19 @@ class TorrentClientResponse(BaseModel):
             id=tc.id, label=tc.label, adapter_type=tc.adapter_type,
             base_url=tc.base_url, username=tc.username, qui_instance_id=tc.qui_instance_id, enabled=tc.enabled,
             **{name: getattr(tc, name) for name in LABEL_FIELDS},
+            config=plugin_config.public_for_row(tc, "torrent_client"),
             disks=[
                 DiskAssociationResponse(disk_id=link.disk_id, torrent_client_root_path=link.torrent_client_root_path)
                 for link in links
             ],
         )
+
+
+def _apply_config(tc: TorrentClient, config: dict | None, *, creating: bool) -> None:
+    try:
+        plugin_config.apply_to_row(tc, "torrent_client", config, creating=creating)
+    except plugin_config.AdapterConfigError as exc:
+        raise HTTPException(status_code=400, detail=from_coded_error(exc)) from exc
 
 
 def _get_torrent_client_or_404(session: Session, torrent_client_id: int) -> TorrentClient:
@@ -136,12 +150,13 @@ def list_torrent_clients(session: Session = Depends(get_session)):
 
 @router.post("", response_model=TorrentClientResponse, status_code=201)
 def create_torrent_client(body: TorrentClientCreateRequest, session: Session = Depends(get_session)):
-    if body.adapter_type not in SUPPORTED_ADAPTER_TYPES:
+    supported = REGISTRY.types("torrent_client")  # integrati e plugin (app/plugins)
+    if body.adapter_type not in supported:
         raise HTTPException(
             status_code=400,
             detail=coded_detail(
                 "torrent_client_adapter_type_unsupported",
-                adapter_type=body.adapter_type, supported=sorted(SUPPORTED_ADAPTER_TYPES),
+                adapter_type=body.adapter_type, supported=sorted(supported),
             ),
         )
     tc = TorrentClient(
@@ -149,6 +164,7 @@ def create_torrent_client(body: TorrentClientCreateRequest, session: Session = D
         username=body.username, password=body.password,
         api_token=body.api_token, qui_instance_id=body.qui_instance_id,
     )
+    _apply_config(tc, body.config, creating=True)
     session.add(tc)
     session.commit()
     return TorrentClientResponse.from_model(tc, [])
@@ -165,7 +181,7 @@ def test_torrent_client(torrent_client_id: int, session: Session = Depends(get_s
         adapter = adapter_factory.build_torrent_client_adapter(tc)
         torrents = adapter.list_torrents()
     except Exception as exc:
-        return TorrentClientTestResponse(status="error", error=str(exc))
+        return TorrentClientTestResponse(status="error", error=safe_error(exc))
     return TorrentClientTestResponse(status="ok", torrents_found=len(torrents))
 
 
@@ -174,6 +190,10 @@ def update_torrent_client(
     torrent_client_id: int, body: TorrentClientUpdateRequest, session: Session = Depends(get_session)
 ):
     tc = _get_torrent_client_or_404(session, torrent_client_id)
+    missing = [name for name, stored, sent in (
+        ("password", tc.password, body.password), ("api_token", tc.api_token, body.api_token),
+    ) if stored and sent is None] + plugin_config.secrets_not_resent(tc, "torrent_client", body.config)
+    require_secrets_for_new_host(tc.base_url, body.base_url, missing)
     if body.label is not None:
         tc.label = body.label
     if body.base_url is not None:
@@ -188,6 +208,8 @@ def update_torrent_client(
         tc.qui_instance_id = body.qui_instance_id
     if body.enabled is not None:
         tc.enabled = body.enabled
+    if "config" in body.model_fields_set:
+        _apply_config(tc, body.config, creating=False)
     for name in LABEL_FIELDS:
         if name in body.model_fields_set:
             value = (getattr(body, name) or "").strip()
@@ -212,7 +234,7 @@ def torrent_client_categories(torrent_client_id: int, session: Session = Depends
     try:
         categories = adapter_factory.build_torrent_client_adapter(tc).list_categories()
     except Exception as exc:
-        return TorrentClientCategoriesResponse(status="error", error=str(exc))
+        return TorrentClientCategoriesResponse(status="error", error=safe_error(exc))
     return TorrentClientCategoriesResponse(status="ok", categories=categories)
 
 

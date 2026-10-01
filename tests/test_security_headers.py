@@ -35,6 +35,42 @@ def test_urls_that_end_up_in_links_must_be_http(client):
     assert client.post("/api/torrent-clients", json=client_body).status_code == 422
 
 
+def test_moving_a_service_to_another_host_needs_its_secrets_again(client):
+    created = client.post("/api/trackers", json={"label": "t", "adapter_type": "unit3d",
+                                                 "base_url": "https://t.example", "api_token": "tok"}).json()
+    # Stesso host: nessun problema.
+    assert client.patch(f"/api/trackers/{created['id']}", json={"base_url": "https://t.example/"}).status_code == 200
+    # Un altro host senza il token: rifiutato, il token non parte verso il nuovo server.
+    moved = client.patch(f"/api/trackers/{created['id']}", json={"base_url": "https://attacker.example"})
+    assert moved.status_code == 400 and moved.json()["detail"]["params"]["fields"] == "api_token"
+    ok = client.patch(f"/api/trackers/{created['id']}", json={"base_url": "https://new.example", "api_token": "t2"})
+    assert ok.status_code == 200
+
+    qbit = client.post("/api/torrent-clients", json={"label": "q", "adapter_type": "qbittorrent",
+                                                     "base_url": "http://qbit:8080", "password": "pw"}).json()
+    assert client.patch(f"/api/torrent-clients/{qbit['id']}", json={"base_url": "http://evil:8080"}).status_code == 400
+
+
+def test_credentials_never_reach_the_error_messages_stored_in_the_db(db_session):
+    from app.models import Candidate, MediaItem, SeedJob
+    from tests.upload_helpers import make_tracker
+
+    tracker = make_tracker(db_session, "ITT", with_profile=False)
+    item = MediaItem(content_type="movie", tmdb_id=1)
+    db_session.add(item)
+    db_session.commit()
+    candidate = Candidate(media_item_id=item.id, tracker_id=tracker.id, torrent_id_remote="7", name="x",
+                          size_bytes=1, source="catalog_search", direction="media_to_torrent", confidence=0.5)
+    db_session.add(candidate)
+    db_session.commit()
+    job = SeedJob(candidate_id=candidate.id, final_status="failed", error_message=(
+        "Client error '404 Not Found' for url 'https://itt.example/torrent/download/7.abcdef123456'"
+    ))
+    db_session.add(job)
+    db_session.commit()
+
+    db_session.refresh(job)
+    assert "abcdef123456" not in job.error_message and "<redacted>" in job.error_message
 def test_a_service_url_pointing_at_the_cloud_metadata_is_refused(client):
     body = {"label": "t", "adapter_type": "unit3d", "base_url": "http://169.254.169.254", "api_token": "x"}
     assert client.post("/api/trackers", json=body).status_code == 422

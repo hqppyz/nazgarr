@@ -32,6 +32,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app app
+COPY nazgarr_sdk nazgarr_sdk
 COPY docs docs
 COPY docker docker
 COPY config.example.yaml .

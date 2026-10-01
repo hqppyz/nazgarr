@@ -15,4 +15,6 @@ export const config = {
   'config.tabMatching': 'Matching & approval',
   'config.tabUpload': 'Upload',
   'config.tabLogs': 'Logs',
+  'config.tabPlugins': 'Plugins',
+  'config.tabWebhooks': 'Webhooks',
 } as const

@@ -60,9 +60,12 @@ CREATE TABLE IF NOT EXISTS tracker (
         -- client where torrents of this tracker are added when reseeding (e.g. a private-trackers
         -- instance); null or a disabled/deleted client = the first enabled client. No FK: a deleted
         -- client must just fall back, never block deleting it.
-    language                TEXT
+    language                TEXT,
         -- ISO 639-1 (e.g. 'it'): the tracker's language, for upload names (localized title, that
         -- language first among the audio tracks, how subtitles are written). Null = none.
+    adapter_config_json     TEXT
+        -- encrypted at rest: the values of the fields a plugin adapter declares
+        -- (app/plugins/config.py). Built-in adapters use the columns above.
 );
 
 CREATE TABLE IF NOT EXISTS torrent_client (
@@ -90,7 +93,8 @@ CREATE TABLE IF NOT EXISTS torrent_client (
     category_tv     TEXT,
     category_anime  TEXT,                   -- null = the movie/tv category
     tags_upload     TEXT,                   -- comma separated, for new uploads (e.g. "release")
-    tags_reseed     TEXT                    -- comma separated, for reseeds
+    tags_reseed     TEXT,                   -- comma separated, for reseeds
+    adapter_config_json TEXT                -- encrypted at rest: fields of a plugin adapter (app/plugins/config.py)
 );
 
 -- A disk can have several clients enabled at once (SPEC.md §5) — needs a
@@ -140,6 +144,70 @@ CREATE TABLE IF NOT EXISTS sonarr_instance (
     basic_auth_username   TEXT,
     basic_auth_password   TEXT              -- encrypted at rest
 );
+
+-- Configuration of the adapters that have no row of their own (image hosts,
+-- media resolvers, notifications) when they come from a plugin
+-- (app/plugins/config.py). Built-in image hosts keep their app_settings keys.
+CREATE TABLE IF NOT EXISTS adapter_config (
+    kind            TEXT NOT NULL,
+    adapter_type    TEXT NOT NULL,
+    enabled         BOOLEAN NOT NULL DEFAULT 1,
+    config_json     TEXT,                   -- encrypted at rest; secrets never returned by the API
+    events_json     TEXT,                   -- notifications: the events they send (app/events.py), null = all
+    PRIMARY KEY (kind, adapter_type)
+);
+
+-- API keys for services and scripts (docs/ROADMAP.md Phase 10): only the
+-- SHA-256 of the key is stored, the key itself is shown once at creation.
+-- 'read' reaches GET only; 'write' everything a logged-in user can, except
+-- managing API keys (the login is required for that).
+CREATE TABLE IF NOT EXISTS api_key (
+    id              INTEGER PRIMARY KEY,
+    name            TEXT NOT NULL,
+    prefix          TEXT NOT NULL,          -- first characters, to recognize a key in the list
+    key_hash        TEXT NOT NULL UNIQUE,
+    level           TEXT NOT NULL CHECK (level IN ('read','write')),
+    created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_used_at    TIMESTAMP,
+    revoked_at      TIMESTAMP
+);
+
+-- Webhooks (docs/ROADMAP.md Phase 10): POST JSON signed with HMAC-SHA256
+-- (app/webhooks.py) for the events they subscribe to.
+CREATE TABLE IF NOT EXISTS webhook (
+    id              INTEGER PRIMARY KEY,
+    name            TEXT NOT NULL,
+    url             TEXT NOT NULL,
+    secret          TEXT NOT NULL,          -- encrypted at rest; shown once, used to sign every delivery
+    events_json     TEXT NOT NULL,          -- event names (app/events.py CATALOG), or ["*"] for all
+    enabled         BOOLEAN NOT NULL DEFAULT 1,
+    created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Outbox of events and their deliveries: written in the same transaction as
+-- the change that caused the event, sent by the dispatcher with retries. An
+-- event is stored only if someone is subscribed to it. Kept 30 days.
+CREATE TABLE IF NOT EXISTS event (
+    id              INTEGER PRIMARY KEY,
+    name            TEXT NOT NULL,
+    payload_json    TEXT NOT NULL,
+    created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS event_delivery (
+    id              INTEGER PRIMARY KEY,
+    event_id        INTEGER NOT NULL REFERENCES event(id) ON DELETE CASCADE,
+    webhook_id      INTEGER REFERENCES webhook(id) ON DELETE CASCADE,
+    notification_type TEXT,                 -- a notification adapter (Phase 10 step 6) instead of a webhook
+    status          TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','delivered','failed')),
+    attempts        INTEGER NOT NULL DEFAULT 0,
+    next_attempt_at TIMESTAMP,
+    last_status_code INTEGER,
+    last_error      TEXT,
+    delivered_at    TIMESTAMP,
+    created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS ix_event_delivery_due ON event_delivery(status, next_attempt_at);
 
 CREATE TABLE IF NOT EXISTS app_settings (
     key     TEXT PRIMARY KEY,

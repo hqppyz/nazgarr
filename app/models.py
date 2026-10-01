@@ -104,6 +104,7 @@ class Tracker(Base):
     # i tracker privati); None = il primo client abilitato.
     torrent_client_id: Mapped[int | None]
     language: Mapped[str | None]
+    adapter_config_json: Mapped[str | None] = mapped_column(EncryptedString)
 
 
 class TorrentClient(Base):
@@ -128,6 +129,7 @@ class TorrentClient(Base):
     category_anime: Mapped[str | None]
     tags_upload: Mapped[str | None]
     tags_reseed: Mapped[str | None]
+    adapter_config_json: Mapped[str | None] = mapped_column(EncryptedString)
 
 
 class DiskTorrentClient(Base):
@@ -192,6 +194,82 @@ class SonarrInstance(Base):
     timeout_seconds: Mapped[int | None]
     basic_auth_username: Mapped[str | None]
     basic_auth_password: Mapped[str | None] = mapped_column(EncryptedString)
+
+
+class Webhook(Base):
+    """Un webhook (app/webhooks.py): POST firmati per gli eventi scelti."""
+
+    __tablename__ = "webhook"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(nullable=False)
+    url: Mapped[str] = mapped_column(nullable=False)
+    secret: Mapped[str] = mapped_column(EncryptedString, nullable=False)
+    events_json: Mapped[str] = mapped_column(nullable=False)
+    enabled: Mapped[bool] = mapped_column(nullable=False, server_default=text("1"))
+    created_at: Mapped[datetime] = mapped_column(nullable=False, server_default=text("CURRENT_TIMESTAMP"))
+
+
+class Event(Base):
+    """Un evento da consegnare (app/events.py), con le sue consegne."""
+
+    __tablename__ = "event"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(nullable=False)
+    payload_json: Mapped[str] = mapped_column(nullable=False)
+    created_at: Mapped[datetime] = mapped_column(nullable=False, server_default=text("CURRENT_TIMESTAMP"))
+
+    deliveries: Mapped[list["EventDelivery"]] = relationship(
+        back_populates="event", cascade="all, delete-orphan", passive_deletes=True,
+    )
+
+
+class EventDelivery(Base):
+    __tablename__ = "event_delivery"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    event_id: Mapped[int] = mapped_column(ForeignKey("event.id", ondelete="CASCADE"), nullable=False)
+    webhook_id: Mapped[int | None] = mapped_column(ForeignKey("webhook.id", ondelete="CASCADE"))
+    notification_type: Mapped[str | None]
+    status: Mapped[str] = mapped_column(nullable=False, server_default=text("'pending'"))
+    attempts: Mapped[int] = mapped_column(nullable=False, server_default=text("0"))
+    next_attempt_at: Mapped[datetime | None]
+    last_status_code: Mapped[int | None]
+    last_error: Mapped[str | None]
+    delivered_at: Mapped[datetime | None]
+    created_at: Mapped[datetime] = mapped_column(nullable=False, server_default=text("CURRENT_TIMESTAMP"))
+
+    event: Mapped["Event"] = relationship(back_populates="deliveries")
+    webhook: Mapped["Webhook | None"] = relationship()
+
+
+class ApiKey(Base):
+    """Una API key (app/api_keys.py): solo l'hash, la chiave si vede una volta."""
+
+    __tablename__ = "api_key"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(nullable=False)
+    prefix: Mapped[str] = mapped_column(nullable=False)
+    key_hash: Mapped[str] = mapped_column(nullable=False, unique=True)
+    level: Mapped[str] = mapped_column(nullable=False)
+    created_at: Mapped[datetime] = mapped_column(nullable=False, server_default=text("CURRENT_TIMESTAMP"))
+    last_used_at: Mapped[datetime | None]
+    revoked_at: Mapped[datetime | None]
+
+
+class AdapterConfig(Base):
+    """Configurazione di un adapter di un plugin senza una riga sua (host
+    di immagini, resolver, notifiche): app/plugins/config.py."""
+
+    __tablename__ = "adapter_config"
+
+    kind: Mapped[str] = mapped_column(primary_key=True)
+    adapter_type: Mapped[str] = mapped_column(primary_key=True)
+    enabled: Mapped[bool] = mapped_column(nullable=False, server_default=text("1"))
+    config_json: Mapped[str | None] = mapped_column(EncryptedString)
+    events_json: Mapped[str | None]
 
 
 class AppSetting(Base):

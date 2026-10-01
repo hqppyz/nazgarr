@@ -6,10 +6,12 @@ import {
   InfoIcon,
   LayoutGridIcon,
   PlugIcon,
+  PuzzleIcon,
   RadioTowerIcon,
   ScrollTextIcon,
   ShieldIcon,
   UploadCloudIcon,
+  WebhookIcon,
   type LucideIcon,
 } from 'lucide-react'
 import type { ReactNode } from 'react'
@@ -19,6 +21,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Masonry } from '@/components/Masonry'
 import { t } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
+import { ApiKeysSection } from '@/pages/config/ApiKeysSection'
 import { ApplicationSection } from '@/pages/config/ApplicationSection'
 import { AutoApproveSection } from '@/pages/config/AutoApproveSection'
 import { DisksSection } from '@/pages/config/DisksSection'
@@ -27,10 +30,12 @@ import { IntegrationsSection } from '@/pages/config/IntegrationsSection'
 import { InterfaceSection } from '@/pages/config/InterfaceSection'
 import { LogsSection } from '@/pages/config/LogsSection'
 import { MetadataSection } from '@/pages/config/MetadataSection'
+import { PluginsSection } from '@/pages/config/PluginsSection'
 import { SecuritySection } from '@/pages/config/SecuritySection'
 import { TorrentClientsSection } from '@/pages/config/TorrentClientsSection'
 import { TrackersSection } from '@/pages/config/TrackersSection'
 import { UploadSettingsSection } from '@/pages/config/UploadSettingsSection'
+import { WebhooksSection } from '@/pages/config/WebhooksSection'
 
 // Impostazioni in gruppi per argomento (Generale, Libreria, Torrent,
 // Reseeding, Sistema). Il tab aperto sta nell'URL (?tab=…), così un link da
@@ -58,7 +63,7 @@ const GROUPS: { title: string; tabs: Tab[] }[] = [
     tabs: [
       { value: 'application', label: t('config.tabApplication'), icon: InfoIcon, layout: PAIRS, content: <ApplicationSection /> },
       { value: 'interface', label: t('config.tabInterface'), icon: LayoutGridIcon, layout: PAIRS, content: <InterfaceSection /> },
-      { value: 'security', label: t('config.tabSecurity'), icon: ShieldIcon, layout: PAIRS, content: <SecuritySection /> },
+      { value: 'security', label: t('config.tabSecurity'), icon: ShieldIcon, layout: PAIRS, content: <><SecuritySection /><ApiKeysSection /></> },
     ],
   },
   {
@@ -99,6 +104,8 @@ const GROUPS: { title: string; tabs: Tab[] }[] = [
     title: t('config.groupSystem'),
     tabs: [
       { value: 'upload', label: t('config.tabUpload'), icon: UploadCloudIcon, layout: PAIRS, content: <UploadSettingsSection /> },
+      { value: 'plugins', label: t('config.tabPlugins'), icon: PuzzleIcon, layout: STACK, content: <PluginsSection /> },
+      { value: 'webhooks', label: t('config.tabWebhooks'), icon: WebhookIcon, layout: STACK, content: <WebhooksSection /> },
       { value: 'logs', label: t('config.tabLogs'), icon: ScrollTextIcon, layout: STACK, content: <LogsSection /> },
     ],
   },

@@ -20,6 +20,7 @@ from app import upload_identify
 from app.adapter_factory import TmdbApiKeyMissingError
 from app.api_errors import coded_detail, from_coded_error
 from app.deps import get_session
+from app.logging_config import safe_error
 from app.poster_cache import download_poster, poster_file
 
 logger = logging.getLogger(__name__)
@@ -49,9 +50,9 @@ def _tmdb_call(fn, *args):
     except httpx.HTTPStatusError as exc:
         if exc.response.status_code == 404:
             raise HTTPException(status_code=404, detail=coded_detail("tmdb_not_found")) from exc
-        raise HTTPException(status_code=502, detail=coded_detail("tmdb_error", error=str(exc))) from exc
+        raise HTTPException(status_code=502, detail=coded_detail("tmdb_error", error=safe_error(exc))) from exc
     except httpx.HTTPError as exc:
-        raise HTTPException(status_code=502, detail=coded_detail("tmdb_error", error=str(exc))) from exc
+        raise HTTPException(status_code=502, detail=coded_detail("tmdb_error", error=safe_error(exc))) from exc
 
 
 @router.get("/search")
@@ -87,5 +88,5 @@ def poster(
         try:
             download_poster(posters_dir, content_type, tmdb_id, poster_path)
         except httpx.HTTPError as exc:
-            raise HTTPException(status_code=502, detail=coded_detail("tmdb_error", error=str(exc))) from exc
+            raise HTTPException(status_code=502, detail=coded_detail("tmdb_error", error=safe_error(exc))) from exc
     return FileResponse(local_path, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=86400"})
