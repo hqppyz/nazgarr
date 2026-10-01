@@ -39,6 +39,10 @@ if [ ! -f /app/config/config.yaml ]; then
     echo "config/config.yaml not found: created from config.example.yaml with default values."
 fi
 chown -R "$PUID:$PGID" /app/config
+# DB, log e .torrent (con le passkey negli announce) solo per l'utente
+# dell'app: niente lettura per gli altri utenti dell'host. I file nuovi
+# nascono già così (umask di supervisord, docker/supervisord.conf).
+chmod -R go-rwx /app/config
 
 export RUN_AS_USER="$USER_NAME"
 exec "$@"
