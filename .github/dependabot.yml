@@ -1,7 +1,7 @@
 # Aggiornamenti delle dipendenze come pull request da rivedere: le action
 # sono fissate al commit, le librerie Python al lock con hash
 # (requirements.txt, da rigenerare con uv dalla PR), le immagini base del
-# Dockerfile ai loro tag.
+# Dockerfile ai loro digest (tag@sha256:…): Dependabot propone il digest nuovo.
 version: 2
 updates:
   - package-ecosystem: github-actions

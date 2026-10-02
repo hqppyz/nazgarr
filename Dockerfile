@@ -5,7 +5,10 @@
 # ogni architettura. Si costruisce una volta sola, nativo sulla macchina di
 # build, e lo stesso dist va in tutte le immagini: prima l'arm64 lo ricostruiva
 # emulato (QEMU), ~3 minuti in più a ogni build.
-FROM --platform=$BUILDPLATFORM node:22-slim AS frontend-build
+# Immagini base fissate per digest: una ricostruzione completa solo quando
+# Dependabot propone il nuovo digest e la PR viene approvata, mai a sorpresa
+# (e una build riproducibile).
+FROM --platform=$BUILDPLATFORM node:22-slim@sha256:43ac6c60b8f89723f746e8a92ce91abd5017e627ce1ddfe4238355d3a30b772c AS frontend-build
 
 WORKDIR /frontend
 
@@ -17,7 +20,7 @@ RUN npm run build
 
 # Stage 2: backend Python + frontend statico servito dallo stesso
 # container (app/frontend.py) - un solo container con supervisord (CLAUDE.md).
-FROM python:3.12-slim
+FROM python:3.12-slim@sha256:dddfd7e07f9d15aeeca61529320492139d21cac7f0070c00609243e51e4e0016
 
 # mediainfo: fornisce sia la CLI che libmediainfo, usate per calcolare
 # l'Unique ID (vedi docs/SPEC.md sezione 6/11 e CLAUDE.md).
