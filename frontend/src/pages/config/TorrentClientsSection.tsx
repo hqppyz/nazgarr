@@ -345,10 +345,10 @@ function TestButton({ id }: { id: number }) {
   const test = useTestTorrentClient()
   return (
     <Button
-      variant="ghost"
-      size="icon-sm"
+      variant="outline"
+      size="sm"
       data-tour="clients.test"
-      title={t('torrentClients.testConnection')}
+      disabled={test.isPending}
       onClick={() =>
         test.mutate(id, {
           onSuccess: (result) => {
@@ -359,6 +359,7 @@ function TestButton({ id }: { id: number }) {
       }
     >
       <ZapIcon className="size-4" />
+      {t('torrentClients.testConnection')}
     </Button>
   )
 }
@@ -595,8 +596,9 @@ export function TorrentClientsSection() {
               <div data-tour="clients.labels">
                 <ClientLabels tc={tc} />
               </div>
-              <div className="flex justify-end gap-1 border-t pt-3">
+              <div className="flex items-center gap-1 border-t pt-3">
                 <TestButton id={tc.id} />
+                <span className="flex-1" />
                 <DisksDialog torrentClientId={tc.id} disks={tc.disks} />
                 <EditTorrentClientDialog tc={tc} />
                 <Button variant="ghost" size="icon-sm" title={t('common.delete')} onClick={() => deleteTorrentClient.mutate(tc.id)}>

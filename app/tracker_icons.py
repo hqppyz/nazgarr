@@ -128,7 +128,7 @@ def fetch_icon(data_dir: str, tracker_id: int, base_url: str, client: httpx.Clie
             client.close()
     with open(marker, "w") as f:
         f.write(base_url)
-    logger.info("Nessuna icona utilizzabile per il tracker %s (%s)", tracker_id, base_url)
+    logger.debug("Nessuna icona utilizzabile per il tracker %s (%s)", tracker_id, base_url)
     return None
 
 

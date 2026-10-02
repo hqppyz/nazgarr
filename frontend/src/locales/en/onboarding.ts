@@ -94,7 +94,7 @@ export const onboarding = {
   'onboarding.tour.clients.create.title': 'Create it',
   'onboarding.tour.clients.create.body': 'Then we test the connection.',
   'onboarding.tour.clients.test.title': 'Test the connection',
-  'onboarding.tour.clients.test.body': 'Click the bolt: it says how many torrents the client has. If it fails, check the address and the WebUI login.',
+  'onboarding.tour.clients.test.body': 'Click "Test connection": it says how many torrents the client has. If it fails, check the address and the WebUI login.',
   'onboarding.tour.clients.disks.title': 'Disks and paths (optional)',
   'onboarding.tour.clients.disks.body':
     'If the client sees your files at the same paths as Nazgarr (both use /data), nothing to do here. Use it only to limit the client to some disks, or when it mounts a disk somewhere else (e.g. /downloads instead of /data/torrents).',

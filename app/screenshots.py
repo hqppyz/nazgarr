@@ -155,7 +155,7 @@ def generate_screenshots(video_path: str, output_dir: str, count: int = 4, tonem
             if not is_blank(stats):
                 best = (float("inf"), candidate)
                 break
-            logger.info("Screenshot nero o piatto a %.1fs per %r, riprovo più in là", timestamp, video_path)
+            logger.debug("Screenshot nero o piatto a %.1fs per %r, riprovo più in là", timestamp, video_path)
             spread = stats["YMAX"] - stats["YMIN"] + stats["YAVG"] if stats else 0.0
             if best is None or spread > best[0]:
                 best = (spread, candidate)

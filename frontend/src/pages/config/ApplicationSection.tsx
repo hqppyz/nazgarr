@@ -80,52 +80,55 @@ export function ApplicationSection() {
     <>
       {/* Card principale: logo, cos'è Nazgarr, build in esecuzione e aggiornamenti.
           Stessa intestazione delle card di Integrations: logo e titolo sulla
-          stessa riga, azione a destra, descrizione sotto. */}
-      <Card>
-        <CardHeader>
-          <div className="flex w-full items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <RingLogo size={28} />
-              <CardTitle>Nazgarr</CardTitle>
+          stessa riga, azione a destra, descrizione sotto. Il tour subito
+          sotto, nella stessa colonna del masonry: un solo blocco. */}
+      <div className="grid content-start gap-6">
+        <Card>
+          <CardHeader>
+            <div className="flex w-full items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <RingLogo size={28} />
+                <CardTitle>Nazgarr</CardTitle>
+              </div>
+              <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching}>
+                <RefreshCwIcon className={cn('size-4', isFetching && 'animate-spin')} />
+                {t('application.checkForUpdates')}
+              </Button>
             </div>
-            <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching}>
-              <RefreshCwIcon className={cn('size-4', isFetching && 'animate-spin')} />
-              {t('application.checkForUpdates')}
-            </Button>
-          </div>
-          <CardDescription>{t('application.tagline')}</CardDescription>
-        </CardHeader>
-        <CardContent className="grid gap-4">
-          {info && (
-            <div>
-              <InfoRow label={t('application.version')} value={info.version} />
-              <InfoRow label={t('application.commit')} value={info.commit ?? '—'} />
-              <InfoRow label={t('application.pythonVersion')} value={info.python_version} />
-              <InfoRow label={t('application.platform')} value={info.platform} />
-              <InfoRow label={t('application.uptime')} value={formatUptime(info.started_at)} />
-            </div>
-          )}
-          {updateCheck && (
-            <div className="rounded-md border p-3 text-sm">
-              {updateCheck.note ? (
-                <p className="text-muted-foreground">{updateCheck.note}</p>
-              ) : updateCheck.update_available ? (
-                <p className="font-medium">
-                  {t('application.updateAvailable', { version: updateCheck.latest_version ?? '' })}
-                </p>
-              ) : (
-                <p className="text-muted-foreground">{t('application.upToDate')}</p>
-              )}
-              {updateCheck.channel && (
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {updateCheck.channel === 'stable' ? t('application.channelStable') : t('application.channelTest')}
-                </p>
-              )}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-      <RestartTourCard />
+            <CardDescription>{t('application.tagline')}</CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-4">
+            {info && (
+              <div>
+                <InfoRow label={t('application.version')} value={info.version} />
+                <InfoRow label={t('application.commit')} value={info.commit ?? '—'} />
+                <InfoRow label={t('application.pythonVersion')} value={info.python_version} />
+                <InfoRow label={t('application.platform')} value={info.platform} />
+                <InfoRow label={t('application.uptime')} value={formatUptime(info.started_at)} />
+              </div>
+            )}
+            {updateCheck && (
+              <div className="rounded-md border p-3 text-sm">
+                {updateCheck.note ? (
+                  <p className="text-muted-foreground">{updateCheck.note}</p>
+                ) : updateCheck.update_available ? (
+                  <p className="font-medium">
+                    {t('application.updateAvailable', { version: updateCheck.latest_version ?? '' })}
+                  </p>
+                ) : (
+                  <p className="text-muted-foreground">{t('application.upToDate')}</p>
+                )}
+                {updateCheck.channel && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {updateCheck.channel === 'stable' ? t('application.channelStable') : t('application.channelTest')}
+                  </p>
+                )}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+        <RestartTourCard />
+      </div>
       <ContributeCard />
     </>
   )

@@ -9,7 +9,7 @@ import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { t } from '@/lib/i18n'
 import { FileNamingCard } from '@/pages/config/FileNamingCard'
-import { ImageHostPriorityField } from '@/pages/config/ImageHostPriorityField'
+import { ImageHostPriorityField, parseOrder } from '@/pages/config/ImageHostPriorityField'
 import { autosaveFeedback } from '@/lib/autosave'
 
 function TonemapSwitch() {
@@ -77,9 +77,53 @@ function DescriptionTextField({
   )
 }
 
+// Gli host che vogliono una API key (gli altri caricano anonimi).
+const KEYED_HOSTS = [
+  { key: 'ptpimg', label: 'PTPImg', url: 'https://ptpimg.me' },
+  { key: 'imgbb', label: 'ImgBB', url: 'https://api.imgbb.com' },
+  { key: 'lensdump', label: 'Lensdump', url: 'https://lensdump.com' },
+  { key: 'ptscreens', label: 'PTScreens', url: 'https://ptscreens.com' },
+  { key: 'onlyimage', label: 'OnlyImage', url: 'https://onlyimage.org' },
+  { key: 'dalexni', label: 'Dalexni', url: 'https://dalexni.com' },
+  { key: 'utppm', label: 'utp.pm', url: 'https://utp.pm' },
+  { key: 'seedpool_cdn', label: 'Seedpool CDN', url: 'https://i.seedpool.org' },
+]
+
 export function UploadSettingsSection() {
+  const { data: priority } = useSetting('image_host_priority')
+  const enabled = parseOrder(priority?.value)
   return (
     <>
+      {/* Per primi, a tutta larghezza: priorità e API key affiancate. */}
+      <Card data-masonry="full">
+        <CardHeader>
+          <CardTitle>{t('uploadSettings.imageHostsTitle')}</CardTitle>
+          <CardDescription>{t('uploadSettings.imageHostsDescription')}</CardDescription>
+        </CardHeader>
+        {/* content-start: le chiavi restano in cima con la loro spaziatura,
+            non si allargano all'altezza della colonna delle priorità. */}
+        <CardContent className="grid items-start gap-6 md:grid-cols-2">
+          <ImageHostPriorityField />
+          <div className="grid content-start gap-2">
+            <div className="grid gap-1.5">
+              <Label>{t('uploadSettings.apiKeysLabel')}</Label>
+              <p className="text-xs text-muted-foreground">{t('uploadSettings.apiKeysHelp')}</p>
+            </div>
+            {/* Solo gli host attivi nella priorità: una chiave di un host spento
+                resta salvata, solo nascosta finché non lo riattivi. */}
+            {KEYED_HOSTS.filter((host) => enabled.includes(host.key)).map((host) => (
+              <SettingField
+                key={host.key}
+                compact
+                settingKey={`image_host_${host.key}_api_key`}
+                label={host.label}
+                description={host.url}
+                type="password"
+              />
+            ))}
+          </div>
+        </CardContent>
+      </Card>
       <Card>
         <CardHeader>
           <CardTitle>{t('uploadSettings.screenshotsTitle')}</CardTitle>
@@ -119,32 +163,6 @@ export function UploadSettingsSection() {
         </CardContent>
       </Card>
 
-      {/* A tutta larghezza sotto le due colonne: priorità e API key affiancate. */}
-      <Card data-masonry="full">
-        <CardHeader>
-          <CardTitle>{t('uploadSettings.imageHostsTitle')}</CardTitle>
-          <CardDescription>{t('uploadSettings.imageHostsDescription')}</CardDescription>
-        </CardHeader>
-        {/* content-start: le chiavi restano in cima con la loro spaziatura,
-            non si allargano all'altezza della colonna delle priorità. */}
-        <CardContent className="grid items-start gap-6 md:grid-cols-2">
-          <ImageHostPriorityField />
-          <div className="grid content-start gap-2">
-            <div className="grid gap-1.5">
-              <Label>{t('uploadSettings.apiKeysLabel')}</Label>
-              <p className="text-xs text-muted-foreground">{t('uploadSettings.apiKeysHelp')}</p>
-            </div>
-            <SettingField compact settingKey="image_host_ptpimg_api_key" label="PTPImg" description="https://ptpimg.me" type="password" />
-            <SettingField compact settingKey="image_host_imgbb_api_key" label="ImgBB" description="https://api.imgbb.com" type="password" />
-            <SettingField compact settingKey="image_host_lensdump_api_key" label="Lensdump" description="https://lensdump.com" type="password" />
-            <SettingField compact settingKey="image_host_ptscreens_api_key" label="PTScreens" description="https://ptscreens.com" type="password" />
-            <SettingField compact settingKey="image_host_onlyimage_api_key" label="OnlyImage" description="https://onlyimage.org" type="password" />
-            <SettingField compact settingKey="image_host_dalexni_api_key" label="Dalexni" description="https://dalexni.com" type="password" />
-            <SettingField compact settingKey="image_host_utppm_api_key" label="utp.pm" description="https://utp.pm" type="password" />
-            <SettingField compact settingKey="image_host_seedpool_cdn_api_key" label="Seedpool CDN" description="https://i.seedpool.org" type="password" />
-          </div>
-        </CardContent>
-      </Card>
       <FileNamingCard />
     </>
   )

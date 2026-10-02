@@ -109,9 +109,9 @@ const GROUPS: { title: string; tabs: Tab[] }[] = [
     // webhook e API key (docs/SDK.md).
     title: t('config.groupExtensions'),
     tabs: [
+      { value: 'api-keys', label: t('config.tabApiKeys'), icon: KeyRoundIcon, layout: STACK, content: <ApiKeysSection /> },
       { value: 'plugins', label: t('config.tabPlugins'), icon: PuzzleIcon, layout: STACK, content: <PluginsSection /> },
       { value: 'webhooks', label: t('config.tabWebhooks'), icon: WebhookIcon, layout: STACK, content: <WebhooksSection /> },
-      { value: 'api-keys', label: t('config.tabApiKeys'), icon: KeyRoundIcon, layout: STACK, content: <ApiKeysSection /> },
     ],
   },
   {

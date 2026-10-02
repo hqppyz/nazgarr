@@ -164,12 +164,12 @@ def run_bulk_import(session: Session, run: RunLog, data_dir: str) -> RunLog:
 
     def phase(name: str, total: int | None = None, detail: str | None = None) -> None:
         progress.start_phase(name, total, detail)
-        logger.info("Run #%s: fase '%s'", run.id, name)
+        logger.debug("Run #%s: fase '%s'", run.id, name)
 
     try:
         phase("scanning", detail="Listing files…")
         disks = session.query(Disk).all()
-        logger.info("Run #%s: %d %s da scansionare", run.id, len(disks), _plural(len(disks), "disco", "dischi"))
+        logger.debug("Run #%s: %d %s da scansionare", run.id, len(disks), _plural(len(disks), "disco", "dischi"))
         # Prima l'elenco dei file di tutti i dischi (veloce, solo nomi), così
         # il totale è noto prima della parte lenta (stat + hash).
         scan_failed = False

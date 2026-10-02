@@ -39,6 +39,33 @@ def safe_error(value) -> str:
     return redact(str(value))
 
 
+# Righe di librerie utili solo per capire un problema, non da leggere ogni
+# giorno: da INFO passano a DEBUG ("Verbose" nella tab Logs). Il battito del
+# pianificatore (due righe ogni 15 secondi per i webhook) si scarta del tutto,
+# a meno che LOG_LEVEL non sia DEBUG.
+_VERBOSE_LOGGERS = ("apscheduler", "httpx")
+
+
+class VerbosityFilter(logging.Filter):
+    def __init__(self, keep_heartbeat: bool = False):
+        super().__init__()
+        self.keep_heartbeat = keep_heartbeat
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.levelno != logging.INFO or not record.name.startswith(_VERBOSE_LOGGERS):
+            return True
+        if record.name == "apscheduler.executors.default" and not self.keep_heartbeat:
+            message = record.getMessage()
+            if message.startswith(("Running job", "Job ")) or "executed successfully" in message:
+                return False
+        record.levelno, record.levelname = logging.DEBUG, "DEBUG"
+        return True
+
+
+def _verbosity() -> VerbosityFilter:
+    return VerbosityFilter(keep_heartbeat=logging.getLogger().level <= logging.DEBUG)
+
+
 class RedactingFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         return redact(super().format(record))
@@ -53,6 +80,7 @@ def configure_logging() -> None:
 
     handler = logging.StreamHandler()
     handler.setFormatter(RedactingFormatter(LOG_FORMAT, LOG_DATEFMT))
+    handler.addFilter(_verbosity())
     root.handlers = [handler]
 
     # httpx/httpcore a DEBUG loggerebbero ogni singola richiesta/risposta
@@ -83,5 +111,6 @@ def add_file_handler(log_dir: Path) -> None:
     log_dir.mkdir(parents=True, exist_ok=True)
     handler = RotatingFileHandler(log_dir / "app.log", maxBytes=5_000_000, backupCount=3)
     handler.setFormatter(RedactingFormatter(LOG_FORMAT, LOG_DATEFMT))
+    handler.addFilter(_verbosity())
     handler._nazgarr_file_handler = True
     root.addHandler(handler)

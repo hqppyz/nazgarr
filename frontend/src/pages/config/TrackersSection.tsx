@@ -550,11 +550,12 @@ export function TrackersSection() {
                     )}
                   </span>
                 </div>
-                <div className="flex justify-end gap-1 border-t pt-3">
-                  <Button variant="ghost" size="sm" data-tour="trackers.card.profile" onClick={() => setProfileTrackerId(tracker.id)}>
+                <div className="flex items-center gap-1 border-t pt-3">
+                  <Button variant="outline" size="sm" data-tour="trackers.card.profile" onClick={() => setProfileTrackerId(tracker.id)}>
                     <FileUpIcon className="size-4" />
                     {t('trackers.uploadProfile')}
                   </Button>
+                  <span className="flex-1" />
                   <EditTrackerDialog tracker={tracker} />
                   <Button variant="ghost" size="icon-sm" title={t('common.delete')} onClick={() => deleteTracker.mutate(tracker.id)}>
                     <TrashIcon className="size-4" />
