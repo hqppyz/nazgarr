@@ -4,7 +4,7 @@
 # requirements.in (senza supervisor, solo per il container): un test le tiene
 # uguali. Docker e CI continuano a installare il lock con hash.
 [build-system]
-requires = ["setuptools>=69"]
+requires = ["setuptools>=77"]  # license come espressione SPDX (PEP 639)
 build-backend = "setuptools.build_meta"
 
 [project]

@@ -73,11 +73,13 @@ sudo apt install pipx mediainfo ffmpeg        # Debian/Ubuntu
 brew install pipx media-info ffmpeg            # macOS
 ```
 
-Install it from the [latest stable release](https://github.com/lktorrentz/nazgarr/releases/latest) (the `.whl` asset):
+Install it from [PyPI](https://pypi.org/project/nazgarr/):
 
 ```bash
-pipx install https://github.com/lktorrentz/nazgarr/releases/download/vX.Y.Z/nazgarr-X.Y.Z-py3-none-any.whl
+pipx install nazgarr
 ```
+
+The same package is also attached to every [stable release](https://github.com/lktorrentz/nazgarr/releases/latest) (the `.whl` asset), if you prefer to install from there: `pipx install <URL of the .whl>`.
 
 Set it up once, pointing `--scan-root` at the folder your disks live under (for example `/mnt` or `/srv`):
 
@@ -103,7 +105,7 @@ Things to know:
 - **Paths:** Nazgarr sees your real filesystem, so there's no volume mapping. Disks are the real paths under `--scan-root`. If your torrent client runs in a container while Nazgarr doesn't (or the reverse), set the client's root path per disk under Configuration → Torrent clients.
 - **User:** run it as the user that owns your media and torrent folders. Hardlinks need write access, and every folder of a disk must be on the same filesystem.
 - **One process only:** never start it with several workers. The upload worker, the scheduler and the watched folder run inside the process.
-- **Updating:** `pipx install --force <new .whl URL>`, then restart the service.
+- **Updating:** `pipx upgrade nazgarr`, then restart the service. Only stable versions are published as a package; the test builds (`:nightly`) are Docker only.
 - **Windows:** not tested yet. Hardlinks work on NTFS; run `nazgarr serve` through [WinSW](https://github.com/winsw/winsw) or NSSM if you want to try it.
 
 ### Release channels
