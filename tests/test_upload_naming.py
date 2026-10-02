@@ -288,3 +288,16 @@ def test_hdr_full_writes_every_hdr_format_with_the_dolby_vision_profile():
     assert values({"hdr_format": "SMPTE ST 2086", "hdr_format_compatibility": "HDR10"})["hdr_full"] == "HDR10"
     # Corretto a mano: vale anche per {hdr_full}.
     assert values({"hdr_format": "Dolby Vision", "hdr_format_profile": "dvhe.05"}, {"hdr": "HDR"})["hdr_full"] == "HDR"
+
+
+def test_the_naming_editor_offers_every_variable():
+    # L'editor (NamingRulesEditor.tsx) ha la sua lista: deve restare uguale,
+    # se no una variabile nuova esiste ma non si può inserire.
+    import re
+    from pathlib import Path
+
+    from nazgarr.upload_naming import VARIABLES
+
+    editor = (Path(__file__).resolve().parent.parent / "frontend/src/components/NamingRulesEditor.tsx").read_text()
+    listed = re.search(r"const VARIABLE_NAMES = \[(.*?)\]", editor, re.S).group(1)
+    assert re.findall(r"'(\w+)'", listed) == list(VARIABLES)
