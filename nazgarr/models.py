@@ -618,6 +618,7 @@ class UploadJob(Base):
     anime: Mapped[bool | None]
     error_message: Mapped[str | None]
     origin: Mapped[str | None]  # "watch": dalla cartella osservata (nazgarr/upload_watch.py)
+    pack_json: Mapped[str | None]  # un pack di file scelti a mano (nazgarr/upload_pack.py)
     created_at: Mapped[datetime | None] = mapped_column(server_default=text("CURRENT_TIMESTAMP"))
     updated_at: Mapped[datetime | None] = mapped_column(
         server_default=text("CURRENT_TIMESTAMP"), onupdate=text("CURRENT_TIMESTAMP")

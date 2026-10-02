@@ -29,6 +29,8 @@ import { formatBytes } from '@/lib/library-filters'
 import { STATUS_STYLES } from '@/lib/status-styles'
 import { relativeFromNow } from '@/lib/time'
 import { newUploadLink } from '@/lib/upload'
+import { usePackSelection, type PackSelection } from '@/lib/pack'
+import { PackBar, PackSelectButton } from '@/components/upload/PackBar'
 import { TrackerOverview } from '@/pages/library/TrackerOverview'
 import { cn } from '@/lib/utils'
 import { safeHref } from '@/lib/safeUrl'
@@ -79,15 +81,39 @@ function ExternalLinks({ detail }: { detail: Detail }) {
   )
 }
 
-function FileRow({ file, showEpisode, uploadTmdb }: { file: DetailFile; showEpisode: boolean; uploadTmdb: string }) {
+// Un episodio che può entrare in un pack (nazgarr/upload_pack.py), anche se già in seed.
+const packable = (f: DetailFile) => f.is_video && !f.excluded
+const packFile = (f: DetailFile) => ({ diskId: f.disk_id, path: f.relative_path })
+
+function FileRow({
+  file,
+  showEpisode,
+  uploadTmdb,
+  selection,
+}: {
+  file: DetailFile
+  showEpisode: boolean
+  uploadTmdb: string
+  selection?: PackSelection
+}) {
   const exclude = useExcludeFile()
   const navigate = useNavigate()
+  const picking = selection?.active && packable(file)
   // Un video orfano (in libreria, non in seed): upload o reseed dal flusso di upload.
   const orphan = file.is_video && !file.excluded && file.state !== 'seeding'
   const code = showEpisode ? episodeCode(file) : null
   return (
     <div className={cn('grid gap-1 rounded-md border p-2.5', file.excluded && 'opacity-60')}>
       <div className="flex items-start gap-2">
+        {picking && selection && (
+          <input
+            type="checkbox"
+            aria-label={file.relative_path}
+            className="mt-0.5 size-3.5 shrink-0 accent-primary"
+            checked={selection.has(packFile(file))}
+            onChange={() => selection.toggle(packFile(file))}
+          />
+        )}
         {file.is_video ? (
           <FileVideoIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
         ) : (
@@ -192,7 +218,7 @@ function seasonFolder(files: DetailFile[]): { diskId: number; path: string } | n
   return path ? { diskId: Number(disk), path } : null
 }
 
-function Seasons({ files, uploadTmdb }: { files: DetailFile[]; uploadTmdb: string }) {
+function Seasons({ files, uploadTmdb, selection }: { files: DetailFile[]; uploadTmdb: string; selection: PackSelection }) {
   const navigate = useNavigate()
   const seasons = useMemo(() => {
     const bySeason = new Map<number, DetailFile[]>()
@@ -207,9 +233,26 @@ function Seasons({ files, uploadTmdb }: { files: DetailFile[]; uploadTmdb: strin
       {seasons.map(([season, seasonFiles]) => {
         const videos = seasonFiles.filter((f) => f.is_video && !f.excluded)
         const seeding = videos.filter((f) => f.state === 'seeding').length
-        const folder = seeding < videos.length ? seasonFolder(seasonFiles) : null
+        // Anche con ogni episodio già in seed col suo torrent: il season pack
+        // è un torrent nuovo, dagli hardlink degli stessi file.
+        const folder = selection.active ? null : seasonFolder(seasonFiles)
+        const picked = videos.filter((f) => selection.has(packFile(f))).length
         return (
           <Collapsible key={season} className="rounded-md border">
+            <div className="flex items-center">
+            {selection.active && videos.length > 0 && (
+              <input
+                type="checkbox"
+                aria-label={t('pack.selectSeason')}
+                title={t('pack.selectSeason')}
+                className="ml-3 size-3.5 shrink-0 accent-primary"
+                checked={picked === videos.length}
+                ref={(el) => {
+                  if (el) el.indeterminate = picked > 0 && picked < videos.length
+                }}
+                onChange={(e) => selection.setMany(videos.map(packFile), e.target.checked)}
+              />
+            )}
             <CollapsibleTrigger className="group flex w-full items-center gap-2 px-3 py-2 text-left text-sm">
               <ChevronRightIcon className="size-4 text-muted-foreground transition-transform group-data-[panel-open]:rotate-90" />
               <span className="font-medium">{t('itemDetail.season', { n: season })}</span>
@@ -217,6 +260,7 @@ function Seasons({ files, uploadTmdb }: { files: DetailFile[]; uploadTmdb: strin
                 {t('itemDetail.seasonSummary', { seeding, total: videos.length })}
               </span>
             </CollapsibleTrigger>
+            </div>
             <CollapsibleContent className="grid gap-2 px-3 pb-3">
               {folder && (
                 <Button
@@ -230,7 +274,7 @@ function Seasons({ files, uploadTmdb }: { files: DetailFile[]; uploadTmdb: strin
                 </Button>
               )}
               {seasonFiles.map((f) => (
-                <FileRow key={f.media_file_id} file={f} showEpisode uploadTmdb={uploadTmdb} />
+                <FileRow key={f.media_file_id} file={f} showEpisode uploadTmdb={uploadTmdb} selection={selection} />
               ))}
             </CollapsibleContent>
           </Collapsible>
@@ -407,9 +451,18 @@ export function ItemDetailSheet({ item, onClose }: { item: OpenItem | null; onCl
       videos: videos.length,
     }
   }, [detail])
+  // Episodi scelti per un pack (nazgarr/upload_pack.py): si azzera chiudendo.
+  const selection = usePackSelection()
 
   return (
-    <Sheet open={item != null} onOpenChange={(open) => !open && onClose()}>
+    <Sheet
+      open={item != null}
+      onOpenChange={(open) => {
+        if (open) return
+        selection.setActive(false)
+        onClose()
+      }}
+    >
       <SheetContent className="w-full overflow-y-auto data-[side=right]:sm:max-w-2xl">
         {isPending || !detail ? (
           <div className="grid h-full place-items-center text-sm text-muted-foreground">
@@ -461,9 +514,16 @@ export function ItemDetailSheet({ item, onClose }: { item: OpenItem | null; onCl
               <Section title={t('itemDetail.trackers')}>
                 <TrackerOverview detail={detail} />
               </Section>
-              <Section title={t('itemDetail.files')}>
+              <Section
+                title={t('itemDetail.files')}
+                action={detail.content_type === 'tv' ? <PackSelectButton selection={selection} /> : undefined}
+              >
                 {detail.content_type === 'tv' ? (
-                  <Seasons files={detail.files} uploadTmdb={`${detail.content_type}/${detail.tmdb_id}`} />
+                  <Seasons
+                    files={detail.files}
+                    uploadTmdb={`${detail.content_type}/${detail.tmdb_id}`}
+                    selection={selection}
+                  />
                 ) : (
                   detail.files.map((f) => (
                     <FileRow
@@ -477,6 +537,7 @@ export function ItemDetailSheet({ item, onClose }: { item: OpenItem | null; onCl
               </Section>
               <Matching detail={detail} />
               <History detail={detail} />
+              <PackBar selection={selection} tmdb={`${detail.content_type}/${detail.tmdb_id}`} />
             </div>
           </>
         )}

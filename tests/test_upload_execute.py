@@ -572,3 +572,146 @@ def test_a_folder_with_more_files_stays_a_folder(db_session, tmp_path, env):
 
     torrent = torf.Torrent.read(job.targets[0].torrent_path)
     assert torrent.mode == "multifile" and torrent.name == "Movie (2024)"
+
+
+# --- pack di file scelti a mano (nazgarr/upload_pack.py) ----------------------
+
+
+def _pack(db_session, env, files, kind, seasons, file_naming=None, **overrides):
+    from dataclasses import asdict
+
+    from nazgarr import upload_pack
+    from nazgarr.upload_source import scan_source
+    job = upload_pack.create_job(db_session, env["disk"], files)
+    layout = scan_source(job.source_path, upload_pack.entries(job), upload_pack.name(job))
+    assert (layout.kind, layout.seasons) == (kind, seasons)
+    if file_naming or overrides:
+        job.overrides_json = json.dumps({**({"file_naming": file_naming} if file_naming else {}), **overrides})
+    upload_jobs.transition(
+        db_session, job, "identifying", "awaiting_decision", tmdb_id=1399, title="Show", year=2020,
+        content_type="tv", kind=kind, seasons_json=json.dumps(seasons), mediainfo_text="MI",
+        layout_json=json.dumps(asdict(layout)),
+    )
+    for target in job.targets:
+        target.status = "awaiting_decision"
+    db_session.commit()
+    return job
+
+
+def _episodes(env, folder, season, count, size=200 * KB):
+    """Gli episodi scaricati uno alla volta, ognuno nella cartella del suo torrent."""
+    out = []
+    for e in range(1, count + 1):
+        name = f"Show.S{season:02d}E{e:02d}.1080p.WEB-DL-GRP"
+        out.append(write_video(env["root"] / folder / name / f"{name}.mkv", size + e * KB))
+    return out
+
+
+def test_a_pack_of_episodes_already_seeding_becomes_one_season_torrent(db_session, tmp_path, env):
+    episodes = _episodes(env, "torrents", 1, 3)
+    (episodes[0].parent / "Show.S01E01.1080p.WEB-DL-GRP.it.srt").write_text("1")
+    (episodes[0].parent / "other.nfo").write_text("x")  # non è un sottotitolo del video: resta fuori
+    job = _pack(db_session, env, [str(p.relative_to(env["root"])) for p in episodes], "season_pack", [1],
+                file_naming="original")
+    from nazgarr import upload_pack
+    assert upload_pack.name(job) == "Show.S01.1080p.WEB-DL-GRP"
+    assert sorted(n for _p, n in upload_pack.entries(job))[0] == "Show.S01E01.1080p.WEB-DL-GRP.it.srt"
+    upload_decision.approve(db_session, job, [
+        {"target_id": t.id, **({"a": _upload("Show S01"), "b": {"action": "skip"}}[t.tracker.label])}
+        for t in job.targets
+    ])
+
+    _run(db_session, tmp_path, job)
+
+    assert job.status == "done", [e.code for e in job.events]
+    torrent = torf.Torrent.read(job.targets[0].torrent_path)
+    assert sorted(str(f) for f in torrent.files) == [
+        "Show.S01.1080p.WEB-DL-GRP/Show.S01E01.1080p.WEB-DL-GRP.it.srt",
+        "Show.S01.1080p.WEB-DL-GRP/Show.S01E01.1080p.WEB-DL-GRP.mkv",
+        "Show.S01.1080p.WEB-DL-GRP/Show.S01E02.1080p.WEB-DL-GRP.mkv",
+        "Show.S01.1080p.WEB-DL-GRP/Show.S01E03.1080p.WEB-DL-GRP.mkv",
+    ]
+    pack = env["root"] / "torrents" / "Show.S01.1080p.WEB-DL-GRP"
+    assert os.path.samefile(pack / "Show.S01E02.1080p.WEB-DL-GRP.mkv", episodes[1])
+    assert episodes[1].is_file()  # i torrent degli episodi restano come sono
+    assert env["client"].added == [(job.targets[0].torrent_path, str(env["root"] / "torrents"))]
+
+
+def test_a_complete_pack_puts_each_season_in_its_folder(db_session, tmp_path, env):
+    files = _episodes(env, "torrents", 1, 2) + _episodes(env, "torrents", 2, 2)
+    job = _pack(db_session, env, [str(p.relative_to(env["root"])) for p in files], "complete_pack", [1, 2],
+                file_naming="original")
+    from nazgarr import upload_file_names
+    plan = upload_file_names.plan(db_session, job)
+    assert plan.content_name == "Show.S01-S02.1080p.WEB-DL-GRP"
+    assert sorted(target for _s, target in plan.files) == [
+        "Show.S01-S02.1080p.WEB-DL-GRP/Season 01/Show.S01E01.1080p.WEB-DL-GRP.mkv",
+        "Show.S01-S02.1080p.WEB-DL-GRP/Season 01/Show.S01E02.1080p.WEB-DL-GRP.mkv",
+        "Show.S01-S02.1080p.WEB-DL-GRP/Season 02/Show.S02E01.1080p.WEB-DL-GRP.mkv",
+        "Show.S01-S02.1080p.WEB-DL-GRP/Season 02/Show.S02E02.1080p.WEB-DL-GRP.mkv",
+    ]
+    # Rinominati: ogni episodio col suo nome, sempre nella sua stagione.
+    generated = upload_file_names.plan(db_session, job, "generated")
+    assert all("/Season 0" in target for _s, target in generated.files)
+
+
+def test_a_mixed_pack_waits_for_a_confirmation(db_session, tmp_path, env):
+    files = _episodes(env, "torrents", 1, 2)
+    job = _pack(db_session, env, [str(p.relative_to(env["root"])) for p in files], "season_pack", [1])
+    job.analysis_json = json.dumps({"pack_mixed": {"group": ["GRP", "OTHER"]}})
+    db_session.commit()
+    decisions = [{"target_id": t.id, **_upload("Show S01")} for t in job.targets]
+
+    with pytest.raises(UploadJobError) as exc:
+        upload_decision.approve(db_session, job, decisions)
+    assert exc.value.code == "upload_pack_mixed_unconfirmed"
+
+    upload_decision.update_overrides(db_session, job, {"pack_mixed_confirmed": True})
+    db_session.refresh(job)
+    job.analysis_json = json.dumps({**json.loads(job.analysis_json), "pack_mixed": {"group": ["GRP", "OTHER"]}})
+    for target in job.targets:
+        target.status = "awaiting_decision"
+    db_session.commit()
+    upload_decision.approve(db_session, job, decisions)
+    assert job.status == "queued"
+
+
+def test_a_pack_checks_every_file(db_session, tmp_path, env):
+    from nazgarr import upload_pack
+    a, b = _episodes(env, "torrents", 1, 2)
+    rel = lambda p: str(p.relative_to(env["root"]))  # noqa: E731
+    with pytest.raises(UploadJobError, match="upload_pack_too_few_files"):
+        upload_pack.create_job(db_session, env["disk"], [rel(a)])
+    nfo = env["root"] / "torrents" / "x.nfo"
+    nfo.write_text("x")
+    with pytest.raises(UploadJobError, match="upload_pack_not_a_video"):
+        upload_pack.create_job(db_session, env["disk"], [rel(a), rel(nfo)])
+    twin = write_video(env["root"] / "media" / a.name)
+    with pytest.raises(UploadJobError, match="upload_pack_duplicate_name"):
+        upload_pack.create_job(db_session, env["disk"], [rel(a), rel(b), rel(twin)])
+    os.symlink(b, env["root"] / "torrents" / "link.mkv")
+    with pytest.raises(UploadJobError, match="upload_source_has_symlinks"):
+        upload_pack.create_job(db_session, env["disk"], [rel(a), "torrents/link.mkv"])
+    from nazgarr.fs_scope import ScopeViolation
+    with pytest.raises(ScopeViolation):
+        upload_pack.create_job(db_session, env["disk"], [rel(a), "../outside.mkv"])
+
+
+def test_an_episode_seeding_alone_does_not_mark_the_pack_as_seeding():
+    from nazgarr.upload_analysis import seeding_here
+    target = types.SimpleNamespace(
+        tracker=types.SimpleNamespace(announce_url="https://t.example/announce", base_url=None), torrent_client_id=1,
+    )
+    one = {"match": "hardlink", "client_id": 1, "tracker_host": "t.example", "videos_matched": 1,
+           "videos_hardlinked": 1, "videos_total": 3}
+    assert seeding_here(target, [one]) is None
+    assert seeding_here(target, [{**one, "videos_matched": 3, "videos_hardlinked": 3}]) is not None
+
+
+def test_the_season_name_of_an_episode():
+    from nazgarr.upload_pack import season_name
+    assert season_name("Show.S01E01.1080p.WEB-DL-GRP.mkv", [1]) == "Show.S01.1080p.WEB-DL-GRP"
+    assert season_name("Show.S01E01E02.1080p-GRP", [1]) == "Show.S01.1080p-GRP"
+    assert (season_name("Show (2020) - S02E05 - Title [WEBDL-1080p]", [1, 3])
+            == "Show (2020) - S01-S03 - Title [WEBDL-1080p]")
+    assert season_name("Show.Season.Pack", [1]) == "Show.Season.Pack"

@@ -17,7 +17,7 @@ import os
 
 from sqlalchemy.orm import Session
 
-from nazgarr import adapter_factory, upload_jobs
+from nazgarr import adapter_factory, upload_jobs, upload_pack
 from nazgarr.fs_scope import ScopeViolation, resolve_scoped
 from nazgarr.full_check import CheckResult, unreadable_pieces, verdict, verify_all_pieces
 from nazgarr.models import UploadJob, UploadTarget
@@ -37,20 +37,28 @@ def build_locator(job: UploadJob, parsed: TorrentInfo):
 
     by_name: dict[tuple[str, int], str] = {}
     by_size: dict[int, list[str]] = {}
-    for dirpath, _dirs, filenames in os.walk(job.source_path):
-        for name in filenames:
-            path = os.path.join(dirpath, name)
-            if os.path.isfile(path):
-                size = os.path.getsize(path)
-                by_name.setdefault((name.lower(), size), path)
-                by_size.setdefault(size, []).append(path)
+    pack = upload_pack.is_pack(job)
+    if pack:
+        # Un pack di file scelti a mano: solo quei file, mai il resto della
+        # loro cartella comune.
+        local = [path for path, _name in upload_pack.entries(job)]
+    else:
+        local = [os.path.join(dirpath, name) for dirpath, _dirs, filenames in os.walk(job.source_path)
+                 for name in filenames]
+    for path in local:
+        if os.path.isfile(path):
+            size = os.path.getsize(path)
+            by_name.setdefault((os.path.basename(path).lower(), size), path)
+            by_size.setdefault(size, []).append(path)
 
     def locate(entry: TorrentFileEntry) -> tuple[str | None, str | None]:
         # Il percorso viene dal .torrent del tracker: mai fuori dalla sorgente.
-        try:
-            direct = resolve_scoped(job.source_path, entry.path)
-        except ScopeViolation:
-            direct = None
+        direct = None
+        if not pack:
+            try:
+                direct = resolve_scoped(job.source_path, entry.path)
+            except ScopeViolation:
+                direct = None
         if direct and os.path.isfile(direct) and os.path.getsize(direct) == entry.length:
             return direct, "source"
         found = by_name.get((os.path.basename(entry.path).lower(), entry.length))

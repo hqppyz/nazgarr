@@ -14,10 +14,13 @@ import { draftProblem, type TargetDraft } from '@/lib/upload'
 export function DecisionSummary({
   drafts,
   busy,
+  blocked = null,
   onApprove,
 }: {
   drafts: { target: UploadTarget; draft: TargetDraft }[]
   busy: boolean
+  // Un motivo che ferma tutto il job (es. un pack misto non confermato).
+  blocked?: string | null
   onApprove: () => void
 }) {
   const problems = drafts.filter(({ draft }) => draftProblem(draft) !== null)
@@ -115,11 +118,13 @@ export function DecisionSummary({
           <p className="text-sm text-muted-foreground">
             {busy
               ? t('upload.decision.busy')
-              : problems.length > 0
+              : blocked
+                ? blocked
+                : problems.length > 0
                 ? t('upload.decision.summaryMissing', { count: problems.length })
                 : t('upload.decision.ready')}
           </p>
-          <Button disabled={problems.length > 0 || busy} onClick={onApprove}>
+          <Button disabled={problems.length > 0 || busy || !!blocked} onClick={onApprove}>
             {t('upload.decision.approve')}
           </Button>
         </div>

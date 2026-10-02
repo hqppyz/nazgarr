@@ -15,6 +15,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { t } from '@/lib/i18n'
+import { sourceLabel } from '@/lib/upload'
 import { parseApiDate } from '@/lib/time'
 import { cn } from '@/lib/utils'
 
@@ -99,7 +100,7 @@ function ActiveList({ jobs }: { jobs: UploadJobSummary[] }) {
                   <span className="text-xs text-muted-foreground">#{index + 1}</span>
                 )}
               </div>
-              <p className="truncate font-mono text-xs text-muted-foreground">{job.relative_path}</p>
+              <p className="truncate font-mono text-xs text-muted-foreground">{sourceLabel(job)}</p>
               {job.status === 'running' && pct !== null && <Progress value={pct} className="max-w-sm" />}
               <TargetOutcomes job={job} />
             </div>

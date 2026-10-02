@@ -1,6 +1,6 @@
-import { CheckIcon, FileVideoIcon, FolderIcon, FolderSearchIcon, TriangleAlertIcon } from 'lucide-react'
+import { CheckIcon, FileVideoIcon, FolderIcon, FolderSearchIcon, PackageIcon, TriangleAlertIcon } from 'lucide-react'
 import { useState } from 'react'
-import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 
 import { useCreateUpload, useImageHostStatus, useUploadTrackers } from '@/api/hooks/uploads'
@@ -11,6 +11,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Label } from '@/components/ui/label'
 import { t } from '@/lib/i18n'
 import { EMPTY_IDS, parseNewUploadParams, toForcedIds } from '@/lib/upload'
+import { readPackState, type PackState } from '@/lib/pack'
 import { cn } from '@/lib/utils'
 
 const IMAGE_HOST_LABELS: Record<string, string> = { imgbox: 'Imgbox', pixhost: 'Pixhost' }
@@ -56,6 +57,10 @@ export function NewUploadPage() {
   const [params] = useSearchParams()
   const [initial] = useState(() => parseNewUploadParams(params))
   const [source, setSource] = useState<UploadSource | null>(initial.source)
+  // Episodi scelti a mano per un pack (nazgarr/upload_pack.py), dalla
+  // libreria o dalla vista dei torrent.
+  const location = useLocation()
+  const [pack, setPack] = useState<PackState | null>(() => readPackState(location.state))
   const [ids, setIds] = useState({ ...EMPTY_IDS, tmdb: initial.tmdb })
   // null = scelta non ancora toccata: tutti i tracker con un profilo di upload.
   const [trackerChoice, setTrackerChoice] = useState<Set<number> | null>(
@@ -77,14 +82,15 @@ export function NewUploadPage() {
       return next
     })
 
-  const canSubmit = source !== null && (selectedTrackers?.size ?? 0) > 0 && !create.isPending
+  const canSubmit = (pack !== null || source !== null) && (selectedTrackers?.size ?? 0) > 0 && !create.isPending
 
   function submit() {
-    if (!source || !selectedTrackers) return
+    if ((!source && !pack) || !selectedTrackers) return
     create.mutate(
       {
-        disk_id: source.diskId,
-        relative_path: source.relativePath,
+        ...(pack
+          ? { disk_id: pack.diskId, files: pack.files }
+          : { disk_id: source!.diskId, relative_path: source!.relativePath }),
         tracker_ids: [...selectedTrackers],
         forced_ids: toForcedIds(ids),
         tracker_choices: Object.fromEntries(
@@ -109,6 +115,27 @@ export function NewUploadPage() {
           <CardDescription>{t('upload.newUploadDescription')}</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-6">
+          {pack ? (
+            <div className="grid gap-1.5">
+              <Label>{t('upload.source')}</Label>
+              <div className="grid gap-1 rounded-md border bg-muted/30 p-2.5 font-mono text-xs">
+                <span className="flex items-center gap-1.5 font-sans text-sm font-medium">
+                  <PackageIcon className="size-4 shrink-0 text-primary" />
+                  {t('pack.source', { count: pack.files.length })}
+                </span>
+                {pack.files.map((file) => (
+                  <span key={file} className="flex min-w-0 items-center gap-1.5 pl-5 break-all text-muted-foreground">
+                    <FileVideoIcon className="size-3.5 shrink-0" />
+                    {file}
+                  </span>
+                ))}
+              </div>
+              <p className="text-xs text-muted-foreground">{t('pack.sourceHelp')}</p>
+              <Button variant="link" size="sm" className="h-auto w-fit p-0" onClick={() => setPack(null)}>
+                {t('pack.change')}
+              </Button>
+            </div>
+          ) : (
           <div className="grid gap-1.5">
             <Label>{t('upload.source')}</Label>
             <div className="flex gap-2">
@@ -135,6 +162,7 @@ export function NewUploadPage() {
             </div>
             <p className="text-xs text-muted-foreground">{t('upload.sourceHelp')}</p>
           </div>
+          )}
 
           <div className="grid gap-2">
             <div>

@@ -30,7 +30,7 @@ from dataclasses import dataclass
 
 from sqlalchemy.orm import Session
 
-from nazgarr import settings_repo
+from nazgarr import settings_repo, upload_pack
 from nazgarr.file_types import is_video
 from nazgarr.models import ClientTorrent, ClientTorrentFile, SeedFile, UploadJob
 from nazgarr.upload_naming import build_name, detect_with_fallback, release_values
@@ -103,6 +103,8 @@ def _excluded(relative: str) -> bool:
 
 def _source_files(job: UploadJob) -> list[tuple[str, str]]:
     """(percorso assoluto, relativo alla sorgente) dei file che vanno nel torrent."""
+    if upload_pack.is_pack(job):
+        return [(path, name) for path, name in upload_pack.entries(job) if not _excluded(name)]
     if not job.is_dir:
         return [(job.source_path, os.path.basename(job.source_path))]
     out = []
@@ -116,8 +118,33 @@ def _source_files(job: UploadJob) -> list[tuple[str, str]]:
     return out
 
 
+def _season_dirs(job: UploadJob, files: list[tuple[str, str]]) -> dict[str, str]:
+    """Per un complete pack di file scelti a mano (nazgarr/upload_pack.py),
+    la sottocartella di ogni file ("Season 01/"), decisione dell'utente del
+    2026-10-02: un sottotitolo segue il suo episodio. Vuoto altrimenti: i
+    file stanno tutti nella cartella del torrent."""
+    if not upload_pack.is_pack(job) or job.kind != "complete_pack":
+        return {}
+    layout = json.loads(job.layout_json or "{}")
+    seasons = {v.get("relative_path"): v.get("season") for v in layout.get("videos", [])}
+    stems = {os.path.splitext(name)[0]: season for name, season in seasons.items()}
+    out = {}
+    for _path, relative in files:
+        season = seasons.get(relative)
+        if season is None:
+            stem = next((s for s in sorted(stems, key=len, reverse=True) if relative.startswith(s + ".")), None)
+            season = stems.get(stem) if stem else None
+        out[relative] = f"Season {season:02d}/" if isinstance(season, int) else ""
+    return out
+
+
 def _original(job: UploadJob, files: list[tuple[str, str]]) -> FilePlan:
-    name = os.path.basename(job.source_path.rstrip(os.sep))
+    name = upload_pack.name(job)
+    if upload_pack.is_pack(job):
+        # I nomi dei file come sono, nella cartella nuova del pack.
+        folder = sanitize(name) or "pack"
+        dirs = _season_dirs(job, files)
+        return FilePlan("original", folder, [(p, f"{folder}/{dirs.get(r, '')}{r}") for p, r in files])
     if not job.is_dir:
         return FilePlan("original", name, [(files[0][0], name)])
     return FilePlan("original", name, [(path, f"{name}/{relative}") for path, relative in files])
@@ -178,6 +205,7 @@ def _generated(session: Session, job: UploadJob, files: list[tuple[str, str]], m
         v.get("relative_path"): (v.get("season"), (v.get("episodes") or [None])[0])
         for v in layout.get("videos", [])
     }
+    dirs = _season_dirs(job, files)
     planned = []
     renamed: dict[str, str] = {}  # stem del video originale -> stem nuovo, per i suoi sottotitoli
     videos = [(p, r) for p, r in files if is_video(r)]
@@ -194,7 +222,7 @@ def _generated(session: Session, job: UploadJob, files: list[tuple[str, str]], m
         else:
             name = sanitize(os.path.splitext(os.path.basename(relative))[0])
         renamed[os.path.splitext(os.path.basename(relative))[0]] = name
-        planned.append((path, f"{base}/{name}{ext}"))
+        planned.append((path, f"{base}/{dirs.get(relative, '')}{name}{ext}"))
     # Gli altri file nella cartella del torrent: un sottotitolo
     # ("Show - S01E01 - Pilot.it.srt") segue il suo episodio, il resto (nfo,
     # immagini) tiene il suo nome. Niente sottocartelle "Season 01".
@@ -204,7 +232,8 @@ def _generated(session: Session, job: UploadJob, files: list[tuple[str, str]], m
             continue
         filename = os.path.basename(relative)
         stem = next((old for old in sorted(renamed, key=len, reverse=True) if filename.startswith(old)), None)
-        target = f"{base}/{renamed[stem]}{filename[len(stem):]}" if stem else f"{base}/{filename}"
+        folder = f"{base}/{dirs.get(relative, '')}"
+        target = f"{folder}{renamed[stem]}{filename[len(stem):]}" if stem else f"{folder}{filename}"
         if target in taken:  # due file con lo stesso nome in sottocartelle diverse
             target = f"{base}/{relative}"
         taken.add(target)
@@ -258,7 +287,10 @@ def default_mode(session: Session, job: UploadJob) -> str:
         return "original"
     if "hardlink" in available_modes(session, job):
         return "hardlink"
-    return "generated" if _in_media_library(job) or job.origin == "watch" else "original"
+    # Un pack di file scelti a mano ha una cartella nuova: il suo nome di release.
+    if _in_media_library(job) or job.origin == "watch" or upload_pack.is_pack(job):
+        return "generated"
+    return "original"
 
 
 SINGLE_FILE_SETTING = "upload_single_file"
@@ -308,7 +340,7 @@ def _plan(session: Session, job: UploadJob, mode: str | None) -> FilePlan:
         mode = "generated"
     if mode == "generated" and files:
         name_source = analysis.get("name_source") or {}
-        detected = detect_with_fallback(name_source.get("name") or os.path.basename(job.source_path),
+        detected = detect_with_fallback(name_source.get("name") or upload_pack.name(job),
                                         name_source.get("fallback"))
         return _generated(session, job, files, analysis.get("mediainfo"), overrides, detected)
     return _original(job, files)

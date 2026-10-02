@@ -683,6 +683,9 @@ CREATE TABLE IF NOT EXISTS upload_job (
     error_message           TEXT,
     origin                  TEXT,            -- 'watch': started by the watched folder (nazgarr/upload_watch.py);
                                              -- null: created by hand
+    pack_json               TEXT,            -- a pack of files picked by hand (nazgarr/upload_pack.py):
+                                             -- {"name", "files": [paths relative to the disk root]};
+                                             -- source_path is then only their common folder
     created_at              TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at              TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     finished_at             TIMESTAMP

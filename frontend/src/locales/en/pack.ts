@@ -1,0 +1,28 @@
+export const pack = {
+  'pack.select': 'Pick for a pack',
+  'pack.selectStop': 'Stop picking',
+  'pack.selectHelp':
+    'Pick episodes one by one, even ones already seeding with their own torrent, and make a season pack or a complete pack of them. Their subtitles come along on their own.',
+  'pack.selected': '{count} videos picked',
+  'pack.ready': 'Ready: the upload starts with these files, in a new folder made of hardlinks.',
+  'pack.problem.tooFew': 'Pick at least two videos.',
+  'pack.problem.manyDisks': 'Every video must be on the same disk: the pack is made of hardlinks.',
+  'pack.label': '{name} · pack of episodes',
+  'pack.create': 'Create pack',
+  'pack.selectSeason': 'Pick the whole season',
+  'pack.selectFolder': 'Pick every video in the folder',
+  'pack.source': 'Pack of {count} videos',
+  'pack.sourceHelp': 'The files you picked: they go into a new folder in the releases folder, one per season for a complete pack. Subtitles with the name of an episode come along on their own.',
+  'pack.change': 'Pick a single source instead',
+  'pack.mixedTitle': 'The episodes come from different releases',
+  'pack.mixedDescription':
+    'A mixed pack says one thing in its name and holds another, and many trackers refuse it. Upload stays blocked until you confirm it; a reseed of a pack already on the tracker is not blocked.',
+  'pack.mixedConfirm': 'I know, upload it as it is',
+  'pack.mixedField.resolution': 'Resolution',
+  'pack.mixedField.video_codec': 'Video codec',
+  'pack.mixedField.hdr': 'HDR',
+  'pack.mixedField.audio_codec': 'Audio codec',
+  'pack.mixedField.audio_languages': 'Audio languages',
+  'pack.mixedField.source': 'Source',
+  'pack.mixedField.group': 'Group',
+} as const

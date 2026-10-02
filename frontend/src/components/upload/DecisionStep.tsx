@@ -9,6 +9,7 @@ import { FileNamesCard } from '@/components/upload/FileNamesCard'
 import { MatchSummaryCard } from '@/components/upload/MatchSummaryCard'
 import { MediaInfoPreview } from '@/components/upload/MediaInfoPreview'
 import { OverridesPanel } from '@/components/upload/OverridesPanel'
+import { PackMixedCard } from '@/components/upload/PackMixedCard'
 import { TargetDecisionForm } from '@/components/upload/TargetDecisionForm'
 import { ActionBadge, TrackerCheckCard } from '@/components/upload/TrackerCheckCard'
 import { Button } from '@/components/ui/button'
@@ -22,6 +23,7 @@ import {
 } from '@/components/ui/dialog'
 import { t } from '@/lib/i18n'
 import type { MediaInfoSummary } from '@/lib/mediainfo'
+import { packMixed, packMixedConfirmed } from '@/lib/pack'
 import { effectiveDraft, type TargetDraft } from '@/lib/upload'
 
 // Secondo punto di approvazione (docs/SPEC.md §9): cosa ha trovato
@@ -35,6 +37,11 @@ export function DecisionStep({ job }: { job: UploadJob }) {
 
   const drafts = job.targets.map((target) => ({ target, draft: effectiveDraft(edits[target.id], target) }))
   const busy = job.targets.some((target) => target.status !== 'awaiting_decision')
+  // Un pack misto non confermato ferma gli upload, non i reseed (nazgarr/upload_decision.py).
+  const blocked =
+    packMixed(job) && !packMixedConfirmed(job) && drafts.some(({ draft }) => draft.action === 'upload')
+      ? t('errors.upload_pack_mixed_unconfirmed', { fields: Object.keys(packMixed(job) ?? {}).map((f) => t(`pack.mixedField.${f}`)).join(', ') })
+      : null
 
   function submit() {
     approve.mutate(
@@ -58,6 +65,7 @@ export function DecisionStep({ job }: { job: UploadJob }) {
 
   return (
     <div className="grid min-w-0 gap-4 [&>*]:min-w-0">
+      <PackMixedCard job={job} />
       {/* Masonry: ogni scheda nella colonna più corta, così un MediaInfo
           lungo non spinge l'esito dell'analisi sotto di sé. */}
       <Masonry>
@@ -80,7 +88,7 @@ export function DecisionStep({ job }: { job: UploadJob }) {
           />
         </TrackerCheckCard>
       ))}
-      <DecisionSummary drafts={drafts} busy={busy} onApprove={() => setConfirmOpen(true)} />
+      <DecisionSummary drafts={drafts} busy={busy} blocked={blocked} onApprove={() => setConfirmOpen(true)} />
 
       <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <DialogContent>

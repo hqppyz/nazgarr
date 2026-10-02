@@ -285,3 +285,9 @@ export function executionSteps(job: ExecutionJob): ExecutionStep[] {
   steps.push({ key: 'finish', label: t('upload.steps.finish'), state: finish })
   return steps
 }
+
+// Il nome della sorgente di un job: il percorso, o per un pack di file
+// scelti a mano (nazgarr/upload_pack.py) il nome del pack.
+export function sourceLabel(job: { relative_path: string; pack_name?: string | null }) {
+  return job.pack_name ? t('pack.label', { name: job.pack_name }) : job.relative_path
+}

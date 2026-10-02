@@ -20,7 +20,7 @@ import time
 
 from sqlalchemy.orm import Session
 
-from nazgarr import adapter_factory, arr, events, mediainfo_util, upload_decision, upload_jobs
+from nazgarr import adapter_factory, arr, events, mediainfo_util, upload_decision, upload_jobs, upload_pack
 from nazgarr.file_types import is_video
 from nazgarr.models import (
     ClientTorrent,
@@ -72,6 +72,8 @@ def arr_index_if_configured(session: Session) -> arr.ArrIndex | None:
 
 def source_files(job: UploadJob) -> list[tuple[str, int]]:
     """(percorso assoluto, dimensione) di ogni file della sorgente."""
+    if upload_pack.is_pack(job):
+        return [(path, os.path.getsize(path)) for path, _name in upload_pack.entries(job)]
     if not job.is_dir:
         return [(job.source_path, os.path.getsize(job.source_path))]
     out = []
@@ -128,6 +130,7 @@ def _client_matches(session: Session, files: list[tuple[str, int]]) -> list[dict
             "state": torrent.state,
             "match": "hardlink" if entry["hardlinked"] else "same_size",
             "videos_matched": len(matched),
+            "videos_hardlinked": len(entry["hardlinked"]),
             "videos_total": len(videos),
         })
     matches.sort(key=lambda m: (m["match"] != "hardlink", -m["videos_matched"]))
@@ -166,17 +169,21 @@ def name_source(job: UploadJob, files: list[tuple[str, int]], client_matches: li
     nome della release. Chi parte da un file in libreria ha il nome
     rinominato da Radarr/Sonarr: meglio il nome del torrent che fa già seed
     di quei byte (hardlink), poi il nome originale che Radarr/Sonarr hanno
-    registrato, e solo in ultimo il nome della sorgente."""
-    hardlinked = next((m for m in client_matches if m["match"] == "hardlink"), None)
-    if hardlinked is not None:
-        return {"name": _strip_video_ext(hardlinked["name"]), "origin": "hardlink"}
-    if index is not None:
-        for path, size in sorted(files, key=lambda f: -f[1]):
-            if not is_video(path):
-                continue
-            identity = index.identity_for(path, size)
-            if identity is not None and identity.scene_name:
-                return {"name": identity.scene_name, "origin": identity.source}
+    registrato, e solo in ultimo il nome della sorgente.
+
+    Per un pack di file scelti a mano (nazgarr/upload_pack.py) gli stessi
+    nomi, ma quelli di un episodio: diventano il nome della stagione
+    ("Show.S01E01..." -> "Show.S01..."); in ultimo il nome del pack."""
+    if upload_pack.is_pack(job):
+        found = _single_name_source(job, files, client_matches, index)
+        seasons = json.loads(job.seasons_json or "[]")
+        if found is None:
+            return {"name": upload_pack.name(job), "origin": "source"}
+        return {"name": upload_pack.season_name(found["name"], seasons), "fallback": upload_pack.name(job),
+                "origin": found["origin"]}
+    found = _single_name_source(job, files, client_matches, index)
+    if found is not None:
+        return found
     source_name = os.path.basename(job.source_path.rstrip(os.sep))
     # Una cartella con un solo contenuto: prima il nome del suo video, la
     # cartella per quello che manca (nazgarr/upload_decision.py name_detected).
@@ -187,9 +194,23 @@ def name_source(job: UploadJob, files: list[tuple[str, int]], client_matches: li
     return {"name": source_name, "origin": "source"}
 
 
+def _single_name_source(job: UploadJob, files: list[tuple[str, int]], client_matches: list[dict], index) -> dict | None:
+    hardlinked = next((m for m in client_matches if m["match"] == "hardlink"), None)
+    if hardlinked is not None:
+        return {"name": _strip_video_ext(hardlinked["name"]), "origin": "hardlink"}
+    if index is not None:
+        for path, size in sorted(files, key=lambda f: -f[1]):
+            if not is_video(path):
+                continue
+            identity = index.identity_for(path, size)
+            if identity is not None and identity.scene_name:
+                return {"name": identity.scene_name, "origin": identity.source}
+    return None
+
+
 def summary_of(job: UploadJob, files: list[tuple[str, int]]) -> SourceSummary:
     return SourceSummary(
-        name=os.path.basename(job.source_path.rstrip(os.sep)),
+        name=upload_pack.name(job),
         total_size_bytes=sum(s for _p, s in files),
         video_sizes=tuple(s for p, s in files if is_video(p)),
         kind=job.kind or "movie",
@@ -204,7 +225,10 @@ def seeding_here(target, client_matches: list[dict]) -> dict | None:
     reseed."""
     hosts = {arr.host_of(target.tracker.announce_url), arr.host_of(target.tracker.base_url)} - {None}
     for match in client_matches:
-        if (match["match"] == "hardlink" and match["client_id"] == target.torrent_client_id
+        # Tutti i video, non uno: un episodio in seed col suo torrent non
+        # mette in seed il pack che lo contiene.
+        covers_all = match.get("videos_hardlinked", match["videos_matched"]) >= match["videos_total"]
+        if (match["match"] == "hardlink" and covers_all and match["client_id"] == target.torrent_client_id
                 and match["tracker_host"] in hosts):
             return match
     return None
@@ -281,6 +305,13 @@ def handle(session: Session, job: UploadJob, worker) -> None:
         "mediainfo": mediainfo_summary,
         "name_source": name_source(job, files, client_matches, index),
     }
+    if upload_pack.is_pack(job):
+        job.stage = "pack"
+        session.commit()
+        analysis["pack_mixed"] = upload_pack.mixed(job)
+        if analysis["pack_mixed"]:
+            upload_jobs.log_event(session, job, "pack_mixed", level="warning",
+                                  fields=", ".join(sorted(analysis["pack_mixed"])))
     job.analysis_json = json.dumps(analysis)
     if analysis["client_matches"]:
         upload_jobs.log_event(session, job, "already_on_client", level="warning", count=len(analysis["client_matches"]))

@@ -18,7 +18,7 @@ import { t } from '@/lib/i18n'
 import { formatBytes } from '@/lib/library-filters'
 import type { MediaInfoSummary } from '@/lib/mediainfo'
 import { parseApiDate } from '@/lib/time'
-import { dupeUrl } from '@/lib/upload'
+import { dupeUrl, sourceLabel } from '@/lib/upload'
 import { safeHref } from '@/lib/safeUrl'
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
@@ -74,8 +74,8 @@ export function UploadDetailSheet({ uploadId, onClose }: { uploadId: number | nu
                 {job.kind && <Badge variant="outline">{t(`upload.kind.${job.kind}`)}</Badge>}
                 <UploadStatusBadge status={job.status} />
               </SheetTitle>
-              <SheetDescription className="truncate font-mono text-xs" title={job.relative_path}>
-                {job.relative_path}
+              <SheetDescription className="truncate font-mono text-xs" title={sourceLabel(job)}>
+                {sourceLabel(job)}
               </SheetDescription>
             </SheetHeader>
             <div className="grid min-w-0 gap-5 px-4 pb-6">

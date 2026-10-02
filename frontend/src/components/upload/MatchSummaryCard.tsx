@@ -10,6 +10,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { t } from '@/lib/i18n'
+import { sourceLabel } from '@/lib/upload'
 
 // Dopo il match: il contenuto confermato. Poster a sinistra; a destra
 // titolo, percorso della sorgente, tipo e stato, trama e i link ai servizi.
@@ -39,7 +40,7 @@ export function MatchSummaryCard({ job }: { job: UploadJob }) {
           </h1>
           <p className="flex min-w-0 items-center gap-1.5 font-mono text-xs text-muted-foreground" title={job.source_path}>
             {job.is_dir ? <FolderIcon className="size-3.5 shrink-0" /> : <FileVideoIcon className="size-3.5 shrink-0" />}
-            <span className="truncate">{job.relative_path}</span>
+            <span className="truncate">{sourceLabel(job)}</span>
           </p>
           <div className="flex flex-wrap items-center gap-2">
             {job.kind && <Badge variant="outline">{t(`upload.kind.${job.kind}`)}</Badge>}

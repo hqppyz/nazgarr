@@ -3785,7 +3785,9 @@ export interface components {
             /** Disk Id */
             disk_id: number;
             /** Relative Path */
-            relative_path: string;
+            relative_path?: string | null;
+            /** Files */
+            files?: string[] | null;
             /** Tracker Ids */
             tracker_ids?: number[] | null;
             forced_ids?: components["schemas"]["ForcedIds"] | null;
@@ -3864,8 +3866,15 @@ export interface components {
             targets: components["schemas"]["UploadTargetResponse"][];
             /** Origin */
             origin?: string | null;
+            /** Pack Name */
+            pack_name?: string | null;
             /** Source Path */
             source_path: string;
+            /**
+             * Pack Files
+             * @default []
+             */
+            pack_files: string[];
             /** Imdb Id */
             imdb_id: string | null;
             /** Tvdb Id */
@@ -3949,6 +3958,8 @@ export interface components {
             targets: components["schemas"]["UploadTargetResponse"][];
             /** Origin */
             origin?: string | null;
+            /** Pack Name */
+            pack_name?: string | null;
         };
         /** UploadMatchRequest */
         UploadMatchRequest: {

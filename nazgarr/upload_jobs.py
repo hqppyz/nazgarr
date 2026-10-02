@@ -151,7 +151,25 @@ def create_job(
         raise UploadJobError("upload_source_not_found", path=relative_path)
     if source_path == os.path.realpath(disk.root_path):
         raise UploadJobError("upload_source_is_disk_root")
+    return insert_job(session, disk, relative_path, source_path, os.path.isdir(source_path), tracker_ids,
+                      forced_ids, overrides, tracker_choices, origin)
 
+
+def insert_job(
+    session: Session,
+    disk: Disk,
+    relative_path: str,
+    source_path: str,
+    is_dir: bool,
+    tracker_ids: list[int] | None,
+    forced_ids: dict | None,
+    overrides: dict | None,
+    tracker_choices: dict[int, dict] | None,
+    origin: str | None,
+    pack_json: str | None = None,
+) -> UploadJob:
+    """Il job e i suoi target, con la sorgente già controllata dal chiamante
+    (create_job, o nazgarr/upload_pack.py per i file scelti a mano)."""
     available = {t.id: t for t in upload_trackers(session)}
     if tracker_ids is None:
         trackers = list(available.values())
@@ -165,7 +183,7 @@ def create_job(
 
     job = UploadJob(
         disk_id=disk.id, relative_path=relative_path, source_path=source_path,
-        is_dir=os.path.isdir(source_path), status="identifying",
+        is_dir=is_dir, status="identifying", pack_json=pack_json,
         forced_ids_json=json.dumps(_clean_forced_ids(forced_ids)),
         overrides_json=json.dumps(overrides or {}),
         origin=origin,

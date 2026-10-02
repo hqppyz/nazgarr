@@ -40,6 +40,7 @@ from nazgarr import (
     settings_repo,
     upload_file_names,
     upload_jobs,
+    upload_pack,
     upload_watch,
 )
 from nazgarr.adapter_factory import ImageHostConfigError
@@ -164,7 +165,8 @@ def prepare_content(session: Session, job: UploadJob, ctx: dict) -> str:
     upload_jobs.log_event(session, job, "file_names", mode=plan.mode, name=plan.content_name,
                           **({"single_file": True, "folder": plan.folder} if plan.single_file else {}))
     session.commit()
-    if not plan.renamed and not plan.single_file:
+    # Un pack di file scelti a mano non ha una cartella sua: sempre hardlink.
+    if not plan.renamed and not plan.single_file and not upload_pack.is_pack(job):
         refresh_mediainfo(session, job, plan, None)
         return job.source_path
     if not plan.renamed and _seeds_in_place(job, ctx):
@@ -184,7 +186,7 @@ def prepare_content(session: Session, job: UploadJob, ctx: dict) -> str:
 def _seeds_in_place(job: UploadJob, ctx: dict) -> bool:
     """La sorgente è già nella cartella di seeding (o in quella per gli
     upload). Mai per la cartella osservata: da lì la release se ne va."""
-    if job.origin == "watch":
+    if job.origin == "watch" or upload_pack.is_pack(job):
         return False
     if _inside(job.source_path, seeding_area(job)):
         return True
@@ -491,7 +493,7 @@ def run_reseed(session: Session, job: UploadJob, target: UploadTarget, ctx: dict
     # Sul posto se la sorgente, dentro la cartella di seeding, ha già il nome
     # e il layout del torrent del tracker; altrimenti hardlink.
     parent = os.path.dirname(job.source_path.rstrip(os.sep))
-    in_place = _inside(job.source_path, seeding_area(job)) and all(
+    in_place = not upload_pack.is_pack(job) and _inside(job.source_path, seeding_area(job)) and all(
         os.path.exists(dst) and os.path.samefile(src, dst) for src, dst in destinations(parent)
     )
     if in_place:

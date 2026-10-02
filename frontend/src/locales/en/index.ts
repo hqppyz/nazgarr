@@ -31,6 +31,7 @@ import { naming } from './naming'
 import { plugins } from './plugins'
 import { webhooks } from './webhooks'
 import { trackerFilter } from './trackerFilter'
+import { pack } from './pack'
 import { upload } from './upload'
 import { uploadSettings } from './uploadSettings'
 
@@ -69,6 +70,7 @@ export const en = {
   ...trackers,
   ...naming,
   ...trackerFilter,
+  ...pack,
   ...upload,
   ...uploadSettings,
   ...plugins,

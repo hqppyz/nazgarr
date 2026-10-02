@@ -296,6 +296,7 @@ export const upload = {
   'upload.event.analysis_done': 'Analisi completata: in attesa della tua decisione.',
   'upload.event.mediainfo_failed': 'Impossibile leggere la mediainfo del video principale.',
   'upload.event.already_on_client': 'Trovato su {count} torrent già in un client.',
+  'upload.event.pack_mixed': 'Gli episodi del pack sono diversi in: {fields}.',
   'upload.event.grabbed_from_tracker': 'Radarr/Sonarr l’ha scaricato da {trackers}.',
   'upload.event.dupe_check_done':
     '{results} risultati sul tracker, {identical} identici, {same_slot} dupe: consigliato {suggested}.',

@@ -75,9 +75,25 @@ def _walk(source_path: str) -> tuple[list[tuple[str, int]], int]:
     return videos, others
 
 
-def scan_source(source_path: str) -> SourceLayout:
-    is_dir = os.path.isdir(source_path)
-    if is_dir:
+def scan_source(
+    source_path: str, entries: list[tuple[str, str]] | None = None, name: str | None = None
+) -> SourceLayout:
+    """La sorgente: un file, una cartella, o (entries, name) i file di un
+    pack scelti a mano (nazgarr/upload_pack.py: percorso, nome nel pack)."""
+    paths = {relative: path for path, relative in entries} if entries is not None else None
+    is_dir = paths is not None or os.path.isdir(source_path)
+    if paths is not None:
+        walked, other_files = [], 0
+        for relative, path in paths.items():
+            size = os.path.getsize(path)
+            if is_video(relative) and not _is_sample(relative, size):
+                walked.append((relative, size))
+            else:
+                other_files += 1
+        if not walked:
+            raise ValueError("no_video_files")
+        name_guess = guessit.guessit(name or "")
+    elif is_dir:
         walked, other_files = _walk(source_path)
         if not walked:
             raise ValueError("no_video_files")
@@ -123,7 +139,10 @@ def scan_source(source_path: str) -> SourceLayout:
         kind = "complete_pack" if len(seasons) > 1 else "season_pack"
 
     main = max(videos, key=lambda v: v.size_bytes)
-    main_path = os.path.join(source_path, main.relative_path) if main.relative_path else source_path
+    if paths is not None:
+        main_path = paths[main.relative_path]
+    else:
+        main_path = os.path.join(source_path, main.relative_path) if main.relative_path else source_path
     # Una cartella con un solo contenuto (un film, un episodio): prima il nome
     # del file, che descrive proprio quel video, e la cartella solo per quello
     # che manca (decisione dell'utente, 2026-10-02). Per i pack resta la

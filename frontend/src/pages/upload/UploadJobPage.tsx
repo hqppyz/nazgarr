@@ -14,7 +14,7 @@ import { UploadStatusBadge } from '@/components/upload/UploadStatusBadge'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { t } from '@/lib/i18n'
-import { eventMessage } from '@/lib/upload'
+import { eventMessage, sourceLabel } from '@/lib/upload'
 
 // Prima del match: il nome della sorgente, niente poster.
 function JobHeader({ job }: { job: UploadJob }) {
@@ -28,7 +28,7 @@ function JobHeader({ job }: { job: UploadJob }) {
         </h1>
         <p className="flex min-w-0 items-center gap-1.5 font-mono text-xs text-muted-foreground" title={job.source_path}>
           {job.is_dir ? <FolderIcon className="size-3.5 shrink-0" /> : <FileVideoIcon className="size-3.5 shrink-0" />}
-          <span className="truncate">{job.relative_path}</span>
+          <span className="truncate">{sourceLabel(job)}</span>
         </p>
       </div>
     </div>

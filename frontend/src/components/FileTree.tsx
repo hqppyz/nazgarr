@@ -7,6 +7,7 @@ import { StateBadge, StatusBadge, StoppedBadge } from "@/components/StateBadge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { t } from "@/lib/i18n";
 import { fileKey, formatBytes } from "@/lib/library-filters";
+import { isVideoPath, type PackSelection } from "@/lib/pack";
 import { cn } from "@/lib/utils";
 
 export interface TreeFileEntry {
@@ -104,7 +105,31 @@ export interface TreeRowActions {
   folder?: (node: TreeNode) => RowMenuItem[]
 }
 
-export function FileTree({ files, expandAll = false, duplicateKeys, onOpenFile, actions }: { files: TreeFileEntry[]; expandAll?: boolean; duplicateKeys?: Set<string>; onOpenFile?: (file: TreeFileEntry) => void; actions?: TreeRowActions }) {
+// Un video che può entrare in un pack (nazgarr/upload_pack.py): su un disco, non escluso.
+function packable(file: TreeFileEntry): boolean {
+  return file.disk_id != null && !file.excluded && isVideoPath(file.relative_path);
+}
+
+const packFile = (file: TreeFileEntry) => ({ diskId: file.disk_id as number, path: file.relative_path });
+
+function PackCheckbox({ checked, indeterminate = false, label, onChange }: { checked: boolean; indeterminate?: boolean; label: string; onChange: (on: boolean) => void }) {
+  return (
+    <input
+      type="checkbox"
+      aria-label={label}
+      className="size-3.5 shrink-0 accent-primary"
+      checked={checked}
+      ref={(el) => {
+        if (el) el.indeterminate = indeterminate;
+      }}
+      onClick={(e) => e.stopPropagation()}
+      onChange={(e) => onChange(e.target.checked)}
+    />
+  );
+}
+
+export function FileTree({ files, expandAll = false, duplicateKeys, onOpenFile, actions, selection }: { files: TreeFileEntry[]; expandAll?: boolean; duplicateKeys?: Set<string>; onOpenFile?: (file: TreeFileEntry) => void; actions?: TreeRowActions; selection?: PackSelection }) {
+  const picking = selection?.active ?? false;
   // Cartelle il cui stato aperto/chiuso differisce dal default (aperte al
   // primo livello, chiuse sotto) — così il default resta quello anche
   // quando i dati cambiano, senza dover pre-popolare un Set di path.
@@ -161,6 +186,19 @@ export function FileTree({ files, expandAll = false, duplicateKeys, onOpenFile, 
               >
                 <TableCell className="max-w-0" style={indent}>
                   <div className="flex items-center gap-1.5">
+                    {picking && selection && (() => {
+                      const videos = filesUnder(node).filter(packable);
+                      if (videos.length === 0) return <span className="size-3.5 shrink-0" />;
+                      const picked = videos.filter((f) => selection.has(packFile(f))).length;
+                      return (
+                        <PackCheckbox
+                          label={t("pack.selectFolder")}
+                          checked={picked === videos.length}
+                          indeterminate={picked > 0 && picked < videos.length}
+                          onChange={(on) => selection.setMany(videos.map(packFile), on)}
+                        />
+                      );
+                    })()}
                     <ChevronRightIcon className={cn("size-3.5 shrink-0 transition-transform", open && "rotate-90")} />
                     {open ? <FolderOpenIcon className="size-3.5 shrink-0 text-primary" /> : <FolderIcon className="size-3.5 shrink-0 text-primary" />}
                     <span className="truncate font-medium">{node.name}</span>
@@ -180,9 +218,18 @@ export function FileTree({ files, expandAll = false, duplicateKeys, onOpenFile, 
           const openable = onOpenFile != null && file.tmdb_id != null && file.content_type != null;
           return (
             <RowContextMenu key={node.path} title={file.relative_path} items={actions?.file?.(file) ?? []}>
-            <TableRow className={cn(file.excluded && "opacity-60", openable && "cursor-pointer")} onClick={openable ? () => onOpenFile(file) : undefined}>
+            <TableRow
+              className={cn(file.excluded && "opacity-60", (openable || (picking && packable(file))) && "cursor-pointer")}
+              onClick={picking && packable(file) ? () => selection?.toggle(packFile(file)) : openable ? () => onOpenFile(file) : undefined}
+            >
               <TableCell className="max-w-0" style={indent}>
-                <div className="flex items-center gap-1.5 pl-5">
+                <div className={cn("flex items-center gap-1.5", picking ? "pl-0" : "pl-5")}>
+                  {picking && selection && (packable(file) ? (
+                    <PackCheckbox label={file.relative_path} checked={selection.has(packFile(file))} onChange={() => selection.toggle(packFile(file))} />
+                  ) : (
+                    <span className="size-3.5 shrink-0" />
+                  ))}
+                  {picking && <span className="w-1" />}
                   {isVideo(node.name) ? <FileVideoIcon className="size-3.5 shrink-0 text-muted-foreground" /> : <FileIcon className="size-3.5 shrink-0 text-muted-foreground" />}
                   <span className="truncate text-xs" title={file.relative_path}>
                     {node.name}

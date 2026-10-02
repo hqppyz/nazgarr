@@ -93,6 +93,25 @@ def test_create_season_pack_folder(client, tmp_path, setup):
     assert detail["candidates"] == []
 
 
+def test_episodes_picked_by_hand_become_a_season_pack(client, tmp_path, setup):
+    files = []
+    for ep in (1, 2):
+        name = f"Show.S01E0{ep}.1080p-GRP"
+        write_video(tmp_path / "torrents" / name / f"{name}.mkv")
+        files.append(f"torrents/{name}/{name}.mkv")
+
+    resp = client.post("/api/uploads", json={"disk_id": setup["disk_id"], "files": files})
+
+    assert resp.status_code == 201, resp.text
+    detail = client.get(f"/api/uploads/{resp.json()['id']}").json()
+    assert (detail["origin"], detail["pack_name"], detail["pack_files"]) == ("pack", "Show.S01.1080p-GRP", files)
+    assert (detail["status"], detail["kind"], detail["seasons"]) == ("awaiting_match", "season_pack", [1])
+    assert detail["layout"]["episodes_by_season"] == {"1": [1, 2]}
+
+    one = client.post("/api/uploads", json={"disk_id": setup["disk_id"], "files": files[:1]})
+    assert one.status_code == 400 and one.json()["detail"]["code"] == "upload_pack_too_few_files"
+
+
 def test_folder_without_videos_fails_with_a_coded_error(client, tmp_path, setup):
     (tmp_path / "docs").mkdir()
     (tmp_path / "docs" / "a.txt").write_text("x")

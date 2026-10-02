@@ -10,7 +10,7 @@ from datetime import datetime
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import func
 from sqlalchemy.orm import Session, object_session
 
@@ -22,6 +22,7 @@ from nazgarr import (
     upload_identify,
     upload_jobs,
     upload_match_score,
+    upload_pack,
     upload_profiles,
     upload_verify,
 )
@@ -51,7 +52,9 @@ class TrackerChoice(BaseModel):
 
 class UploadCreateRequest(BaseModel):
     disk_id: int
-    relative_path: str
+    relative_path: str | None = None
+    # Un pack di video scelti a mano (nazgarr/upload_pack.py), al posto di relative_path.
+    files: list[str] | None = Field(default=None, max_length=upload_pack.MAX_FILES)
     tracker_ids: list[int] | None = None  # None = tutti i tracker con un profilo di upload
     forced_ids: ForcedIds | None = None
     overrides: dict | None = None
@@ -190,7 +193,8 @@ class UploadJobSummary(BaseModel):
     created_at: datetime | None
     finished_at: datetime | None
     targets: list[UploadTargetResponse]
-    origin: str | None = None  # "watch": dalla cartella osservata (nazgarr/upload_watch.py)
+    origin: str | None = None  # "watch": dalla cartella osservata (nazgarr/upload_watch.py); "pack"
+    pack_name: str | None = None  # un pack di file scelti a mano (nazgarr/upload_pack.py)
 
     @classmethod
     def fields_from(cls, j: UploadJob) -> dict:
@@ -201,6 +205,7 @@ class UploadJobSummary(BaseModel):
             year=j.year, poster_path=j.poster_path, seasons=_loads(j.seasons_json, []), episode=j.episode,
             error_message=j.error_message, created_at=j.created_at, finished_at=j.finished_at,
             targets=[UploadTargetResponse.from_model(t) for t in j.targets], origin=j.origin,
+            pack_name=upload_pack.name(j) if upload_pack.is_pack(j) else None,
         )
 
     @classmethod
@@ -210,6 +215,7 @@ class UploadJobSummary(BaseModel):
 
 class UploadJobDetail(UploadJobSummary):
     source_path: str
+    pack_files: list[str] = []  # relativi al disco
     imdb_id: str | None
     tvdb_id: int | None
     mal_id: int | None
@@ -227,7 +233,8 @@ class UploadJobDetail(UploadJobSummary):
     def from_model(cls, j: UploadJob) -> "UploadJobDetail":
         return cls(
             **cls.fields_from(j),
-            source_path=j.source_path, imdb_id=j.imdb_id, tvdb_id=j.tvdb_id, mal_id=j.mal_id,
+            source_path=j.source_path, pack_files=_loads(j.pack_json, {}).get("files", []),
+            imdb_id=j.imdb_id, tvdb_id=j.tvdb_id, mal_id=j.mal_id,
             forced_ids=_loads(j.forced_ids_json, {}), overrides=_loads(j.overrides_json, {}),
             layout=_loads(j.layout_json, None),
             candidates=upload_match_score.explained(_loads(j.candidates_json, []), _loads(j.layout_json, None)),
@@ -398,11 +405,15 @@ def create_upload(body: UploadCreateRequest, request: Request, session: Session 
     if disk is None:
         raise HTTPException(status_code=404, detail=coded_detail("disk_not_found", id=body.disk_id))
     try:
-        job = upload_jobs.create_job(
-            session, disk, body.relative_path, body.tracker_ids,
-            body.forced_ids.model_dump() if body.forced_ids else None, body.overrides,
-            {tid: c.model_dump() for tid, c in (body.tracker_choices or {}).items()},
-        )
+        forced = body.forced_ids.model_dump() if body.forced_ids else None
+        choices = {tid: c.model_dump() for tid, c in (body.tracker_choices or {}).items()}
+        if body.files is not None:
+            job = upload_pack.create_job(session, disk, body.files, body.tracker_ids, forced, body.overrides, choices)
+        elif body.relative_path:
+            job = upload_jobs.create_job(session, disk, body.relative_path, body.tracker_ids, forced, body.overrides,
+                                         choices)
+        else:
+            raise UploadJobError("upload_source_not_found", path="")
     except (ScopeViolation, UploadJobError) as exc:
         raise HTTPException(status_code=400, detail=from_coded_error(exc)) from exc
     _worker(request).kick(job.id, job.status)

@@ -10,11 +10,10 @@ la sua decisione esplicita, mai uno per default.
 
 import json
 import logging
-import os
 
 from sqlalchemy.orm import Session, object_session
 
-from nazgarr import client_labels, streaming_services, upload_file_names, upload_jobs
+from nazgarr import client_labels, streaming_services, upload_file_names, upload_jobs, upload_pack
 from nazgarr.adapter_factory import TmdbApiKeyMissingError
 from nazgarr.models import TrackerUploadProfile, UploadJob, UploadTarget
 from nazgarr.upload_jobs import UploadJobError
@@ -39,7 +38,8 @@ logger = logging.getLogger(__name__)
 FLAG_KEYS = ("anonymous", "personal_release", "internal", "stream")  # booleani; freeleech è a parte (percentuale)
 # Override oltre ai valori rilevati: anno del nome, numero di screenshot,
 # note in fondo alla descrizione, e non aggiungere il torrent al client.
-EXTRA_OVERRIDES = {"year": int, "screenshot_count": int, "notes": str, "no_seed": bool, "file_naming": str}
+EXTRA_OVERRIDES = {"year": int, "screenshot_count": int, "notes": str, "no_seed": bool, "file_naming": str,
+                   "pack_mixed_confirmed": bool}
 MAX_SCREENSHOTS = 12
 
 
@@ -99,7 +99,7 @@ def name_detected(job: UploadJob) -> dict:
     Radarr/Sonarr, o il nome della sorgente: nazgarr/upload_analysis.py)."""
     name_source = json.loads(job.analysis_json or "{}").get("name_source") or {}
     # Quello che il nome del file non dice, dal nome della cartella (fallback).
-    return detect_with_fallback(name_source.get("name") or os.path.basename(job.source_path.rstrip(os.sep)),
+    return detect_with_fallback(name_source.get("name") or upload_pack.name(job),
                                 name_source.get("fallback"))
 
 
@@ -305,6 +305,14 @@ def approve(session: Session, job: UploadJob, decisions: list[dict]) -> None:
     if missing:
         raise UploadJobError("upload_decision_missing", tracker=missing[0].tracker.label)
     validated = {t.id: _validate(t, by_target[t.id]) for t in job.targets}
+    # Un pack con episodi di release diverse (nazgarr/upload_pack.py): niente
+    # upload finché l'utente non dice di saperlo. Un reseed sì: il torrent è
+    # già quello del tracker.
+    mixed = json.loads(job.analysis_json or "{}").get("pack_mixed")
+    overrides = json.loads(job.overrides_json or "{}")
+    if mixed and not overrides.get("pack_mixed_confirmed") and any(
+            d["action"] == "upload" for d in validated.values()):
+        raise UploadJobError("upload_pack_mixed_unconfirmed", fields=", ".join(sorted(mixed)))
 
     for target in job.targets:
         decision = validated[target.id]

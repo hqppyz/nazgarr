@@ -24,7 +24,7 @@ from dataclasses import asdict
 import httpx
 from sqlalchemy.orm import Session
 
-from nazgarr import adapter_factory, settings_repo, upload_analysis, upload_jobs, upload_match_score
+from nazgarr import adapter_factory, settings_repo, upload_analysis, upload_jobs, upload_match_score, upload_pack
 from nazgarr.adapter_factory import TmdbApiKeyMissingError
 from nazgarr.models import UploadJob
 from nazgarr.tmdb_client import TMDBClient
@@ -240,7 +240,10 @@ def handle(session: Session, job: UploadJob, worker) -> None:
     upload_jobs.log_event(session, job, "identify_started")
     session.commit()
     try:
-        layout = scan_source(job.source_path)
+        if upload_pack.is_pack(job):
+            layout = scan_source(job.source_path, upload_pack.entries(job), upload_pack.name(job))
+        else:
+            layout = scan_source(job.source_path)
     except ValueError as exc:
         raise upload_jobs.UploadJobError(str(exc)) from exc
     except OSError as exc:
