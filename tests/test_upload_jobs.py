@@ -3,12 +3,12 @@ import json
 import pytest
 from sqlalchemy import inspect, text
 
-from app import db as db_module
-from app import upload, upload_jobs, upload_profiles
-from app.fs_scope import ScopeViolation
-from app.models import Disk, UploadJob, UploadTarget
-from app.upload_jobs import UploadJobError
-from app.upload_worker import UploadWorker
+from nazgarr import db as db_module
+from nazgarr import upload, upload_jobs, upload_profiles
+from nazgarr.fs_scope import ScopeViolation
+from nazgarr.models import Disk, UploadJob, UploadTarget
+from nazgarr.upload_jobs import UploadJobError
+from nazgarr.upload_worker import UploadWorker
 from tests.upload_helpers import InlineExecutor, make_client, make_disk, make_tracker, write_video
 
 
@@ -206,7 +206,7 @@ def test_migration_drops_the_phase6_upload_job(tmp_path):
 
 
 def test_render_description_wraps_template_with_header_and_signature(db_session):
-    from app import settings_repo
+    from nazgarr import settings_repo
 
     tracker = make_tracker(db_session, with_profile=False)
     profile = upload_profiles.create_upload_profile(db_session, tracker, "itt")
@@ -228,7 +228,7 @@ def test_render_description_without_header_or_signature(db_session):
 
 
 def test_credit_line_has_version_and_project_link():
-    from app.version import __version__
+    from nazgarr.version import __version__
 
     line = upload.credit_line()
     assert f"v{__version__}" in line
@@ -287,7 +287,7 @@ def test_the_description_template_runs_in_a_sandbox(db_session, tmp_path):
 def test_an_upload_source_with_symlinks_is_refused(db_session, tmp_path):
     import pytest
 
-    from app.upload_jobs import UploadJobError
+    from nazgarr.upload_jobs import UploadJobError
 
     disk = make_disk(db_session, tmp_path)
     folder = tmp_path / "Movie.2024"

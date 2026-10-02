@@ -2,12 +2,12 @@ import os
 
 import pytest
 
-from app import adapter_factory, settings_repo, upload_analysis, upload_identify
-from app.adapters.media_resolver.base import ResolvedMedia
-from app.api import metadata as metadata_api
-from app.models import UploadJob
-from app.poster_cache import poster_file
-from app.upload_worker import UploadWorker
+from nazgarr import adapter_factory, settings_repo, upload_analysis, upload_identify
+from nazgarr.adapters.media_resolver.base import ResolvedMedia
+from nazgarr.api import metadata as metadata_api
+from nazgarr.models import UploadJob
+from nazgarr.poster_cache import poster_file
+from nazgarr.upload_worker import UploadWorker
 from tests.upload_helpers import (
     FakeTMDB,
     InlineExecutor,

@@ -22,7 +22,7 @@ export interface UploadSource {
   isDir: boolean
 }
 
-// Stesse estensioni di app/file_types.py, solo per l'icona.
+// Stesse estensioni di nazgarr/file_types.py, solo per l'icona.
 const VIDEO_EXTENSIONS = ['.mkv', '.mp4', '.avi', '.m2ts', '.ts', '.wmv', '.mov']
 const isVideo = (name: string) => VIDEO_EXTENSIONS.some((ext) => name.toLowerCase().endsWith(ext))
 

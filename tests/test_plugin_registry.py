@@ -1,14 +1,14 @@
-"""Registro degli adapter (app/plugins/registry.py): gli integrati iscritti
+"""Registro degli adapter (nazgarr/plugins/registry.py): gli integrati iscritti
 come un plugin, e un adapter di un plugin costruito dalle stesse factory."""
 
 import pytest
 
 import nazgarr_sdk as sdk
-from app import adapter_factory
-from app.models import TorrentClient
-from app.plugins import REGISTRY
-from app.plugins import config as plugin_config
-from app.plugins.registry import AdapterAlreadyRegisteredError
+from nazgarr import adapter_factory
+from nazgarr.models import TorrentClient
+from nazgarr.plugins import REGISTRY
+from nazgarr.plugins import config as plugin_config
+from nazgarr.plugins.registry import AdapterAlreadyRegisteredError
 
 
 def test_the_builtin_adapters_are_registered():

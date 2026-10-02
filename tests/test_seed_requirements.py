@@ -1,4 +1,4 @@
-from app.seed_requirements import Requirement, evaluate
+from nazgarr.seed_requirements import Requirement, evaluate
 
 DAY = 86400
 

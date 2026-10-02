@@ -2,10 +2,10 @@ import json
 
 import pytest
 
-from app import upload_decision, upload_jobs, upload_profiles
-from app.models import TrackerUploadProfile
-from app.upload_jobs import UploadJobError
-from app.upload_naming import build_name, season_token
+from nazgarr import upload_decision, upload_jobs, upload_profiles
+from nazgarr.models import TrackerUploadProfile
+from nazgarr.upload_jobs import UploadJobError
+from nazgarr.upload_naming import build_name, season_token
 from tests.upload_helpers import make_disk, make_tracker, write_video
 
 ITT = "{title} ({year}) {resolution} {source} {video_codec} {audio_codec} {group}"

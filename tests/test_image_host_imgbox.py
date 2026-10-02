@@ -1,8 +1,8 @@
 import pytest
 
-from app.adapters.image_host import imgbox as imgbox_module
-from app.adapters.image_host.base import ImageHostError
-from app.adapters.image_host.imgbox import ImgboxAdapter
+from nazgarr.adapters.image_host import imgbox as imgbox_module
+from nazgarr.adapters.image_host.base import ImageHostError
+from nazgarr.adapters.image_host.imgbox import ImgboxAdapter
 
 
 class _FakeGallery:

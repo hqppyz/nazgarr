@@ -5,20 +5,20 @@
 #   scripts/build_package.sh [versione] [commit]
 #
 # Compila il frontend (Node serve solo qui, mai a runtime), copia lui e lo
-# schema del DB in app/_assets e scrive la versione in app/_build_info.py.
+# schema del DB in nazgarr/_assets e scrive la versione in nazgarr/_build_info.py.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-version="${1:-$(sed -n 's/^BASE_VERSION = "\(.*\)"/\1/p' app/version.py)}"
+version="${1:-$(sed -n 's/^BASE_VERSION = "\(.*\)"/\1/p' nazgarr/version.py)}"
 commit="${2:-$(git rev-parse --short HEAD 2>/dev/null || true)}"
 
 (cd frontend && npm ci && npm run build)
-rm -rf app/_assets
-mkdir -p app/_assets
-cp -R frontend/dist app/_assets/web
-cp docs/schema.sql app/_assets/schema.sql
+rm -rf nazgarr/_assets
+mkdir -p nazgarr/_assets
+cp -R frontend/dist nazgarr/_assets/web
+cp docs/schema.sql nazgarr/_assets/schema.sql
 printf 'VERSION = "%s"\nCOMMIT = %s\n' "$version" "$( [ -n "$commit" ] && printf '"%s"' "$commit" || printf 'None')" \
-  > app/_build_info.py
+  > nazgarr/_build_info.py
 
 python -m pip install --quiet --upgrade build
 rm -rf dist build

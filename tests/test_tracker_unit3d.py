@@ -1,7 +1,7 @@
 import httpx
 import pytest
 
-from app.adapters.tracker.base import (
+from nazgarr.adapters.tracker.base import (
     NotSupportedError,
     TrackerRateLimitedError,
     Unit3dTrackerAdapter,

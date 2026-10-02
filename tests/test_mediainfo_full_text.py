@@ -1,4 +1,4 @@
-from app.mediainfo_util import extract_full_text
+from nazgarr.mediainfo_util import extract_full_text
 
 
 def test_extract_full_text_returns_report_for_readable_file(tmp_path):
@@ -21,7 +21,7 @@ def test_summarize_reads_what_a_tracker_preview_shows():
 
     from pymediainfo import MediaInfo
 
-    from app.mediainfo_util import summarize
+    from nazgarr.mediainfo_util import summarize
 
     xml = (Path(__file__).parent / "fixtures" / "mediainfo_remux.xml").read_text()
     summary = summarize(MediaInfo(xml), "17.Again.mkv")

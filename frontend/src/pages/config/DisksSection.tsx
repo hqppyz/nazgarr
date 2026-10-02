@@ -315,7 +315,7 @@ export function DisksSection() {
                   />
                 </TableCell>
                 <TableCell>
-                  {/* Le release nuove qui dentro partono da sole fino alla decisione (app/upload_watch.py). */}
+                  {/* Le release nuove qui dentro partono da sole fino alla decisione (nazgarr/upload_watch.py). */}
                   <RelPathCell
                     diskId={disk.id}
                     value={disk.watch_rel_path ?? null}

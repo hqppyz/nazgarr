@@ -58,7 +58,7 @@ function Recap({ summary, children }: { summary: ReactNode; children: ReactNode 
   )
 }
 
-// Quello che l'analisi locale ha trovato (app/upload_analysis.py): se la
+// Quello che l'analisi locale ha trovato (nazgarr/upload_analysis.py): se la
 // sorgente è già in seed su un client, o se Radarr/Sonarr dicono che è
 // stata scaricata da un tracker. Avvisi, mai blocchi: decide l'utente.
 export function AnalysisSummary({ job }: { job: UploadJob }) {

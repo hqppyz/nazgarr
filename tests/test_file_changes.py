@@ -1,9 +1,9 @@
 import os
 
-from app import file_changes, pipeline, scanner, settings_repo, torrent_indexer
-from app.adapters.torrent_client.base import ClientTorrentFileInfo, ClientTorrentInfo, TorrentClientAdapter
-from app.api.dashboard import get_changes
-from app.models import Disk, FileChange, TorrentClient
+from nazgarr import file_changes, pipeline, scanner, settings_repo, torrent_indexer
+from nazgarr.adapters.torrent_client.base import ClientTorrentFileInfo, ClientTorrentInfo, TorrentClientAdapter
+from nazgarr.api.dashboard import get_changes
+from nazgarr.models import Disk, FileChange, TorrentClient
 
 
 class FakeAdapter(TorrentClientAdapter):

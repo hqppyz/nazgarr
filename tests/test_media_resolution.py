@@ -1,8 +1,8 @@
 from datetime import UTC, datetime
 
-from app import media_resolution, pipeline
-from app.adapters.media_resolver.base import MediaResolverAdapter, ResolvedMedia
-from app.models import Disk, MediaFile, MediaItem
+from nazgarr import media_resolution, pipeline
+from nazgarr.adapters.media_resolver.base import MediaResolverAdapter, ResolvedMedia
+from nazgarr.models import Disk, MediaFile, MediaItem
 
 
 class FakeResolver(MediaResolverAdapter):
@@ -137,7 +137,7 @@ def test_already_resolved_files_are_skipped(db_session, tmp_path):
 
 
 def test_excluded_files_are_never_resolved(db_session, tmp_path):
-    from app import settings_repo
+    from nazgarr import settings_repo
 
     settings_repo.set_setting(db_session, "exclusion_presets", "scene_junk")
     disk, run = _setup(db_session)
@@ -194,8 +194,8 @@ def test_a_file_that_cannot_be_reread_keeps_its_identity(db_session, tmp_path):
 
 
 def test_radarr_identity_wins_over_the_one_guessed_from_the_name(db_session, tmp_path):
-    from app import settings_repo
-    from app.arr import ArrIdentity, ArrIndex
+    from nazgarr import settings_repo
+    from nazgarr.arr import ArrIdentity, ArrIndex
 
     disk, run = _setup(db_session)
     settings_repo.set_setting(db_session, media_resolution.IDENTITY_RULES_KEY, media_resolution.IDENTITY_RULES_VERSION)

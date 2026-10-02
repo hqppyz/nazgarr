@@ -1,12 +1,12 @@
-"""Servizi di notifica dei plugin (app/notifications.py)."""
+"""Servizi di notifica dei plugin (nazgarr/notifications.py)."""
 
 import pytest
 
 import nazgarr_sdk as sdk
-from app import events, notifications, webhooks
-from app.models import EventDelivery
-from app.plugins import REGISTRY
-from app.plugins import config as plugin_config
+from nazgarr import events, notifications, webhooks
+from nazgarr.models import EventDelivery
+from nazgarr.plugins import REGISTRY
+from nazgarr.plugins import config as plugin_config
 
 SENT = []
 

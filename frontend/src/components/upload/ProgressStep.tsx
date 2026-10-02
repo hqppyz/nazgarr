@@ -7,7 +7,7 @@ import { Progress } from '@/components/ui/progress'
 import { t } from '@/lib/i18n'
 import { executionSteps } from '@/lib/upload'
 
-// Lo stage del worker (app/upload_execute.py): "hashing", "screenshots",
+// Lo stage del worker (nazgarr/upload_execute.py): "hashing", "screenshots",
 // "tracker:<label>".
 function stageLabel(stage: string | null) {
   if (!stage) return null

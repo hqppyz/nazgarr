@@ -1,6 +1,6 @@
 # Il pacchetto Python per l'installazione senza Docker (pipx install nazgarr):
 # si costruisce con scripts/build_package.sh, che compila il frontend e copia
-# schema e frontend in app/_assets. Le dipendenze sono quelle di
+# schema e frontend in nazgarr/_assets. Le dipendenze sono quelle di
 # requirements.in (senza supervisor, solo per il container): un test le tiene
 # uguali. Docker e CI continuano a installare il lock con hash.
 [build-system]
@@ -38,16 +38,16 @@ dependencies = [
 Homepage = "https://github.com/lktorrentz/nazgarr"
 
 [project.scripts]
-nazgarr = "app.cli:main"
+nazgarr = "nazgarr.cli:main"
 
 [tool.setuptools.dynamic]
-version = { attr = "app._build_info.VERSION" }
+version = { attr = "nazgarr._build_info.VERSION" }
 
 [tool.setuptools.packages.find]
-include = ["app*", "nazgarr_sdk*"]
+include = ["nazgarr*"]
 
 [tool.setuptools.package-data]
-app = ["_assets/**/*", "tracker_profiles/*.yaml"]
+nazgarr = ["_assets/**/*", "tracker_profiles/*.yaml"]
 
 [tool.ruff]
 line-length = 120

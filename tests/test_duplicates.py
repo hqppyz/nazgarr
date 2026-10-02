@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 
-from app.duplicates import compute_fast_hash, find_duplicate_media_files
-from app.models import Disk, MediaFile, RunLog
+from nazgarr.duplicates import compute_fast_hash, find_duplicate_media_files
+from nazgarr.models import Disk, MediaFile, RunLog
 
 
 def _session(client):
@@ -124,9 +124,9 @@ def test_find_duplicate_media_files_ignores_null_hash(client):
 def test_an_excluded_copy_is_never_a_duplicate(db_session):
     from datetime import UTC, datetime
 
-    from app import pipeline, settings_repo
-    from app.duplicates import find_duplicate_media_files
-    from app.models import Disk, MediaFile
+    from nazgarr import pipeline, settings_repo
+    from nazgarr.duplicates import find_duplicate_media_files
+    from nazgarr.models import Disk, MediaFile
 
     disk = Disk(label="d", root_path="/mnt/d", media_rel_path="media")
     db_session.add(disk)

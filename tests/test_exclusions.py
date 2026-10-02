@@ -1,4 +1,4 @@
-from app.exclusions import compile_exclusions, parse_custom_patterns, parse_preset_keys
+from nazgarr.exclusions import compile_exclusions, parse_custom_patterns, parse_preset_keys
 
 
 def test_parse_custom_patterns_strips_blank_lines():

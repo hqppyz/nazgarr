@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 
-from app.models import Disk, MediaFile, MediaItem, RunLog
+from nazgarr.models import Disk, MediaFile, MediaItem, RunLog
 
 
 def _session(client):

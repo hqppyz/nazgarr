@@ -2,7 +2,7 @@
 per creare candidate/match_review senza dover passare da uno scan+match
 completo, che richiederebbe un tracker/client reali."""
 
-from app.models import Candidate, MatchReview, MediaItem, Tracker
+from nazgarr.models import Candidate, MatchReview, MediaItem, Tracker
 
 
 def _session(client):

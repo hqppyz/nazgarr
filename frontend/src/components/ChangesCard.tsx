@@ -46,7 +46,7 @@ function formatWhen(value: string | null | undefined) {
 }
 
 // Cosa è cambiato su disco e nei client fra l'ultima scansione e quella
-// prima, file per file (app/file_changes.py) — ispirato alla vista
+// prima, file per file (nazgarr/file_changes.py) — ispirato alla vista
 // "Changes since last scan" di Auditorr.
 export function ChangesCard({ className }: { className?: string }) {
   const { data, isPending } = useDashboardChanges()

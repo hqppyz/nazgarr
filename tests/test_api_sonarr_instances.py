@@ -1,6 +1,6 @@
 import httpx
 
-import app.api.sonarr_instances as sonarr_instances_module
+import nazgarr.api.sonarr_instances as sonarr_instances_module
 
 
 def test_create_list_update_delete_sonarr_instance(client):

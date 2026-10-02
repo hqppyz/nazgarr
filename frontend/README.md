@@ -9,7 +9,7 @@ npm install
 npm run dev
 ```
 
-Il dev server (`http://localhost:5173`) fa da proxy per `/api/*` verso `http://localhost:8080` (vedi `vite.config.ts`) — avvia il backend separatamente (`uvicorn app.main:app --reload --port 8080` dalla root del repo, vedi il README principale).
+Il dev server (`http://localhost:5173`) fa da proxy per `/api/*` verso `http://localhost:8080` (vedi `vite.config.ts`) — avvia il backend separatamente (`uvicorn nazgarr.main:app --reload --port 8080` dalla root del repo, vedi il README principale).
 
 Dopo ogni modifica agli endpoint del backend, rigenera i tipi TypeScript dallo schema OpenAPI (il backend deve essere in esecuzione):
 
@@ -39,7 +39,7 @@ npm run test   # vitest, component/unit test sulla logica non banale (vedi src/*
 npm run build   # type-check (tsc) + build di produzione in dist/
 ```
 
-In produzione `dist/` viene servito direttamente da FastAPI (`app/frontend.py`) — un solo container, nessun server Node separato (vedi il Dockerfile, stage `frontend-build`).
+In produzione `dist/` viene servito direttamente da FastAPI (`nazgarr/frontend.py`) — un solo container, nessun server Node separato (vedi il Dockerfile, stage `frontend-build`).
 
 ## Struttura
 

@@ -30,7 +30,7 @@ USER_NAME=$(getent passwd "$PUID" | cut -d: -f1)
 # inside it, seed it from the default template so the container still
 # starts instead of crashing - physical disks are never listed here,
 # they're registered once mounted under disk_scan_root (see
-# config.example.yaml). Also covers app/data's default location: it
+# config.example.yaml). Also covers nazgarr/data's default location: it
 # lives under this same mount (config.example.yaml's data_dir), so a
 # single appdata volume is enough for both.
 mkdir -p /app/config

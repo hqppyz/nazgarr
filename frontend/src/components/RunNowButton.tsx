@@ -9,7 +9,7 @@ import { t } from '@/lib/i18n'
 // Dashboard. Mentre una run è in corso diventa "Stop run" (richiesta
 // esplicita: un modo di fermarla se lanciata per sbaglio) — la pipeline si
 // ferma al prossimo aggiornamento dell'avanzamento, senza perdere il lavoro
-// già salvato (app/run_progress.py RunCancelled).
+// già salvato (nazgarr/run_progress.py RunCancelled).
 export function RunNowButton() {
   const { data: runs } = useRuns()
   const triggerRun = useTriggerRun()

@@ -11,7 +11,7 @@ interface FileNames {
   previews: Record<string, { name: string; files: string[]; count: number }>
 }
 
-// I nomi dei file dentro il torrent di un upload (app/upload_file_names.py):
+// I nomi dei file dentro il torrent di un upload (nazgarr/upload_file_names.py):
 // quelli del torrent in hardlink su un client, generati dal pattern di
 // Settings > Upload, o quelli della sorgente. Uno per job: il torrent è lo
 // stesso per tutti i tracker.

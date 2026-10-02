@@ -13,7 +13,7 @@ const TONE = {
   muted: 'border-zinc-400/40 bg-zinc-400/15 text-zinc-600 dark:text-zinc-300',
 }
 
-// Stati di upload_job e upload_target (app/models.py) -> tono del badge.
+// Stati di upload_job e upload_target (nazgarr/models.py) -> tono del badge.
 const STATUS_TONE: Record<string, keyof typeof TONE> = {
   identifying: 'working',
   analyzing: 'working',

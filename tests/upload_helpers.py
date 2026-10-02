@@ -1,7 +1,7 @@
 """Fixture condivise dai test del flusso di upload v2."""
 
-from app import upload_profiles
-from app.models import Disk, TorrentClient, Tracker
+from nazgarr import upload_profiles
+from nazgarr.models import Disk, TorrentClient, Tracker
 
 
 class InlineExecutor:

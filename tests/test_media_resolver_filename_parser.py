@@ -1,7 +1,7 @@
 import httpx
 
-from app.adapters.media_resolver.filename_parser import FilenameParserResolver
-from app.tmdb_client import TMDBClient
+from nazgarr.adapters.media_resolver.filename_parser import FilenameParserResolver
+from nazgarr.tmdb_client import TMDBClient
 
 
 def _resolver(handler):
@@ -67,7 +67,7 @@ def test_returns_none_for_tv_file_without_episode_number():
 
 
 def test_subtitle_is_part_of_the_search_so_a_saga_is_not_collapsed_into_one_film():
-    from app.adapters.media_resolver.filename_parser import FilenameParserResolver
+    from nazgarr.adapters.media_resolver.filename_parser import FilenameParserResolver
 
     searched = []
 
@@ -88,7 +88,7 @@ def test_subtitle_is_part_of_the_search_so_a_saga_is_not_collapsed_into_one_film
 
 
 def test_falls_back_to_the_base_title_when_title_plus_subtitle_finds_nothing():
-    from app.adapters.media_resolver.filename_parser import FilenameParserResolver
+    from nazgarr.adapters.media_resolver.filename_parser import FilenameParserResolver
 
     searched = []
 

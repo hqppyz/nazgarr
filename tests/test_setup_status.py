@@ -1,8 +1,8 @@
 from datetime import UTC, datetime
 
-from app import settings_repo
-from app.models import Disk, DiskTorrentClient, RunLog, TorrentClient, Tracker
-from app.setup_status import setup_status
+from nazgarr import settings_repo
+from nazgarr.models import Disk, DiskTorrentClient, RunLog, TorrentClient, Tracker
+from nazgarr.setup_status import setup_status
 
 
 def _done(session):

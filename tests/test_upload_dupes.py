@@ -1,7 +1,7 @@
 import pytest
 
-from app.adapters.tracker.base import TorrentCandidate
-from app.upload_dupes import SourceSummary, check, classify
+from nazgarr.adapters.tracker.base import TorrentCandidate
+from nazgarr.upload_dupes import SourceSummary, check, classify
 
 GB = 1024**3
 

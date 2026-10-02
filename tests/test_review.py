@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 
-from app import pipeline, review
-from app.models import Candidate, MatchReview, MediaFile, MediaItem, SeedJob, Tracker
+from nazgarr import pipeline, review
+from nazgarr.models import Candidate, MatchReview, MediaFile, MediaItem, SeedJob, Tracker
 
 
 def _tracker(db_session):
@@ -31,7 +31,7 @@ def _media_item(db_session):
 def _media_file_stub(db_session, item):
     # I test di review.py non toccano il filesystem: bastano id validi via FK,
     # non serve un Disk reale per la sola logica di classificazione.
-    from app.models import Disk
+    from nazgarr.models import Disk
 
     disk = Disk(label="d", root_path="/mnt/d")
     db_session.add(disk)
@@ -47,7 +47,7 @@ def _media_file_stub(db_session, item):
 
 
 def _seed_file_stub(db_session, media_file):
-    from app.models import SeedFile
+    from nazgarr.models import SeedFile
 
     run = pipeline.start_run(db_session, "manual")
     sf = SeedFile(
@@ -127,7 +127,7 @@ def test_rematching_supersedes_previous_active_review(db_session):
 
 
 def test_custom_threshold_from_settings(db_session):
-    from app import settings_repo
+    from nazgarr import settings_repo
 
     settings_repo.set_setting(db_session, "confidence_threshold_auto_media_to_torrent", "0.5")
     tracker = _tracker(db_session)
@@ -190,7 +190,7 @@ def _review_for(db_session, candidate, **file_ids):
 
 
 def test_queue_is_cleaned_of_files_that_no_longer_need_anything(db_session):
-    from app.models import ClientTorrent, ClientTorrentFile, TorrentClient
+    from nazgarr.models import ClientTorrent, ClientTorrentFile, TorrentClient
 
     tracker = _tracker(db_session)
     item = _media_item(db_session)
@@ -246,7 +246,7 @@ def test_review_of_a_file_gone_from_disk_is_closed(db_session):
 
 
 def test_review_of_a_file_excluded_meanwhile_leaves_the_queue(db_session):
-    from app import settings_repo
+    from nazgarr import settings_repo
 
     tracker = _tracker(db_session)
     item = _media_item(db_session)
@@ -259,7 +259,7 @@ def test_review_of_a_file_excluded_meanwhile_leaves_the_queue(db_session):
 
 
 def test_approval_adds_the_torrent_to_the_client_chosen_for_its_tracker(db_session, monkeypatch):
-    from app.models import TorrentClient
+    from nazgarr.models import TorrentClient
 
     public = TorrentClient(label="qbit public", adapter_type="qui", base_url="http://q", enabled=True)
     private = TorrentClient(label="qbit private", adapter_type="qui", base_url="http://q", enabled=True)
@@ -314,7 +314,7 @@ def test_a_seeding_execution_whose_torrent_left_the_client_no_longer_blocks_a_ne
 
 
 def test_a_seeding_execution_still_in_the_client_keeps_its_torrent_busy(db_session):
-    from app.models import ClientTorrent, TorrentClient
+    from nazgarr.models import ClientTorrent, TorrentClient
 
     tracker = _tracker(db_session)
     item = _media_item(db_session)
@@ -364,7 +364,7 @@ def test_each_tracker_keeps_its_own_proposal_for_the_same_file(db_session):
 
 
 def test_a_torrent_already_in_a_client_is_not_proposed_again(db_session):
-    from app.models import ClientTorrent, TorrentClient
+    from nazgarr.models import ClientTorrent, TorrentClient
 
     tracker = _tracker(db_session)
     item = _media_item(db_session)
@@ -383,8 +383,8 @@ def test_a_torrent_already_in_a_client_is_not_proposed_again(db_session):
 
 
 def test_a_review_says_where_the_file_already_seeds(db_session):
-    from app.api.reviews import ReviewResponse
-    from app.models import ClientTorrent, ClientTorrentFile, TorrentClient
+    from nazgarr.api.reviews import ReviewResponse
+    from nazgarr.models import ClientTorrent, ClientTorrentFile, TorrentClient
 
     tracker = _tracker(db_session)
     item = _media_item(db_session)

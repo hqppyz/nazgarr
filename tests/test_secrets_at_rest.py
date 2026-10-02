@@ -1,12 +1,12 @@
-"""Segreti cifrati a riposo (app/db.py encrypt_plaintext_secrets, app/settings_repo.py)."""
+"""Segreti cifrati a riposo (nazgarr/db.py encrypt_plaintext_secrets, nazgarr/settings_repo.py)."""
 
 from datetime import UTC, datetime
 
 from sqlalchemy import text
 
-from app import db as db_module
-from app import settings_repo, startup_checks
-from app.models import ClientTorrent, TorrentClient, Tracker
+from nazgarr import db as db_module
+from nazgarr import settings_repo, startup_checks
+from nazgarr.models import ClientTorrent, TorrentClient, Tracker
 
 
 def _raw(session, sql, **params):

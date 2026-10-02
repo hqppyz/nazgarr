@@ -1,4 +1,4 @@
-"""API key (app/api_keys.py): due livelli, e mai per gestire le chiavi."""
+"""API key (nazgarr/api_keys.py): due livelli, e mai per gestire le chiavi."""
 
 
 NO_LOGIN = {"Authorization": ""}  # il client dei test ha già il token negli header

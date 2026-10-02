@@ -1,13 +1,13 @@
-"""Matching incrementale (app/matching.py): un orfano già cercato non viene
+"""Matching incrementale (nazgarr/matching.py): un orfano già cercato non viene
 ricercato finché non cambia o non passa rematch_interval_days, i file
 esclusi non vengono mai cercati, un errore su un file non ferma gli altri
 e un rate limit persistente ferma il tracker per il resto della run."""
 
 from datetime import UTC, datetime, timedelta
 
-from app import matching, pipeline, review, settings_repo
-from app.adapters.tracker.base import TorrentCandidate, TrackerRateLimitedError
-from app.models import Candidate, Disk, MatchAttempt, MatchReview, MediaFile, MediaItem, Tracker
+from nazgarr import matching, pipeline, review, settings_repo
+from nazgarr.adapters.tracker.base import TorrentCandidate, TrackerRateLimitedError
+from nazgarr.models import Candidate, Disk, MatchAttempt, MatchReview, MediaFile, MediaItem, Tracker
 
 
 def _tc(**overrides) -> TorrentCandidate:
@@ -183,7 +183,7 @@ def test_system_superseded_review_does_not_block_the_same_torrent(db_session, mo
 
 
 def test_pipeline_records_rate_limit_and_skips_the_other_direction(db_session, monkeypatch, tmp_path):
-    from app import adapter_factory
+    from nazgarr import adapter_factory
 
     monkeypatch.setattr(matching, "compute_unique_id", lambda path: None)
     _setup(db_session)
@@ -205,9 +205,9 @@ def test_torrent_to_client_matching_is_skipped_when_no_client_file_is_linked(db_
     """Disco non associato al client (o percorsi diversi): ogni file lato
     torrent risulterebbe orfano, e cercarli tutti sul tracker costerebbe ore
     per file già in seed — il caso reale che ha rallentato una run."""
-    from app import adapter_factory
-    from app.adapters.torrent_client.base import ClientTorrentFileInfo, ClientTorrentInfo
-    from app.models import SeedFile, TorrentClient
+    from nazgarr import adapter_factory
+    from nazgarr.adapters.torrent_client.base import ClientTorrentFileInfo, ClientTorrentInfo
+    from nazgarr.models import SeedFile, TorrentClient
 
     tracker, _ = _setup(db_session)
     run0 = pipeline.start_run(db_session, "manual")

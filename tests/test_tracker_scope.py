@@ -2,8 +2,8 @@ from datetime import UTC, datetime
 
 import pytest
 
-from app import health, library, pipeline, tracker_scope
-from app.models import ClientTorrent, ClientTorrentFile, Disk, MediaFile, SeedFile, TorrentClient, Tracker
+from nazgarr import health, library, pipeline, tracker_scope
+from nazgarr.models import ClientTorrent, ClientTorrentFile, Disk, MediaFile, SeedFile, TorrentClient, Tracker
 
 
 @pytest.fixture
@@ -92,7 +92,7 @@ def test_unknown_filters_do_not_restrict_anything():
 
 
 def test_scans_save_the_history_of_every_filter(db_session, world):
-    from app.models import TrackerHealthSnapshot
+    from nazgarr.models import TrackerHealthSnapshot
 
     run = pipeline.start_run(db_session, "manual")
     pipeline._save_tracker_snapshots(db_session, run)

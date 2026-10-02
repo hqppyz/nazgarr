@@ -1,9 +1,9 @@
-"""Nessuna credenziale in chiaro nei log (app/logging_config.py): httpx
+"""Nessuna credenziale in chiaro nei log (nazgarr/logging_config.py): httpx
 logga ogni URL e i traceback lo ripetono, e i log si leggono dalla UI."""
 
 import logging
 
-from app.logging_config import RedactingFormatter, redact
+from nazgarr.logging_config import RedactingFormatter, redact
 
 
 def test_download_keys_passkeys_and_tokens_are_redacted():

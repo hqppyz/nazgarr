@@ -64,7 +64,7 @@ export function buildTree(files: TreeFileEntry[]): TreeNode {
   return root;
 }
 
-// Stesse estensioni di app/file_types.py: solo l'icona, lo stato arriva dal backend.
+// Stesse estensioni di nazgarr/file_types.py: solo l'icona, lo stato arriva dal backend.
 const VIDEO_EXTENSIONS = [".mkv", ".mp4", ".avi", ".m2ts", ".ts", ".wmv", ".mov"];
 
 function isVideo(path: string): boolean {

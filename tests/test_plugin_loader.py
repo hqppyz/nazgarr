@@ -1,4 +1,4 @@
-"""Caricamento dei plugin (app/plugins/loader.py)."""
+"""Caricamento dei plugin (nazgarr/plugins/loader.py)."""
 
 import os
 import sys
@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.plugins import REGISTRY, loader
+from nazgarr.plugins import REGISTRY, loader
 
 
 def _ep(name, obj, dist="nazgarr-test", version="0.1.0"):

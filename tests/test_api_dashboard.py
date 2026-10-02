@@ -25,7 +25,7 @@ def test_dashboard_changes_empty(client):
 def test_dashboard_reflects_run_log(client):
     session = client.app.state.session_factory()
     try:
-        from app import pipeline
+        from nazgarr import pipeline
 
         run = pipeline.start_run(session, "bulk_import")
         run.current_phase = None
@@ -89,7 +89,7 @@ def test_schedule_put_empty_disables(client):
 def test_dashboard_trend_uses_the_scan_before_the_last_and_history_by_days(client):
     from datetime import UTC, datetime, timedelta
 
-    from app import pipeline
+    from nazgarr import pipeline
 
     session = client.app.state.session_factory()
     try:
@@ -121,7 +121,7 @@ def test_without_a_library_the_history_keeps_the_torrent_numbers(client):
     # Solo torrent e upload: niente salute, ma l'andamento delle card sì.
     from datetime import UTC, datetime
 
-    from app import pipeline
+    from nazgarr import pipeline
 
     session = client.app.state.session_factory()
     try:

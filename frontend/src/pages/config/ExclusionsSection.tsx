@@ -12,7 +12,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { t } from '@/lib/i18n'
 import { autosaveFeedback } from '@/lib/autosave'
 
-// Stesse chiavi app_settings che app/api/library.py già legge
+// Stesse chiavi app_settings che nazgarr/api/library.py già legge
 // (_load_exclusions): i preset come elenco di chiavi separate da virgola,
 // i pattern personalizzati uno per riga — nessun formato nuovo lato backend.
 const PRESETS_KEY = 'exclusion_presets'
@@ -39,7 +39,7 @@ function PresetsCard() {
   const setSetting = useSetSetting(PRESETS_KEY)
   const invalidateLibrary = useInvalidateLibrary()
   // Mai salvato (null): valgono i preset attivi di default lato backend
-  // (app/exclusions.py DEFAULT_ENABLED_PRESETS), la UI deve mostrare gli stessi.
+  // (nazgarr/exclusions.py DEFAULT_ENABLED_PRESETS), la UI deve mostrare gli stessi.
   const enabled =
     setting?.value == null
       ? (presets ?? []).filter((p) => p.enabled_by_default).map((p) => p.key)

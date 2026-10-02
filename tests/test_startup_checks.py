@@ -3,8 +3,8 @@ import os
 
 import pytest
 
-from app import crypto as crypto_module
-from app import startup_checks
+from nazgarr import crypto as crypto_module
+from nazgarr import startup_checks
 
 
 def _random_key() -> str:
@@ -25,7 +25,7 @@ def test_first_boot_writes_the_canary(db_session, monkeypatch):
 
     startup_checks.verify_secret_key(db_session)  # non deve sollevare
 
-    from app.models import AppSetting
+    from nazgarr.models import AppSetting
 
     row = db_session.get(AppSetting, startup_checks._CANARY_KEY)
     assert row is not None

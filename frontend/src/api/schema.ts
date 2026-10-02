@@ -354,7 +354,7 @@ export interface paths {
         /**
          * List Duplicates
          * @description Copie non intenzionali dello stesso contenuto su inode diversi —
-         *     file già hardlinkati fra loro non compaiono qui (app/duplicates.py).
+         *     file già hardlinkati fra loro non compaiono qui (nazgarr/duplicates.py).
          */
         get: operations["list_duplicates_api_library_duplicates_get"];
         put?: never;
@@ -634,7 +634,7 @@ export interface paths {
         };
         /**
          * Tracker Icon
-         * @description La favicon del tracker, dalla cache locale (app/tracker_icons.py).
+         * @description La favicon del tracker, dalla cache locale (nazgarr/tracker_icons.py).
          */
         get: operations["tracker_icon_api_trackers__tracker_id__icon_get"];
         put?: never;
@@ -1186,7 +1186,7 @@ export interface paths {
         /**
          * Get Changes
          * @description Cambiamenti per file dell'ultima scansione confrontata con la
-         *     precedente (app/file_changes.py): file nuovi, spariti, cambiati di stato.
+         *     precedente (nazgarr/file_changes.py): file nuovi, spariti, cambiati di stato.
          */
         get: operations["get_changes_api_dashboard_changes_get"];
         put?: never;
@@ -1265,7 +1265,7 @@ export interface paths {
         };
         /**
          * Get File Naming
-         * @description Il pattern dei nomi dei file nel torrent (app/upload_file_names.py):
+         * @description Il pattern dei nomi dei file nel torrent (nazgarr/upload_file_names.py):
          *     quello salvato, e quello di default per tornarci.
          */
         get: operations["get_file_naming_api_uploads_file_naming_get"];
@@ -1386,7 +1386,7 @@ export interface paths {
         put?: never;
         /**
          * Rematch Upload
-         * @description Dalla decisione torna al match (app/upload_jobs.py back_to_match): per
+         * @description Dalla decisione torna al match (nazgarr/upload_jobs.py back_to_match): per
          *     un match, automatico o no, che si è rivelato sbagliato.
          */
         post: operations["rematch_upload_api_uploads__upload_id__rematch_post"];
@@ -1555,7 +1555,7 @@ export interface paths {
          * @description Chiamata solo su richiesta esplicita dell'utente (bottone "Check for
          *     updates" in UI), mai in automatico. Confronta con le GitHub Release: la
          *     CI ne crea una (prerelease) a ogni push su main, il canale stable si
-         *     aggiorna a mano (app/version.py).
+         *     aggiorna a mano (nazgarr/version.py).
          */
         get: operations["update_check_api_system_update_check_get"];
         put?: never;
@@ -1593,7 +1593,7 @@ export interface paths {
         /**
          * Setup Status
          * @description Per la checklist "Getting started" e il tour del primo accesso
-         *     (app/setup_status.py): cosa è già configurato, dalla configurazione reale.
+         *     (nazgarr/setup_status.py): cosa è già configurato, dalla configurazione reale.
          */
         get: operations["setup_status_api_system_setup_status_get"];
         put?: never;
@@ -2317,7 +2317,7 @@ export interface components {
         };
         /**
          * DetailTracker
-         * @description Panoramica per tracker (app/library_detail.py tracker_overview).
+         * @description Panoramica per tracker (nazgarr/library_detail.py tracker_overview).
          */
         DetailTracker: {
             /** Tracker Id */
@@ -2927,7 +2927,7 @@ export interface components {
         };
         /**
          * PhaseProgressResponse
-         * @description Una fase della run (app/run_progress.py): done include gli elementi
+         * @description Una fase della run (nazgarr/run_progress.py): done include gli elementi
          *     saltati (skipped), così done/total è sempre l'avanzamento vero.
          */
         PhaseProgressResponse: {

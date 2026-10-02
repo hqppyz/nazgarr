@@ -1,6 +1,6 @@
 import httpx
 
-from app import tracker_icons
+from nazgarr import tracker_icons
 
 PNG = b"\x89PNG\r\n\x1a\n" + b"x" * 20
 

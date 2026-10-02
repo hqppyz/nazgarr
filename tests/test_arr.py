@@ -1,4 +1,4 @@
-"""Integrazione Radarr/Sonarr (app/arr.py, ArrResolver, match_from_history).
+"""Integrazione Radarr/Sonarr (nazgarr/arr.py, ArrResolver, match_from_history).
 Payload modellati sulla forma reale delle API v3 (Radarr 6.3, Sonarr 4.0),
 nessuna chiamata di rete."""
 
@@ -7,11 +7,11 @@ from datetime import UTC, datetime
 
 import pytest
 
-from app import adapter_factory, matching, pipeline, settings_repo
-from app.adapters.media_resolver.arr import ArrResolver
-from app.adapters.media_resolver.base import MediaResolverAdapter, ResolvedMedia
-from app.arr import ArrGrab, ArrIdentity, ArrIndex, build_arr_index, path_key
-from app.models import Candidate, Disk, MediaFile, MediaItem, RadarrInstance, SonarrInstance, Tracker
+from nazgarr import adapter_factory, matching, pipeline, settings_repo
+from nazgarr.adapters.media_resolver.arr import ArrResolver
+from nazgarr.adapters.media_resolver.base import MediaResolverAdapter, ResolvedMedia
+from nazgarr.arr import ArrGrab, ArrIdentity, ArrIndex, build_arr_index, path_key
+from nazgarr.models import Candidate, Disk, MediaFile, MediaItem, RadarrInstance, SonarrInstance, Tracker
 
 GUID = "https://itatorrents.xyz/torrent/download/4242.deadbeefpasskey"
 
@@ -305,7 +305,7 @@ def test_history_grab_for_another_tracker_is_ignored(db_session, tmp_path, monke
 
 
 def test_pipeline_resolves_through_arr_without_tmdb(db_session, tmp_path, monkeypatch):
-    from app import arr as arr_module
+    from nazgarr import arr as arr_module
 
     folder = tmp_path / "movies" / "Interstellar (2014)"
     folder.mkdir(parents=True)
@@ -330,7 +330,7 @@ def test_stale_history_link_falls_back_to_the_current_download_link(db_session, 
     """Il guid della history ha la chiave di quando è stato fatto il grab: se
     il tracker lo rifiuta si usa il download_link attuale del torrent, ed è
     quello che finisce nel candidato (lo scaricherà il client)."""
-    from app.adapters.tracker.base import TorrentCandidate, UploadError
+    from nazgarr.adapters.tracker.base import TorrentCandidate, UploadError
 
     monkeypatch.setattr(matching, "compute_unique_id", lambda path: None)
     content = b"0123456789abcdef" * 4
@@ -382,8 +382,8 @@ def test_history_link_is_rewritten_with_the_current_key_without_extra_calls(db_s
 
 
 def test_pipeline_remembers_the_learned_key_and_the_api_never_returns_it(db_session, tmp_path, monkeypatch):
-    from app import adapter_factory
-    from app.api.trackers import TrackerResponse
+    from nazgarr import adapter_factory
+    from nazgarr.api.trackers import TrackerResponse
 
     tracker = Tracker(label="itt", adapter_type="unit3d", base_url="https://itatorrents.xyz", api_token="x")
     db_session.add(tracker)
@@ -409,7 +409,7 @@ def test_pipeline_remembers_the_learned_key_and_the_api_never_returns_it(db_sess
 def test_history_pages_are_fetched_in_parallel_and_yielded_in_order():
     import httpx
 
-    from app.arr import HISTORY_PAGE_SIZE, ArrApi
+    from nazgarr.arr import HISTORY_PAGE_SIZE, ArrApi
 
     total = HISTORY_PAGE_SIZE * 2 + 5
 

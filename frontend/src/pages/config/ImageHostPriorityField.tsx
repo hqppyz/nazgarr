@@ -12,7 +12,7 @@ import { cn } from '@/lib/utils'
 import { autosaveFeedback } from '@/lib/autosave'
 
 // Deve restare in sync con adapter_factory.DEFAULT_IMAGE_HOST_PRIORITY e
-// con gli host realmente implementati (app/adapters/image_host/).
+// con gli host realmente implementati (nazgarr/adapters/image_host/).
 const KNOWN_HOSTS: Record<string, string> = {
   ptpimg: 'PTPImg',
   imgbox: `Imgbox (${t('uploadSettings.noApiKeyRequired')})`,

@@ -1,7 +1,7 @@
 from apscheduler.schedulers.background import BackgroundScheduler
 
-from app import scheduler
-from app.models import AppSetting
+from nazgarr import scheduler
+from nazgarr.models import AppSetting
 
 
 def test_build_scheduler_no_job_when_no_cron_configured(db_session):

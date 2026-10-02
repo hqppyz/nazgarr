@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 
-from app import health, pipeline
-from app.models import (
+from nazgarr import health, pipeline
+from nazgarr.models import (
     Candidate,
     ClientTorrentFile,
     Disk,
@@ -118,7 +118,7 @@ def test_pending_review_and_failed_and_unmatched_counted(db_session):
 
 
 def _client_torrent(db_session):
-    from app.models import ClientTorrent, TorrentClient
+    from nazgarr.models import ClientTorrent, TorrentClient
 
     tc = TorrentClient(label="c", adapter_type="qbittorrent", base_url="https://c.example")
     db_session.add(tc)

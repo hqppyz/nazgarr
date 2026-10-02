@@ -1,8 +1,8 @@
-"""Cache delle viste della libreria (app/response_cache.py): ETag sulla
+"""Cache delle viste della libreria (nazgarr/response_cache.py): ETag sulla
 versione dei dati, 304 se il browser ha già quella versione, ricalcolo solo
 quando cambia; gzip sulle risposte grandi."""
 
-from app import library
+from nazgarr import library
 
 
 def test_same_version_answers_304_without_recomputing(client, monkeypatch):

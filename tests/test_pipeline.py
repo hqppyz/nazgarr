@@ -3,8 +3,8 @@
 def test_every_error_of_a_run_is_kept_not_only_the_last():
     import json
 
-    from app.models import RunLog
-    from app.pipeline import _note_error
+    from nazgarr.models import RunLog
+    from nazgarr.pipeline import _note_error
 
     run = RunLog(run_type="manual")
     _note_error(run, "tracker 'a': boom")

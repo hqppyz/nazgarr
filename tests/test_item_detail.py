@@ -1,11 +1,11 @@
-"""Scheda di dettaglio della vista poster (app/library_detail.py, API)."""
+"""Scheda di dettaglio della vista poster (nazgarr/library_detail.py, API)."""
 
 import fnmatch
 from datetime import UTC, datetime
 
-from app import library_detail, matching, pipeline, settings_repo
-from app.api.library import _fnmatch_literal
-from app.models import (
+from nazgarr import library_detail, matching, pipeline, settings_repo
+from nazgarr.api.library import _fnmatch_literal
+from nazgarr.models import (
     Candidate,
     ClientTorrent,
     ClientTorrentFile,
@@ -106,7 +106,7 @@ def test_detail_explains_what_was_searched_and_found(db_session):
 
     class Tracker1:
         def search_by_tmdb(self, tmdb_id):
-            from app.adapters.tracker.base import TorrentCandidate
+            from nazgarr.adapters.tracker.base import TorrentCandidate
             return [TorrentCandidate(torrent_id_remote="9", info_hash=None, name="Interstellar.2160p", size_bytes=999,
                                      file_list=["x.mkv"], mediainfo_unique_id=None)]
 
@@ -152,7 +152,7 @@ def test_exclude_endpoint_appends_once(client):
 
 
 def test_excluding_a_folder_excludes_everything_inside(client):
-    from app.exclusions import CompiledExclusions
+    from nazgarr.exclusions import CompiledExclusions
 
     body = {"relative_path": "torrents/Old/", "is_dir": True}
     pattern = client.post("/api/library/exclude", json=body).json()["pattern"]
@@ -164,8 +164,8 @@ def test_excluding_a_folder_excludes_everything_inside(client):
 
 
 def test_search_now_forces_a_new_search_for_that_item_only(db_session, monkeypatch):
-    from app import adapter_factory
-    from app.api import library as library_api
+    from nazgarr import adapter_factory
+    from nazgarr.api import library as library_api
 
     _disk, tracker, item, mf, run = _movie(db_session)
     run.finished_at = datetime.now(UTC)  # nessuna run in corso: "Cerca ora" è permesso

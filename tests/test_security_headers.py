@@ -1,4 +1,4 @@
-"""Protezioni HTTP comuni (app/security_headers.py)."""
+"""Protezioni HTTP comuni (nazgarr/security_headers.py)."""
 
 
 def test_every_response_has_the_security_headers(client):
@@ -52,7 +52,7 @@ def test_moving_a_service_to_another_host_needs_its_secrets_again(client):
 
 
 def test_credentials_never_reach_the_error_messages_stored_in_the_db(db_session):
-    from app.models import Candidate, MediaItem, SeedJob
+    from nazgarr.models import Candidate, MediaItem, SeedJob
     from tests.upload_helpers import make_tracker
 
     tracker = make_tracker(db_session, "ITT", with_profile=False)

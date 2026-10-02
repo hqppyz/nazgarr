@@ -1,9 +1,9 @@
 import os
 
-from app import not_imported, pipeline, scanner, torrent_indexer
-from app.adapters.torrent_client.base import ClientTorrentFileInfo, ClientTorrentInfo, TorrentClientAdapter
-from app.arr import ArrIndex
-from app.models import ClientTorrent, Disk, MediaFile, MediaItem, NotImportedTorrent, TorrentClient
+from nazgarr import not_imported, pipeline, scanner, torrent_indexer
+from nazgarr.adapters.torrent_client.base import ClientTorrentFileInfo, ClientTorrentInfo, TorrentClientAdapter
+from nazgarr.arr import ArrIndex
+from nazgarr.models import ClientTorrent, Disk, MediaFile, MediaItem, NotImportedTorrent, TorrentClient
 
 
 class FakeAdapter(TorrentClientAdapter):
@@ -105,7 +105,7 @@ def test_without_radarr_sonarr_upgrades_are_still_found_by_name(db_session, tmp_
 
 
 def test_api_lists_torrents_with_their_replacement(db_session, tmp_path):
-    from app.api.torrents import list_not_imported
+    from nazgarr.api.torrents import list_not_imported
 
     index = _setup(db_session, tmp_path)
     not_imported.classify_not_imported(db_session, index)
@@ -121,8 +121,8 @@ def test_api_lists_torrents_with_their_replacement(db_session, tmp_path):
 
 
 def test_excluded_torrents_are_flagged_and_left_out_of_the_totals(db_session, tmp_path):
-    from app import settings_repo
-    from app.api.torrents import list_not_imported
+    from nazgarr import settings_repo
+    from nazgarr.api.torrents import list_not_imported
 
     index = _setup(db_session, tmp_path)
     settings_repo.set_setting(db_session, "exclusion_patterns", "*Random*")
@@ -137,7 +137,7 @@ def test_excluded_torrents_are_flagged_and_left_out_of_the_totals(db_session, tm
 
 
 def test_a_skipped_scan_is_reported_until_the_next_computation(db_session, tmp_path):
-    from app.api.torrents import list_not_imported
+    from nazgarr.api.torrents import list_not_imported
 
     index = _setup(db_session, tmp_path)
     not_imported.mark_skipped(db_session, "a torrent client could not be indexed")
@@ -148,8 +148,8 @@ def test_a_skipped_scan_is_reported_until_the_next_computation(db_session, tmp_p
 
 
 def test_api_says_whether_the_tracker_seeding_requirement_is_met(db_session, tmp_path):
-    from app.api.torrents import list_not_imported
-    from app.models import Tracker
+    from nazgarr.api.torrents import list_not_imported
+    from nazgarr.models import Tracker
 
     index = _setup(db_session, tmp_path)
     db_session.add(Tracker(label="T", adapter_type="unit3d", base_url="https://t.example", api_token="x",

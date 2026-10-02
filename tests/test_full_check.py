@@ -2,8 +2,8 @@ import hashlib
 import os
 from datetime import UTC, datetime
 
-from app import full_check, pipeline
-from app.models import Candidate, CandidateFile, Disk, MediaFile, MediaItem, SeedJob, Tracker
+from nazgarr import full_check, pipeline
+from nazgarr.models import Candidate, CandidateFile, Disk, MediaFile, MediaItem, SeedJob, Tracker
 
 PIECE = 16
 
@@ -134,7 +134,7 @@ def test_background_check_runs_and_reports_progress(db_session, tmp_path):
 
 
 def _review(db_session, candidate):
-    from app.models import MatchReview
+    from nazgarr.models import MatchReview
 
     video = next(f for f in candidate.files if f.is_video)
     r = MatchReview(candidate_id=candidate.id, media_file_id=video.media_file_id, status="pending")
@@ -144,7 +144,7 @@ def _review(db_session, candidate):
 
 
 def _approve_and_wait(db_session, candidate, monkeypatch, executed):
-    from app import review
+    from nazgarr import review
 
     monkeypatch.setattr(review, "_try_execute", lambda session, r, skip_recheck=False: executed.append(r.id))
     r = _review(db_session, candidate)
@@ -191,7 +191,7 @@ def test_a_missing_extra_passes_because_the_client_downloads_it(db_session, tmp_
 
 
 def test_with_the_setting_off_approve_executes_right_away(db_session, tmp_path, monkeypatch):
-    from app import review, settings_repo
+    from nazgarr import review, settings_repo
 
     _, candidate = _setup(db_session, tmp_path, FILES)
     settings_repo.set_setting(db_session, review.VERIFY_SETTING, "false")
@@ -207,7 +207,7 @@ def test_with_the_setting_off_approve_executes_right_away(db_session, tmp_path, 
 def _approve_recording_skip(db_session, candidate, monkeypatch, skip_setting):
     from sqlalchemy.orm import sessionmaker
 
-    from app import review, settings_repo
+    from nazgarr import review, settings_repo
 
     if skip_setting:
         settings_repo.set_setting(db_session, review.SKIP_RECHECK_SETTING, "true")

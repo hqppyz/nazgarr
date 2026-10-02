@@ -4,10 +4,10 @@ from types import SimpleNamespace
 
 from pymediainfo import MediaInfo
 
-from app import upload_profiles
-from app.mediainfo_util import summarize
-from app.models import TrackerUploadProfile
-from app.upload_naming import build_name, detect, release_values, resolution_format, with_tracker_language
+from nazgarr import upload_profiles
+from nazgarr.mediainfo_util import summarize
+from nazgarr.models import TrackerUploadProfile
+from nazgarr.upload_naming import build_name, detect, release_values, resolution_format, with_tracker_language
 from tests.upload_helpers import make_tracker
 
 MEDIAINFO = summarize(MediaInfo((Path(__file__).parent / "fixtures" / "mediainfo_remux.xml").read_text()), "x.mkv")
@@ -85,7 +85,7 @@ def test_bundled_naming_rules_are_versioned(db_session, monkeypatch):
 
 
 def test_multi_above_a_number_of_languages_also_for_all_and_subtitles():
-    from app.upload_naming import _languages_value
+    from nazgarr.upload_naming import _languages_value
 
     tracks = [{"language": code} for code in ("en", "it", "fr")]
     assert _languages_value(tracks, {"style": "all", "multi_from": 3}) == "MULTI"
@@ -250,7 +250,7 @@ def test_atmos_comes_once_after_all_the_audio_codecs():
 
 
 def test_the_tracker_language_must_be_in_an_audio_track():
-    from app.upload_naming import audio_language_check
+    from nazgarr.upload_naming import audio_language_check
 
     def info(*tracks):
         return {"audio": [dict(t) for t in tracks]}

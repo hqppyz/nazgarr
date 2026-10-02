@@ -12,7 +12,7 @@ istanza Unraid reale:
    ALTER TABLE media_file RENAME TO media_file_legacy prima di ricrearla —
    ma SQLite riscrive le REFERENCES di OGNI altra tabella verso quella
    rinominata SEMPRE, non solo con le foreign key attive (verificato con
-   un test diretto, vedi il warning in cima ad app/db.py). Dopo il DROP
+   un test diretto, vedi il warning in cima ad nazgarr/db.py). Dopo il DROP
    finale, seed_file/match_review/seed_job/upload_job restavano agganciate
    per sempre a "media_file_legacy" — un nome ormai inesistente. Sintomo
    riportato: "no such table: media_file_legacy" su un INSERT in
@@ -25,7 +25,7 @@ import sqlite3
 import pytest
 from sqlalchemy import inspect, text
 
-from app import db as db_module
+from nazgarr import db as db_module
 
 LEGACY_SCHEMA = """
 CREATE TABLE disk (
@@ -295,8 +295,8 @@ def test_migrate_legacy_media_path_id_allows_insert_without_the_column(tmp_path)
     _seed_legacy_db(engine)
     db_module.migrate_legacy_media_path_id(engine)
 
-    # Lo stesso INSERT che app/db_utils.py::bulk_upsert emette per uno scan
-    # reale (app/scanner.py) — mai valorizza media_path_id, che prima di
+    # Lo stesso INSERT che nazgarr/db_utils.py::bulk_upsert emette per uno scan
+    # reale (nazgarr/scanner.py) — mai valorizza media_path_id, che prima di
     # questa migrazione avrebbe fatto fallire ogni scan con
     # "NOT NULL constraint failed: media_file.media_path_id".
     with engine.begin() as conn:

@@ -7,11 +7,11 @@ from datetime import UTC, datetime
 import pytest
 import torf
 
-from app import torrent_create, upload_decision, upload_execute, upload_jobs
-from app.adapters.tracker.base import UploadedTorrent, UploadError
-from app.models import Disk, TrackerUploadProfile
-from app.upload_jobs import UploadJobError
-from app.upload_worker import UploadWorker
+from nazgarr import torrent_create, upload_decision, upload_execute, upload_jobs
+from nazgarr.adapters.tracker.base import UploadedTorrent, UploadError
+from nazgarr.models import Disk, TrackerUploadProfile
+from nazgarr.upload_jobs import UploadJobError
+from nazgarr.upload_worker import UploadWorker
 from tests.upload_helpers import InlineExecutor, make_client, make_tracker, write_video
 
 KB = 1024
@@ -339,7 +339,7 @@ def test_client_category_and_tags_follow_the_client_defaults_or_the_job(db_sessi
 
 
 def test_an_anime_takes_the_anime_category(db_session, env):
-    from app import client_labels
+    from nazgarr import client_labels
 
     env["client_row"].category_tv, env["client_row"].category_anime = "tv", "anime"
     db_session.commit()
@@ -389,7 +389,7 @@ def test_a_library_file_is_uploaded_with_a_generated_release_name(db_session, tm
 
 def test_the_mediainfo_names_the_file_in_the_torrent_not_the_local_path(db_session, tmp_path, env, monkeypatch):
     # Rinominare cambia solo "Complete name"; il percorso locale non esce verso il tracker.
-    monkeypatch.setattr("app.mediainfo_util.extract_full_text", lambda path: None)
+    monkeypatch.setattr("nazgarr.mediainfo_util.extract_full_text", lambda path: None)
     video = write_video(env["root"] / "media" / "The Matrix (1999) {imdb-tt0133093}.mkv", 300 * KB)
     job = _approved(db_session, env, "media/" + video.name, {"a": _upload("Matrix A"), "b": {"action": "skip"}},
                     file_naming=None)
@@ -405,7 +405,7 @@ def test_the_mediainfo_names_the_file_in_the_torrent_not_the_local_path(db_sessi
 
 
 def test_the_names_of_the_hardlinked_torrent_win(db_session, tmp_path, env):
-    from app.models import ClientTorrent, ClientTorrentFile, RunLog, SeedFile
+    from nazgarr.models import ClientTorrent, ClientTorrentFile, RunLog, SeedFile
 
     video = write_video(env["root"] / "media" / "Matrix (1999).mkv", 300 * KB)
     release = env["root"] / "torrents" / "The.Matrix.1999.1080p.BluRay.x264-GRP.mkv"

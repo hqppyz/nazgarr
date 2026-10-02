@@ -1,5 +1,5 @@
 """Nessuna istanza qui reale disponibile in fase di sviluppo (vedi
-docstring di app/adapters/torrent_client/qui.py) — questi test usano un
+docstring di nazgarr/adapters/torrent_client/qui.py) — questi test usano un
 httpx.MockTransport che imita la superficie della sua API reale (verificata
 contro il suo swagger/OpenAPI pubblico e contro l'integrazione qui di
 Auditorr), non una connessione reale."""
@@ -9,8 +9,8 @@ import json
 import httpx
 import pytest
 
-from app.adapters.torrent_client.base import TorrentAddTimeoutError
-from app.adapters.torrent_client.qui import QuiTorrentClientAdapter
+from nazgarr.adapters.torrent_client.base import TorrentAddTimeoutError
+from nazgarr.adapters.torrent_client.qui import QuiTorrentClientAdapter
 
 INSTANCE_ID = 7
 
@@ -187,7 +187,7 @@ def test_list_torrents_reads_the_qbittorrent_style_save_path():
     """L'istanza qui reale restituisce save_path (nomi qBittorrent), non il
     savePath dello swagger: col solo savePath il path era vuoto per ogni
     torrent e nessun file veniva collegato."""
-    from app.adapters.torrent_client.qui import QuiTorrentClientAdapter
+    from nazgarr.adapters.torrent_client.qui import QuiTorrentClientAdapter
 
     def handler(request):
         path = request.url.path
@@ -215,7 +215,7 @@ def test_add_torrent_waits_for_the_expected_hash():
 
 
 def test_add_torrent_already_in_the_client_is_a_clear_error():
-    from app.adapters.torrent_client.base import TorrentAlreadyInClientError
+    from nazgarr.adapters.torrent_client.base import TorrentAlreadyInClientError
 
     mock = _QuiMock(pages=[[{"hash": "abcdef", "name": "x", "state": "uploading", "progress": 1.0}]])
     adapter = _adapter(mock)

@@ -36,7 +36,7 @@ def test_connection_test_reports_success(client, monkeypatch):
         def list_torrents(self):
             return [object(), object(), object()]
 
-    monkeypatch.setattr("app.adapter_factory.build_torrent_client_adapter", lambda tc: FakeAdapter())
+    monkeypatch.setattr("nazgarr.adapter_factory.build_torrent_client_adapter", lambda tc: FakeAdapter())
 
     response = client.post(f"/api/torrent-clients/{tc_id}/test")
 

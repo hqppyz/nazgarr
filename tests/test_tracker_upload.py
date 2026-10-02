@@ -1,7 +1,7 @@
 import httpx
 import pytest
 
-from app.adapters.tracker.base import Unit3dTrackerAdapter, UploadError, UploadFields
+from nazgarr.adapters.tracker.base import Unit3dTrackerAdapter, UploadError, UploadFields
 
 
 def _adapter(handler):

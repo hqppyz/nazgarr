@@ -2,7 +2,7 @@ import logging
 
 import httpx
 
-import app.api.system as system_module
+import nazgarr.api.system as system_module
 
 
 def test_app_info(client):

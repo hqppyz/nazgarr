@@ -4,10 +4,10 @@ senza collisioni fra film e serie con lo stesso tmdb_id."""
 
 import os
 
-from app import media_resolution, poster_cache
-from app.adapters.media_resolver.base import ResolvedMedia
-from app.arr import ArrIdentity, ArrIndex
-from app.models import MediaItem
+from nazgarr import media_resolution, poster_cache
+from nazgarr.adapters.media_resolver.base import ResolvedMedia
+from nazgarr.arr import ArrIdentity, ArrIndex
+from nazgarr.models import MediaItem
 
 
 def test_resolution_stores_title_and_year(db_session):
@@ -63,8 +63,8 @@ def test_movie_and_series_with_the_same_tmdb_id_get_separate_poster_files(tmp_pa
 def test_items_overview_flags_duplicates_and_files_in_review(db_session):
     from datetime import UTC, datetime
 
-    from app import library, pipeline
-    from app.models import Candidate, Disk, MatchReview, MediaFile, Tracker
+    from nazgarr import library, pipeline
+    from nazgarr.models import Candidate, Disk, MatchReview, MediaFile, Tracker
 
     disk = Disk(label="d", root_path="/mnt/d", media_rel_path="media")
     tracker = Tracker(label="t", adapter_type="unit3d", base_url="https://t.example", api_token="x")
@@ -96,8 +96,8 @@ def test_items_overview_flags_duplicates_and_files_in_review(db_session):
 def test_tree_views_expose_the_content_of_each_file_for_the_detail_sheet(db_session):
     from datetime import UTC, datetime
 
-    from app import library, pipeline
-    from app.models import Disk, MediaFile, SeedFile
+    from nazgarr import library, pipeline
+    from nazgarr.models import Disk, MediaFile, SeedFile
 
     disk = Disk(label="d", root_path="/mnt/d", media_rel_path="media", torrents_rel_path="torrents")
     item = MediaItem(content_type="tv", tmdb_id=1399, season_number=1, episode_number=1)

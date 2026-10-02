@@ -6,9 +6,9 @@ hardlink si/no x tracciato-dal-client si/no.
 
 import os
 
-from app import library, pipeline, scanner, torrent_indexer
-from app.adapters.torrent_client.base import ClientTorrentFileInfo, ClientTorrentInfo, TorrentClientAdapter
-from app.models import Disk, DiskTorrentClient, TorrentClient
+from nazgarr import library, pipeline, scanner, torrent_indexer
+from nazgarr.adapters.torrent_client.base import ClientTorrentFileInfo, ClientTorrentInfo, TorrentClientAdapter
+from nazgarr.models import Disk, DiskTorrentClient, TorrentClient
 
 
 class FakeAdapter(TorrentClientAdapter):
@@ -127,8 +127,8 @@ def test_a_second_library_path_of_the_same_inode_is_seeding_too(db_session, tmp_
     """Import doppio: lo stesso inode in due cartelle della libreria e nella
     cartella torrent. Entrambi i percorsi in libreria sono in seed (non uno
     orfano cercato sui tracker) e compaiono come duplicato "hardlink"."""
-    from app.duplicates import find_duplicate_media_files
-    from app.matching import orphan_media_files
+    from nazgarr.duplicates import find_duplicate_media_files
+    from nazgarr.matching import orphan_media_files
 
     root = tmp_path / "disk1"
     (root / "media" / "tv" / "Show").mkdir(parents=True)
@@ -152,7 +152,7 @@ def test_a_second_library_path_of_the_same_inode_is_seeding_too(db_session, tmp_
     states = {s["relative_path"]: s for s in library.media_file_states(db_session)}
     assert {s["state"] for s in states.values()} == {"seeding"}
     assert all(s["linked_paths"] == [os.path.join("torrents", "Show.S01E01.mkv")] for s in states.values())
-    from app.models import MediaFile, MediaItem
+    from nazgarr.models import MediaFile, MediaItem
 
     item = MediaItem(content_type="tv", tmdb_id=1, season_number=1, episode_number=1)
     db_session.add(item)
@@ -219,6 +219,6 @@ def test_a_copy_of_a_file_seeding_elsewhere_counts_as_seeding(db_session, tmp_pa
     assert (old["state"], old["seeding_copies"]) == ("seeding", [os.path.join("torrents", "ITT", "Movie.mkv")])
     assert (itt["state"], itt["seeding_copies"]) == ("seeding", [])
     # Mai cercata sui tracker per un reseed.
-    from app.matching import orphan_seed_files_with_identity
+    from nazgarr.matching import orphan_seed_files_with_identity
 
     assert orphan_seed_files_with_identity(db_session) == []

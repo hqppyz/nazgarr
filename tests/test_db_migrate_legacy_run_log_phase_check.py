@@ -3,7 +3,7 @@ il fix precedente (tests/test_db_migrate_legacy_media_path_id.py): un DB
 creato prima del commit 1149b94 ha ancora il vecchio CHECK più stretto su
 run_log.current_phase (solo 'scanning'/'matching'/'executing') — con
 media_file/seed_file finalmente funzionanti, la primissima transizione di
-fase successiva a "scanning" (app/pipeline.py::_set_phase, phase
+fase successiva a "scanning" (nazgarr/pipeline.py::_set_phase, phase
 "resolving") fa fallire di nuovo la run, stavolta con
 "CHECK constraint failed: current_phase IN (...)". Mai riprodottosi
 sull'istanza reale dell'utente solo perché lo scan falliva prima ancora
@@ -11,7 +11,7 @@ di arrivarci."""
 
 from sqlalchemy import text
 
-from app import db as db_module
+from nazgarr import db as db_module
 
 LEGACY_RUN_LOG_SCHEMA = """
 CREATE TABLE disk (
@@ -79,7 +79,7 @@ def test_migrate_legacy_run_log_phase_check_allows_the_new_phase_values(tmp_path
 
     db_module.migrate_legacy_run_log_phase_check(engine)
 
-    # Lo stesso UPDATE che app/pipeline.py::_set_phase emette per ogni
+    # Lo stesso UPDATE che nazgarr/pipeline.py::_set_phase emette per ogni
     # transizione di fase reale — prima di questa migrazione avrebbe fatto
     # fallire ogni run con "CHECK constraint failed" alla primissima fase
     # successiva a "scanning".

@@ -5,7 +5,7 @@ from pathlib import Path
 import yaml
 from cryptography.fernet import Fernet
 
-from app import cli
+from nazgarr import cli
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -23,7 +23,7 @@ def test_init_writes_the_config_and_a_private_valid_secret_key(tmp_path, monkeyp
     }
     key_file = config.parent / cli.SECRET_FILE
     assert stat.S_IMODE(key_file.stat().st_mode) == 0o600
-    Fernet(key_file.read_text().strip().encode())  # una chiave che app/crypto.py accetta
+    Fernet(key_file.read_text().strip().encode())  # una chiave che nazgarr/crypto.py accetta
     first_key = key_file.read_text()
 
     # Rilanciato: la chiave non cambia mai (le credenziali nel DB dipendono da lei).
@@ -46,12 +46,12 @@ def test_serve_needs_a_config_and_a_key_and_runs_one_process(tmp_path, monkeypat
     calls = []
     monkeypatch.setattr("uvicorn.run", lambda *args, **kwargs: calls.append((args, kwargs)))
     assert cli.main(["serve", "--config", str(config), "--port", "9000"]) == 0
-    assert calls == [(("app.main:app",), {"host": "0.0.0.0", "port": 9000, "workers": 1})]
+    assert calls == [(("nazgarr.main:app",), {"host": "0.0.0.0", "port": 9000, "workers": 1})]
 
 
 def test_the_service_files_start_the_installed_command():
     unit = cli.systemd_unit(Path("/home/u/.config/nazgarr/config.yaml"), "0.0.0.0", 8080)
-    assert '-m app.cli serve --config "/home/u/.config/nazgarr/config.yaml" --host 0.0.0.0 --port 8080' in unit
+    assert '-m nazgarr.cli serve --config "/home/u/.config/nazgarr/config.yaml" --host 0.0.0.0 --port 8080' in unit
     assert "Restart=on-failure" in unit and "UMask=0077" in unit
     plist = cli.launchd_plist(Path("/Users/u/c.yaml"), "127.0.0.1", 8080, Path("/Users/u/Logs"))
     assert "<string>serve</string>" in plist and "<key>KeepAlive</key>" in plist

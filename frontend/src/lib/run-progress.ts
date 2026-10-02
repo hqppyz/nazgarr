@@ -4,7 +4,7 @@ import { parseApiDate } from '@/lib/time'
 export type RunResponse = Schemas['RunResponse']
 export type PhaseProgress = Schemas['PhaseProgressResponse']
 
-// Stesso ordine della pipeline (app/pipeline.py, app/run_progress.py PHASES).
+// Stesso ordine della pipeline (nazgarr/pipeline.py, nazgarr/run_progress.py PHASES).
 export const PHASE_ORDER = ['scanning', 'resolving', 'indexing', 'matching', 'executing', 'reconciling'] as const
 export type PhaseName = (typeof PHASE_ORDER)[number]
 

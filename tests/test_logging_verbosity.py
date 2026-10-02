@@ -1,6 +1,6 @@
 import logging
 
-from app.logging_config import VerbosityFilter
+from nazgarr.logging_config import VerbosityFilter
 
 
 def _record(name, message, level=logging.INFO):
@@ -26,7 +26,7 @@ def test_the_scheduler_heartbeat_is_dropped_unless_debugging():
 
 
 def test_our_messages_and_library_problems_are_untouched():
-    ours = _record("app.pipeline", "Run #3 completata")
+    ours = _record("nazgarr.pipeline", "Run #3 completata")
     failure = _record("apscheduler.executors.default", "Job raised an exception", logging.ERROR)
 
     assert VerbosityFilter().filter(ours) and ours.levelname == "INFO"

@@ -1,4 +1,4 @@
-"""Avanzamento live di una run (app/run_progress.py) come lo legge il popup
+"""Avanzamento live di una run (nazgarr/run_progress.py) come lo legge il popup
 di stato: fasi, x/y, dettaglio, file saltati, attese per rate limit."""
 
 import json
@@ -6,11 +6,11 @@ from datetime import UTC, datetime
 
 import httpx
 
-from app import matching, pipeline, scanner
-from app.adapters.tracker.base import Unit3dTrackerAdapter
-from app.api.runs import RunResponse
-from app.models import Disk, MediaFile, MediaItem, Tracker
-from app.run_progress import PHASES, RunProgress
+from nazgarr import matching, pipeline, scanner
+from nazgarr.adapters.tracker.base import Unit3dTrackerAdapter
+from nazgarr.api.runs import RunResponse
+from nazgarr.models import Disk, MediaFile, MediaItem, Tracker
+from nazgarr.run_progress import PHASES, RunProgress
 
 
 def _disk_with_files(db_session, tmp_path, media=3, seeds=2):
@@ -121,7 +121,7 @@ def test_runs_left_open_by_a_restart_are_closed_with_a_visible_error(db_session)
 
 
 def test_stop_request_ends_the_run_cleanly_at_the_next_progress_update(db_session, tmp_path, monkeypatch):
-    from app.models import RunLog
+    from nazgarr.models import RunLog
 
     _disk_with_files(db_session, tmp_path)
     run = pipeline.start_run(db_session, "manual")
@@ -134,7 +134,7 @@ def test_stop_request_ends_the_run_cleanly_at_the_next_progress_update(db_sessio
         return real_scan(session, disk, run_, files=files, on_progress=on_progress)
 
     monkeypatch.setattr(scanner, "scan_disk", scan_then_stop)
-    monkeypatch.setattr("app.run_progress.COMMIT_EVERY", 1)
+    monkeypatch.setattr("nazgarr.run_progress.COMMIT_EVERY", 1)
     pipeline.run_bulk_import(db_session, run, str(tmp_path / "data"))
 
     assert run.finished_at is not None

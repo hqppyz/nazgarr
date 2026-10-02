@@ -1,18 +1,18 @@
 import httpx
 import pytest
 
-from app.adapters.image_host.base import ImageHostError
-from app.adapters.image_host.chain import ImageHostChain
-from app.adapters.image_host.chevereto import chevereto_image_url
-from app.adapters.image_host.dalexni import DalexniAdapter
-from app.adapters.image_host.imgbb import ImgbbAdapter
-from app.adapters.image_host.lensdump import LensdumpAdapter
-from app.adapters.image_host.onlyimage import OnlyimageAdapter
-from app.adapters.image_host.pixhost import PixhostAdapter
-from app.adapters.image_host.ptpimg import PtpimgAdapter
-from app.adapters.image_host.ptscreens import PtscreensAdapter
-from app.adapters.image_host.seedpool_cdn import SeedpoolCdnAdapter
-from app.adapters.image_host.utppm import UtppmAdapter
+from nazgarr.adapters.image_host.base import ImageHostError
+from nazgarr.adapters.image_host.chain import ImageHostChain
+from nazgarr.adapters.image_host.chevereto import chevereto_image_url
+from nazgarr.adapters.image_host.dalexni import DalexniAdapter
+from nazgarr.adapters.image_host.imgbb import ImgbbAdapter
+from nazgarr.adapters.image_host.lensdump import LensdumpAdapter
+from nazgarr.adapters.image_host.onlyimage import OnlyimageAdapter
+from nazgarr.adapters.image_host.pixhost import PixhostAdapter
+from nazgarr.adapters.image_host.ptpimg import PtpimgAdapter
+from nazgarr.adapters.image_host.ptscreens import PtscreensAdapter
+from nazgarr.adapters.image_host.seedpool_cdn import SeedpoolCdnAdapter
+from nazgarr.adapters.image_host.utppm import UtppmAdapter
 
 
 def _client(handler):

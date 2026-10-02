@@ -1,8 +1,8 @@
 from datetime import UTC, datetime
 
-from app import matching, pipeline
-from app.adapters.tracker.base import TorrentCandidate
-from app.models import Candidate, Disk, MediaFile, MediaItem, SeedFile, Tracker
+from nazgarr import matching, pipeline
+from nazgarr.adapters.tracker.base import TorrentCandidate
+from nazgarr.models import Candidate, Disk, MediaFile, MediaItem, SeedFile, Tracker
 
 
 def _tc(**overrides) -> TorrentCandidate:
@@ -191,7 +191,7 @@ def test_orphan_media_files_excludes_hardlinked(db_session):
 
 
 def _seed_in_client(db_session, seed_file, announce):
-    from app.models import ClientTorrent, ClientTorrentFile, TorrentClient
+    from nazgarr.models import ClientTorrent, ClientTorrentFile, TorrentClient
 
     client = db_session.query(TorrentClient).first()
     if client is None:
@@ -208,7 +208,7 @@ def _seed_in_client(db_session, seed_file, announce):
 
 
 def test_a_file_seeding_on_one_tracker_is_searched_on_the_others(db_session):
-    from app import settings_repo
+    from nazgarr import settings_repo
 
     disk = _make_disk(db_session)
     run = pipeline.start_run(db_session, "manual")

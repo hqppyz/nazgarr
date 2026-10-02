@@ -26,14 +26,14 @@ CREATE TABLE IF NOT EXISTS disk (
                                                          -- null, torrents_rel_path is used unchanged.
     media_scan_id               INTEGER,                -- last run that read media_rel_path successfully, even
     seed_scan_id                INTEGER,                -- when empty (same for torrents_rel_path): what makes a
-                                                         -- file "current" (app/scan_state.py), so an emptied
+                                                         -- file "current" (nazgarr/scan_state.py), so an emptied
                                                          -- folder doesn't keep its old files alive
     upload_rel_path             TEXT,                   -- optional, relative to root_path: where a NEW UPLOAD
                                                          -- (and a reseed decided in the upload flow) gets its
                                                          -- hardlinks and save_path. If null, torrents_rel_path
                                                          -- (SPEC.md §9 "Upload flow v2").
     watch_rel_path              TEXT,                   -- optional, relative to root_path: the folder watched for
-                                                         -- new releases (app/upload_watch.py). Each new file or
+                                                         -- new releases (nazgarr/upload_watch.py). Each new file or
                                                          -- folder in it starts an upload on its own, up to the
                                                          -- decision; never the seeding or the media folder.
     created_at                  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -71,11 +71,11 @@ CREATE TABLE IF NOT EXISTS tracker (
     min_ratio               REAL,
     seed_rule               TEXT,
         -- the tracker's seeding requirement (hit and run), both optional: a torrent that met it can
-        -- be removed safely (app/seed_requirements.py). seed_rule 'all' = both required when both are
+        -- be removed safely (nazgarr/seed_requirements.py). seed_rule 'all' = both required when both are
         -- set; null or 'any' = either one is enough.
     adapter_config_json     TEXT
         -- encrypted at rest: the values of the fields a plugin adapter declares
-        -- (app/plugins/config.py). Built-in adapters use the columns above.
+        -- (nazgarr/plugins/config.py). Built-in adapters use the columns above.
 );
 
 CREATE TABLE IF NOT EXISTS torrent_client (
@@ -104,7 +104,7 @@ CREATE TABLE IF NOT EXISTS torrent_client (
     category_anime  TEXT,                   -- null = the movie/tv category
     tags_upload     TEXT,                   -- comma separated, for new uploads (e.g. "release")
     tags_reseed     TEXT,                   -- comma separated, for reseeds
-    adapter_config_json TEXT                -- encrypted at rest: fields of a plugin adapter (app/plugins/config.py)
+    adapter_config_json TEXT                -- encrypted at rest: fields of a plugin adapter (nazgarr/plugins/config.py)
 );
 
 -- A disk can have several clients enabled at once (SPEC.md §5) — needs a
@@ -128,7 +128,7 @@ CREATE TABLE IF NOT EXISTS disk_torrent_client (
 -- consumes these yet (media_resolver's SOURCE lists "sonarr"/"radarr" as
 -- future values) — the storage is prepared ahead of the adapter.
 -- priority/timeout_seconds/basic_auth_* left nullable (no DEFAULT), even
--- though the app applies 0/15 defaults in Python: migrate_schema() (app/db.py)
+-- though the app applies 0/15 defaults in Python: migrate_schema() (nazgarr/db.py)
 -- only knows how to ALTER TABLE ADD COLUMN additive nullable columns, so the
 -- model and this fresh-install schema must agree on that shape.
 CREATE TABLE IF NOT EXISTS radarr_instance (
@@ -157,13 +157,13 @@ CREATE TABLE IF NOT EXISTS sonarr_instance (
 
 -- Configuration of the adapters that have no row of their own (image hosts,
 -- media resolvers, notifications) when they come from a plugin
--- (app/plugins/config.py). Built-in image hosts keep their app_settings keys.
+-- (nazgarr/plugins/config.py). Built-in image hosts keep their app_settings keys.
 CREATE TABLE IF NOT EXISTS adapter_config (
     kind            TEXT NOT NULL,
     adapter_type    TEXT NOT NULL,
     enabled         BOOLEAN NOT NULL DEFAULT 1,
     config_json     TEXT,                   -- encrypted at rest; secrets never returned by the API
-    events_json     TEXT,                   -- notifications: the events they send (app/events.py), null = all
+    events_json     TEXT,                   -- notifications: the events they send (nazgarr/events.py), null = all
     PRIMARY KEY (kind, adapter_type)
 );
 
@@ -183,13 +183,13 @@ CREATE TABLE IF NOT EXISTS api_key (
 );
 
 -- Webhooks (docs/ROADMAP.md Phase 10): POST JSON signed with HMAC-SHA256
--- (app/webhooks.py) for the events they subscribe to.
+-- (nazgarr/webhooks.py) for the events they subscribe to.
 CREATE TABLE IF NOT EXISTS webhook (
     id              INTEGER PRIMARY KEY,
     name            TEXT NOT NULL,
     url             TEXT NOT NULL,
     secret          TEXT NOT NULL,          -- encrypted at rest; shown once, used to sign every delivery
-    events_json     TEXT NOT NULL,          -- event names (app/events.py CATALOG), or ["*"] for all
+    events_json     TEXT NOT NULL,          -- event names (nazgarr/events.py CATALOG), or ["*"] for all
     enabled         BOOLEAN NOT NULL DEFAULT 1,
     created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -236,7 +236,7 @@ CREATE TABLE IF NOT EXISTS run_log (
     run_type            TEXT NOT NULL CHECK (run_type IN ('scheduled','manual','bulk_import')),
     started_at          TIMESTAMP NOT NULL,
     finished_at         TIMESTAMP,
-    -- One value per real step of app/pipeline.py::run_bulk_import, committed
+    -- One value per real step of nazgarr/pipeline.py::run_bulk_import, committed
     -- as the run transitions through them (not just at start/end) so a live
     -- poller (GET /api/runs) sees genuine progress, not "scanning" for the
     -- whole run. null = not running.
@@ -247,7 +247,7 @@ CREATE TABLE IF NOT EXISTS run_log (
     phase_detail        TEXT,             -- what the current phase is on: disk/client/tracker, rate-limit wait
     cancel_requested_at TIMESTAMP,        -- "Stop run": the pipeline stops at its next progress update
     phases_json         TEXT,             -- per phase {status,done,total,skipped,started_at,finished_at},
-                                          -- app/run_progress.py — the status popup's stepper
+                                          -- nazgarr/run_progress.py — the status popup's stepper
     items_total         INTEGER,          -- precounted when the run starts (total scan)
     items_scanned       INTEGER DEFAULT 0,
     matches_found        INTEGER DEFAULT 0,
@@ -260,10 +260,10 @@ CREATE TABLE IF NOT EXISTS run_log (
     duplicate_wasted_bytes INTEGER,            -- nullable.
     health_snapshot       REAL,                -- "library health" % at the end of the run, for the
                                                 -- dashboard's historical chart (SPEC.md §10). Formula
-                                                -- settled in Fase 5, see app/health.py.
+                                                -- settled in Fase 5, see nazgarr/health.py.
     errors                INTEGER DEFAULT 0,
     snapshot_saved        BOOLEAN,             -- the per-file state snapshot was taken at the end of this run
-                                                -- (app/file_changes.py). Additive, nullable.
+                                                -- (nazgarr/file_changes.py). Additive, nullable.
     errors_json           TEXT,                -- JSON list of every error of the run, in order (at most 50),
                                                 -- shown in the scan history. Additive, nullable.
     last_error            TEXT                 -- short summary of the last exception caught during this
@@ -271,7 +271,7 @@ CREATE TABLE IF NOT EXISTS run_log (
                                                 -- visible in the UI without digging through the Logs tab —
                                                 -- the full traceback still goes to logger.exception().
                                                 -- Nullable, no DEFAULT: additive column, see migrate_schema()
-                                                -- in app/db.py.
+                                                -- in nazgarr/db.py.
 );
 
 -- ============ PHYSICAL (written ONLY by the scan process — never by hand, never read by other tables) ============
@@ -339,7 +339,7 @@ CREATE TABLE IF NOT EXISTS media_file (
     st_dev                  INTEGER NOT NULL,       -- "as of last scan" — never trusted beyond last_scan_id
     inode                   INTEGER NOT NULL,       -- ditto — the filesystem reassigns inodes over time
     nlink                   INTEGER,                -- >1 = hardlinked somewhere, a quick first signal
-    content_hash            TEXT,                   -- fast partial-content hash (app/duplicates.py), to find
+    content_hash            TEXT,                   -- fast partial-content hash (nazgarr/duplicates.py), to find
                                                       -- unintentional same-content copies across different inodes
     media_item_id           INTEGER REFERENCES media_item(id) ON DELETE SET NULL,     -- resolved by the resolver
     resolver_source         TEXT,                   -- "filename_parser" | "sonarr" | "radarr"
@@ -417,7 +417,7 @@ CREATE TABLE IF NOT EXISTS client_torrent_file (
     last_scan_id        INTEGER NOT NULL REFERENCES run_log(id),
     UNIQUE(client_torrent_id, path_in_torrent)
         -- added in Phase 2 (missing from the first draft): without a unique constraint,
-        -- the indexer (app/torrent_indexer.py) couldn't do an idempotent upsert on every
+        -- the indexer (nazgarr/torrent_indexer.py) couldn't do an idempotent upsert on every
         -- poll the way media_file/seed_file/client_torrent do — it would instead have to
         -- delete and recreate rows every pass, breaking the pattern's consistency.
 );
@@ -452,7 +452,7 @@ CREATE TABLE IF NOT EXISTS candidate (
 );
 
 -- Every file of a candidate's torrent and the local file it was matched to
--- (app/torrent_layout.py). A season pack has one row per episode plus its
+-- (nazgarr/torrent_layout.py). A season pack has one row per episode plus its
 -- extras (nfo, subtitles, sample); a single-file torrent has one row. The
 -- executor recreates the torrent from these rows: every video must have a
 -- local file (otherwise the candidate is "season_pack_partial", confidence
@@ -489,14 +489,14 @@ CREATE TABLE IF NOT EXISTS match_review (
     decided_by      TEXT,                   -- "system" | username
     decided_at      TIMESTAMP,
     verify_status   TEXT,                   -- full piece check before executing: verifying|passed|failed
-                                            -- (app/review.py::request_approval). Additive, nullable.
+                                            -- (nazgarr/review.py::request_approval). Additive, nullable.
     verify_detail   TEXT,                   -- outcome of that check, shown in the queue
-    verify_check_id TEXT                    -- in-memory check id (app/full_check.py), for progress
+    verify_check_id TEXT                    -- in-memory check id (nazgarr/full_check.py), for progress
 );
 
 -- One row per (tracker, orphan file) already searched on that tracker, so a
 -- run doesn't search the same unchanged orphan again on every run
--- (app/matching.py). Exactly one of media_file_id / seed_file_id is set, same
+-- (nazgarr/matching.py). Exactly one of media_file_id / seed_file_id is set, same
 -- split as match_review: media_file_id for direction='media_to_torrent',
 -- seed_file_id for 'torrent_to_client'. A file is searched again only when
 -- the row is older than the rematch_interval_days setting, or when what the
@@ -517,7 +517,7 @@ CREATE TABLE IF NOT EXISTS match_attempt (
     UNIQUE(tracker_id, seed_file_id)
 );
 
--- Seeding torrents with no hardlink in the library, and why (app/not_imported.py,
+-- Seeding torrents with no hardlink in the library, and why (nazgarr/not_imported.py,
 -- "Not imported" view). Recomputed at every reliable scan, read-only.
 CREATE TABLE IF NOT EXISTS not_imported_torrent (
     id                         INTEGER PRIMARY KEY,
@@ -538,7 +538,7 @@ CREATE TABLE IF NOT EXISTS not_imported_torrent (
     run_id                     INTEGER REFERENCES run_log(id) ON DELETE SET NULL
 );
 
--- Per-file state at the latest snapshot (app/file_changes.py): replaced at
+-- Per-file state at the latest snapshot (nazgarr/file_changes.py): replaced at
 -- every comparison, it's the baseline for "changes since last scan".
 CREATE TABLE IF NOT EXISTS file_state_snapshot (
     id              INTEGER PRIMARY KEY,
@@ -593,7 +593,7 @@ CREATE TABLE IF NOT EXISTS seed_job (
     expected_missing_bytes       INTEGER,
         -- bytes the client may legitimately still download after the recheck: extras of the
         -- torrent (nfo, subtitles, sample) with no local file, plus the pieces they share with
-        -- neighbouring files (app/torrent_layout.py::expected_missing_bytes). Null/0 = the
+        -- neighbouring files (nazgarr/torrent_layout.py::expected_missing_bytes). Null/0 = the
         -- recheck must reach 100%, as always.
     -- Indicative layout — execution details to be refined in Phase 4 (docs/ROADMAP.md), in
     -- particular how/when result_seed_file_id and result_client_torrent_id get reconciled
@@ -602,7 +602,7 @@ CREATE TABLE IF NOT EXISTS seed_job (
         -- the client the torrent was added to: its recheck is checked there, not on "the first client"
 );
 
--- Per-tracker health history (the dashboard's tracker filter, app/tracker_scope.py):
+-- Per-tracker health history (the dashboard's tracker filter, nazgarr/tracker_scope.py):
 -- the same numbers run_log keeps globally, one row per scope ("configured" or a
 -- tracker id) per finished scan. History for a scope starts from the first scan
 -- after the scope existed; the global history stays on run_log.
@@ -626,7 +626,7 @@ CREATE TABLE IF NOT EXISTS tracker_upload_profile (
     type_id_map_json        TEXT,           -- {"REMUX": 20, "WEBDL": 21, ...}
     resolution_id_map_json  TEXT,
     naming_convention       TEXT,           -- legacy single release-name template (before naming_rules_json)
-    naming_rules_json       TEXT,           -- release-name rules (app/upload_naming.py): a template per release type
+    naming_rules_json       TEXT,           -- release-name rules (nazgarr/upload_naming.py): a template per release type
                                             -- + options; copied from the bundled profile with its version
     naming_version          INTEGER,        -- version of the bundled rules copied here (null = custom profile)
     naming_customized       BOOLEAN,        -- the user edited the rules: a new bundled version is only offered
@@ -643,12 +643,12 @@ CREATE TABLE IF NOT EXISTS tracker_upload_profile (
 
 -- Upload flow v2 (SPEC.md §9 "Upload flow v2"): one job = one source (a file
 -- or a folder) towards N trackers. The Phase 6 single-tracker upload_job is
--- dropped by app/db.py::migrate_legacy_upload_job (no data worth keeping).
+-- dropped by nazgarr/db.py::migrate_legacy_upload_job (no data worth keeping).
 CREATE TABLE IF NOT EXISTS upload_job (
     id                      INTEGER PRIMARY KEY,
     disk_id                 INTEGER REFERENCES disk(id) ON DELETE SET NULL,
     relative_path           TEXT NOT NULL,   -- as chosen in the browser, relative to the disk root
-    source_path             TEXT NOT NULL,   -- absolute path, resolved through app/fs_scope.py
+    source_path             TEXT NOT NULL,   -- absolute path, resolved through nazgarr/fs_scope.py
     is_dir                  BOOLEAN NOT NULL DEFAULT 0,
     kind                    TEXT CHECK (kind IN ('movie','episode','season_pack','complete_pack')),
         -- null until identified; season/complete pack only for folders
@@ -656,7 +656,7 @@ CREATE TABLE IF NOT EXISTS upload_job (
                             CHECK (status IN ('identifying','awaiting_match','analyzing','awaiting_decision',
                                               'queued','running','done','partial','failed','cancelled')),
         -- awaiting_match / awaiting_decision are the two human gates; the worker
-        -- (app/upload_worker.py) moves every other state forward on its own
+        -- (nazgarr/upload_worker.py) moves every other state forward on its own
     stage                   TEXT,            -- current step inside a worker state, for the progress display
     progress_done           INTEGER,
     progress_total          INTEGER,
@@ -673,7 +673,7 @@ CREATE TABLE IF NOT EXISTS upload_job (
     episode                 INTEGER,         -- only for kind = 'episode'
     forced_ids_json         TEXT,            -- ids the user forced at creation {"tmdb": ..., "imdb": ...}
     overrides_json          TEXT,            -- "Detected details" / "Advanced" overrides
-    layout_json             TEXT,            -- what's inside the source (app/upload_source.py): videos, seasons, episodes
+    layout_json             TEXT,            -- what's inside the source (nazgarr/upload_source.py): videos, seasons, episodes
     candidates_json         TEXT,            -- identification candidates shown at the first gate
     analysis_json           TEXT,            -- client / Radarr-Sonarr findings
     mediainfo_text          TEXT,
@@ -681,14 +681,14 @@ CREATE TABLE IF NOT EXISTS upload_job (
     anime                   BOOLEAN,         -- from TMDB at the first gate (genre Animation + original
                                              -- language ja): picks the client's anime category
     error_message           TEXT,
-    origin                  TEXT,            -- 'watch': started by the watched folder (app/upload_watch.py);
+    origin                  TEXT,            -- 'watch': started by the watched folder (nazgarr/upload_watch.py);
                                              -- null: created by hand
     created_at              TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at              TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     finished_at             TIMESTAMP
 );
 
--- What the watched folder has already seen (app/upload_watch.py): one row per
+-- What the watched folder has already seen (nazgarr/upload_watch.py): one row per
 -- top-level file or folder, so a release starts one upload only, even after
 -- its job is deleted. size/mtime: an entry is ready once they stay the same
 -- for a while (still copying otherwise).
@@ -716,7 +716,7 @@ CREATE TABLE IF NOT EXISTS upload_target (
                                               'preparing','uploading','seeding','done','skipped','failed')),
     suggested_action        TEXT CHECK (suggested_action IN ('upload','reseed','skip')),
     action                  TEXT CHECK (action IN ('upload','reseed','skip')),  -- the user's choice at gate 2
-    dupes_json              TEXT,            -- dupe-check results with their verdict (app/upload_dupes.py)
+    dupes_json              TEXT,            -- dupe-check results with their verdict (nazgarr/upload_dupes.py)
     reseed_torrent_id       TEXT,            -- the tracker torrent a passed full hash check matched: reseed it
     proposed_name           TEXT,
     approved_name           TEXT,

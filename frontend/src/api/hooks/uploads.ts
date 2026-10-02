@@ -8,7 +8,7 @@ export type UploadJob = Schemas['UploadJobDetail']
 export type UploadJobSummary = Schemas['UploadJobSummary']
 export type UploadTarget = Schemas['UploadTargetResponse']
 
-// Stati in cui il worker sta lavorando (app/upload_jobs.py WORKER_STATES):
+// Stati in cui il worker sta lavorando (nazgarr/upload_jobs.py WORKER_STATES):
 // solo lì serve il polling, a un punto di approvazione o a job finito no.
 export const WORKER_STATES = ['identifying', 'analyzing', 'queued', 'running']
 const POLL_MS = 2000

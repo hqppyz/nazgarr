@@ -7,11 +7,11 @@ from datetime import UTC, datetime
 
 import httpx
 
-from app import media_resolution, pipeline
-from app.adapters.media_resolver.filename_parser import FilenameParserResolver
-from app.models import Disk, MediaFile
-from app.tmdb_cache import CachingTMDBClient
-from app.tmdb_client import TMDBClient
+from nazgarr import media_resolution, pipeline
+from nazgarr.adapters.media_resolver.filename_parser import FilenameParserResolver
+from nazgarr.models import Disk, MediaFile
+from nazgarr.tmdb_cache import CachingTMDBClient
+from nazgarr.tmdb_client import TMDBClient
 
 
 def _make_media_file(db_session, disk, relative_path, run):

@@ -216,7 +216,7 @@ python3 -m venv .venv
 ./.venv/bin/pip install -r requirements.txt && ./.venv/bin/pip install -r requirements-dev.txt
 cp config.example.yaml config.yaml   # edit disk_scan_root/data_dir as needed
 export APP_SECRET_KEY=$(openssl rand -base64 32 | tr '+/' '-_')
-./.venv/bin/uvicorn app.main:app --reload --port 8080
+./.venv/bin/uvicorn nazgarr.main:app --reload --port 8080
 ```
 
 Lint and tests (same checks as CI):
@@ -234,7 +234,7 @@ npm install
 npm run dev   # http://localhost:5173, proxies /api to the backend above (see vite.config.ts)
 ```
 
-See [`frontend/README.md`](frontend/README.md) for details (type generation from the backend's OpenAPI schema, build, structure). In production the built frontend is served by FastAPI itself from the same container — no separate Node process (see the Dockerfile's `frontend-build` stage and `app/frontend.py`).
+See [`frontend/README.md`](frontend/README.md) for details (type generation from the backend's OpenAPI schema, build, structure). In production the built frontend is served by FastAPI itself from the same container — no separate Node process (see the Dockerfile's `frontend-build` stage and `nazgarr/frontend.py`).
 
 ## Contributing
 

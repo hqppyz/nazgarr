@@ -79,7 +79,7 @@ function CandidateCard({
           <p className="flex items-center justify-between gap-1 text-[10px] text-white/70">
             <span>{candidate.year ?? '—'}</span>
             {label && <span className="rounded bg-white/15 px-1">{label}</span>}
-            {/* Quanto è sicuro (app/upload_match_score.py): sopra la soglia la cartella osservata lo conferma da sola. */}
+            {/* Quanto è sicuro (nazgarr/upload_match_score.py): sopra la soglia la cartella osservata lo conferma da sola. */}
             {candidate.confidence != null && (
               <span
                 className={cn('ml-auto rounded px-1 tabular-nums', candidate.ambiguous ? 'bg-amber-500/40' : 'bg-white/15')}

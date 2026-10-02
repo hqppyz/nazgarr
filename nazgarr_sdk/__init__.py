@@ -10,10 +10,10 @@ direttamente: le azioni che cambiano qualcosa passano sempre dalla coda di
 approvazione dell'utente.
 """
 
-from app.adapters.image_host.base import ImageHostAdapter, ImageHostError
-from app.adapters.media_resolver.base import MediaResolverAdapter, ResolvedMedia
-from app.adapters.notification.base import Notification, NotificationAdapter, NotificationError
-from app.adapters.torrent_client.base import (
+from nazgarr.adapters.image_host.base import ImageHostAdapter, ImageHostError
+from nazgarr.adapters.media_resolver.base import MediaResolverAdapter, ResolvedMedia
+from nazgarr.adapters.notification.base import Notification, NotificationAdapter, NotificationError
+from nazgarr.adapters.torrent_client.base import (
     ClientTorrentFileInfo,
     ClientTorrentInfo,
     TorrentAddTimeoutError,
@@ -21,7 +21,7 @@ from app.adapters.torrent_client.base import (
     TorrentClientAdapter,
     TorrentStatus,
 )
-from app.adapters.tracker.base import (
+from nazgarr.adapters.tracker.base import (
     NotSupportedError,
     TorrentCandidate,
     TorrentRecord,
@@ -31,7 +31,7 @@ from app.adapters.tracker.base import (
     UploadError,
     UploadFields,
 )
-from app.plugins.registry import KINDS, AdapterContext, AdapterSpec, ConfigField, register
+from nazgarr.plugins.registry import KINDS, AdapterContext, AdapterSpec, ConfigField, register
 
 SDK_VERSION = "1.0.0"
 

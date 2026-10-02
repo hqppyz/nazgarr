@@ -1,4 +1,4 @@
-from app.upload_match_score import scored
+from nazgarr.upload_match_score import scored
 
 
 def _c(tmdb_id, title, year, content_type="movie", source="search", original=None):

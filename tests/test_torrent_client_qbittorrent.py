@@ -1,5 +1,5 @@
 """Nessuna istanza qBittorrent reale disponibile in fase di sviluppo (vedi
-docstring di app/adapters/torrent_client/qbittorrent.py) — questi test
+docstring di nazgarr/adapters/torrent_client/qbittorrent.py) — questi test
 usano un client fittizio che imita la superficie di qbittorrent-api usata
 dall'adapter, non una connessione reale."""
 
@@ -7,8 +7,8 @@ from dataclasses import dataclass
 
 import pytest
 
-from app.adapters.torrent_client.base import TorrentAddTimeoutError
-from app.adapters.torrent_client.qbittorrent import QBittorrentAdapter
+from nazgarr.adapters.torrent_client.base import TorrentAddTimeoutError
+from nazgarr.adapters.torrent_client.qbittorrent import QBittorrentAdapter
 
 
 @dataclass

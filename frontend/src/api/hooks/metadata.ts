@@ -2,8 +2,8 @@ import { useQuery } from '@tanstack/react-query'
 
 import { api, unwrap } from '@/api/client'
 
-// Candidato TMDB di un upload (app/tmdb_client.py normalize_result), più la
-// fonte da cui è arrivato (app/upload_identify.py).
+// Candidato TMDB di un upload (nazgarr/tmdb_client.py normalize_result), più la
+// fonte da cui è arrivato (nazgarr/upload_identify.py).
 export interface MetadataCandidate {
   tmdb_id: number
   content_type: 'movie' | 'tv'
@@ -13,7 +13,7 @@ export interface MetadataCandidate {
   poster_path: string | null
   overview?: string | null
   source?: string
-  // Solo nei candidati di un upload (app/upload_match_score.py).
+  // Solo nei candidati di un upload (nazgarr/upload_match_score.py).
   confidence?: number
   ambiguous?: boolean
 }

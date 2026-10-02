@@ -8,7 +8,7 @@ import { autosaveFeedback } from '@/lib/autosave'
 import { t } from '@/lib/i18n'
 
 // Il pattern dei nomi dei file dentro il torrent, quando non si usano quelli
-// del torrent in hardlink (app/upload_file_names.py): un nome a punti, come
+// del torrent in hardlink (nazgarr/upload_file_names.py): un nome a punti, come
 // le release.
 export function FileNamingCard() {
   const { data } = useFileNaming()

@@ -39,7 +39,7 @@ import { autosaveFeedback } from '@/lib/autosave'
 type Tracker = Schemas['TrackerResponse']
 
 // Facoltativa e quasi sempre inutile: la chiave dei link di download viene
-// appresa dalle risposte dell'API del tracker (app/adapters/tracker/base.py).
+// appresa dalle risposte dell'API del tracker (nazgarr/adapters/tracker/base.py).
 // Serve solo a riscrivere i link salvati da Sonarr/Radarr prima di un
 // cambio di chiave, e mai restituita dall'API (has_rss_key).
 function RssKeyField({
@@ -71,7 +71,7 @@ function RssKeyField({
 
 const FIRST_ENABLED = 'first'
 const NO_LANGUAGE = 'none'
-// Le lingue che il naming sa scrivere (app/upload_naming.py LANG3), ISO 639-1.
+// Le lingue che il naming sa scrivere (nazgarr/upload_naming.py LANG3), ISO 639-1.
 const LANGUAGES = [
   'ar', 'cs', 'da', 'de', 'el', 'en', 'es', 'fi', 'fr', 'he', 'hi', 'hu', 'it', 'ja', 'ko', 'nl', 'no', 'pl', 'pt',
   'ro', 'ru', 'sv', 'th', 'tr', 'uk', 'zh',

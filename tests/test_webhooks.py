@@ -1,4 +1,4 @@
-"""Eventi (app/events.py) e webhook (app/webhooks.py)."""
+"""Eventi (nazgarr/events.py) e webhook (nazgarr/webhooks.py)."""
 
 import hashlib
 import hmac
@@ -7,8 +7,8 @@ from datetime import UTC, datetime, timedelta
 
 import httpx
 
-from app import events, webhooks
-from app.models import Candidate, Event, EventDelivery, MatchReview, MediaItem, RunLog, SeedJob, Webhook
+from nazgarr import events, webhooks
+from nazgarr.models import Candidate, Event, EventDelivery, MatchReview, MediaItem, RunLog, SeedJob, Webhook
 from tests.upload_helpers import make_tracker
 
 
@@ -171,8 +171,8 @@ def test_the_webhooks_api(client, monkeypatch):
 
 
 def test_an_upload_that_finishes_emits_upload_finished(db_session):
-    from app import upload_jobs
-    from app.models import UploadJob, UploadTarget
+    from nazgarr import upload_jobs
+    from nazgarr.models import UploadJob, UploadTarget
 
     _webhook(db_session, names=["upload.finished"])
     tracker = make_tracker(db_session, "ITT", with_profile=False)

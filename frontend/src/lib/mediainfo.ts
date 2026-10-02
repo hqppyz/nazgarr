@@ -1,4 +1,4 @@
-// Formattazione del riepilogo MediaInfo (app/mediainfo_util.py summarize)
+// Formattazione del riepilogo MediaInfo (nazgarr/mediainfo_util.py summarize)
 // come l'anteprima di un tracker UNIT3D.
 
 export interface MediaInfoSummary {

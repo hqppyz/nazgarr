@@ -313,7 +313,7 @@ Every tracker has `base_url`, `api_token`, `announce_url` and `rss_key` as colum
 ```python
 import httpx
 import nazgarr_sdk as sdk
-from app.plugins import REGISTRY          # tests only: your plugin code imports nazgarr_sdk alone
+from nazgarr.plugins import REGISTRY      # tests only: your plugin code imports nazgarr_sdk alone
 
 import nazgarr_myclient
 

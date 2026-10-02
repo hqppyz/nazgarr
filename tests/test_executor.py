@@ -3,9 +3,9 @@ from datetime import UTC, datetime
 
 import pytest
 
-from app import executor, pipeline
-from app.adapters.torrent_client.base import TorrentStatus
-from app.models import (
+from nazgarr import executor, pipeline
+from nazgarr.adapters.torrent_client.base import TorrentStatus
+from nazgarr.models import (
     Candidate,
     Disk,
     DiskTorrentClient,
@@ -233,7 +233,7 @@ def test_reconcile_seed_job_updates_status_to_seeding(db_session, tmp_path):
     )
     db_session.add(candidate)
     db_session.commit()
-    from app.models import SeedJob
+    from nazgarr.models import SeedJob
 
     seed_job = SeedJob(
         candidate_id=candidate.id, final_status="in_progress", info_hash="deadbeef", recheck_status="pending"

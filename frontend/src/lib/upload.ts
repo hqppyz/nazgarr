@@ -40,7 +40,7 @@ export function missingEpisodes(found: number[], expected: number): number[] {
   return missing
 }
 
-// Il backend scrive code + params (app/upload_jobs.py log_event): la frase
+// Il backend scrive code + params (nazgarr/upload_jobs.py log_event): la frase
 // è qui, tradotta. Un codice d'errore senza una frase dedicata passa da
 // errors.<code>, lo stesso dizionario degli errori delle API.
 export function eventMessage(event: { code: string; params: Record<string, unknown> }) {
@@ -208,7 +208,7 @@ export function commonFolder(files: { disk_id: number; relative_path: string }[]
   return common.length ? { diskId: files[0].disk_id, path: common.join('/') } : null
 }
 
-// Gli step dell'esecuzione dopo l'approvazione (app/upload_execute.py): torrent
+// Gli step dell'esecuzione dopo l'approvazione (nazgarr/upload_execute.py): torrent
 // e screenshot se c'è almeno un upload, poi un tracker alla volta, poi la
 // fine. Quelli conclusi restano segnati mentre il worker va avanti.
 export type ExecutionStepState = 'pending' | 'active' | 'done' | 'failed' | 'skipped'

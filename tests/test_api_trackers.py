@@ -41,7 +41,7 @@ def test_tracker_client_can_be_set_and_cleared(client):
 
 
 def test_tracker_icon_and_upload_profile_summary(client, monkeypatch, tmp_path):
-    from app.api import trackers as trackers_api
+    from nazgarr.api import trackers as trackers_api
 
     tracker_id = client.post("/api/trackers", json={
         "label": "ITT", "adapter_type": "unit3d", "base_url": "https://itt.example", "api_token": "x",

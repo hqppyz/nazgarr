@@ -23,6 +23,6 @@ build/
 *.egg-info/
 
 # Pacchetto Python (scripts/build_package.sh): generati alla build
-/app/_assets/
-/app/_build_info.py
+/nazgarr/_assets/
+/nazgarr/_build_info.py
 /dist/

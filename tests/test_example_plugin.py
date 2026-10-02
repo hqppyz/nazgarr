@@ -9,9 +9,9 @@ import httpx
 import pytest
 
 import nazgarr_sdk as sdk
-from app import events, webhooks
-from app.plugins import REGISTRY, loader
-from app.plugins import config as plugin_config
+from nazgarr import events, webhooks
+from nazgarr.plugins import REGISTRY, loader
+from nazgarr.plugins import config as plugin_config
 
 EXAMPLE = Path(__file__).parent.parent / "examples" / "nazgarr-ntfy"
 

@@ -1,9 +1,9 @@
 import pytest
 
-from app import upload_identify
-from app.adapters.media_resolver.base import ResolvedMedia
-from app.upload_jobs import UploadJobError
-from app.upload_source import scan_source
+from nazgarr import upload_identify
+from nazgarr.adapters.media_resolver.base import ResolvedMedia
+from nazgarr.upload_jobs import UploadJobError
+from nazgarr.upload_source import scan_source
 from tests.upload_helpers import FakeTMDB, tmdb_result, write_video
 
 

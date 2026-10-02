@@ -4,8 +4,8 @@ import os
 import pytest
 from fastapi.testclient import TestClient
 
-from app import crypto as crypto_module
-from app import db as db_module
+from nazgarr import crypto as crypto_module
+from nazgarr import db as db_module
 
 
 @pytest.fixture
@@ -14,7 +14,7 @@ def db_session(tmp_path, monkeypatch):
     # Stesso motivo del fixture `client` sotto: crypto._fernet() è cachata per
     # processo, va pulita qui altrimenti un test precedente nella stessa
     # sessione pytest "vince" la chiave per chi crea un Tracker/TorrentClient
-    # (api_token/password sono EncryptedString, vedi app/models.py).
+    # (api_token/password sono EncryptedString, vedi nazgarr/models.py).
     crypto_module._fernet.cache_clear()
 
     engine = db_module.make_engine(str(tmp_path / "test.db"))
@@ -48,8 +48,8 @@ def client(tmp_path, monkeypatch):
     # nel container reale non serve, perché lì un processo = un avvio solo.
     crypto_module._fernet.cache_clear()
 
-    from app import login_limiter
-    from app.main import app
+    from nazgarr import login_limiter
+    from nazgarr.main import app
 
     login_limiter.reset()
     with TestClient(app) as test_client:
@@ -77,8 +77,8 @@ def anon_client(tmp_path, monkeypatch):
     monkeypatch.setenv("APP_SECRET_KEY", base64.urlsafe_b64encode(os.urandom(32)).decode())
     crypto_module._fernet.cache_clear()
 
-    from app import login_limiter
-    from app.main import app
+    from nazgarr import login_limiter
+    from nazgarr.main import app
 
     login_limiter.reset()
     with TestClient(app) as test_client:

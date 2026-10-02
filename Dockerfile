@@ -19,7 +19,7 @@ COPY frontend .
 RUN npm run build
 
 # Stage 2: backend Python + frontend statico servito dallo stesso
-# container (app/frontend.py) - un solo container con supervisord (CLAUDE.md).
+# container (nazgarr/frontend.py) - un solo container con supervisord (CLAUDE.md).
 FROM python:3.12-slim@sha256:dddfd7e07f9d15aeeca61529320492139d21cac7f0070c00609243e51e4e0016
 
 # mediainfo: fornisce sia la CLI che libmediainfo, usate per calcolare
@@ -34,7 +34,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY app app
+COPY nazgarr nazgarr
 COPY nazgarr_sdk nazgarr_sdk
 COPY docs docs
 COPY docker docker
@@ -47,7 +47,7 @@ RUN chmod +x docker/entrypoint.sh
 ENV CONFIG_PATH=/app/config/config.yaml
 
 # Versione e commit decisi dalla CI (.github/workflows/docker-publish.yml,
-# app/version.py): vuoti in una build locale, che si mostra come "-dev".
+# nazgarr/version.py): vuoti in una build locale, che si mostra come "-dev".
 ARG NAZGARR_VERSION=""
 ARG NAZGARR_COMMIT=""
 ENV NAZGARR_VERSION=${NAZGARR_VERSION} \

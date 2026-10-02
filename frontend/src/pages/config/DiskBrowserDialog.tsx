@@ -15,7 +15,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { t } from '@/lib/i18n'
 
-/** Selettore scoped-per-disco (app/fs_scope.py), due modalità:
+/** Selettore scoped-per-disco (nazgarr/fs_scope.py), due modalità:
  * - "folder" (default): naviga e seleziona la cartella corrente — usato
  *   per una MediaPath o torrents_rel_path (docs/SPEC.md §4).
  * - "file": naviga e seleziona un file specifico — usato per scegliere
