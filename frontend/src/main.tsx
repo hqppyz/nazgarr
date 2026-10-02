@@ -1,4 +1,4 @@
-import { QueryClient } from '@tanstack/react-query'
+import { MutationCache, QueryClient } from '@tanstack/react-query'
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client'
 import { ThemeProvider } from 'next-themes'
 import { StrictMode } from 'react'
@@ -14,7 +14,14 @@ import './index.css'
 
 // gcTime almeno quanto la cache persistita: una query ripristinata da
 // IndexedDB non deve essere scartata dopo i 5 minuti di default.
-const queryClient = new QueryClient({ defaultOptions: { queries: { gcTime: CACHE_MAX_AGE_MS } } })
+// Dopo ogni salvataggio, la checklist del tour (src/onboarding) si riallinea:
+// un passo si chiude appena la configurazione c'è, ovunque sia stata fatta.
+const queryClient: QueryClient = new QueryClient({
+  defaultOptions: { queries: { gcTime: CACHE_MAX_AGE_MS } },
+  mutationCache: new MutationCache({
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['setup-status'] }),
+  }),
+})
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

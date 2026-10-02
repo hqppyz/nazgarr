@@ -11,9 +11,11 @@ from pathlib import Path
 import httpx
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
+from sqlalchemy.orm import Session
 
+from app import setup_status as setup_status_module
 from app.config import Settings
-from app.deps import get_settings
+from app.deps import get_session, get_settings
 from app.version import __commit__, __version__
 
 router = APIRouter(prefix="/api/system", tags=["system"])
@@ -150,3 +152,25 @@ def logs(min_level: str = "INFO", settings: Settings = Depends(get_settings)):
 
     filtered = [e for e in entries if e.level in _LEVEL_ORDER and _LEVEL_ORDER.index(e.level) >= min_index]
     return LogsResponse(entries=list(reversed(filtered[-_MAX_LOG_ENTRIES:])), available=True)
+
+
+class SetupStep(BaseModel):
+    done: bool
+    count: int | None = None
+    linked: int | None = None
+    trackers: int | None = None
+    image_hosts: int | None = None
+
+
+class SetupStatusResponse(BaseModel):
+    steps: dict[str, SetupStep]
+    required: list[str]
+    optional: list[str]
+    complete: bool
+
+
+@router.get("/setup-status", response_model=SetupStatusResponse)
+def setup_status(session: Session = Depends(get_session)):
+    """Per la checklist "Getting started" e il tour del primo accesso
+    (app/setup_status.py): cosa è già configurato, dalla configurazione reale."""
+    return setup_status_module.setup_status(session)

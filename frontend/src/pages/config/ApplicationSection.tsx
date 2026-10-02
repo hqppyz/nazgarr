@@ -5,6 +5,7 @@ import { GitHubMark } from '@/components/GitHubMark'
 import { RingLogo } from '@/components/RingLogo'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { RestartTourCard } from '@/onboarding/RestartTourCard'
 import { t } from '@/lib/i18n'
 import { GITHUB_REPO, GITHUB_URL, PROJECT_LICENSE } from '@/lib/project'
 import { cn } from '@/lib/utils'
@@ -124,6 +125,7 @@ export function ApplicationSection() {
           )}
         </CardContent>
       </Card>
+      <RestartTourCard />
       <ContributeCard />
     </>
   )

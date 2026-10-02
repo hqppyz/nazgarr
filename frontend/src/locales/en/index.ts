@@ -17,6 +17,7 @@ import { library } from './library'
 import { logs } from './logs'
 import { metadata } from './metadata'
 import { notImported } from './notImported'
+import { onboarding } from './onboarding'
 import { reseeding } from './reseeding'
 import { runStatus } from './runStatus'
 import { scans } from './scans'
@@ -55,6 +56,7 @@ export const en = {
   ...logs,
   ...metadata,
   ...notImported,
+  ...onboarding,
   ...reseeding,
   ...runStatus,
   ...scans,

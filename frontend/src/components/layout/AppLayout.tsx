@@ -14,6 +14,7 @@ import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/s
 import { setSizeUnits } from '@/lib/library-filters'
 import { NAV_DASHBOARD, resolveSectionTitle } from '@/lib/nav'
 import { usesTrackerFilter } from '@/lib/trackerFilter'
+import { WelcomeDialog } from '@/onboarding/WelcomeDialog'
 
 function TopHeader() {
   const location = useLocation()
@@ -49,6 +50,7 @@ export function AppLayout() {
     <FloatingSlotContext.Provider value={floatingSlot}>
       <SidebarProvider className="h-svh">
         <AppSidebar />
+        <WelcomeDialog />
         <SidebarInset className="h-svh overflow-hidden">
           <TopHeader />
           <div className="flex-1 overflow-auto p-6">

@@ -1562,6 +1562,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/system/setup-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Setup Status
+         * @description Per la checklist "Getting started" e il tour del primo accesso
+         *     (app/setup_status.py): cosa è già configurato, dalla configurazione reale.
+         */
+        get: operations["setup_status_api_system_setup_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/plugins": {
         parameters: {
             query?: never;
@@ -3271,6 +3292,32 @@ export interface components {
             password: string;
             /** Setup Code */
             setup_code: string;
+        };
+        /** SetupStatusResponse */
+        SetupStatusResponse: {
+            /** Steps */
+            steps: {
+                [key: string]: components["schemas"]["SetupStep"];
+            };
+            /** Required */
+            required: string[];
+            /** Optional */
+            optional: string[];
+            /** Complete */
+            complete: boolean;
+        };
+        /** SetupStep */
+        SetupStep: {
+            /** Done */
+            done: boolean;
+            /** Count */
+            count?: number | null;
+            /** Linked */
+            linked?: number | null;
+            /** Trackers */
+            trackers?: number | null;
+            /** Image Hosts */
+            image_hosts?: number | null;
         };
         /**
          * SonarrConnectionTestRequest
@@ -7154,6 +7201,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    setup_status_api_system_setup_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SetupStatusResponse"];
                 };
             };
         };

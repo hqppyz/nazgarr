@@ -15,6 +15,7 @@ import type { Schemas } from '@/api/client'
 import { useDashboard, useDashboardHistory } from '@/api/hooks/dashboard'
 import { useTrackerFilter } from '@/lib/trackerFilter'
 import { ChangesCard } from '@/components/ChangesCard'
+import { GettingStartedCard } from '@/onboarding/GettingStartedCard'
 import { HealthGauge } from '@/components/HealthGauge'
 import { ScanHistoryCard } from '@/components/ScanHistoryCard'
 import { Button } from '@/components/ui/button'
@@ -304,6 +305,7 @@ export function DashboardPage() {
 
   return (
     <div className="grid gap-6">
+      <GettingStartedCard />
       <ToggleGroupSingle value={period} onValueChange={setPeriod} variant="outline" className="justify-self-start">
         {WINDOWS.map((w) => (
           <ToggleGroupItem key={w.value} value={w.value} className="font-mono text-xs">

@@ -1,0 +1,51 @@
+// Il tour del primo accesso (src/onboarding). Tono neutro, con al massimo una
+// strizzata d'occhio fantasy per passo: mai nomi né citazioni letterali.
+export const onboarding = {
+  'onboarding.welcome.title': 'Welcome to Nazgarr',
+  'onboarding.welcome.description':
+    'One place to find your media, your seeding folders and your torrent clients, and to bind them together with hardlinks. A few minutes of setup and the rest is guided.',
+  'onboarding.welcome.approval':
+    'Nothing passes without your word: Nazgarr never creates a hardlink, adds a torrent or uploads anything until you approve it in a review queue. Automatic execution exists, but it is off and stays off unless you turn it on.',
+  'onboarding.welcome.needTitle': 'Good to have at hand',
+  'onboarding.welcome.needPaths': 'Where your media and your torrent downloads are mounted inside this container (e.g. /data/media and /data/torrents).',
+  'onboarding.welcome.needClient': "Your torrent client's address and login (qBittorrent, for now).",
+  'onboarding.welcome.needTmdb': 'A free TMDB API key, to recognise movies and series.',
+  'onboarding.welcome.needTracker': 'For each private tracker: its address and your API token.',
+  'onboarding.welcome.ask.upload': 'Will you upload new torrents?',
+  'onboarding.welcome.ask.uploadHelp': 'Adds the image hosts and the upload settings to the path.',
+  'onboarding.welcome.ask.arr': 'Do you use Radarr or Sonarr?',
+  'onboarding.welcome.ask.arrHelp': 'Optional: their import history explains why a torrent is not in your library.',
+  'onboarding.welcome.later': 'Later',
+  'onboarding.welcome.start': 'Start the setup',
+
+  'onboarding.checklist.title': 'Getting started',
+  'onboarding.checklist.description': 'Each step completes on its own as soon as the configuration is there, wherever you set it.',
+  'onboarding.checklist.readyTitle': 'Everything is in place',
+  'onboarding.checklist.readyDescription': 'The road goes ever on: the optional steps are still here whenever you want them.',
+  'onboarding.checklist.hide': 'Hide',
+  'onboarding.checklist.finish': 'Done',
+  'onboarding.checklist.optional': 'optional',
+
+  'onboarding.step.storage.title': 'Storage',
+  'onboarding.step.storage.summary': 'Your disks: the media library and the torrent folder on each one.',
+  'onboarding.step.clients.title': 'Torrent clients',
+  'onboarding.step.clients.summary': 'Connect a client and tell it which disks it sees, and where.',
+  'onboarding.step.metadata.title': 'Metadata',
+  'onboarding.step.metadata.summary': 'A TMDB API key, to recognise movies and series.',
+  'onboarding.step.arr.title': 'Radarr / Sonarr',
+  'onboarding.step.arr.summary': 'Their import history: why a torrent never reached the library.',
+  'onboarding.step.trackers.title': 'Trackers',
+  'onboarding.step.trackers.summary': 'Your private trackers, to find what you can seed again.',
+  'onboarding.step.exclusions.title': 'Exclusions',
+  'onboarding.step.exclusions.summary': 'Samples, extras and folders to leave out of every count.',
+  'onboarding.step.reseeding.title': 'Reseeding',
+  'onboarding.step.reseeding.summary': 'How sure a match must be before it is recommended.',
+  'onboarding.step.upload.title': 'Upload',
+  'onboarding.step.upload.summary': 'Image hosts for the screenshots, and the upload defaults.',
+  'onboarding.step.first_scan.title': 'First scan',
+  'onboarding.step.first_scan.summary': 'Scan everything once. A long one is the right time for a second breakfast.',
+
+  'onboarding.restart.title': 'Getting started tour',
+  'onboarding.restart.description': 'The guided setup of the first access, with its checklist on the dashboard.',
+  'onboarding.restart.button': 'Restart the tour',
+} as const
