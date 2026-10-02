@@ -58,16 +58,19 @@ class FakeTMDB:
         self.details = details or {}
         self.calls = []
 
-    def search_many(self, content_type, query, year=None):
-        self.calls.append(("search", content_type, query, year))
-        return [dict(r) for r in self.search.get((content_type, query, year), [])]
+    def search_many(self, content_type, query, year=None, language=None):
+        """Con una lingua, i risultati sotto (tipo, titolo, anno, lingua)."""
+        key = (content_type, query, year, language) if language else (content_type, query, year)
+        self.calls.append(("search", *key))
+        return [dict(r) for r in self.search.get(key, [])]
 
     def find(self, source, external_id):
         self.calls.append(("find", source, external_id))
         return [dict(r) for r in self.found.get((source, external_id), [])]
 
-    def full_details(self, content_type, tmdb_id):
-        self.calls.append(("details", content_type, tmdb_id))
+    def full_details(self, content_type, tmdb_id, language=None):
+        call = ("details", content_type, tmdb_id)
+        self.calls.append((*call, language) if language else call)
         return dict(self.details[(content_type, tmdb_id)])
 
 

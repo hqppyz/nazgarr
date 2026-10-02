@@ -373,7 +373,6 @@ export const upload = {
   'upload.notice.open': 'Apri',
   'upload.event.watch_source_moved': '{count} file spostati fuori dalla cartella osservata: ora la release sta dove è in seed.',
   'upload.event.watch_source_leftovers': 'Rimasti nella cartella osservata, fuori dal torrent: {files}.',
-  'upload.match.summary': 'Match migliore: {title}, sicuro al {confidence}.',
   'upload.match.summaryAbove': 'Sopra la soglia del match automatico ({threshold}): si conferma da solo.',
   'upload.match.summaryBelow': 'Sotto la soglia del match automatico ({threshold}): scegli tu. Si cambia in Impostazioni › Release.',
   'upload.match.summaryAmbiguous': 'Un altro titolo è quasi altrettanto sicuro: non si conferma mai da solo.',
@@ -381,4 +380,5 @@ export const upload = {
   'upload.match.basis.forced': 'Dagli ID che hai indicato: sicuro.',
   'upload.match.basis.arr': 'Radarr/Sonarr conoscono questo file.',
   'upload.match.basis.name': 'Dal nome: titolo {title} × anno {year} × tipo {type}.',
+  'upload.match.reliability': 'Affidabilità {confidence}.',
 } as const

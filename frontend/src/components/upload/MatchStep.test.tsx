@@ -84,7 +84,10 @@ describe('MatchStep', () => {
     } as unknown as UploadJob
     render(<MatchStep job={scored} />)
 
-    expect(screen.getByText(/Best match: Severance, 85% sure\. Below the automatic match threshold \(90%\)/)).toBeTruthy()
+    // Nel dettaglio del candidato scelto, sotto i link: niente riquadro sopra la griglia.
+    expect(screen.getByText(/Reliability 85%\./)).toBeTruthy()
+    expect(screen.getByText(/Below the automatic match threshold \(90%\)/)).toBeTruthy()
     expect(screen.getByText('From the name: title 100% × year 85% × type 100%.')).toBeTruthy()
+    expect(screen.queryByText(/Best match/)).toBeNull()
   })
 })

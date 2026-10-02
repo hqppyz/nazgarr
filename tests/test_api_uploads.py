@@ -379,3 +379,37 @@ def test_notices_tell_about_watched_releases_only_from_now_on(client, tmp_path, 
 
     assert [(n["upload_id"], n["kind"]) for n in body["notices"]] == [(job_id, "detected"), (job_id, "ready")]
     assert client.get("/api/uploads/notices", params={"after": body["latest_id"]}).json()["notices"] == []
+
+
+def test_metadata_follows_the_interface_language_and_falls_back_to_english(client, monkeypatch):
+    from nazgarr import tmdb_client as tmdb_module
+
+    calls = []
+
+    class _Response:
+        def __init__(self, body):
+            self.body, self.is_success = body, True
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return self.body
+
+    class _Http:
+        def get(self, path, params):
+            calls.append(params.get("language"))
+            # In italiano TMDB ha il titolo ma non la trama: la trama viene dall'inglese.
+            if params.get("language") == "it-IT":
+                return _Response({"id": 603, "title": "Matrix", "overview": "", "release_date": "1999-03-31"})
+            english = {"id": 603, "title": "The Matrix", "overview": "A hacker learns...", "release_date": "1999"}
+            return _Response(english)
+
+    real = tmdb_module.TMDBClient(api_key="k", client=_Http())
+    monkeypatch.setattr(metadata_api, "_client", lambda session: real)
+
+    body = client.get("/api/metadata/movie/603", params={"language": "it-IT"}).json()
+
+    assert (body["title"], body["overview"]) == ("Matrix", "A hacker learns...")
+    assert calls == ["it-IT", "en-US"]
+    assert client.get("/api/metadata/movie/603", params={"language": "../x"}).status_code == 422

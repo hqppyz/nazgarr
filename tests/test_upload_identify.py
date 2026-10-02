@@ -113,3 +113,24 @@ def test_without_tmdb_key_only_the_resolver_is_used(db_session, tmp_path, no_res
     candidates = upload_identify.find_candidates(db_session, {"tmdb": "603"}, layout)
 
     assert [(c["tmdb_id"], c["source"]) for c in candidates] == [(7, "radarr")]
+
+
+def test_a_title_in_the_tracker_language_is_matched_too(db_session, tmp_path, monkeypatch, no_resolver):
+    # Il file ha il titolo italiano: in inglese TMDB lo trova, ma con un altro titolo.
+    layout = scan_source(str(write_video(tmp_path / "Il.Signore.degli.Anelli.2001.1080p.mkv")))
+    fake = FakeTMDB(search={
+        ("movie", "Il Signore degli Anelli", 2001): [tmdb_result(120, "The Lord of the Rings", 2001)],
+        ("movie", "Il Signore degli Anelli", 2001, "it"): [
+            tmdb_result(120, "Il Signore degli Anelli - La compagnia dell'anello", 2001),
+            tmdb_result(121, "Il Signore degli Anelli", 2001),  # solo in italiano
+        ],
+    })
+    _with_tmdb(monkeypatch, fake)
+
+    english_only = upload_identify.find_candidates(db_session, {}, layout)
+    with_italian = upload_identify.find_candidates(db_session, {}, layout, ("it",))
+
+    assert [c["tmdb_id"] for c in english_only] == [120]
+    assert {c["tmdb_id"] for c in with_italian} == {120, 121}
+    best_120 = next(c for c in with_italian if c["tmdb_id"] == 120)
+    assert best_120["confidence"] > english_only[0]["confidence"]  # il titolo italiano conta

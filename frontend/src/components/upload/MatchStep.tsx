@@ -106,26 +106,29 @@ function confidenceExplained(candidate: MetadataCandidate): string {
   return t('upload.match.basis.name', { title: percent(parts.title), year: percent(parts.year), type: percent(parts.type) })
 }
 
-// Il match migliore contro la soglia del match automatico (Settings ›
-// Releases): per capire a che valore metterla.
-function ConfidenceSummary({ candidates }: { candidates: MetadataCandidate[] }) {
+// Quanto è affidabile il candidato scelto e da cosa viene, contro la soglia
+// del match automatico (Settings › Releases): per capire a che valore metterla.
+function ConfidenceDetail({ candidate }: { candidate: MetadataCandidate }) {
   const { data } = useSetting('upload_auto_match_threshold')
-  const best = candidates[0]
-  if (best?.confidence == null) return null
+  if (candidate.confidence == null) return null
   const raw = data?.value
   const threshold = raw == null || raw === '' ? 0.9 : Number(raw)
   const off = !(threshold > 0 && threshold <= 1)
-  const passes = !off && !best.ambiguous && best.confidence >= threshold
+  const passes = !off && !candidate.ambiguous && candidate.confidence >= threshold
   return (
-    <p className={cn('rounded-md border p-2 text-xs', passes ? 'border-emerald-500/40 bg-emerald-500/10' : 'bg-muted/40')}>
-      {t('upload.match.summary', { title: best.title ?? `#${best.tmdb_id}`, confidence: percent(best.confidence) })}{' '}
-      {off
-        ? t('upload.match.summaryOff')
-        : best.ambiguous
-          ? t('upload.match.summaryAmbiguous')
-          : t(passes ? 'upload.match.summaryAbove' : 'upload.match.summaryBelow', { threshold: percent(threshold) })}
-      <span className="mt-1 block text-muted-foreground">{confidenceExplained(best)}</span>
-    </p>
+    <div className="grid gap-1 border-t pt-3 text-xs">
+      <p className="font-medium">
+        {t('upload.match.reliability', { confidence: percent(candidate.confidence) })}
+        <span className={cn('ml-1.5 font-normal', passes ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground')}>
+          {off
+            ? t('upload.match.summaryOff')
+            : candidate.ambiguous
+              ? t('upload.match.summaryAmbiguous')
+              : t(passes ? 'upload.match.summaryAbove' : 'upload.match.summaryBelow', { threshold: percent(threshold) })}
+        </span>
+      </p>
+      <p className="text-muted-foreground">{confidenceExplained(candidate)}</p>
+    </div>
   )
 }
 
@@ -205,6 +208,7 @@ function DetailPanel({ candidate, details, isPending }: {
           tvdb_id: details?.tvdb_id,
         }}
       />
+      <ConfidenceDetail candidate={candidate} />
     </div>
   )
 }
@@ -392,10 +396,7 @@ export function MatchStep({ job }: { job: UploadJob }) {
             {candidates.length === 0 ? (
               <p className="text-sm text-muted-foreground">{t('upload.match.noCandidates')}</p>
             ) : (
-              <div className="grid gap-3">
-                <ConfidenceSummary candidates={candidates} />
-                <CandidateGrid candidates={candidates} selectedKey={selected && keyOf(selected)} onSelect={select} />
-              </div>
+              <CandidateGrid candidates={candidates} selectedKey={selected && keyOf(selected)} onSelect={select} />
             )}
           </CardContent>
         </Card>

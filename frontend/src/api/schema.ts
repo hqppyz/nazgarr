@@ -1504,7 +1504,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Search */
+        /**
+         * Search
+         * @description language (es. "it-IT"): i titoli nella lingua dell'interfaccia.
+         */
         get: operations["search_api_metadata_search_get"];
         put?: never;
         post?: never;
@@ -1521,7 +1524,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Details */
+        /**
+         * Details
+         * @description language (es. "it-IT"): trama, titolo e generi nella lingua
+         *     dell'interfaccia; quello che lì manca, in inglese.
+         */
         get: operations["details_api_metadata__content_type___tmdb_id__get"];
         put?: never;
         post?: never;
@@ -7160,6 +7167,7 @@ export interface operations {
                 content_type: string;
                 query: string;
                 year?: number | null;
+                language?: string | null;
             };
             header?: never;
             path?: never;
@@ -7191,7 +7199,9 @@ export interface operations {
     };
     details_api_metadata__content_type___tmdb_id__get: {
         parameters: {
-            query?: never;
+            query?: {
+                language?: string | null;
+            };
             header?: never;
             path: {
                 content_type: string;

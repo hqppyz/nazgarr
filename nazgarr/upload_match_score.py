@@ -28,7 +28,9 @@ def title_similarity(guess: str | None, candidate: dict) -> float:
     wanted = _norm(guess)
     if not wanted:
         return 0.0
-    names = [_norm(candidate.get("title")), _norm(candidate.get("original_title"))]
+    # Anche i titoli nella lingua dei tracker (es. il titolo italiano).
+    names = [_norm(candidate.get("title")), _norm(candidate.get("original_title")),
+             *(_norm(name) for name in candidate.get("titles") or [])]
     return max((SequenceMatcher(None, wanted, name).ratio() for name in names if name), default=0.0)
 
 

@@ -87,11 +87,17 @@ class TMDBClient:
 
     # --- Flusso di upload v2 (docs/SPEC.md §9): più candidati, id esterni, dettagli
 
-    def search_many(self, content_type: str, query: str, year: int | None = None) -> list[dict]:
+    def search_many(
+        self, content_type: str, query: str, year: int | None = None, language: str | None = None
+    ) -> list[dict]:
         """Tutti i risultati di una ricerca, non solo il primo: sono i
-        candidati fra cui l'utente sceglie al primo punto di approvazione."""
+        candidati fra cui l'utente sceglie al primo punto di approvazione.
+        language (es. "it-IT"): i titoli in quella lingua, e trova anche chi
+        cerca con il titolo tradotto."""
         path = "/search/tv" if content_type == "tv" else "/search/movie"
         params = {"api_key": self.api_key, "query": query}
+        if language:
+            params["language"] = language
         if year:
             params["first_air_date_year" if content_type == "tv" else "primary_release_year"] = year
         response = self._client.get(path, params=params)
@@ -109,16 +115,22 @@ class TMDBClient:
             normalize_result(r, "tv") for r in body.get("tv_results", [])
         ]
 
-    def full_details(self, content_type: str, tmdb_id: int) -> dict:
+    def full_details(self, content_type: str, tmdb_id: int, language: str | None = None) -> dict:
         """Quello che serve per riconoscere il contenuto giusto e per
         l'upload: trama, generi, durata, cast, id esterni e, per le serie,
-        le stagioni con il numero di episodi attesi."""
+        le stagioni con il numero di episodi attesi. language (es. "it-IT"):
+        testi in quella lingua; la trama che lì non c'è viene dall'inglese."""
         path = f"/{'tv' if content_type == 'tv' else 'movie'}/{tmdb_id}"
-        response = self._client.get(
-            path, params={"api_key": self.api_key, "append_to_response": "external_ids,credits"}
-        )
+        params = {"api_key": self.api_key, "append_to_response": "external_ids,credits"}
+        if language:
+            params["language"] = language
+        response = self._client.get(path, params=params)
         response.raise_for_status()
         body = response.json()
+        if language and not language.startswith("en") and not body.get("overview"):
+            fallback = self._client.get(path, params={"api_key": self.api_key, "language": "en-US"})
+            if fallback.is_success:
+                body["overview"] = fallback.json().get("overview")
         external = body.get("external_ids") or {}
         return {
             **normalize_result(body, content_type),

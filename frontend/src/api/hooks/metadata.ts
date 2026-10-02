@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 
 import { api, unwrap } from '@/api/client'
+import { uiLocale } from '@/lib/i18n'
 
 // Candidato TMDB di un upload (nazgarr/tmdb_client.py normalize_result), più la
 // fonte da cui è arrivato (nazgarr/upload_identify.py).
@@ -43,11 +44,12 @@ export function posterUrl(candidate: Pick<MetadataCandidate, 'content_type' | 't
 
 export function useMetadataDetails(contentType: string | null, tmdbId: number | null) {
   return useQuery({
-    queryKey: ['metadata', contentType, tmdbId],
+    // Nella lingua dell'interfaccia; quello che TMDB lì non ha, in inglese.
+    queryKey: ['metadata', contentType, tmdbId, uiLocale()],
     queryFn: async () =>
       (await unwrap(
         api.GET('/api/metadata/{content_type}/{tmdb_id}', {
-          params: { path: { content_type: contentType!, tmdb_id: tmdbId! } },
+          params: { path: { content_type: contentType!, tmdb_id: tmdbId! }, query: { language: uiLocale() } },
         }),
       )) as unknown as MetadataDetails,
     enabled: contentType !== null && tmdbId !== null,
@@ -58,11 +60,11 @@ export function useMetadataDetails(contentType: string | null, tmdbId: number | 
 
 export function useMetadataSearch(contentType: 'movie' | 'tv', query: string, year: number | null) {
   return useQuery({
-    queryKey: ['metadata', 'search', contentType, query, year],
+    queryKey: ['metadata', 'search', contentType, query, year, uiLocale()],
     queryFn: async () =>
       (await unwrap(
         api.GET('/api/metadata/search', {
-          params: { query: { content_type: contentType, query, year: year ?? undefined } },
+          params: { query: { content_type: contentType, query, year: year ?? undefined, language: uiLocale() } },
         }),
       )) as unknown as MetadataCandidate[],
     enabled: query.trim().length > 0,

@@ -373,7 +373,6 @@ export const upload = {
   'upload.notice.open': 'Open',
   'upload.event.watch_source_moved': '{count} file(s) moved out of the watched folder: the release now lives where it seeds.',
   'upload.event.watch_source_leftovers': 'Left in the watched folder, not part of the torrent: {files}.',
-  'upload.match.summary': 'Best match: {title}, {confidence} sure.',
   'upload.match.summaryAbove': 'Above the automatic match threshold ({threshold}): it is confirmed on its own.',
   'upload.match.summaryBelow': 'Below the automatic match threshold ({threshold}): you choose. Change it in Settings › Releases.',
   'upload.match.summaryAmbiguous': 'Another title is almost as sure: never confirmed on its own.',
@@ -381,4 +380,5 @@ export const upload = {
   'upload.match.basis.forced': 'From the IDs you gave: sure.',
   'upload.match.basis.arr': 'Radarr/Sonarr know this file.',
   'upload.match.basis.name': 'From the name: title {title} × year {year} × type {type}.',
+  'upload.match.reliability': 'Reliability {confidence}.',
 } as const

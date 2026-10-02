@@ -60,16 +60,25 @@ def search(
     content_type: str,
     query: str = Query(min_length=1),
     year: int | None = None,
+    language: str | None = Query(default=None, pattern=r"^[a-z]{2}(-[A-Z]{2})?$"),
     session: Session = Depends(get_session),
 ) -> list[dict]:
+    """language (es. "it-IT"): i titoli nella lingua dell'interfaccia."""
     client = _client(session)
-    return _tmdb_call(client.search_many, _content_type(content_type), query, year)[:20]
+    return _tmdb_call(client.search_many, _content_type(content_type), query, year, language)[:20]
 
 
 @router.get("/{content_type}/{tmdb_id}")
-def details(content_type: str, tmdb_id: int, session: Session = Depends(get_session)) -> dict:
+def details(
+    content_type: str,
+    tmdb_id: int,
+    language: str | None = Query(default=None, pattern=r"^[a-z]{2}(-[A-Z]{2})?$"),
+    session: Session = Depends(get_session),
+) -> dict:
+    """language (es. "it-IT"): trama, titolo e generi nella lingua
+    dell'interfaccia; quello che lì manca, in inglese."""
     client = _client(session)
-    return _tmdb_call(client.full_details, _content_type(content_type), tmdb_id)
+    return _tmdb_call(client.full_details, _content_type(content_type), tmdb_id, language)
 
 
 @router.get("/posters/{content_type}/{tmdb_id}.jpg")

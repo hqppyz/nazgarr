@@ -114,12 +114,30 @@ def _resolver_candidates(session: Session, main_video: str) -> list[dict]:
     }]
 
 
-def _search_candidates(client: TMDBClient, layout: SourceLayout) -> list[dict]:
+def _search_candidates(client: TMDBClient, layout: SourceLayout, languages: tuple[str, ...] = ()) -> list[dict]:
     if not layout.title:
         return []
     results = client.search_many(layout.content_type, layout.title, layout.year)
     if layout.year and not results:
         results = client.search_many(layout.content_type, layout.title)
+    # Nella lingua dei tracker (es. un file con il titolo italiano): i titoli
+    # tradotti per il confronto ("titles", nazgarr/upload_match_score.py), e
+    # i risultati che si trovano solo così.
+    by_key = {(r["content_type"], r["tmdb_id"]): r for r in results}
+    for language in languages:
+        localized = client.search_many(layout.content_type, layout.title, layout.year, language=language)
+        if layout.year and not localized:
+            localized = client.search_many(layout.content_type, layout.title, language=language)
+        for result in localized:
+            key = (result["content_type"], result["tmdb_id"])
+            if key in by_key:
+                by_key[key].setdefault("titles", [])
+                if result.get("title"):
+                    by_key[key]["titles"].append(result["title"])
+            else:
+                result["titles"] = [result["title"]] if result.get("title") else []
+                by_key[key] = result
+                results.append(result)
     # Prima quelli usciti proprio nell'anno del nome, poi l'ordine di TMDB.
     if layout.year:
         results.sort(key=lambda r: r["year"] != layout.year)
@@ -129,7 +147,9 @@ def _search_candidates(client: TMDBClient, layout: SourceLayout) -> list[dict]:
     return results
 
 
-def find_candidates(session: Session, forced: dict, layout: SourceLayout) -> list[dict]:
+def find_candidates(
+    session: Session, forced: dict, layout: SourceLayout, languages: tuple[str, ...] = ()
+) -> list[dict]:
     try:
         client = tmdb_client(session)
     except TmdbApiKeyMissingError:
@@ -143,7 +163,7 @@ def find_candidates(session: Session, forced: dict, layout: SourceLayout) -> lis
     candidates: list[dict] = []
     _add(candidates, _resolver_candidates(session, layout.main_video), "resolver")
     if client is not None:
-        _add(candidates, _search_candidates(client, layout), "search")
+        _add(candidates, _search_candidates(client, layout, languages), "search")
     # Ognuno con la sua confidence (nazgarr/upload_match_score.py), dal più sicuro.
     return upload_match_score.scored(candidates[:MAX_CANDIDATES], layout.title, layout.year, layout.content_type)
 
@@ -219,7 +239,9 @@ def handle(session: Session, job: UploadJob, worker) -> None:
         raise upload_jobs.UploadJobError("upload_source_unreadable", error=str(exc)) from exc
 
     forced = json.loads(job.forced_ids_json or "{}")
-    candidates = find_candidates(session, forced, layout)
+    # Le lingue dei tracker del job, oltre all'inglese di TMDB.
+    languages = tuple(sorted({t.tracker.language for t in job.targets if t.tracker.language} - {"en"}))
+    candidates = find_candidates(session, forced, layout, languages)
     if upload_jobs.transition(
         session, job, "identifying", "awaiting_match",
         kind=layout.kind, content_type=layout.content_type, title=layout.title, year=layout.year,
