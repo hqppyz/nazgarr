@@ -1,4 +1,4 @@
-import { CheckIcon, SearchIcon, TriangleAlertIcon } from 'lucide-react'
+import { CheckIcon, RotateCwIcon, SearchIcon, TriangleAlertIcon } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { toast } from 'sonner'
 
@@ -17,7 +17,7 @@ import { ForcedIdFields } from '@/components/upload/ForcedIdFields'
 import { MetadataLinks } from '@/components/upload/MetadataLinks'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -437,6 +437,20 @@ export function MatchStep({ job }: { job: UploadJob }) {
           <CardHeader>
             <CardTitle>{t('upload.match.title')}</CardTitle>
             <CardDescription>{t('upload.match.description')}</CardDescription>
+            {/* Rifà la ricerca (es. dopo aver impostato la lingua del tracker),
+                con gli ID forzati se ce ne sono. */}
+            <CardAction>
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={reidentify.isPending}
+                title={t('upload.match.identifyAgainHelp')}
+                onClick={() => reidentify.mutate(toForcedIds(ids), { onError: (error) => toast.error(error.message) })}
+              >
+                <RotateCwIcon className="size-4" />
+                {t('upload.match.identifyAgain')}
+              </Button>
+            </CardAction>
           </CardHeader>
           <CardContent>
             {candidates.length === 0 ? (

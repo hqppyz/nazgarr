@@ -395,4 +395,5 @@ export const upload = {
   'upload.match.factor.ambiguous': 'Ambiguità',
   'upload.match.factor.ambiguousWhy': 'un altro titolo è quasi altrettanto sicuro',
   'upload.match.factor.product': '{factors} = {confidence}',
+  'upload.match.identifyAgainHelp': 'Cerca di nuovo su TMDB, anche nelle lingue dei tracker.',
 } as const

@@ -134,3 +134,23 @@ def test_a_title_in_the_tracker_language_is_matched_too(db_session, tmp_path, mo
     assert {c["tmdb_id"] for c in with_italian} == {120, 121}
     best_120 = next(c for c in with_italian if c["tmdb_id"] == 120)
     assert best_120["confidence"] > english_only[0]["confidence"]  # il titolo italiano conta
+
+
+def test_the_italian_title_reaches_a_candidate_found_first_by_the_resolver(
+    db_session, tmp_path, monkeypatch, no_resolver
+):
+    # Il resolver trova il film per primo; la ricerca in italiano trova lo
+    # stesso film: il suo titolo italiano deve arrivare a quel candidato.
+    layout = scan_source(str(write_video(tmp_path / "La.Grande.Bellezza.2013.1080p.mkv")))
+    no_resolver.resolved = ResolvedMedia(tmdb_id=179144, content_type="movie", title="The Great Beauty", year=2013)
+    fake = FakeTMDB(search={
+        ("movie", "La Grande Bellezza", 2013): [tmdb_result(179144, "The Great Beauty", 2013)],
+        ("movie", "La Grande Bellezza", 2013, "it"): [tmdb_result(179144, "La grande bellezza", 2013)],
+    })
+    _with_tmdb(monkeypatch, fake)
+
+    [best] = upload_identify.find_candidates(db_session, {}, layout, ("it",))
+
+    assert best["titles"] == ["La grande bellezza"]
+    assert best["confidence"] == 1.0
+    assert best["confidence_parts"]["title_matched"] == "La grande bellezza"

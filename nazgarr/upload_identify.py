@@ -62,12 +62,20 @@ def normalize_imdb(value: str) -> str | None:
 
 
 def _add(candidates: list[dict], new: list[dict], source: str) -> None:
-    seen = {(c["content_type"], c["tmdb_id"]) for c in candidates}
+    by_key = {(c["content_type"], c["tmdb_id"]): c for c in candidates}
     for candidate in new:
         key = (candidate["content_type"], candidate["tmdb_id"])
-        if key not in seen:
-            seen.add(key)
-            candidates.append({**candidate, "source": candidate.get("source") or source})
+        existing = by_key.get(key)
+        if existing is None:
+            by_key[key] = {**candidate, "source": candidate.get("source") or source}
+            candidates.append(by_key[key])
+            continue
+        # Lo stesso contenuto, già trovato (es. dal resolver): i suoi titoli in
+        # altre lingue servono comunque al confronto del nome (upload_match_score).
+        for title in [candidate.get("title"), *(candidate.get("titles") or [])]:
+            known = [existing.get("title"), existing.get("original_title"), *(existing.get("titles") or [])]
+            if title and title not in known:
+                existing.setdefault("titles", []).append(title)
 
 
 def _forced_candidates(client: TMDBClient, forced: dict, layout: SourceLayout) -> list[dict]:
