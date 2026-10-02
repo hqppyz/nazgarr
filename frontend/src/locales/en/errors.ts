@@ -125,5 +125,7 @@ export const errors = {
   'errors.upload_verify_in_progress': 'A full hash check is running: wait for it to finish.',
   'errors.watch_folder_not_found': "The folder '{path}' does not exist on this disk.",
   'errors.watch_folder_overlaps':
-    "'{path}' can't be watched: it is the disk itself, or overlaps the media, torrent or upload folder, so every import or download would start as a release.",
+    "'{path}' can't be watched: it is the disk itself, or the media, torrent or upload folder (or contains one), so every import or download would start as a release. Use a dedicated subfolder, e.g. torrents/watch.",
+  'errors.watch_folder_used_by_client':
+    "'{path}' can't be watched: a torrent client downloads or seeds there, so every download would start as a release. Use a dedicated folder.",
 } as const

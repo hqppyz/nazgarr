@@ -102,15 +102,49 @@ def test_the_watched_folder_is_validated(client):
     url = f"/api/disks/{created['id']}"
     client.patch(url, json={"media_rel_path": "media", "torrents_rel_path": "torrents"})
 
-    # Mai il disco intero, né dentro o sopra la cartella media o dei torrent:
-    # ogni import o download partirebbe come una release.
-    for bad in (".", "media", "media/movies", "torrents/movies"):
+    # Mai il disco intero, la cartella media o dei torrent, né una che le
+    # contiene; una sottocartella dedicata sì (es. torrents/movies qui sotto).
+    for bad in (".", "media", "torrents", "releases/.."):
         response = client.patch(url, json={"watch_rel_path": bad})
         assert response.status_code == 400, bad
         assert response.json()["detail"]["code"] == "watch_folder_overlaps"
     assert client.patch(url, json={"watch_rel_path": "missing"}).json()["detail"]["code"] == "watch_folder_not_found"
     assert client.patch(url, json={"watch_rel_path": "../outside"}).json()["detail"]["code"] == "path_outside_scope"
 
+    assert client.patch(url, json={"watch_rel_path": "torrents/movies"}).status_code == 200
     ok = client.patch(url, json={"watch_rel_path": "releases/new/"})
     assert ok.status_code == 200 and ok.json()["watch_rel_path"] == "releases/new"
     assert client.patch(url, json={"watch_rel_path": ""}).json()["watch_rel_path"] is None
+
+
+
+def test_a_folder_where_a_client_downloads_is_never_watched(client):
+    from datetime import UTC, datetime
+
+    from app import pipeline
+    from app.models import ClientTorrent, ClientTorrentFile, SeedFile, TorrentClient
+
+    root = client.scan_root / "disk1"
+    (root / "torrents" / "movies").mkdir(parents=True)
+    created = client.post("/api/disks", json={"label": "Disk 1", "root_path": str(root)}).json()
+    session = client.app.state.session_factory()
+    try:
+        run = pipeline.start_run(session, "manual")
+        tc = TorrentClient(label="q", adapter_type="qbittorrent", base_url="http://q")
+        seed = SeedFile(disk_id=created["id"], relative_path="torrents/movies/A.mkv", size_bytes=1, st_dev=1, inode=1,
+                        last_scan_id=run.id, last_seen_at=datetime.now(UTC))
+        session.add_all([tc, seed])
+        session.commit()
+        torrent = ClientTorrent(torrent_client_id=tc.id, info_hash="h", name="A", save_path="/x", state="uploading",
+                                last_polled_at=datetime.now(UTC))
+        session.add(torrent)
+        session.commit()
+        session.add(ClientTorrentFile(client_torrent_id=torrent.id, path_in_torrent="A.mkv", size_bytes=1,
+                                      seed_file_id=seed.id, last_scan_id=run.id))
+        session.commit()
+    finally:
+        session.close()
+
+    response = client.patch(f"/api/disks/{created['id']}", json={"watch_rel_path": "torrents/movies"})
+
+    assert response.json()["detail"]["code"] == "watch_folder_used_by_client"

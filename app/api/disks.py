@@ -22,7 +22,7 @@ from app import upload_watch
 from app.api_errors import CodedError, coded_detail, from_coded_error
 from app.deps import get_session
 from app.fs_scope import ScopeViolation, resolve_scoped
-from app.models import Disk
+from app.models import ClientTorrentFile, Disk, SeedFile
 
 router = APIRouter(prefix="/api/disks", tags=["disks"])
 
@@ -269,7 +269,7 @@ def update_disk(disk_id: int, body: DiskUpdateRequest, session: Session = Depend
     if body.upload_rel_path is not None:
         disk.upload_rel_path = body.upload_rel_path or None
     if body.watch_rel_path is not None and (body.watch_rel_path or None) != disk.watch_rel_path:
-        disk.watch_rel_path = _watch_folder(disk, body.watch_rel_path or None)
+        disk.watch_rel_path = _watch_folder(session, disk, body.watch_rel_path or None)
         session.commit()
         # Quello che c'è già nella cartella non parte da solo (app/upload_watch.py).
         upload_watch.baseline(session, disk)
@@ -277,11 +277,12 @@ def update_disk(disk_id: int, body: DiskUpdateRequest, session: Session = Depend
     return DiskResponse.from_model(disk)
 
 
-def _watch_folder(disk: Disk, relative: str | None) -> str | None:
-    """La cartella osservata: dentro il disco, esistente, mai il disco intero
-    e mai dentro (o sopra) la cartella media, quella dei torrent o quella
-    degli upload: ogni import di Radarr o ogni download partirebbe come una
-    release."""
+def _watch_folder(session: Session, disk: Disk, relative: str | None) -> str | None:
+    """La cartella osservata: dentro il disco ed esistente. Mai il disco
+    intero, la cartella media, quella dei torrent o quella degli upload (né
+    una che le contiene), e mai una dove un client scarica o seeda: ogni
+    download partirebbe come una release. Una sottocartella dedicata (es.
+    torrents/watch) va bene."""
     if relative is None:
         return None
     try:
@@ -290,15 +291,25 @@ def _watch_folder(disk: Disk, relative: str | None) -> str | None:
         raise HTTPException(status_code=400, detail=coded_detail("path_outside_scope", path=relative)) from exc
     if not os.path.isdir(path):
         raise HTTPException(status_code=400, detail=coded_detail("watch_folder_not_found", path=relative))
-    if path == os.path.realpath(disk.root_path):
+    root = os.path.realpath(disk.root_path)
+    if path == root:
         raise HTTPException(status_code=400, detail=coded_detail("watch_folder_overlaps", path=relative))
     for other in (disk.media_rel_path, disk.torrents_rel_path, disk.effective_upload_rel_path):
         if not other:
             continue
         other_path = os.path.realpath(os.path.join(disk.root_path, other))
-        if path == other_path or other_path.startswith(path + os.sep) or path.startswith(other_path + os.sep):
+        if path == other_path or other_path.startswith(path + os.sep):
             raise HTTPException(status_code=400, detail=coded_detail("watch_folder_overlaps", path=relative))
-    return os.path.relpath(path, os.path.realpath(disk.root_path))
+    relative_path = os.path.relpath(path, root)
+    # Dove un client scarica o seeda: un file di un suo torrent è lì dentro.
+    tracked = (
+        session.query(SeedFile.relative_path)
+        .join(ClientTorrentFile, ClientTorrentFile.seed_file_id == SeedFile.id)
+        .filter(SeedFile.disk_id == disk.id)
+    )
+    if any(seed_path.startswith(relative_path + "/") for (seed_path,) in tracked):
+        raise HTTPException(status_code=400, detail=coded_detail("watch_folder_used_by_client", path=relative))
+    return relative_path
 
 
 @router.delete("/{disk_id}", status_code=204)
