@@ -21,6 +21,7 @@ from app.upload_jobs import UploadJobError
 from app.upload_naming import (
     DETECTED_FIELDS,
     VARIABLES,
+    audio_language_check,
     build_name,
     detect,
     release_values,
@@ -143,6 +144,12 @@ def propose(session: Session, job: UploadJob) -> None:
             "freeleech": (profile.default_freeleech or 0) if profile else 0,
             **existing,
         })
+    # La lingua del tracker nell'audio del file (un warning nella decisione).
+    analysis["languages"] = {
+        str(target.tracker_id): {"language": target.tracker.language, "status": status}
+        for target in job.targets
+        if (status := audio_language_check(target.tracker.language, mediainfo)) is not None
+    }
     analysis["file_names"] = file_names_preview(session, job)
     job.analysis_json = json.dumps(analysis)
     session.commit()

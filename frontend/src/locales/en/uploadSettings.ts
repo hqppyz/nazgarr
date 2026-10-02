@@ -34,4 +34,12 @@ export const uploadSettings = {
   'uploadSettings.fileNamesDescription':
     'When there is no torrent on a client with the same files (hardlink), the files of a new upload get a name built from this pattern, dot-separated like a release: no ":" or accents. Each upload can still keep the original names.',
   'uploadSettings.fileNamesReset': 'Back to the default',
+  'uploadSettings.releasesTitle': 'Your releases',
+  'uploadSettings.releasesDescription':
+    'For what you release yourself: put it in the watched folder of a disk (Settings › Storage) and the upload starts on its own, up to the decision.',
+  'uploadSettings.releaserLabel': 'Releaser name',
+  'uploadSettings.releaserDescription': 'The group at the end of the names of the uploads from the watched folder (e.g. -NZG). Editable on each upload.',
+  'uploadSettings.autoMatchLabel': 'Automatic TMDB match',
+  'uploadSettings.autoMatchDescription':
+    'From the watched folder, a match at least this sure (0-1) is confirmed on its own; below, or when two titles look alike, it waits for you. 0 turns it off. Default: 0.9.',
 } as const

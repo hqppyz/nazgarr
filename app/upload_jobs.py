@@ -138,6 +138,7 @@ def create_job(
     forced_ids: dict | None = None,
     overrides: dict | None = None,
     tracker_choices: dict[int, dict] | None = None,
+    origin: str | None = None,
 ) -> UploadJob:
     """Crea il job in 'identifying' (il worker lo prende da lì) con un target
     per tracker. tracker_ids None = tutti i tracker con un profilo di upload.
@@ -167,6 +168,7 @@ def create_job(
         is_dir=os.path.isdir(source_path), status="identifying",
         forced_ids_json=json.dumps(_clean_forced_ids(forced_ids)),
         overrides_json=json.dumps(overrides or {}),
+        origin=origin,
     )
     session.add(job)
     session.flush()
@@ -321,6 +323,28 @@ def reidentify(session: Session, job: UploadJob, forced_ids: dict | None) -> Non
     ):
         raise UploadJobError("upload_job_wrong_status", status=job.status)
     log_event(session, job, "reidentify_requested")
+    session.commit()
+
+
+def back_to_match(session: Session, job: UploadJob) -> None:
+    """Il rollback del match (decisione dell'utente, 2026-10-02): dalla
+    decisione si torna a scegliere il contenuto, per un match automatico (o
+    manuale) sbagliato. Quello che dipendeva dal match si rifà: analisi,
+    nomi proposti, dupe-check. Gli override dell'utente restano. Mai durante
+    un full hash check: il suo esito apparterrebbe al match vecchio."""
+    if job.status != "awaiting_decision":
+        raise UploadJobError("upload_job_wrong_status", status=job.status)
+    if any(target.status == "verifying" for target in job.targets):
+        raise UploadJobError("upload_verify_in_progress")
+    if not transition(session, job, "awaiting_decision", "awaiting_match", analysis_json=None, stage=None):
+        raise UploadJobError("upload_job_wrong_status", status=job.status)
+    for target in job.targets:
+        target.status = "pending"
+        target.suggested_action = target.action = None
+        target.dupes_json = target.reseed_torrent_id = None
+        target.proposed_name = target.approved_name = None
+        target.category_id = target.type_id = target.resolution_id = None
+    log_event(session, job, "match_reopened", title=job.title, year=job.year)
     session.commit()
 
 

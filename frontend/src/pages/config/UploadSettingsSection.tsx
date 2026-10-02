@@ -124,6 +124,29 @@ export function UploadSettingsSection() {
           </div>
         </CardContent>
       </Card>
+      {/* Le release del releaser: il suo nome e la cartella osservata (Storage). */}
+      <Card data-tour="upload.releases">
+        <CardHeader>
+          <CardTitle>{t('uploadSettings.releasesTitle')}</CardTitle>
+          <CardDescription>{t('uploadSettings.releasesDescription')}</CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-4">
+          <SettingField
+            settingKey="upload_releaser_name"
+            label={t('uploadSettings.releaserLabel')}
+            description={t('uploadSettings.releaserDescription')}
+            placeholder="NZG"
+          />
+          <SettingField
+            settingKey="upload_auto_match_threshold"
+            label={t('uploadSettings.autoMatchLabel')}
+            description={t('uploadSettings.autoMatchDescription')}
+            type="number"
+            placeholder="0.9"
+          />
+        </CardContent>
+      </Card>
+
       <Card data-tour="upload.screenshots">
         <CardHeader>
           <CardTitle>{t('uploadSettings.screenshotsTitle')}</CardTitle>

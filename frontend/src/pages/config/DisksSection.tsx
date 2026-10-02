@@ -1,4 +1,4 @@
-import { CheckCircle2Icon, PencilIcon, PlusIcon, TrashIcon, XCircleIcon } from 'lucide-react'
+import { CheckCircle2Icon, PencilIcon, PlusIcon, TrashIcon, XCircleIcon, XIcon } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 
@@ -141,7 +141,7 @@ function RelPathCell({
   tour?: string
   diskId: number
   value: string | null
-  field: 'media_rel_path' | 'torrents_rel_path' | 'new_torrent_rel_path' | 'upload_rel_path'
+  field: 'media_rel_path' | 'torrents_rel_path' | 'new_torrent_rel_path' | 'upload_rel_path' | 'watch_rel_path'
   title: string
   emptyLabel?: string
 }) {
@@ -150,14 +150,27 @@ function RelPathCell({
 
   return (
     <>
-      <button
-        className="font-mono text-xs text-muted-foreground hover:underline"
-        data-tour={tour}
-        data-tour-filled={value ? 'true' : undefined}
-        onClick={() => setBrowserOpen(true)}
-      >
-        {value || emptyLabel || t('disks.setPath')}
-      </button>
+      <span className="inline-flex items-center gap-1">
+        <button
+          className="font-mono text-xs text-muted-foreground hover:underline"
+          data-tour={tour}
+          data-tour-filled={value ? 'true' : undefined}
+          onClick={() => setBrowserOpen(true)}
+        >
+          {value || emptyLabel || t('disks.setPath')}
+        </button>
+        {/* Le cartelle facoltative (con un "vuoto" che vuol dire qualcosa) si possono togliere. */}
+        {value && emptyLabel && (
+          <button
+            className="text-muted-foreground hover:text-foreground"
+            title={t('disks.clearPath')}
+            aria-label={t('disks.clearPath')}
+            onClick={() => updateDisk.mutate({ diskId, body: { [field]: '' } }, autosaveFeedback(title))}
+          >
+            <XIcon className="size-3" />
+          </button>
+        )}
+      </span>
       <DiskBrowserDialog
         diskId={diskId}
         open={browserOpen}
@@ -249,6 +262,7 @@ export function DisksSection() {
               <TableHead>{t('disks.seedingFolder')}</TableHead>
               <TableHead>{t('disks.newHardlinkFolderColumn')}</TableHead>
               <TableHead>{t('disks.uploadFolderColumn')}</TableHead>
+              <TableHead title={t('disks.watchFolderHelp')}>{t('disks.watchFolderColumn')}</TableHead>
               <TableHead />
             </TableRow>
           </TableHeader>
@@ -300,6 +314,17 @@ export function DisksSection() {
                     emptyLabel={t('disks.sameAsSeedingFolder')}
                   />
                 </TableCell>
+                <TableCell>
+                  {/* Le release nuove qui dentro partono da sole fino alla decisione (app/upload_watch.py). */}
+                  <RelPathCell
+                    diskId={disk.id}
+                    value={disk.watch_rel_path ?? null}
+                    field="watch_rel_path"
+                    title={t('disks.watchFolderLabel')}
+                    tour="storage.watch-folder"
+                    emptyLabel={t('disks.notWatched')}
+                  />
+                </TableCell>
                 <TableCell className="flex justify-end gap-1">
                   <VerifyButton diskId={disk.id} />
                   <EditDiskDialog disk={disk} />
@@ -311,7 +336,7 @@ export function DisksSection() {
             ))}
             {disks?.length === 0 && (
               <TableRow>
-                <TableCell colSpan={7} className="text-center text-sm text-muted-foreground">
+                <TableCell colSpan={8} className="text-center text-sm text-muted-foreground">
                   {t('disks.noDisksConfigured')}
                 </TableCell>
               </TableRow>

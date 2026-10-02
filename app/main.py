@@ -84,6 +84,7 @@ async def lifespan(app: FastAPI):
     app.state.scheduler.start()
     app.state.upload_worker = UploadWorker(session_factory, settings.data_dir)
     app.state.upload_worker.resume()
+    scheduler.add_watch_job(app.state.scheduler, session_factory, app.state.upload_worker)
     try:
         yield
     finally:

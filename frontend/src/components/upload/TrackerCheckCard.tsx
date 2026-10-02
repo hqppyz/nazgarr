@@ -1,4 +1,4 @@
-import { LoaderCircleIcon, ScanSearchIcon } from 'lucide-react'
+import { LoaderCircleIcon, ScanSearchIcon, TriangleAlertIcon } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { toast } from 'sonner'
 
@@ -59,6 +59,14 @@ function Verification({ dupe }: { dupe: Dupe }) {
   return <span className="text-red-600 dark:text-red-400">{t('upload.dupes.verifyError', { reason: v.reason })}</span>
 }
 
+function languageName(code: string) {
+  try {
+    return new Intl.DisplayNames(['en'], { type: 'language' }).of(code) ?? code
+  } catch {
+    return code
+  }
+}
+
 function SectionLabel({ children }: { children: ReactNode }) {
   return <p className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">{children}</p>
 }
@@ -82,6 +90,10 @@ export function TrackerCheckCard({
   const seeding = ((job.analysis as Record<string, unknown> | null)?.seeding_here as
     | Record<string, { name: string; client: string }>
     | undefined)?.[String(target.id)]
+  // La lingua del tracker nell'audio del file (app/upload_naming.py audio_language_check).
+  const language = ((job.analysis as Record<string, unknown> | null)?.languages as
+    | Record<string, { language: string; status: 'present' | 'missing' | 'unknown' }>
+    | undefined)?.[String(target.tracker_id)]
 
   return (
     <Card className="min-w-0">
@@ -105,6 +117,12 @@ export function TrackerCheckCard({
         )}
       </CardHeader>
       <CardContent className="grid min-w-0 gap-5">
+        {language && language.status !== 'present' && (
+          <p className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-xs">
+            <TriangleAlertIcon className="mt-0.5 size-3.5 shrink-0 text-amber-500" />
+            {t(`upload.language.${language.status}`, { language: languageName(language.language) })}
+          </p>
+        )}
         <div className="grid min-w-0 gap-2">
           <SectionLabel>{t('upload.dupes.onTracker')}</SectionLabel>
           {seeding && (

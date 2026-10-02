@@ -90,6 +90,33 @@ def _deliver_events(session_factory: sessionmaker) -> None:
         session.close()
 
 
+WATCH_JOB_ID = "upload_watch"
+
+
+def _scan_watch_folders(session_factory: sessionmaker, worker) -> None:
+    from app import upload_watch
+
+    session = session_factory()
+    try:
+        upload_watch.scan(session, kick=worker.kick)
+    except Exception:
+        logger.exception("Giro della cartella osservata fallito")
+    finally:
+        session.close()
+
+
+def add_watch_job(scheduler: BackgroundScheduler, session_factory: sessionmaker, worker) -> None:
+    """La cartella osservata per le release (app/upload_watch.py): serve il
+    worker degli upload per svegliarlo sui job creati, quindi si aggiunge
+    dopo averlo creato."""
+    from app import upload_watch
+
+    scheduler.add_job(
+        _scan_watch_folders, IntervalTrigger(seconds=upload_watch.INTERVAL_SECONDS),
+        args=[session_factory, worker], id=WATCH_JOB_ID, replace_existing=True, max_instances=1, coalesce=True,
+    )
+
+
 def build_scheduler(session_factory: sessionmaker, data_dir: str) -> BackgroundScheduler:
     scheduler = BackgroundScheduler()
     with session_factory() as session:

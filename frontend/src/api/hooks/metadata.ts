@@ -13,6 +13,9 @@ export interface MetadataCandidate {
   poster_path: string | null
   overview?: string | null
   source?: string
+  // Solo nei candidati di un upload (app/upload_match_score.py).
+  confidence?: number
+  ambiguous?: boolean
 }
 
 export interface MetadataSeason {

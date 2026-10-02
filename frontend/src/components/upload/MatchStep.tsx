@@ -76,9 +76,18 @@ function CandidateCard({
         </div>
         <div className="absolute inset-x-0 bottom-0 grid gap-0.5 bg-gradient-to-t from-black/90 via-black/60 to-transparent px-2 pt-8 pb-1.5">
           <p className="line-clamp-2 text-xs font-medium text-white">{candidate.title ?? `#${candidate.tmdb_id}`}</p>
-          <p className="flex items-center justify-between text-[10px] text-white/70">
+          <p className="flex items-center justify-between gap-1 text-[10px] text-white/70">
             <span>{candidate.year ?? '—'}</span>
             {label && <span className="rounded bg-white/15 px-1">{label}</span>}
+            {/* Quanto è sicuro (app/upload_match_score.py): sopra la soglia la cartella osservata lo conferma da sola. */}
+            {candidate.confidence != null && (
+              <span
+                className={cn('ml-auto rounded px-1 tabular-nums', candidate.ambiguous ? 'bg-amber-500/40' : 'bg-white/15')}
+                title={candidate.ambiguous ? t('upload.match.ambiguous') : t('upload.match.confidence')}
+              >
+                {Math.round(candidate.confidence * 100)}%
+              </span>
+            )}
           </p>
         </div>
       </div>

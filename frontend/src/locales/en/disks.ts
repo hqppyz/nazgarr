@@ -33,4 +33,10 @@ export const disks = {
   'disks.emptyFolder': 'Empty folder.',
   'disks.newFolderNamePlaceholder': 'New folder name',
   'disks.selectPath': 'Select "{path}"',
+  'disks.watchFolderColumn': 'Watched',
+  'disks.watchFolderLabel': 'Watched folder for new releases (optional)',
+  'disks.watchFolderHelp':
+    'Every new file or folder put here starts an upload on its own, up to the decision: it waits for your approval. What is already inside when you choose it does not start.',
+  'disks.notWatched': 'none',
+  'disks.clearPath': 'Clear',
 } as const

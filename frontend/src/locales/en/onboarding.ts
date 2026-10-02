@@ -193,4 +193,10 @@ export const onboarding = {
   'onboarding.tour.views.review.title': 'The review queue',
   'onboarding.tour.views.review.body':
     'Every proposal waits here, with its confidence and what it would do. Approve or reject: nothing passes without your word. The road goes ever on: the next scans keep it filled.',
+  'onboarding.tour.storage.watch.title': 'A folder for your releases (optional)',
+  'onboarding.tour.storage.watch.body':
+    'If you release your own encodes: what you put in this folder starts an upload on its own, up to the decision, where it waits for your approval.',
+  'onboarding.tour.upload.releases.title': 'Your releases',
+  'onboarding.tour.upload.releases.body':
+    'Your releaser name, used as the group of the uploads from the watched folder, and how sure a TMDB match must be to be confirmed on its own.',
 } as const

@@ -32,6 +32,10 @@ CREATE TABLE IF NOT EXISTS disk (
                                                          -- (and a reseed decided in the upload flow) gets its
                                                          -- hardlinks and save_path. If null, torrents_rel_path
                                                          -- (SPEC.md §9 "Upload flow v2").
+    watch_rel_path              TEXT,                   -- optional, relative to root_path: the folder watched for
+                                                         -- new releases (app/upload_watch.py). Each new file or
+                                                         -- folder in it starts an upload on its own, up to the
+                                                         -- decision; never the seeding or the media folder.
     created_at                  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -677,9 +681,28 @@ CREATE TABLE IF NOT EXISTS upload_job (
     anime                   BOOLEAN,         -- from TMDB at the first gate (genre Animation + original
                                              -- language ja): picks the client's anime category
     error_message           TEXT,
+    origin                  TEXT,            -- 'watch': started by the watched folder (app/upload_watch.py);
+                                             -- null: created by hand
     created_at              TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at              TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     finished_at             TIMESTAMP
+);
+
+-- What the watched folder has already seen (app/upload_watch.py): one row per
+-- top-level file or folder, so a release starts one upload only, even after
+-- its job is deleted. size/mtime: an entry is ready once they stay the same
+-- for a while (still copying otherwise).
+CREATE TABLE IF NOT EXISTS watch_entry (
+    id                      INTEGER PRIMARY KEY,
+    disk_id                 INTEGER NOT NULL REFERENCES disk(id) ON DELETE CASCADE,
+    relative_path           TEXT NOT NULL,
+    size_bytes              INTEGER NOT NULL,
+    mtime                   REAL NOT NULL,
+    stable_since            TIMESTAMP NOT NULL,  -- when size and mtime last changed
+    job_id                  INTEGER REFERENCES upload_job(id) ON DELETE SET NULL,
+    started_at              TIMESTAMP,           -- when its upload was created; null = still waiting
+    error_message           TEXT,                -- why its upload could not be created
+    UNIQUE (disk_id, relative_path)
 );
 
 CREATE TABLE IF NOT EXISTS upload_target (

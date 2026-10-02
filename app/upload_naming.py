@@ -347,6 +347,24 @@ def _lang3(language: str) -> str:
     return LANG3.get(code, code.upper()[:3])
 
 
+def audio_language_check(tracker_language: str | None, mediainfo: dict | None) -> str | None:
+    """La regola dei tracker sulla lingua (decisione dell'utente, 2026-10-02):
+    nel file ci deve essere una traccia audio (non un commento) nella lingua
+    del tracker. "present", "missing", "unknown" (le tracce non dicono la loro
+    lingua), o None se non c'è niente da controllare (nessuna lingua sul
+    tracker, nessun MediaInfo o nessuna traccia audio)."""
+    if not tracker_language or not mediainfo:
+        return None
+    tracks = [t for t in mediainfo.get("audio") or [] if not _is_commentary(t)]
+    if not tracks:
+        return None
+    wanted = {tracker_language.lower(), LANG3.get(tracker_language.lower(), "").lower()} - {""}
+    codes = {str(t.get("language") or "").split("-")[0].split("_")[0].lower() for t in tracks}
+    if codes & wanted:
+        return "present"
+    return "unknown" if codes == {""} else "missing"
+
+
 def _languages_value(tracks: list[dict], config: dict | None) -> str | None:
     config = config or {"style": "none"}
     style = config.get("style", "none")

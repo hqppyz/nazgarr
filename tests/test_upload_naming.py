@@ -247,3 +247,20 @@ def test_atmos_comes_once_after_all_the_audio_codecs():
     assert values["audio_all"] == "TrueHD 7.1 DD+ 5.1 DTS-HD MA 5.1 Atmos"
     # La traccia principale da sola resta codec, canali, oggetto.
     assert values["audio"] == "TrueHD 7.1 Atmos"
+
+
+def test_the_tracker_language_must_be_in_an_audio_track():
+    from app.upload_naming import audio_language_check
+
+    def info(*tracks):
+        return {"audio": [dict(t) for t in tracks]}
+
+    assert audio_language_check("it", info({"language": "it-IT"})) == "present"
+    assert audio_language_check("it", info({"language": "ita"})) == "present"
+    assert audio_language_check("it", info({"language": "en"})) == "missing"
+    # Una traccia di commento non basta, i sottotitoli non contano.
+    commentary = {"language": "it", "title": "Director Commentary"}
+    assert audio_language_check("it", info({"language": "en"}, commentary)) == "missing"
+    assert audio_language_check("it", info({"language": None})) == "unknown"
+    assert audio_language_check(None, info({"language": "en"})) is None
+    assert audio_language_check("it", {"audio": []}) is None

@@ -18,6 +18,7 @@ from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app import upload_watch
 from app.api_errors import CodedError, coded_detail, from_coded_error
 from app.deps import get_session
 from app.fs_scope import ScopeViolation, resolve_scoped
@@ -63,6 +64,7 @@ class DiskUpdateRequest(BaseModel):
     torrents_rel_path: str | None = None
     new_torrent_rel_path: str | None = None
     upload_rel_path: str | None = None
+    watch_rel_path: str | None = None  # "" la toglie
 
 
 class DiskResponse(BaseModel):
@@ -73,6 +75,7 @@ class DiskResponse(BaseModel):
     torrents_rel_path: str | None
     new_torrent_rel_path: str | None
     upload_rel_path: str | None
+    watch_rel_path: str | None = None
     st_dev: int | None
 
     @classmethod
@@ -82,6 +85,7 @@ class DiskResponse(BaseModel):
             media_rel_path=disk.media_rel_path,
             torrents_rel_path=disk.torrents_rel_path,
             new_torrent_rel_path=disk.new_torrent_rel_path, upload_rel_path=disk.upload_rel_path,
+            watch_rel_path=disk.watch_rel_path,
             st_dev=disk.st_dev,
         )
 
@@ -264,8 +268,37 @@ def update_disk(disk_id: int, body: DiskUpdateRequest, session: Session = Depend
         disk.new_torrent_rel_path = body.new_torrent_rel_path or None
     if body.upload_rel_path is not None:
         disk.upload_rel_path = body.upload_rel_path or None
+    if body.watch_rel_path is not None and (body.watch_rel_path or None) != disk.watch_rel_path:
+        disk.watch_rel_path = _watch_folder(disk, body.watch_rel_path or None)
+        session.commit()
+        # Quello che c'è già nella cartella non parte da solo (app/upload_watch.py).
+        upload_watch.baseline(session, disk)
     session.commit()
     return DiskResponse.from_model(disk)
+
+
+def _watch_folder(disk: Disk, relative: str | None) -> str | None:
+    """La cartella osservata: dentro il disco, esistente, mai il disco intero
+    e mai dentro (o sopra) la cartella media, quella dei torrent o quella
+    degli upload: ogni import di Radarr o ogni download partirebbe come una
+    release."""
+    if relative is None:
+        return None
+    try:
+        path = resolve_scoped(disk.root_path, relative)
+    except ScopeViolation as exc:
+        raise HTTPException(status_code=400, detail=coded_detail("path_outside_scope", path=relative)) from exc
+    if not os.path.isdir(path):
+        raise HTTPException(status_code=400, detail=coded_detail("watch_folder_not_found", path=relative))
+    if path == os.path.realpath(disk.root_path):
+        raise HTTPException(status_code=400, detail=coded_detail("watch_folder_overlaps", path=relative))
+    for other in (disk.media_rel_path, disk.torrents_rel_path, disk.effective_upload_rel_path):
+        if not other:
+            continue
+        other_path = os.path.realpath(os.path.join(disk.root_path, other))
+        if path == other_path or other_path.startswith(path + os.sep) or path.startswith(other_path + os.sep):
+            raise HTTPException(status_code=400, detail=coded_detail("watch_folder_overlaps", path=relative))
+    return os.path.relpath(path, os.path.realpath(disk.root_path))
 
 
 @router.delete("/{disk_id}", status_code=204)

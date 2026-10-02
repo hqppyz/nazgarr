@@ -1375,6 +1375,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/uploads/{upload_id}/rematch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Rematch Upload
+         * @description Dalla decisione torna al match (app/upload_jobs.py back_to_match): per
+         *     un match, automatico o no, che si è rivelato sbagliato.
+         */
+        post: operations["rematch_upload_api_uploads__upload_id__rematch_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/uploads/{upload_id}/reidentify": {
         parameters: {
             query?: never;
@@ -2363,6 +2384,8 @@ export interface components {
             new_torrent_rel_path: string | null;
             /** Upload Rel Path */
             upload_rel_path: string | null;
+            /** Watch Rel Path */
+            watch_rel_path?: string | null;
             /** St Dev */
             st_dev: number | null;
         };
@@ -2378,6 +2401,8 @@ export interface components {
             new_torrent_rel_path?: string | null;
             /** Upload Rel Path */
             upload_rel_path?: string | null;
+            /** Watch Rel Path */
+            watch_rel_path?: string | null;
         };
         /** DuplicateFile */
         DuplicateFile: {
@@ -3825,6 +3850,8 @@ export interface components {
             finished_at: string | null;
             /** Targets */
             targets: components["schemas"]["UploadTargetResponse"][];
+            /** Origin */
+            origin?: string | null;
             /** Source Path */
             source_path: string;
             /** Imdb Id */
@@ -3908,6 +3935,8 @@ export interface components {
             finished_at: string | null;
             /** Targets */
             targets: components["schemas"]["UploadTargetResponse"][];
+            /** Origin */
+            origin?: string | null;
         };
         /** UploadMatchRequest */
         UploadMatchRequest: {
@@ -6874,6 +6903,37 @@ export interface operations {
                 "application/json": components["schemas"]["UploadMatchRequest"];
             };
         };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadJobDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rematch_upload_api_uploads__upload_id__rematch_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                upload_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {

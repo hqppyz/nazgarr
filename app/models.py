@@ -59,6 +59,7 @@ class Disk(Base):
     torrents_rel_path: Mapped[str | None]
     new_torrent_rel_path: Mapped[str | None]
     upload_rel_path: Mapped[str | None]
+    watch_rel_path: Mapped[str | None]  # cartella osservata per le release (app/upload_watch.py)
     media_scan_id: Mapped[int | None]
     seed_scan_id: Mapped[int | None]
     created_at: Mapped[datetime | None] = mapped_column(server_default=text("CURRENT_TIMESTAMP"))
@@ -616,6 +617,7 @@ class UploadJob(Base):
     screenshot_urls_json: Mapped[str | None]
     anime: Mapped[bool | None]
     error_message: Mapped[str | None]
+    origin: Mapped[str | None]  # "watch": dalla cartella osservata (app/upload_watch.py)
     created_at: Mapped[datetime | None] = mapped_column(server_default=text("CURRENT_TIMESTAMP"))
     updated_at: Mapped[datetime | None] = mapped_column(
         server_default=text("CURRENT_TIMESTAMP"), onupdate=text("CURRENT_TIMESTAMP")
@@ -629,6 +631,24 @@ class UploadJob(Base):
     events: Mapped[list["UploadEvent"]] = relationship(
         back_populates="job", cascade="all, delete-orphan", order_by="UploadEvent.id"
     )
+
+
+class WatchEntry(Base):
+    """Un file o una cartella della cartella osservata, già visto (docs/schema.sql):
+    una release fa partire un solo upload, anche dopo aver cancellato il job."""
+
+    __tablename__ = "watch_entry"
+    __table_args__ = (UniqueConstraint("disk_id", "relative_path"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    disk_id: Mapped[int] = mapped_column(ForeignKey("disk.id", ondelete="CASCADE"), nullable=False)
+    relative_path: Mapped[str] = mapped_column(nullable=False)
+    size_bytes: Mapped[int] = mapped_column(nullable=False)
+    mtime: Mapped[float] = mapped_column(nullable=False)
+    stable_since: Mapped[datetime] = mapped_column(nullable=False)
+    job_id: Mapped[int | None] = mapped_column(ForeignKey("upload_job.id", ondelete="SET NULL"))
+    started_at: Mapped[datetime | None]
+    error_message: Mapped[str | None]
 
 
 class UploadTarget(Base):

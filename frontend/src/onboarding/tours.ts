@@ -58,6 +58,7 @@ export const TOURS: Tour[] = [
         waitFor: { filled: 'storage.seeding-folder' } },
       { id: 'new', anchor: 'storage.new-folder', side: 'bottom', next: true },
       { id: 'upload', anchor: 'storage.upload-folder', side: 'bottom', next: true, when: 'upload' },
+      { id: 'watch', anchor: 'storage.watch-folder', side: 'bottom', next: true, when: 'upload' },
       { id: 'verify', anchor: 'storage.verify', side: 'left', next: true },
     ],
   },
@@ -128,6 +129,7 @@ export const TOURS: Tour[] = [
     route: '/config?tab=upload',
     steps: [
       { id: 'hosts', anchor: 'upload.image-hosts', side: 'bottom', next: true },
+      { id: 'releases', anchor: 'upload.releases', side: 'right', next: true },
       { id: 'screenshots', anchor: 'upload.screenshots', side: 'right', next: true },
       { id: 'description', anchor: 'upload.description', side: 'left', next: true },
       { id: 'names', anchor: 'upload.file-names', side: 'top', next: true },

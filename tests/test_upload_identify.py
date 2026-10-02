@@ -73,7 +73,10 @@ def test_few_results_also_search_the_other_type_and_retry_without_year(db_sessio
 
     candidates = upload_identify.find_candidates(db_session, {}, layout)
 
-    assert [(c["content_type"], c["tmdb_id"]) for c in candidates] == [("movie", 1), ("tv", 87108)]
+    # Dal più sicuro: stesso titolo e stesso anno (anche se serie) prima di un
+    # titolo diverso di un altro anno.
+    assert [(c["content_type"], c["tmdb_id"]) for c in candidates] == [("tv", 87108), ("movie", 1)]
+    assert candidates[0]["confidence"] > candidates[1]["confidence"]
 
 
 def test_forced_ids_are_the_only_candidates(db_session, tmp_path, monkeypatch, no_resolver):

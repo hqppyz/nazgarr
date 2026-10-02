@@ -122,4 +122,8 @@ export const errors = {
     'No image host configured: set at least one api_key, or include Imgbox/Pixhost in image_host_priority '
     + "— they're the only two that don't require one.",
   'errors.bundled_profile_not_found': 'Bundled profile not found: {key}',
+  'errors.upload_verify_in_progress': 'A full hash check is running: wait for it to finish.',
+  'errors.watch_folder_not_found': "The folder '{path}' does not exist on this disk.",
+  'errors.watch_folder_overlaps':
+    "'{path}' can't be watched: it is the disk itself, or overlaps the media, torrent or upload folder, so every import or download would start as a release.",
 } as const

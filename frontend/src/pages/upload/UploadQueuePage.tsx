@@ -94,6 +94,7 @@ function ActiveList({ jobs }: { jobs: UploadJobSummary[] }) {
               <div className="flex flex-wrap items-center gap-2">
                 <span className="truncate text-sm font-medium">{title(job)}</span>
                 {job.kind && <Badge variant="outline">{t(`upload.kind.${job.kind}`)}</Badge>}
+                {job.origin === 'watch' && <Badge variant="outline">{t('upload.watch.badge')}</Badge>}
                 {job.status === 'queued' && (
                   <span className="text-xs text-muted-foreground">#{index + 1}</span>
                 )}
@@ -167,6 +168,7 @@ function HistoryList({ jobs, onOpen }: { jobs: UploadJobSummary[]; onOpen: (id: 
             <div className="flex flex-wrap items-center gap-2">
               <span className="truncate text-sm font-medium">{title(job)}</span>
               {job.kind && <Badge variant="outline">{t(`upload.kind.${job.kind}`)}</Badge>}
+              {job.origin === 'watch' && <Badge variant="outline">{t('upload.watch.badge')}</Badge>}
               <UploadStatusBadge status={job.status} />
             </div>
             <TargetOutcomes job={job} />

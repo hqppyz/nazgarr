@@ -46,4 +46,18 @@ describe('TrackerCheckCard', () => {
     expect(screen.getByText('Every piece matches (40): reseed instead of uploading.')).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Full hash check' })).toBeNull()
   })
+
+  it("warns when no audio track is in the tracker's language", () => {
+    const withLanguage = {
+      ...job,
+      analysis: { languages: { '7': { language: 'it', status: 'missing' } } },
+    } as unknown as UploadJob
+    render(<TrackerCheckCard job={withLanguage} target={{ ...target, tracker_id: 7 } as UploadTarget} />)
+    expect(screen.getByText(/No audio track in Italian/)).toBeTruthy()
+    cleanup()
+
+    const fine = { ...job, analysis: { languages: { '7': { language: 'it', status: 'present' } } } } as unknown as UploadJob
+    render(<TrackerCheckCard job={fine} target={{ ...target, tracker_id: 7 } as UploadTarget} />)
+    expect(screen.queryByText(/audio track/)).toBeNull()
+  })
 })

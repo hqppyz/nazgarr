@@ -260,6 +260,17 @@ The Phase 6 pipeline handled one file towards one tracker, synchronously inside 
 - **Where uploads seed** (user decision, 2026-09-30): hardlinks in a per-disk folder for uploads (`disk.upload_rel_path`, set like the folder for new reseeding hardlinks), falling back to the seeding folder (`torrents_rel_path`) when not set. A source already inside the seeding folder seeds in place. A reseed decided in the upload flow places the tracker's torrent the same way, with the tracker's own file names. Same filesystem or an explicit error, like reseeding; always a forced recheck.
 - **Existing `upload_job` rows are dropped** when the new tables are created (user decision: no real upload data to keep).
 
+
+**Releases from a watched folder** (user decisions, 2026-10-02). Each disk can have a watched folder (`disk.watch_rel_path`, `app/upload_watch.py`). It can never be the disk itself, and never inside or above the media, torrent or upload folder.
+
+- **Starting:** every new video file or folder put there starts an upload on its own, once its size and mtime stay the same for 2 minutes and it holds no partial files. The upload goes to every tracker that has an upload profile.
+- **Once only:** `watch_entry` remembers each entry, so a release starts one upload even after its job is deleted. What is already inside when the folder is chosen doesn't start.
+- **Releaser name:** the setting `upload_releaser_name` becomes the `{group}` override of these jobs, and stays editable.
+- **Automatic match:** TMDB candidates now carry a confidence (`app/upload_match_score.py`). A watched job confirms its best candidate on its own when the confidence is at least `upload_auto_match_threshold` (default 0.9; 0 turns it off). Ambiguous candidates (two titles nearly as sure) are never confirmed on their own.
+- **Where it stops:** the job goes as far as the decision and waits there. Nothing is uploaded, linked or added to a client without approval.
+- **Rollback:** "Change match" (`back_to_match`) takes a job from the decision back to the match and redoes the analysis.
+- **Language check:** each tracker with a language gets a warning when no audio track (commentary excluded) is in that language.
+
 ## 10. UI/UX — general structure
 
 ```

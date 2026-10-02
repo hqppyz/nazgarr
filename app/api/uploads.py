@@ -188,6 +188,7 @@ class UploadJobSummary(BaseModel):
     created_at: datetime | None
     finished_at: datetime | None
     targets: list[UploadTargetResponse]
+    origin: str | None = None  # "watch": dalla cartella osservata (app/upload_watch.py)
 
     @classmethod
     def fields_from(cls, j: UploadJob) -> dict:
@@ -197,7 +198,7 @@ class UploadJobSummary(BaseModel):
             queue_position=j.queue_position, content_type=j.content_type, tmdb_id=j.tmdb_id, title=j.title,
             year=j.year, poster_path=j.poster_path, seasons=_loads(j.seasons_json, []), episode=j.episode,
             error_message=j.error_message, created_at=j.created_at, finished_at=j.finished_at,
-            targets=[UploadTargetResponse.from_model(t) for t in j.targets],
+            targets=[UploadTargetResponse.from_model(t) for t in j.targets], origin=j.origin,
         )
 
     @classmethod
@@ -404,6 +405,18 @@ def confirm_match(
     except UploadJobError as exc:
         raise HTTPException(status_code=400, detail=from_coded_error(exc)) from exc
     _worker(request).kick(job.id, job.status)
+    return UploadJobDetail.from_model(job)
+
+
+@router.post("/{upload_id}/rematch", response_model=UploadJobDetail)
+def rematch_upload(upload_id: int, session: Session = Depends(get_session)):
+    """Dalla decisione torna al match (app/upload_jobs.py back_to_match): per
+    un match, automatico o no, che si è rivelato sbagliato."""
+    job = _get_job_or_404(session, upload_id)
+    try:
+        upload_jobs.back_to_match(session, job)
+    except UploadJobError as exc:
+        raise HTTPException(status_code=400, detail=from_coded_error(exc)) from exc
     return UploadJobDetail.from_model(job)
 
 

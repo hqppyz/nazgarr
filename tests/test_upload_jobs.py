@@ -296,3 +296,32 @@ def test_an_upload_source_with_symlinks_is_refused(db_session, tmp_path):
     with pytest.raises(UploadJobError) as exc:
         upload_jobs.create_job(db_session, disk, "Movie.2024")
     assert exc.value.code == "upload_source_has_symlinks"
+
+
+def test_a_wrong_match_goes_back_from_the_decision(db_session, tmp_path):
+    make_tracker(db_session)
+    job = _job(db_session, tmp_path, overrides={"group": "NZG"})
+    job.status = "awaiting_decision"
+    job.analysis_json = '{"detected": {}}'
+    target = job.targets[0]
+    target.status, target.suggested_action, target.proposed_name = "awaiting_decision", "upload", "Movie-NZG"
+    db_session.commit()
+
+    upload_jobs.back_to_match(db_session, job)
+
+    assert (job.status, job.analysis_json) == ("awaiting_match", None)
+    assert (target.status, target.suggested_action, target.proposed_name) == ("pending", None, None)
+    assert json.loads(job.overrides_json) == {"group": "NZG"}  # le scelte dell'utente restano
+    assert job.events[-1].code == "match_reopened"
+
+
+def test_no_going_back_while_a_full_check_runs_or_from_another_state(db_session, tmp_path):
+    make_tracker(db_session)
+    job = _job(db_session, tmp_path)
+    with pytest.raises(UploadJobError):
+        upload_jobs.back_to_match(db_session, job)  # ancora in identificazione
+    job.status = "awaiting_decision"
+    job.targets[0].status = "verifying"
+    db_session.commit()
+    with pytest.raises(UploadJobError, match="upload_verify_in_progress"):
+        upload_jobs.back_to_match(db_session, job)

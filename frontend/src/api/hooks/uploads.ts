@@ -116,6 +116,18 @@ export function useReidentify(uploadId: number) {
   })
 }
 
+// Dalla decisione torna al match (un match automatico sbagliato).
+export function useRematch(uploadId: number) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => unwrap(api.POST('/api/uploads/{upload_id}/rematch', { params: { path: { upload_id: uploadId } } })),
+    onSuccess: (job) => {
+      queryClient.setQueryData(['uploads', uploadId], job)
+      queryClient.invalidateQueries({ queryKey: ['uploads'] })
+    },
+  })
+}
+
 export function useVerifyTarget(uploadId: number) {
   const queryClient = useQueryClient()
   return useMutation({

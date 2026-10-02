@@ -21,9 +21,10 @@ import logging
 import re
 from dataclasses import asdict
 
+import httpx
 from sqlalchemy.orm import Session
 
-from app import adapter_factory, settings_repo, upload_analysis, upload_jobs
+from app import adapter_factory, settings_repo, upload_analysis, upload_jobs, upload_match_score
 from app.adapter_factory import TmdbApiKeyMissingError
 from app.models import UploadJob
 from app.tmdb_client import TMDBClient
@@ -136,13 +137,72 @@ def find_candidates(session: Session, forced: dict, layout: SourceLayout) -> lis
     if forced and client is not None:
         forced_candidates = _forced_candidates(client, forced, layout)
         if forced_candidates:
-            return forced_candidates[:MAX_CANDIDATES]
+            return upload_match_score.scored(forced_candidates[:MAX_CANDIDATES], layout.title, layout.year,
+                                             layout.content_type)
 
     candidates: list[dict] = []
     _add(candidates, _resolver_candidates(session, layout.main_video), "resolver")
     if client is not None:
         _add(candidates, _search_candidates(client, layout), "search")
-    return candidates[:MAX_CANDIDATES]
+    # Ognuno con la sua confidence (app/upload_match_score.py), dal più sicuro.
+    return upload_match_score.scored(candidates[:MAX_CANDIDATES], layout.title, layout.year, layout.content_type)
+
+
+AUTO_MATCH_SETTING = "upload_auto_match_threshold"
+DEFAULT_AUTO_MATCH_THRESHOLD = 0.9
+
+
+def auto_match_threshold(session: Session) -> float | None:
+    """La confidence oltre la quale un job della cartella osservata conferma
+    da solo il match (Settings > Upload). Mai salvata = 0.9; 0 = spento."""
+    raw = settings_repo.get_setting(session, AUTO_MATCH_SETTING)
+    if raw in (None, ""):
+        return DEFAULT_AUTO_MATCH_THRESHOLD
+    try:
+        value = float(raw)
+    except ValueError:
+        return DEFAULT_AUTO_MATCH_THRESHOLD
+    return value if 0 < value <= 1 else None
+
+
+def _auto_match(session: Session, job: UploadJob, candidates: list[dict]) -> None:
+    """Solo per i job della cartella osservata (app/upload_watch.py): il
+    candidato più sicuro, se supera la soglia, si conferma da solo, con gli
+    stessi controlli della conferma a mano. Sotto soglia, o se qualcosa non
+    torna (tipo, stagione), il job aspetta al match come sempre. Dalla
+    decisione si torna indietro con "Change match" (back_to_match)."""
+    if job.origin != "watch" or not candidates:
+        return
+    best = candidates[0]
+    threshold = auto_match_threshold(session)
+    if threshold is None or best.get("ambiguous") or best.get("confidence", 0) < threshold:
+        upload_jobs.log_event(session, job, "auto_match_skipped", confidence=best.get("confidence", 0),
+                              threshold=threshold or 0)
+        session.commit()
+        return
+    try:
+        details = tmdb_client(session).full_details(best["content_type"], best["tmdb_id"])
+    except TmdbApiKeyMissingError:
+        details = None
+    except httpx.HTTPError:
+        logger.warning("Dettagli TMDB non disponibili per il match automatico del job %s", job.id, exc_info=True)
+        upload_jobs.log_event(session, job, "auto_match_failed", level="warning")
+        session.commit()
+        return
+    try:
+        upload_jobs.confirm_match(
+            session, job, content_type=best["content_type"], tmdb_id=best["tmdb_id"], kind=job.kind,
+            seasons=json.loads(job.seasons_json or "[]"), episode=job.episode, details=details,
+            forced=json.loads(job.forced_ids_json or "{}"),
+        )
+    except upload_jobs.UploadJobError as exc:
+        session.rollback()
+        upload_jobs.log_event(session, job, "auto_match_failed", level="warning", reason=exc.code)
+        session.commit()
+        return
+    upload_jobs.log_event(session, job, "auto_matched", confidence=best["confidence"], title=job.title,
+                          year=job.year)
+    session.commit()
 
 
 def handle(session: Session, job: UploadJob, worker) -> None:
@@ -168,3 +228,4 @@ def handle(session: Session, job: UploadJob, worker) -> None:
             session, job, "identify_done", kind=layout.kind, videos=len(layout.videos), candidates=len(candidates)
         )
         session.commit()
+        _auto_match(session, job, candidates)
