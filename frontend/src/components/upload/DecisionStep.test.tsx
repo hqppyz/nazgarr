@@ -82,7 +82,7 @@ describe('DecisionStep', () => {
     render(<DecisionStep job={withOptions} />)
     fireEvent.click(screen.getByText('Detected details'))
 
-    const values = [...document.querySelectorAll('#override-options-type option')].map((o) => o.getAttribute('value'))
+    const values = Array.from(document.querySelectorAll('#override-options-type option'), (o) => o.getAttribute('value'))
     expect(values).toEqual(['REMUX', 'WEBDL'])
     expect(screen.getByLabelText('Type').getAttribute('list')).toBe('override-options-type')
   })

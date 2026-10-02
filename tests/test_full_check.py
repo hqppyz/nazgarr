@@ -1,5 +1,6 @@
 import hashlib
 import os
+import threading
 from datetime import UTC, datetime
 
 from nazgarr import full_check, pipeline
@@ -152,9 +153,18 @@ def _approve_and_wait(db_session, candidate, monkeypatch, executed):
     from sqlalchemy.orm import sessionmaker
 
     factory = sessionmaker(bind=db_session.get_bind())
+    # Il thread del controllo resta occupato finché non si apre il cancello:
+    # lo stato intermedio si guarda prima che il controllo possa partire, se
+    # no dipendeva da chi arrivava prima (test instabile).
+    gate = threading.Event()
+    full_check._executor.submit(gate.wait)
     review.request_approval(db_session, r, factory, fetch_torrent=lambda _: content)
     assert r.verify_status == "verifying" and r.status == "pending"  # ancora in coda, niente eseguito
+    gate.set()
     full_check._executor.submit(lambda: None).result()
+    # Chiude la transazione aperta: in WAL vedrebbe ancora il DB di prima
+    # dell'esito salvato dal thread del controllo (expire_all non basta).
+    db_session.commit()
     db_session.expire_all()
     return r, full_check.get_check(r.verify_check_id)
 

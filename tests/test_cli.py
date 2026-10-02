@@ -1,3 +1,4 @@
+import os
 import stat
 import tomllib
 from pathlib import Path
@@ -36,6 +37,9 @@ def test_init_wants_an_existing_scan_root(tmp_path):
 
 
 def test_serve_needs_a_config_and_a_key_and_runs_one_process(tmp_path, monkeypatch):
+    # serve scrive CONFIG_PATH e APP_SECRET_KEY nell'ambiente del processo:
+    # una copia, se no la chiave finta arriverebbe ai test dopo questo.
+    monkeypatch.setattr(os, "environ", dict(os.environ))
     monkeypatch.delenv("APP_SECRET_KEY", raising=False)
     config = tmp_path / "config.yaml"
     assert cli.main(["serve", "--config", str(config)]) == 2
