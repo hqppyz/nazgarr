@@ -6,6 +6,7 @@ import { MatchStep } from '@/components/upload/MatchStep'
 
 const confirm = vi.fn()
 
+vi.mock('@/api/hooks/settings', () => ({ useSetting: () => ({ data: undefined }) }))
 vi.mock('@/api/hooks/uploads', () => ({
   useConfirmMatch: () => ({ mutate: confirm, isPending: false }),
   useReidentify: () => ({ mutate: vi.fn(), isPending: false }),
@@ -70,5 +71,20 @@ describe('MatchStep', () => {
     expect(screen.getByText('The files look like episodes of a series, but a movie is selected.')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Confirm match' }))
     expect(confirm.mock.calls[0][0]).toMatchObject({ content_type: 'movie', tmdb_id: 1, kind: 'movie', seasons: [] })
+  })
+
+  it('says how sure the best match is against the automatic threshold, and why', () => {
+    const scored = {
+      ...job,
+      candidates: [
+        { ...job.candidates[0], source: 'search', confidence: 0.85,
+          confidence_parts: { basis: 'name', title: 1, year: 0.85, type: 1 } },
+        job.candidates[1],
+      ],
+    } as unknown as UploadJob
+    render(<MatchStep job={scored} />)
+
+    expect(screen.getByText(/Best match: Severance, 85% sure\. Below the automatic match threshold \(90%\)/)).toBeTruthy()
+    expect(screen.getByText('From the name: title 100% × year 85% × type 100%.')).toBeTruthy()
   })
 })

@@ -74,3 +74,15 @@ def test_folder_without_videos_raises(tmp_path):
 
     with pytest.raises(ValueError, match="no_video_files"):
         scan_source(str(folder))
+
+
+def test_a_movie_folder_reads_the_file_name_first_and_the_folder_for_what_is_missing(tmp_path):
+    # La cartella dice poco ("New release"), il file dice tutto.
+    write_video(tmp_path / "New release" / "Movie.Name.2024.1080p.WEB-DL.H.264-GRP.mkv")
+    layout = scan_source(str(tmp_path / "New release"))
+    assert (layout.title, layout.year, layout.release_group) == ("Movie Name", 2024, "GRP")
+
+    # Il file non ha l'anno: lo dà la cartella.
+    write_video(tmp_path / "Other Movie (2019)" / "Other.Movie.1080p.BluRay.x264-GRP.mkv")
+    layout = scan_source(str(tmp_path / "Other Movie (2019)"))
+    assert (layout.title, layout.year) == ("Other Movie", 2019)

@@ -16,6 +16,7 @@ export interface MetadataCandidate {
   // Solo nei candidati di un upload (nazgarr/upload_match_score.py).
   confidence?: number
   ambiguous?: boolean
+  confidence_parts?: { basis: 'forced' | 'arr' | 'name'; title?: number; year?: number; type?: number }
 }
 
 export interface MetadataSeason {

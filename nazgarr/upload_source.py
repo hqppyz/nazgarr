@@ -124,7 +124,19 @@ def scan_source(source_path: str) -> SourceLayout:
 
     main = max(videos, key=lambda v: v.size_bytes)
     main_path = os.path.join(source_path, main.relative_path) if main.relative_path else source_path
-    year = name_guess.get("year")
+    # Una cartella con un solo contenuto (un film, un episodio): prima il nome
+    # del file, che descrive proprio quel video, e la cartella solo per quello
+    # che manca (decisione dell'utente, 2026-10-02). Per i pack resta la
+    # cartella: il nome di un file dice solo il suo episodio.
+    primary = name_guess
+    if is_dir and kind in ("movie", "episode"):
+        primary = guessit.guessit(os.path.basename(main.relative_path))
+
+    def pick(key):
+        value = primary.get(key)
+        return value if value not in (None, "") else name_guess.get(key)
+
+    year = pick("year")
     return SourceLayout(
         kind=kind,
         content_type=content_type,
@@ -132,9 +144,9 @@ def scan_source(source_path: str) -> SourceLayout:
         other_files=other_files,
         total_size_bytes=sum(v.size_bytes for v in videos),
         main_video=main_path,
-        title=name_guess.get("title"),
+        title=pick("title"),
         year=year if isinstance(year, int) else None,
         seasons=seasons,
         episodes_by_season=episodes_by_season,
-        release_group=name_guess.get("release_group"),
+        release_group=pick("release_group"),
     )

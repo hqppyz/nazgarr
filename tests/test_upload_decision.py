@@ -188,3 +188,42 @@ def test_the_decision_offers_the_file_names_of_each_mode(db_session, decision_jo
         upload_decision.update_overrides(db_session, decision_job, {"file_naming": "whatever"})
     upload_decision.update_overrides(db_session, decision_job, {"file_naming": "original"})
     assert json.loads(decision_job.overrides_json)["file_naming"] == "original"
+
+
+def test_the_release_details_come_from_the_file_then_the_folder():
+    from types import SimpleNamespace
+
+    from nazgarr.upload_decision import name_detected
+
+    job = SimpleNamespace(
+        analysis_json=json.dumps({"name_source": {
+            "name": "Movie.Name.2024.WEB-DL.H.264-GRP", "fallback": "Movie Name 2024 1080p WEB-DL", "origin": "source",
+        }}),
+        source_path="/data/watch/Movie Name 2024 1080p WEB-DL",
+    )
+
+    detected = name_detected(job)
+
+    assert (detected["group"], detected["source"]) == ("GRP", "WEB-DL")  # dal file
+    assert detected["resolution"] == "1080p"  # il file non la dice: dalla cartella
+
+
+def test_the_detected_details_suggest_what_the_trackers_accept(db_session, tmp_path):
+    from nazgarr import upload_jobs
+    from nazgarr.models import TrackerUploadProfile
+    from nazgarr.upload_decision import field_options
+    from tests.upload_helpers import make_disk, make_tracker, write_video
+
+    tracker = make_tracker(db_session)
+    profile = db_session.get(TrackerUploadProfile, tracker.id)
+    profile.type_id_map_json = json.dumps({"REMUX": 1, "WEBDL": 4})
+    profile.resolution_id_map_json = json.dumps({"2160p": 1, "1080p": 2, "720p": 3})
+    db_session.commit()
+    write_video(tmp_path / "Movie.2024.mkv")
+    job = upload_jobs.create_job(db_session, make_disk(db_session, tmp_path), "Movie.2024.mkv")
+
+    options = field_options(db_session, job)
+
+    assert options["type"] == ["REMUX", "WEBDL"]
+    assert options["resolution"] == ["720p", "1080p", "2160p"]
+    assert "BluRay" in options["source"] and "NF" in options["service"] and "TrueHD" in options["audio"]

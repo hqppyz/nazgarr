@@ -177,7 +177,14 @@ def name_source(job: UploadJob, files: list[tuple[str, int]], client_matches: li
             identity = index.identity_for(path, size)
             if identity is not None and identity.scene_name:
                 return {"name": identity.scene_name, "origin": identity.source}
-    return {"name": os.path.basename(job.source_path.rstrip(os.sep)), "origin": "source"}
+    source_name = os.path.basename(job.source_path.rstrip(os.sep))
+    # Una cartella con un solo contenuto: prima il nome del suo video, la
+    # cartella per quello che manca (nazgarr/upload_decision.py name_detected).
+    layout = json.loads(job.layout_json or "{}")
+    main = layout.get("main_video")
+    if job.is_dir and job.kind in ("movie", "episode") and main:
+        return {"name": _strip_video_ext(os.path.basename(main)), "fallback": source_name, "origin": "source"}
+    return {"name": source_name, "origin": "source"}
 
 
 def summary_of(job: UploadJob, files: list[tuple[str, int]]) -> SourceSummary:

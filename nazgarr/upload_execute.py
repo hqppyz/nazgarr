@@ -511,17 +511,26 @@ def _source_files(path: str) -> list[str]:
     return [os.path.join(folder, name) for folder, _dirs, files in os.walk(path, followlinks=False) for name in files]
 
 
+# File che i sistemi operativi lasciano nelle cartelle: mai di un utente.
+_SYSTEM_JUNK = ("Thumbs.db", "desktop.ini", ".DS_Store")
+
+
+def _is_system_junk(name: str) -> bool:
+    return name in _SYSTEM_JUNK or name.startswith("._")
+
+
 def _clear_watch_source(session: Session, job: UploadJob, overrides: dict) -> None:
     """La cartella osservata è solo di passaggio (decisione dell'utente,
     2026-10-02): a upload fatto la release resta solo nella cartella delle
     release, dove seeda con i nomi del torrent (gli hardlink di questo job),
-    e l'originale nella cartella osservata si toglie. Un "move" fatto con un
-    hardlink e poi la rimozione, mai prima: se qualcosa va storto la release
-    resta dov'era.
+    e dalla cartella osservata si toglie. Un "move" fatto con un hardlink e
+    poi la rimozione, mai prima: se qualcosa va storto la release resta lì.
 
-    Solo se almeno un tracker è andato, se si mette in seed, se la sorgente è
-    davvero dentro la cartella osservata e se ogni suo file ha un altro link
-    (la copia che seeda): se no non si tocca niente."""
+    Si tolgono i file che hanno un altro link (la copia che seeda) e i file
+    di sistema (Thumbs.db, .DS_Store...); quello che il torrent non ha preso
+    (es. un sample) resta, elencato nel registro del job, e le cartelle vuote
+    spariscono. Solo se almeno un tracker è andato, se si mette in seed e se
+    la sorgente è davvero dentro la cartella osservata."""
     if job.origin != "watch" or overrides.get("no_seed") or job.disk is None:
         return
     if not any(t.status == "done" and t.action != "skip" for t in job.targets):
@@ -530,23 +539,28 @@ def _clear_watch_source(session: Session, job: UploadJob, overrides: dict) -> No
     source = os.path.realpath(job.source_path)
     if watch is None or not source.startswith(os.path.realpath(watch) + os.sep):
         return
-    files = _source_files(source)
-    try:
-        unlinked = [f for f in files if os.path.islink(f) or os.stat(f, follow_symlinks=False).st_nlink < 2]
-    except OSError:
-        unlinked = files
-    if unlinked:
-        upload_jobs.log_event(session, job, "watch_source_kept", level="warning", count=len(unlinked))
-        session.commit()
-        return
-    for path in files:
-        with contextlib.suppress(OSError):
-            os.unlink(path)
+    moved, kept = [], []
+    for path in _source_files(source):
+        try:
+            linked = not os.path.islink(path) and os.stat(path, follow_symlinks=False).st_nlink >= 2
+        except OSError:
+            continue
+        if linked or _is_system_junk(os.path.basename(path)):
+            with contextlib.suppress(OSError):
+                os.unlink(path)
+            if linked:
+                moved.append(path)
+        else:
+            kept.append(os.path.relpath(path, os.path.dirname(source)))
     if os.path.isdir(source):
         for folder, _dirs, _files in sorted(os.walk(source), key=lambda entry: -len(entry[0])):
             with contextlib.suppress(OSError):
                 os.rmdir(folder)  # solo se vuota
-    upload_jobs.log_event(session, job, "watch_source_moved", count=len(files))
+    if moved:
+        upload_jobs.log_event(session, job, "watch_source_moved", count=len(moved))
+    if kept:
+        upload_jobs.log_event(session, job, "watch_source_leftovers", level="warning", count=len(kept),
+                              files=kept[:10])
     session.commit()
 
 

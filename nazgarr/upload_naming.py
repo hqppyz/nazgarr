@@ -213,6 +213,16 @@ def detect(source_name: str) -> dict:
     }
 
 
+def detect_with_fallback(name: str, fallback: str | None = None) -> dict:
+    """detect() del nome, con quello che manca preso da un secondo nome: il
+    file di una cartella con un solo contenuto, e la cartella per il resto."""
+    detected = detect(name)
+    if not fallback:
+        return detected
+    other = detect(fallback)
+    return {key: value if value not in (None, "") else other.get(key) for key, value in detected.items()}
+
+
 # --- dal MediaInfo --------------------------------------------------------------
 
 

@@ -74,4 +74,16 @@ describe('DecisionStep', () => {
     render(<DecisionStep job={{ ...job, analysis: detected } as UploadJob} />)
     expect(screen.queryByText(/Source not found/)).toBeNull()
   })
+
+  it('suggests the values the trackers accept in the detected details, still free to write', () => {
+    const withOptions = {
+      ...job, analysis: { ...job.analysis, field_options: { type: ['REMUX', 'WEBDL'], resolution: ['1080p'] } },
+    } as UploadJob
+    render(<DecisionStep job={withOptions} />)
+    fireEvent.click(screen.getByText('Detected details'))
+
+    const values = [...document.querySelectorAll('#override-options-type option')].map((o) => o.getAttribute('value'))
+    expect(values).toEqual(['REMUX', 'WEBDL'])
+    expect(screen.getByLabelText('Type').getAttribute('list')).toBe('override-options-type')
+  })
 })

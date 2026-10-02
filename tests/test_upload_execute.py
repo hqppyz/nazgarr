@@ -493,3 +493,25 @@ def test_an_upload_by_hand_never_removes_its_source(db_session, tmp_path, env):
     _run(db_session, tmp_path, job)
 
     assert job.status == "done" and video.is_file()
+
+
+def test_a_release_folder_leaves_with_its_files_and_lists_what_the_torrent_did_not_take(db_session, tmp_path, env):
+    # Una cartella con il film, un sample (fuori dal torrent) e un Thumbs.db.
+    env["disk"].watch_rel_path = "releases"
+    db_session.commit()
+    folder = env["root"] / "releases" / "My Movie 2024"
+    write_video(folder / "My.Movie.2024.1080p.WEB-DL-NZG.mkv", 300 * KB)
+    write_video(folder / "Sample" / "sample.mkv", 10 * KB)
+    (folder / "Thumbs.db").write_bytes(b"x")
+    job = _approved(db_session, env, "releases/My Movie 2024", {"a": _upload("Movie A"), "b": {"action": "skip"}})
+    job.origin = "watch"
+    db_session.commit()
+
+    _run(db_session, tmp_path, job)
+
+    assert job.status == "done", [e.code for e in job.events]
+    assert not (folder / "My.Movie.2024.1080p.WEB-DL-NZG.mkv").exists()
+    assert not (folder / "Thumbs.db").exists()
+    assert (folder / "Sample" / "sample.mkv").is_file()  # non era nel torrent: resta, e si dice
+    leftovers = next(e for e in job.events if e.code == "watch_source_leftovers")
+    assert json.loads(leftovers.params_json)["files"] == ["My Movie 2024/Sample/sample.mkv"]

@@ -14,16 +14,19 @@ import os
 
 from sqlalchemy.orm import Session, object_session
 
-from nazgarr import client_labels, upload_file_names, upload_jobs
+from nazgarr import client_labels, streaming_services, upload_file_names, upload_jobs
 from nazgarr.adapter_factory import TmdbApiKeyMissingError
 from nazgarr.models import TrackerUploadProfile, UploadJob, UploadTarget
 from nazgarr.upload_jobs import UploadJobError
 from nazgarr.upload_naming import (
+    DEFAULT_AUDIO_CODECS,
+    DEFAULT_TYPE_LABELS,
     DETECTED_FIELDS,
     VARIABLES,
     audio_language_check,
     build_name,
     detect,
+    detect_with_fallback,
     release_values,
     rules_from_convention,
     with_tracker_language,
@@ -54,11 +57,49 @@ def _maps(profile: TrackerUploadProfile | None) -> tuple[dict, dict, dict]:
     )
 
 
+# I valori più comuni per i "Detected details" (un menu nei campi, che restano
+# liberi): type e resolution vengono dai profili dei tracker del job, cioè
+# quelli che sanno mappare; gli altri dalle convenzioni dei nomi.
+SOURCE_OPTIONS = ["BluRay", "3D BluRay", "HDDVD", "PAL DVD", "NTSC DVD", "DVD", "HDTV", "UHDTV", "UHDRip",
+                  "WEB-DL", "WEBRip"]
+VIDEO_CODEC_OPTIONS = ["x264", "x265", "H.264", "H.265", "AVC", "HEVC", "AV1", "VC-1", "MPEG-2", "VP9"]
+HDR_OPTIONS = ["DV HDR", "DV", "HDR10+", "HDR", "HLG"]
+EDITION_OPTIONS = ["Director's Cut", "Extended", "Theatrical", "Unrated", "Uncut", "Remastered", "IMAX",
+                   "Special Edition", "Criterion"]
+REPACK_OPTIONS = ["REPACK", "PROPER"]
+
+
+def field_options(session: Session, job: UploadJob) -> dict[str, list[str]]:
+    types: set[str] = set()
+    resolutions: set[str] = set()
+    audio = set(DEFAULT_AUDIO_CODECS.values())
+    for target in job.targets:
+        profile = _profile(session, target)
+        _categories, type_map, resolution_map = _maps(profile)
+        types |= set(type_map)
+        resolutions |= set(resolution_map)
+        rules = profile_rules(profile) or {}
+        audio |= set((rules.get("audio_codecs") or {}).values())
+    return {
+        "type": sorted(types or DEFAULT_TYPE_LABELS),
+        "resolution": sorted(resolutions, key=lambda r: (len(r), r)),
+        "source": SOURCE_OPTIONS,
+        "service": sorted(streaming_services.ABBREVIATIONS),
+        "video_codec": VIDEO_CODEC_OPTIONS,
+        "audio": sorted(a for a in audio if a),
+        "hdr": HDR_OPTIONS,
+        "edition": EDITION_OPTIONS,
+        "repack": REPACK_OPTIONS,
+    }
+
+
 def name_detected(job: UploadJob) -> dict:
     """Dal nome scelto dall'analisi (torrent in hardlink, nome originale di
     Radarr/Sonarr, o il nome della sorgente: nazgarr/upload_analysis.py)."""
-    source = (json.loads(job.analysis_json or "{}").get("name_source") or {}).get("name")
-    return detect(source or os.path.basename(job.source_path.rstrip(os.sep)))
+    name_source = json.loads(job.analysis_json or "{}").get("name_source") or {}
+    # Quello che il nome del file non dice, dal nome della cartella (fallback).
+    return detect_with_fallback(name_source.get("name") or os.path.basename(job.source_path.rstrip(os.sep)),
+                                name_source.get("fallback"))
 
 
 def profile_rules(profile: TrackerUploadProfile | None) -> dict | None:
@@ -150,6 +191,7 @@ def propose(session: Session, job: UploadJob) -> None:
         for target in job.targets
         if (status := audio_language_check(target.tracker.language, mediainfo)) is not None
     }
+    analysis["field_options"] = field_options(session, job)
     analysis["file_names"] = file_names_preview(session, job)
     job.analysis_json = json.dumps(analysis)
     session.commit()

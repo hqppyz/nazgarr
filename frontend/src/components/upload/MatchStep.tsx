@@ -9,6 +9,7 @@ import {
   type MetadataCandidate,
   type MetadataDetails,
 } from '@/api/hooks/metadata'
+import { useSetting } from '@/api/hooks/settings'
 import { useConfirmMatch, useReidentify, type UploadJob } from '@/api/hooks/uploads'
 import { AuthedPoster } from '@/components/AuthedPoster'
 import { ChoiceCards } from '@/components/ChoiceCards'
@@ -83,7 +84,7 @@ function CandidateCard({
             {candidate.confidence != null && (
               <span
                 className={cn('ml-auto rounded px-1 tabular-nums', candidate.ambiguous ? 'bg-amber-500/40' : 'bg-white/15')}
-                title={candidate.ambiguous ? t('upload.match.ambiguous') : t('upload.match.confidence')}
+                title={candidate.ambiguous ? t('upload.match.ambiguous') : confidenceExplained(candidate)}
               >
                 {Math.round(candidate.confidence * 100)}%
               </span>
@@ -92,6 +93,39 @@ function CandidateCard({
         </div>
       </div>
     </button>
+  )
+}
+
+const percent = (value: number | undefined) => `${Math.round((value ?? 0) * 100)}%`
+
+// Da cosa viene la confidence di un candidato (nazgarr/upload_match_score.py).
+function confidenceExplained(candidate: MetadataCandidate): string {
+  const parts = candidate.confidence_parts
+  if (!parts) return t('upload.match.confidence')
+  if (parts.basis !== 'name') return t(`upload.match.basis.${parts.basis}`)
+  return t('upload.match.basis.name', { title: percent(parts.title), year: percent(parts.year), type: percent(parts.type) })
+}
+
+// Il match migliore contro la soglia del match automatico (Settings ›
+// Releases): per capire a che valore metterla.
+function ConfidenceSummary({ candidates }: { candidates: MetadataCandidate[] }) {
+  const { data } = useSetting('upload_auto_match_threshold')
+  const best = candidates[0]
+  if (best?.confidence == null) return null
+  const raw = data?.value
+  const threshold = raw == null || raw === '' ? 0.9 : Number(raw)
+  const off = !(threshold > 0 && threshold <= 1)
+  const passes = !off && !best.ambiguous && best.confidence >= threshold
+  return (
+    <p className={cn('rounded-md border p-2 text-xs', passes ? 'border-emerald-500/40 bg-emerald-500/10' : 'bg-muted/40')}>
+      {t('upload.match.summary', { title: best.title ?? `#${best.tmdb_id}`, confidence: percent(best.confidence) })}{' '}
+      {off
+        ? t('upload.match.summaryOff')
+        : best.ambiguous
+          ? t('upload.match.summaryAmbiguous')
+          : t(passes ? 'upload.match.summaryAbove' : 'upload.match.summaryBelow', { threshold: percent(threshold) })}
+      <span className="mt-1 block text-muted-foreground">{confidenceExplained(best)}</span>
+    </p>
   )
 }
 
@@ -358,7 +392,10 @@ export function MatchStep({ job }: { job: UploadJob }) {
             {candidates.length === 0 ? (
               <p className="text-sm text-muted-foreground">{t('upload.match.noCandidates')}</p>
             ) : (
-              <CandidateGrid candidates={candidates} selectedKey={selected && keyOf(selected)} onSelect={select} />
+              <div className="grid gap-3">
+                <ConfidenceSummary candidates={candidates} />
+                <CandidateGrid candidates={candidates} selectedKey={selected && keyOf(selected)} onSelect={select} />
+              </div>
             )}
           </CardContent>
         </Card>

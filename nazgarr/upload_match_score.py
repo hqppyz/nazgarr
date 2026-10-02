@@ -42,22 +42,39 @@ def _year_factor(guess_year: int | None, year: int | None) -> float:
     return 0.5
 
 
-def score(candidate: dict, title: str | None, year: int | None, content_type: str) -> float:
+def parts(candidate: dict, title: str | None, year: int | None, content_type: str) -> dict:
+    """Da cosa viene la confidence, per la schermata di match: aiuta a capire
+    a che soglia mettere il match automatico."""
     source = candidate.get("source") or ""
     if source.startswith("forced"):
-        return FORCED
+        return {"basis": "forced"}
     if source in ("radarr", "sonarr", "arr"):
+        return {"basis": "arr"}
+    return {
+        "basis": "name",
+        "title": round(title_similarity(title, candidate), 3),
+        "year": _year_factor(year, candidate.get("year")),
+        "type": 1.0 if candidate.get("content_type") == content_type else 0.6,
+    }
+
+
+def score(candidate: dict, title: str | None, year: int | None, content_type: str) -> float:
+    explained = parts(candidate, title, year, content_type)
+    if explained["basis"] == "forced":
+        return FORCED
+    if explained["basis"] == "arr":
         return ARR
-    value = title_similarity(title, candidate) * _year_factor(year, candidate.get("year"))
-    if candidate.get("content_type") != content_type:
-        value *= 0.6
-    return value
+    return explained["title"] * explained["year"] * explained["type"]
 
 
 def scored(candidates: list[dict], title: str | None, year: int | None, content_type: str) -> list[dict]:
-    """I candidati con la loro "confidence", dal più sicuro (a pari merito
-    l'ordine di prima: forzati, resolver, ricerca)."""
-    out = [{**c, "confidence": round(score(c, title, year, content_type), 3)} for c in candidates]
+    """I candidati con la loro "confidence" e da cosa viene ("confidence_parts"),
+    dal più sicuro (a pari merito l'ordine di prima: forzati, resolver, ricerca)."""
+    out = [
+        {**c, "confidence": round(score(c, title, year, content_type), 3),
+         "confidence_parts": parts(c, title, year, content_type)}
+        for c in candidates
+    ]
     out.sort(key=lambda c: -c["confidence"])
     # Più candidati quasi pari al primo (es. due film con lo stesso titolo e
     # lo stesso anno): il match è ambiguo, valgono tutti meno e nessuno

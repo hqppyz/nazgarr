@@ -33,7 +33,7 @@ from sqlalchemy.orm import Session
 from nazgarr import settings_repo
 from nazgarr.file_types import is_video
 from nazgarr.models import ClientTorrent, ClientTorrentFile, SeedFile, UploadJob
-from nazgarr.upload_naming import build_name, detect, release_values
+from nazgarr.upload_naming import build_name, detect_with_fallback, release_values
 
 MODES = ("hardlink", "generated", "original")
 SETTING = "upload_file_naming_rules"
@@ -156,9 +156,8 @@ def _hardlink(session: Session, job: UploadJob, files: list[tuple[str, str]]) ->
 
 
 def _generated(session: Session, job: UploadJob, files: list[tuple[str, str]], mediainfo: dict | None,
-               overrides: dict, source_name: str) -> FilePlan:
+               overrides: dict, detected: dict) -> FilePlan:
     rules_ = rules(session)
-    detected = detect(source_name)
     base_values = release_values(job, detected, mediainfo, overrides, rules_)
     base = sanitize(build_name(rules_, base_values))
     if not job.title or not base:
@@ -255,6 +254,8 @@ def plan(session: Session, job: UploadJob, mode: str | None = None) -> FilePlan:
             return found
         mode = "generated"
     if mode == "generated" and files:
-        source_name = (analysis.get("name_source") or {}).get("name") or os.path.basename(job.source_path)
-        return _generated(session, job, files, analysis.get("mediainfo"), overrides, source_name)
+        name_source = analysis.get("name_source") or {}
+        detected = detect_with_fallback(name_source.get("name") or os.path.basename(job.source_path),
+                                        name_source.get("fallback"))
+        return _generated(session, job, files, analysis.get("mediainfo"), overrides, detected)
     return _original(job, files)

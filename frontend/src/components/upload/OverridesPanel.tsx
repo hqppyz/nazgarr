@@ -33,6 +33,9 @@ function toDraft(overrides: Record<string, unknown>): Draft {
 export function OverridesPanel({ job }: { job: UploadJob }) {
   const analysis = (job.analysis ?? {}) as Record<string, unknown>
   const detected = (analysis.detected ?? {}) as Record<string, string | null>
+  // I valori che i tracker del job accettano (nazgarr/upload_decision.py
+  // field_options): un menu nel campo, che resta libero.
+  const options = (analysis.field_options ?? {}) as Record<string, string[]>
   const nameSource = analysis.name_source as { name: string; origin: string } | undefined
   const [draft, setDraft] = useState<Draft>(() => toDraft(job.overrides))
   const [open, setOpen] = useState(false)
@@ -66,7 +69,15 @@ export function OverridesPanel({ job }: { job: UploadJob }) {
         placeholder={placeholder ?? (key === 'source' && missingSource ? t('upload.overrides.sourcePlaceholder') : '—')}
         value={text(key)}
         onChange={(e) => set(key, e.target.value)}
+        list={options[key]?.length ? `override-options-${key}` : undefined}
       />
+      {options[key]?.length ? (
+        <datalist id={`override-options-${key}`}>
+          {options[key].map((value) => (
+            <option key={value} value={value} />
+          ))}
+        </datalist>
+      ) : null}
     </label>
   )
 
