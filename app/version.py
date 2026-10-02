@@ -21,6 +21,14 @@ import os
 
 BASE_VERSION = "0.6.0"
 
-__version__ = os.environ.get("NAZGARR_VERSION") or f"{BASE_VERSION}-dev"
+# Il pacchetto Python (pipx, scripts/build_package.sh) porta con sé la sua
+# versione in app/_build_info.py, scritto al momento della build.
+try:
+    from app._build_info import COMMIT as _BUILT_COMMIT
+    from app._build_info import VERSION as _BUILT_VERSION
+except ImportError:
+    _BUILT_VERSION = _BUILT_COMMIT = None
+
+__version__ = os.environ.get("NAZGARR_VERSION") or _BUILT_VERSION or f"{BASE_VERSION}-dev"
 # Commit breve da cui è stata costruita l'immagine, None in sviluppo locale.
-__commit__ = os.environ.get("NAZGARR_COMMIT") or None
+__commit__ = os.environ.get("NAZGARR_COMMIT") or _BUILT_COMMIT or None

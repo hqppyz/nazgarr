@@ -306,6 +306,15 @@ Frontend stack: **React SPA + shadcn/ui** (a decision already made in ratio-guar
 
 **First-access tour** (user decisions, 2026-10-02): an interactive guided setup starts by itself at the first access, when no tour was ever seen and no disk exists. A welcome dialog asks two questions (uploads? Radarr/Sonarr?) that tailor the path. A "Getting started" checklist on the Dashboard follows the real configuration (`GET /api/system/setup-status`, `app/setup_status.py`): a step completes however it was configured. Optional steps with sensible defaults (exclusions, reseeding thresholds) complete once seen. Each step has a guided tour (`frontend/src/onboarding`, driver.js — MIT; Shepherd was set aside because it is AGPL-3.0). The tour moves between screens, highlights one field at a time and waits for the user's save. It steps aside while another dialog or list is open. Anchors are `data-tour` attributes, checked by a test. After the first scan, a tour of the views follows on its own: Dashboard, Library, Not imported and the review queue. It can also be started from the finished checklist and from Settings › Application. The tone is neutral, with at most one light fantasy wink per step and never a name or a literal quote. The progress is stored in `app_settings` (`onboarding_state`), and the tour can be restarted from Settings › Application.
 
+**Install without Docker** (user decision, 2026-10-02): every release also ships a Python package, installable with pipx. It is a wheel with the web UI already built inside (`scripts/build_package.sh`, attached to the GitHub Release by the publish workflow), so neither Docker nor Node is needed at runtime: only Python 3.12+, `mediainfo` and `ffmpeg`. The `nazgarr` command (`app/cli.py`) does what entrypoint and supervisord do in the container:
+
+- `init` writes `config.yaml` and a Fernet secret key (0600) to the platform's config folder;
+- `serve` always runs a single process;
+- `install-service` writes a systemd user unit (Linux) or a launchd agent (macOS), and only prints the commands to enable it;
+- `version`.
+
+Without Docker there is no volume mapping: `disk_scan_root` is the real folder the disks are under. The package's dependencies are the ones in `requirements.in`, minus `supervisor`, and a test keeps them equal. Windows is not tested yet.
+
 ## 11. Tech stack
 
 Inherits ratio-guardian (CLAUDE.md), with additions for multi-client and posters:

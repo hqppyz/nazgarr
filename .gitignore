@@ -21,3 +21,8 @@ data/
 # Residui di pip install / build dei pacchetti (es. examples/)
 build/
 *.egg-info/
+
+# Pacchetto Python (scripts/build_package.sh): generati alla build
+/app/_assets/
+/app/_build_info.py
+/dist/

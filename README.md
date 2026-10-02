@@ -64,6 +64,48 @@ Open the web UI, enter the code, a username and a password. Only someone who can
 
 A Community-Applications-style template is published at [`unraid/nazgarr-template.xml`](unraid/nazgarr-template.xml) — add it as a custom template pointing at that raw GitHub URL, or download it and add it manually via "Add Container" → "Template" in the Unraid Docker UI. It follows the same TrashGuide layout as the compose file above (one combined `/data` mount).
 
+### Without Docker (Python package)
+
+Every release also ships a Python package with the web UI already built inside, so neither Docker nor Node is needed. You need Python 3.12 or newer, [pipx](https://pipx.pypa.io), and `mediainfo` and `ffmpeg` from your package manager:
+
+```bash
+sudo apt install pipx mediainfo ffmpeg        # Debian/Ubuntu
+brew install pipx media-info ffmpeg            # macOS
+```
+
+Install it from the [latest release](https://github.com/lktorrentz/nazgarr/releases) (the `.whl` asset):
+
+```bash
+pipx install https://github.com/lktorrentz/nazgarr/releases/download/vX.Y.Z/nazgarr-X.Y.Z-py3-none-any.whl
+```
+
+Set it up once, pointing `--scan-root` at the folder your disks live under (for example `/mnt` or `/srv`):
+
+```bash
+nazgarr init --scan-root /mnt
+```
+
+This writes `config.yaml` and a secret key (`secret.key`, readable only by you) to `~/.config/nazgarr` (macOS: `~/Library/Application Support/Nazgarr`). The database lives in `~/.local/share/nazgarr`. Back up the secret key with the database: it encrypts the stored credentials, and without it they can't be read. `init` also tells you if `mediainfo` or `ffmpeg` are missing.
+
+Run it in the foreground with `nazgarr serve` (`--host`, `--port`; default `0.0.0.0:8080`), or install it as a service that starts at boot:
+
+```bash
+nazgarr install-service
+systemctl --user daemon-reload && systemctl --user enable --now nazgarr   # Linux (systemd)
+sudo loginctl enable-linger $USER                                         # Linux: start without logging in
+launchctl load -w ~/Library/LaunchAgents/io.github.lktorrentz.nazgarr.plist   # macOS (launchd)
+```
+
+The first start prints the one-time setup code in the service log (`journalctl --user -u nazgarr` on Linux, `~/Library/Logs/Nazgarr/nazgarr.log` on macOS), as with Docker.
+
+Things to know:
+
+- **Paths:** Nazgarr sees your real filesystem, so there's no volume mapping. Disks are the real paths under `--scan-root`. If your torrent client runs in a container while Nazgarr doesn't (or the reverse), set the client's root path per disk under Configuration → Torrent clients.
+- **User:** run it as the user that owns your media and torrent folders. Hardlinks need write access, and every folder of a disk must be on the same filesystem.
+- **One process only:** never start it with several workers. The upload worker, the scheduler and the watched folder run inside the process.
+- **Updating:** `pipx install --force <new .whl URL>`, then restart the service.
+- **Windows:** not tested yet. Hardlinks work on NTFS; run `nazgarr serve` through [WinSW](https://github.com/winsw/winsw) or NSSM if you want to try it.
+
 ### Release channels
 
 Two image tags, pick one:

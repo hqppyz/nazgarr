@@ -59,7 +59,10 @@ from sqlalchemy.orm import sessionmaker
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_PATH = Path(__file__).resolve().parent.parent / "docs" / "schema.sql"
+# Nel repository (sviluppo, Docker) docs/schema.sql; nel pacchetto Python
+# installato con pipx (scripts/build_package.sh) la sua copia in app/_assets.
+_REPO_SCHEMA = Path(__file__).resolve().parent.parent / "docs" / "schema.sql"
+SCHEMA_PATH = _REPO_SCHEMA if _REPO_SCHEMA.exists() else Path(__file__).resolve().parent / "_assets" / "schema.sql"
 
 
 @event.listens_for(Engine, "connect")

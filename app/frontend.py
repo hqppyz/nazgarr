@@ -15,7 +15,10 @@ from fastapi.staticfiles import StaticFiles
 
 from app.fs_scope import ScopeViolation, resolve_scoped
 
-FRONTEND_DIST = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
+# Nel repository (sviluppo, Docker) frontend/dist; nel pacchetto Python la
+# sua copia in app/_assets/web (scripts/build_package.sh).
+_REPO_DIST = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
+FRONTEND_DIST = _REPO_DIST if os.path.isdir(_REPO_DIST) else os.path.join(os.path.dirname(__file__), "_assets", "web")
 
 
 def mount_frontend(app: FastAPI, dist_dir: str = FRONTEND_DIST) -> bool:

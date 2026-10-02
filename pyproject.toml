@@ -1,3 +1,54 @@
+# Il pacchetto Python per l'installazione senza Docker (pipx install nazgarr):
+# si costruisce con scripts/build_package.sh, che compila il frontend e copia
+# schema e frontend in app/_assets. Le dipendenze sono quelle di
+# requirements.in (senza supervisor, solo per il container): un test le tiene
+# uguali. Docker e CI continuano a installare il lock con hash.
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nazgarr"
+description = "Media library, seeding folders, hardlinks, torrent clients and tracker uploads in one place."
+readme = "README.md"
+license = "GPL-3.0-only"
+requires-python = ">=3.12"
+dynamic = ["version"]
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "sqlalchemy",
+    "apscheduler",
+    "httpx",
+    "qbittorrent-api",
+    "pymediainfo",
+    "guessit",
+    "torf",
+    "ffmpeg-python",
+    "pyimgbox",
+    "jinja2",
+    "python-multipart",
+    "pyyaml",
+    "cryptography",
+    "pyjwt",
+    "packaging>=24",
+]
+
+[project.urls]
+Homepage = "https://github.com/lktorrentz/nazgarr"
+
+[project.scripts]
+nazgarr = "app.cli:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "app._build_info.VERSION" }
+
+[tool.setuptools.packages.find]
+include = ["app*", "nazgarr_sdk*"]
+
+[tool.setuptools.package-data]
+app = ["_assets/**/*", "tracker_profiles/*.yaml"]
+
 [tool.ruff]
 line-length = 120
 target-version = "py312"
