@@ -24,7 +24,7 @@ export const CHECKLIST: ChecklistStep[] = [
   { key: 'trackers', to: '/config?tab=trackers', optional: false, from: 'status' },
   { key: 'exclusions', to: '/config?tab=exclusions', optional: true, from: 'seen' },
   { key: 'reseeding', to: '/config?tab=matching', optional: true, from: 'seen' },
-  { key: 'upload', to: '/config?tab=upload', optional: true, from: 'status', when: 'upload' },
+  { key: 'upload', to: '/config?tab=images', optional: true, from: 'status', when: 'upload' },
   { key: 'first_scan', to: '/dashboard', optional: false, from: 'status' },
 ]
 

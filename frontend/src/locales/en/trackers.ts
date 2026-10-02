@@ -79,4 +79,5 @@ export const trackers = {
   'trackers.seedRequirement.rule': 'Which one is needed',
   'trackers.seedRequirement.any': 'Either one',
   'trackers.seedRequirement.all': 'Both',
+  'trackers.sectionDescription': 'Your private trackers: where reseeds are searched and uploads published.',
 } as const

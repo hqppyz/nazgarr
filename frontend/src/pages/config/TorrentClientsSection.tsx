@@ -25,6 +25,7 @@ import {
 import { ClientCategorySelect } from '@/components/ClientCategorySelect'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { SettingsHeader } from '@/components/SettingsHeader'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   Dialog,
@@ -537,10 +538,7 @@ export function TorrentClientsSection() {
 
   return (
     <div className="grid content-start gap-4">
-      <div className="flex items-center justify-between gap-2">
-        <h2 className="text-lg font-semibold">Torrent clients</h2>
-        <AddTorrentClientDialog />
-      </div>
+      <SettingsHeader title={t('config.tabClients')} description={t('torrentClients.sectionDescription')} action={<AddTorrentClientDialog />} />
       {isPending && <p className="text-sm text-muted-foreground">{t('common.loading')}</p>}
       {torrentClients?.length === 0 && (
         <Card>

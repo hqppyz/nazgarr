@@ -126,13 +126,13 @@ export const TOURS: Tour[] = [
   },
   {
     key: 'upload',
-    route: '/config?tab=upload',
+    route: '/config?tab=images',
     steps: [
       { id: 'hosts', anchor: 'upload.image-hosts', side: 'bottom', next: true },
-      { id: 'releases', anchor: 'upload.releases', side: 'right', next: true },
       { id: 'screenshots', anchor: 'upload.screenshots', side: 'right', next: true },
-      { id: 'description', anchor: 'upload.description', side: 'left', next: true },
-      { id: 'names', anchor: 'upload.file-names', side: 'top', next: true },
+      { id: 'releases', anchor: 'upload.releases', side: 'right', next: true, route: '/config?tab=releases' },
+      { id: 'description', anchor: 'upload.description', side: 'left', next: true, route: '/config?tab=releases' },
+      { id: 'names', anchor: 'upload.file-names', side: 'top', next: true, route: '/config?tab=releases' },
     ],
   },
   {

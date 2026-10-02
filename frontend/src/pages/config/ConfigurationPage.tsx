@@ -3,6 +3,7 @@ import {
   GaugeIcon,
   HardDriveDownloadIcon,
   HardDriveIcon,
+  ImageIcon,
   InfoIcon,
   KeyRoundIcon,
   LayoutGridIcon,
@@ -20,6 +21,7 @@ import { useSearchParams } from 'react-router-dom'
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Masonry } from '@/components/Masonry'
+import { SettingsHeader } from '@/components/SettingsHeader'
 import { t } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 import { ApiKeysSection } from '@/pages/config/ApiKeysSection'
@@ -35,11 +37,11 @@ import { PluginsSection } from '@/pages/config/PluginsSection'
 import { SecuritySection } from '@/pages/config/SecuritySection'
 import { TorrentClientsSection } from '@/pages/config/TorrentClientsSection'
 import { TrackersSection } from '@/pages/config/TrackersSection'
-import { UploadSettingsSection } from '@/pages/config/UploadSettingsSection'
+import { UploadImagesSection, UploadReleasesSection } from '@/pages/config/UploadSettingsSection'
 import { WebhooksSection } from '@/pages/config/WebhooksSection'
 
 // Impostazioni in gruppi per argomento (Generale, Libreria, Torrent,
-// Workflows, Estensioni, Sistema). Il tab aperto sta nell'URL (?tab=…), così un link da
+// Reseeding, Upload, Estensioni, Sistema). Il tab aperto sta nell'URL (?tab=…), così un link da
 // un'altra pagina porta dritto al tab giusto.
 //
 // Layout: le card piccole in un masonry a due colonne (components/Masonry.tsx,
@@ -54,7 +56,10 @@ interface Tab {
   icon: LucideIcon
   layout: 'masonry' | 'stack'
   content: ReactNode
-  // Clienti e tracker hanno già il loro titolo, con accanto il pulsante "Add".
+  // Sotto il titolo: a cosa serve il tab.
+  description?: string
+  // Il tab ha la sua intestazione (SettingsHeader con il pulsante "Add" o un
+  // filtro a destra): clienti, tracker, API key, webhook, log.
   ownHeading?: boolean
 }
 
@@ -62,21 +67,22 @@ const GROUPS: { title: string; tabs: Tab[] }[] = [
   {
     title: t('config.groupGeneral'),
     tabs: [
-      { value: 'application', label: t('config.tabApplication'), icon: InfoIcon, layout: PAIRS, content: <ApplicationSection /> },
-      { value: 'interface', label: t('config.tabInterface'), icon: LayoutGridIcon, layout: PAIRS, content: <InterfaceSection /> },
-      { value: 'security', label: t('config.tabSecurity'), icon: ShieldIcon, layout: PAIRS, content: <SecuritySection /> },
+      { value: 'application', label: t('config.tabApplication'), icon: InfoIcon, layout: PAIRS, content: <ApplicationSection />, description: t('config.descApplication') },
+      { value: 'interface', label: t('config.tabInterface'), icon: LayoutGridIcon, layout: PAIRS, content: <InterfaceSection />, description: t('config.descInterface') },
+      { value: 'security', label: t('config.tabSecurity'), icon: ShieldIcon, layout: PAIRS, content: <SecuritySection />, description: t('config.descSecurity') },
     ],
   },
   {
     title: t('config.groupLibrary'),
     tabs: [
-      { value: 'storage', label: t('config.tabStorage'), icon: HardDriveIcon, layout: STACK, content: <DisksSection /> },
-      { value: 'exclusions', label: t('config.tabExclusions'), icon: FilterXIcon, layout: PAIRS, content: <ExclusionsSection /> },
+      { value: 'storage', label: t('config.tabStorage'), icon: HardDriveIcon, layout: STACK, content: <DisksSection />, description: t('config.descStorage') },
+      { value: 'exclusions', label: t('config.tabExclusions'), icon: FilterXIcon, layout: PAIRS, content: <ExclusionsSection />, description: t('config.descExclusions') },
       {
         value: 'integrations',
         label: t('config.tabIntegrations'),
         icon: PlugIcon,
         layout: STACK,
+        description: t('config.descIntegrations'),
         content: (
           <>
             <Masonry gap={24}>
@@ -96,12 +102,21 @@ const GROUPS: { title: string; tabs: Tab[] }[] = [
     ],
   },
   {
-    // I due flussi che portano torrent nei client: ricreare i seed della
-    // libreria (matching e approvazione) e pubblicare nuovi upload.
-    title: t('config.groupWorkflows'),
+    title: t('config.groupReseeding'),
     tabs: [
-      { value: 'matching', label: t('config.tabMatching'), icon: GaugeIcon, layout: PAIRS, content: <AutoApproveSection /> },
-      { value: 'upload', label: t('config.tabUpload'), icon: UploadCloudIcon, layout: PAIRS, content: <UploadSettingsSection /> },
+      { value: 'matching', label: t('config.tabMatching'), icon: GaugeIcon, layout: PAIRS, content: <AutoApproveSection />,
+        description: t('config.descMatching') },
+    ],
+  },
+  {
+    // Pubblicare nuovi upload: gli screenshot (host e scatti) e le release
+    // (releaser, cartella osservata, descrizione, nomi dei file).
+    title: t('config.groupUpload'),
+    tabs: [
+      { value: 'images', label: t('config.tabImages'), icon: ImageIcon, layout: PAIRS, content: <UploadImagesSection />,
+        description: t('config.descImages') },
+      { value: 'releases', label: t('config.tabReleases'), icon: UploadCloudIcon, layout: PAIRS,
+        content: <UploadReleasesSection />, description: t('config.descReleases') },
     ],
   },
   {
@@ -109,22 +124,27 @@ const GROUPS: { title: string; tabs: Tab[] }[] = [
     // webhook e API key (docs/SDK.md).
     title: t('config.groupExtensions'),
     tabs: [
-      { value: 'api-keys', label: t('config.tabApiKeys'), icon: KeyRoundIcon, layout: STACK, content: <ApiKeysSection /> },
-      { value: 'plugins', label: t('config.tabPlugins'), icon: PuzzleIcon, layout: STACK, content: <PluginsSection /> },
-      { value: 'webhooks', label: t('config.tabWebhooks'), icon: WebhookIcon, layout: STACK, content: <WebhooksSection /> },
+      { value: 'api-keys', label: t('config.tabApiKeys'), icon: KeyRoundIcon, layout: STACK, content: <ApiKeysSection />,
+        ownHeading: true },
+      { value: 'plugins', label: t('config.tabPlugins'), icon: PuzzleIcon, layout: STACK, content: <PluginsSection />,
+        description: t('config.descPlugins') },
+      { value: 'webhooks', label: t('config.tabWebhooks'), icon: WebhookIcon, layout: STACK, content: <WebhooksSection />,
+        ownHeading: true },
     ],
   },
   {
     title: t('config.groupSystem'),
     tabs: [
-      { value: 'logs', label: t('config.tabLogs'), icon: ScrollTextIcon, layout: STACK, content: <LogsSection /> },
+      { value: 'logs', label: t('config.tabLogs'), icon: ScrollTextIcon, layout: STACK, content: <LogsSection />, ownHeading: true },
     ],
   },
 ]
 
 const ALL_TABS = GROUPS.flatMap((group) => group.tabs)
 // Tab di prima del riordino, per i link già salvati.
-const RENAMED: Record<string, string> = { mapping: 'storage', metadata: 'integrations', 'time-language': 'interface' }
+const RENAMED: Record<string, string> = {
+  mapping: 'storage', metadata: 'integrations', 'time-language': 'interface', upload: 'images',
+}
 
 export function ConfigurationPage() {
   const [params, setParams] = useSearchParams()
@@ -155,8 +175,8 @@ export function ConfigurationPage() {
       </TabsList>
       {ALL_TABS.map((tab) => (
         <TabsContent key={tab.value} value={tab.value} className="grid min-w-0 content-start gap-4">
-          {/* Lo stesso titolo di Clients e Trackers per ogni impostazione. */}
-          {!tab.ownHeading && <h2 className="text-lg font-semibold">{tab.label}</h2>}
+          {/* La stessa intestazione per ogni impostazione (components/SettingsHeader.tsx). */}
+          {!tab.ownHeading && <SettingsHeader title={tab.label} description={tab.description} />}
           {tab.layout === 'masonry' ? (
             <Masonry gap={24}>{tab.content}</Masonry>
           ) : (

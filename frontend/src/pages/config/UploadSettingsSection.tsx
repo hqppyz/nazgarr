@@ -89,12 +89,13 @@ const KEYED_HOSTS = [
   { key: 'seedpool_cdn', label: 'Seedpool CDN', url: 'https://i.seedpool.org' },
 ]
 
-export function UploadSettingsSection() {
+// Settings > Upload > Images: dove vanno gli screenshot e come si fanno.
+export function UploadImagesSection() {
   const { data: priority } = useSetting('image_host_priority')
   const enabled = parseOrder(priority?.value)
   return (
     <>
-      {/* Per primi, a tutta larghezza: priorità e API key affiancate. */}
+      {/* A tutta larghezza: priorità e API key affiancate. */}
       <Card data-masonry="full" data-tour="upload.image-hosts">
         <CardHeader>
           <CardTitle>{t('uploadSettings.imageHostsTitle')}</CardTitle>
@@ -124,6 +125,32 @@ export function UploadSettingsSection() {
           </div>
         </CardContent>
       </Card>
+
+      <Card data-tour="upload.screenshots">
+        <CardHeader>
+          <CardTitle>{t('uploadSettings.screenshotsTitle')}</CardTitle>
+          <CardDescription>{t('uploadSettings.screenshotsDescription')}</CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-4">
+          <SettingField
+            settingKey="upload_screenshot_count"
+            label={t('uploadSettings.screenshotCountLabel')}
+            description={t('uploadSettings.screenshotCountDescription')}
+            type="number"
+            placeholder="4"
+          />
+          <TonemapSwitch />
+        </CardContent>
+      </Card>
+    </>
+  )
+}
+
+// Settings > Upload > Releases: le release del releaser, la descrizione e i
+// nomi dei file nei torrent.
+export function UploadReleasesSection() {
+  return (
+    <>
       {/* Le release del releaser: il suo nome e la cartella osservata (Storage). */}
       <Card data-tour="upload.releases">
         <CardHeader>
@@ -144,23 +171,6 @@ export function UploadSettingsSection() {
             type="number"
             placeholder="0.9"
           />
-        </CardContent>
-      </Card>
-
-      <Card data-tour="upload.screenshots">
-        <CardHeader>
-          <CardTitle>{t('uploadSettings.screenshotsTitle')}</CardTitle>
-          <CardDescription>{t('uploadSettings.screenshotsDescription')}</CardDescription>
-        </CardHeader>
-        <CardContent className="grid gap-4">
-          <SettingField
-            settingKey="upload_screenshot_count"
-            label={t('uploadSettings.screenshotCountLabel')}
-            description={t('uploadSettings.screenshotCountDescription')}
-            type="number"
-            placeholder="4"
-          />
-          <TonemapSwitch />
         </CardContent>
       </Card>
 
@@ -185,7 +195,6 @@ export function UploadSettingsSection() {
           />
         </CardContent>
       </Card>
-
       <FileNamingCard />
     </>
   )

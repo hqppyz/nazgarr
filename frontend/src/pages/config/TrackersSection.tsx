@@ -4,6 +4,7 @@ import { toast } from 'sonner'
 
 import { useBundledUploadProfiles, useCreateTracker, useDeleteTracker, useTrackers, useUpdateTracker } from '@/api/hooks/trackers'
 import type { Schemas } from '@/api/client'
+import { SettingsHeader } from '@/components/SettingsHeader'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -450,10 +451,7 @@ export function TrackersSection() {
 
   return (
     <div className="grid content-start gap-4">
-      <div className="flex items-center justify-between gap-2">
-        <h2 className="text-lg font-semibold">{t('trackers.title')}</h2>
-        <AddTrackerDialog />
-      </div>
+      <SettingsHeader title={t('trackers.title')} description={t('trackers.sectionDescription')} action={<AddTrackerDialog />} />
       {isPending && <p className="text-sm text-muted-foreground">{t('common.loading')}</p>}
       {trackers?.length === 0 && (
         <Card>

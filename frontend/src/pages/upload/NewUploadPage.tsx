@@ -39,7 +39,7 @@ function ImageHostWarning() {
             ? t('upload.imageHostsNone')
             : t('upload.imageHostsNoKey', { hosts: data.usable.map((key) => IMAGE_HOST_LABELS[key] ?? key).join(', ') })}
         </p>
-        <Link to="/config?tab=upload" className="w-fit font-medium text-primary underline-offset-4 hover:underline">
+        <Link to="/config?tab=images" className="w-fit font-medium text-primary underline-offset-4 hover:underline">
           {t('upload.imageHostsSettings')}
         </Link>
       </div>

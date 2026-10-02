@@ -345,7 +345,7 @@ export const upload = {
   'upload.fileNames.mode.original': 'Original',
   'upload.fileNames.more': '… and {count} more',
   'upload.fileNames.help.hardlink': 'The names of the torrent that already seeds these files on a client: the original release.',
-  'upload.fileNames.help.generated': 'Built from the pattern in Settings › Upload, from the release name and the MediaInfo.',
+  'upload.fileNames.help.generated': 'Built from the pattern in Settings › Releases, from the release name and the MediaInfo.',
   'upload.fileNames.help.original': 'The names the files have in your folders (in the library, the Plex/Radarr/Sonarr ones).',
   'upload.event.file_names': 'File names in the torrent: {mode} ({name}).',
   'upload.event.file_links_removed': '{count} file(s) linked for the torrent removed: nothing seeds them.',

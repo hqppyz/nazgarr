@@ -16,7 +16,8 @@ import {
 import { OneTimeSecretDialog } from '@/components/OneTimeSecretDialog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { SettingsHeader } from '@/components/SettingsHeader'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   Dialog,
   DialogContent,
@@ -194,35 +195,44 @@ export function WebhooksSection() {
 
   return (
     <>
-      <Card>
-        <CardHeader className="flex flex-row items-start justify-between gap-3">
-          <div className="grid gap-1">
-            <CardTitle>{t('webhooks.title')}</CardTitle>
-            <CardDescription>{t('webhooks.description')}</CardDescription>
-          </div>
+      <SettingsHeader
+        title={t('webhooks.title')}
+        description={t('webhooks.description')}
+        action={
           <Button onClick={() => setEditing('new')}>
             <PlusIcon className="size-4" />
             {t('webhooks.add')}
           </Button>
-        </CardHeader>
-        <CardContent className="grid gap-2">
-          {(webhooks ?? []).length === 0 && <p className="text-sm text-muted-foreground">{t('webhooks.none')}</p>}
-          {webhooks?.map((webhook) => (
-            <div key={webhook.id} className={cn('grid gap-2 rounded-md border p-3', !webhook.enabled && 'opacity-60')}>
-              <div className="flex flex-wrap items-center gap-2">
-                <WebhookIcon className="size-4 text-muted-foreground" />
-                <span className="font-medium">{webhook.name}</span>
-                {webhook.last_status && <StatusBadge status={webhook.last_status} />}
-                <Switch
-                  className="ml-auto"
-                  checked={webhook.enabled}
-                  title={t('webhooks.enabled')}
-                  onCheckedChange={(enabled) =>
-                    update.mutate({ id: webhook.id, body: { enabled } }, autosaveFeedback(webhook.name))
-                  }
-                />
+        }
+      />
+      {(webhooks ?? []).length === 0 && (
+        <Card>
+          <CardContent className="py-6 text-center text-sm text-muted-foreground">{t('webhooks.none')}</CardContent>
+        </Card>
+      )}
+      {/* Una scheda per webhook, come i client e i tracker: nome e stato,
+          indirizzo, eventi, e le azioni (la prova a sinistra). */}
+      <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
+        {webhooks?.map((webhook) => (
+          <Card key={webhook.id} className={cn('min-w-0', !webhook.enabled && 'opacity-70')}>
+            <CardHeader className="flex flex-row items-center gap-3">
+              <WebhookIcon className="size-5 shrink-0 text-muted-foreground" />
+              <div className="grid min-w-0 flex-1 gap-0.5">
+                <CardTitle className="flex items-center gap-2 truncate text-base">
+                  {webhook.name}
+                  {webhook.last_status && <StatusBadge status={webhook.last_status} />}
+                </CardTitle>
+                <span className="truncate font-mono text-xs text-muted-foreground" title={webhook.url}>{webhook.url}</span>
               </div>
-              <p className="truncate font-mono text-xs text-muted-foreground" title={webhook.url}>{webhook.url}</p>
+              <Switch
+                checked={webhook.enabled}
+                title={t('webhooks.enabled')}
+                onCheckedChange={(enabled) =>
+                  update.mutate({ id: webhook.id, body: { enabled } }, autosaveFeedback(webhook.name))
+                }
+              />
+            </CardHeader>
+            <CardContent className="grid min-w-0 gap-3 text-sm">
               <div className="flex flex-wrap gap-1">
                 {webhook.events.map((event) => (
                   <Badge key={event} variant="secondary" className="font-mono text-[11px]">
@@ -230,9 +240,9 @@ export function WebhooksSection() {
                   </Badge>
                 ))}
               </div>
-              <div className="flex flex-wrap justify-end gap-1 border-t pt-2">
+              <div className="flex items-center gap-1 border-t pt-3">
                 <Button
-                  variant="ghost"
+                  variant="outline"
                   size="sm"
                   disabled={test.isPending}
                   onClick={() =>
@@ -247,9 +257,9 @@ export function WebhooksSection() {
                   <SendIcon className="size-4" />
                   {t('webhooks.test')}
                 </Button>
-                <Button variant="ghost" size="sm" onClick={() => setDeliveries(webhook)}>
+                <span className="flex-1" />
+                <Button variant="ghost" size="icon-sm" title={t('webhooks.deliveries')} onClick={() => setDeliveries(webhook)}>
                   <HistoryIcon className="size-4" />
-                  {t('webhooks.deliveries')}
                 </Button>
                 <Button
                   variant="ghost"
@@ -266,10 +276,10 @@ export function WebhooksSection() {
                   <TrashIcon className="size-4" />
                 </Button>
               </div>
-            </div>
-          ))}
-        </CardContent>
-      </Card>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
 
       {editing !== null && (
         <WebhookDialog

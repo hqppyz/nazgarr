@@ -52,4 +52,5 @@ export const torrentClients = {
   'torrentClients.tagsUpload': 'Upload tags',
   'torrentClients.tagsReseed': 'Reseed tags',
   'torrentClients.noTags': 'none, e.g. release',
+  'torrentClients.sectionDescription': 'The clients Nazgarr reads to know what seeds, and where reseeds and uploads are added.',
 } as const

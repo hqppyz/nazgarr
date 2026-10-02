@@ -1,4 +1,4 @@
-import { KeyRoundIcon } from 'lucide-react'
+import { KeyRoundIcon, PlusIcon } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 
@@ -6,7 +6,8 @@ import { useApiKeys, useCreateApiKey, useRevokeApiKey } from '@/api/hooks/apiKey
 import { OneTimeSecretDialog } from '@/components/OneTimeSecretDialog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { SettingsHeader } from '@/components/SettingsHeader'
+import { Card, CardContent } from '@/components/ui/card'
 import {
   Dialog,
   DialogContent,
@@ -14,6 +15,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  DialogTrigger,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -28,24 +30,23 @@ function when(iso: string | null | undefined) {
   return { relative: relativeFromNow(iso), absolute: parseApiDate(iso).toLocaleString() }
 }
 
-// API key per servizi e script (header X-Api-Key): lettura = solo GET,
-// scrittura = tutto tranne gestire le chiavi. La chiave si vede una volta.
-export function ApiKeysSection() {
-  const { data: keys } = useApiKeys()
+// Nuova chiave: nome e accesso, in un dialog dal pulsante dell'intestazione
+// (come i dischi, i client e i tracker). La chiave creata si vede una volta.
+function AddApiKeyDialog({ onCreated }: { onCreated: (key: string) => void }) {
   const create = useCreateApiKey()
-  const revoke = useRevokeApiKey()
+  const [open, setOpen] = useState(false)
   const [name, setName] = useState('')
   const [level, setLevel] = useState<'read' | 'write'>('read')
-  const [created, setCreated] = useState<string | null>(null)
-  const [revoking, setRevoking] = useState<{ id: number; name: string } | null>(null)
 
   function submit() {
     create.mutate(
       { name, level },
       {
         onSuccess: (key) => {
-          setCreated(key.key)
+          setOpen(false)
           setName('')
+          setLevel('read')
+          onCreated(key.key)
         },
         onError: (error) => toast.error(t('common.saveFailed', { message: error.message })),
       },
@@ -53,39 +54,58 @@ export function ApiKeysSection() {
   }
 
   return (
-    <>
-      <Card>
-        <CardHeader>
-          <CardTitle>{t('security.apiKeyNewTitle')}</CardTitle>
-          <CardDescription>{t('security.apiKeysDescription')}</CardDescription>
-        </CardHeader>
-        <CardContent className="grid gap-3">
-          <form
-            className="grid gap-3 md:grid-cols-[minmax(0,24rem)_auto_auto] md:items-end"
-            onSubmit={(e) => {
-              e.preventDefault()
-              if (name.trim()) submit()
-            }}
-          >
-            <div className="grid gap-1.5">
-              <Label htmlFor="api-key-name">{t('security.apiKeyName')}</Label>
-              <Input id="api-key-name" value={name} placeholder="grafana" onChange={(e) => setName(e.target.value)} />
-            </div>
-            <div className="grid gap-1.5">
-              <Label>{t('security.apiKeyAccess')}</Label>
-              <ToggleGroupSingle value={level} onValueChange={(v) => v && setLevel(v as 'read' | 'write')} variant="outline">
-                <ToggleGroupItem value="read">{t('security.apiKeyRead')}</ToggleGroupItem>
-                <ToggleGroupItem value="write">{t('security.apiKeyWrite')}</ToggleGroupItem>
-              </ToggleGroupSingle>
-            </div>
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger render={<Button><PlusIcon className="size-4" />{t('security.apiKeyAdd')}</Button>} />
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{t('security.apiKeyNewTitle')}</DialogTitle>
+          <DialogDescription>{t('security.apiKeysDescription')}</DialogDescription>
+        </DialogHeader>
+        <form
+          className="grid gap-3"
+          onSubmit={(e) => {
+            e.preventDefault()
+            if (name.trim()) submit()
+          }}
+        >
+          <div className="grid gap-1.5">
+            <Label htmlFor="api-key-name">{t('security.apiKeyName')}</Label>
+            <Input id="api-key-name" value={name} placeholder="grafana" onChange={(e) => setName(e.target.value)} />
+          </div>
+          <div className="grid gap-1.5">
+            <Label>{t('security.apiKeyAccess')}</Label>
+            <ToggleGroupSingle value={level} onValueChange={(v) => v && setLevel(v as 'read' | 'write')} variant="outline">
+              <ToggleGroupItem value="read">{t('security.apiKeyRead')}</ToggleGroupItem>
+              <ToggleGroupItem value="write">{t('security.apiKeyWrite')}</ToggleGroupItem>
+            </ToggleGroupSingle>
+            <p className="text-xs text-muted-foreground">{t(`security.apiKeyLevelHelp.${level}`)}</p>
+          </div>
+          <DialogFooter>
             <Button type="submit" disabled={!name.trim() || create.isPending}>
               {t('security.apiKeyCreate')}
             </Button>
-          </form>
-          <p className="text-xs text-muted-foreground">{t(`security.apiKeyLevelHelp.${level}`)}</p>
-        </CardContent>
-      </Card>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
 
+// API key per servizi e script (header X-Api-Key): lettura = solo GET,
+// scrittura = tutto tranne gestire le chiavi.
+export function ApiKeysSection() {
+  const { data: keys } = useApiKeys()
+  const revoke = useRevokeApiKey()
+  const [created, setCreated] = useState<string | null>(null)
+  const [revoking, setRevoking] = useState<{ id: number; name: string } | null>(null)
+
+  return (
+    <>
+      <SettingsHeader
+        title={t('config.tabApiKeys')}
+        description={t('security.apiKeysDescription')}
+        action={<AddApiKeyDialog onCreated={setCreated} />}
+      />
       <Card className="py-0">
         {(keys ?? []).length === 0 ? (
           <CardContent className="flex items-center gap-2 py-6 text-sm text-muted-foreground">

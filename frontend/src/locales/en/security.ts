@@ -43,4 +43,5 @@ export const security = {
   'security.sessionsDescription':
     'A login lasts 30 days on each device. If you think someone else is logged in, log out everywhere: every device, this one included, must log in again.',
   'security.logoutEverywhere': 'Log out everywhere',
+  'security.apiKeyAdd': 'Add key',
 } as const
