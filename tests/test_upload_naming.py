@@ -30,8 +30,9 @@ def test_itt_remux_name_from_mediainfo_with_the_italian_title():
     assert (values["audio"], values["audio_all"]) == ("TrueHD 5.1", "TrueHD 5.1 DD 5.1")
     assert (values["audio_codec"], values["audio_channels"], values["audio_atmos"]) == ("TrueHD", "5.1", None)
     assert (values["audio_languages"], values["subs_languages"], values["bit_depth"]) == ("ITA ENG", "ITA ENG", "8bit")
+    # Il nome non dice la sorgente: per un remux è BluRay (decisione dell'utente, 2026-10-02).
     assert build_name(ITT_RULES, values) == (
-        "17 Again - Ritorno al liceo 2009 1080p FullHD VU REMUX TrueHD 5.1 DD 5.1 ITA ENG SUBS VC-1-MaTiTa"
+        "17 Again - Ritorno al liceo 2009 1080p FullHD BluRay VU REMUX TrueHD 5.1 DD 5.1 ITA ENG SUBS VC-1-MaTiTa"
     )
 
 
@@ -326,3 +327,34 @@ def test_a_remux_is_recognised_from_vu_or_from_a_disc_without_an_encoder():
     assert release_values(job, detect("Film.2023.2160p.WEB-DL-GRP"), untouched, {}, None)["type"] == "WEBDL"
     assert release_values(job, detect("Film.2023.2160p.BluRay-GRP"), untouched, {"type": "ENCODE"}, None)["type"] \
         == "ENCODE"
+
+
+def test_a_dolby_vision_profile_8_remux_is_hybrid_and_drops_vu_at_itt():
+    from nazgarr.upload_naming import build_name, detect, release_values
+    from nazgarr.upload_profiles import _bundled_naming
+
+    job = _job()
+    itt_rules = _bundled_naming("itt")
+    p8 = {"video": {"format": "HEVC", "height": 2160, "width": 3840, "hdr_format": "Dolby Vision",
+                    "hdr_format_profile": "dvhe.08"}}
+    p7 = {"video": {"format": "HEVC", "height": 2160, "width": 3840, "hdr_format": "Dolby Vision",
+                    "hdr_format_profile": "dvhe.07"}}
+
+    hybrid = release_values(job, detect("Film.2023.2160p.BluRay.REMUX-GRP"), p8, {}, itt_rules)
+    assert hybrid["hybrid"] == "HYBRID"
+    assert "HYBRID REMUX" in build_name(itt_rules, hybrid) and "VU" not in build_name(itt_rules, hybrid)
+    pure = release_values(job, detect("Film.2023.2160p.BluRay.REMUX-GRP"), p7, {}, itt_rules)
+    assert pure["hybrid"] is None and "VU REMUX" in build_name(itt_rules, pure)
+    # Già scritto nel nome, anche senza MediaInfo.
+    assert detect("Film.2023.2160p.BluRay.Hybrid.REMUX-GRP")["hybrid"] == "HYBRID"
+
+
+def test_a_remux_without_a_source_comes_from_a_blu_ray_or_a_dvd():
+    from nazgarr.upload_naming import detect, release_values
+
+    job = _job()
+    hd = release_values(job, detect("Film.2023.1080p.VU-GRP"), {"video": {"format": "AVC", "height": 1080}}, {}, None)
+    sd = release_values(job, detect("Film.2023.576p.VU-GRP"), {"video": {"format": "MPEG Video", "height": 576}},
+                        {}, None)
+    assert (hd["type"], hd["source"]) == ("REMUX", "BluRay")
+    assert (sd["type"], sd["source"]) == ("REMUX", "PAL DVD")

@@ -29,7 +29,8 @@ from nazgarr.upload_dupes import traits_of
 # servono all'editor delle regole (chip da inserire e anteprima).
 VARIABLES = {
     "title": "Dune: Part Two", "local_title": "Dune - Parte due", "year": "2024", "season": "S02",
-    "episode": "E03", "edition": "Extended", "repack": "REPACK", "resolution": "2160p", "format": "UHD",
+    "episode": "E03", "edition": "Extended", "repack": "REPACK", "hybrid": "HYBRID", "resolution": "2160p",
+    "format": "UHD",
     "source": "BluRay", "source_full": "BluRay",
     "type": "REMUX", "service": "ATVP", "video_codec": "HEVC", "hdr": "DV HDR", "hdr_full": "DV.P7.HDR10",
     "bit_depth": "10bit",
@@ -40,7 +41,7 @@ VARIABLES = {
 
 # Campi che l'utente può correggere nei "Detected details".
 DETECTED_FIELDS = (
-    "type", "resolution", "source", "edition", "repack", "service", "hdr", "video_codec", "audio",
+    "type", "resolution", "source", "edition", "repack", "hybrid", "service", "hdr", "video_codec", "audio",
     "audio_languages", "group",
 )
 
@@ -210,6 +211,7 @@ def detect(source_name: str) -> dict:
         "source": _source_label(guess),
         "edition": " ".join(str(e) for e in _as_list(guess.get("edition"))) or None,
         "repack": "REPACK" if traits.repack else None,
+        "hybrid": "HYBRID" if _HYBRID.search(source_name) else None,
         "service": service or None,
         "hdr": " ".join(tag for tag in ("DV", "HDR") if tag in traits.hdr) or None,
         "video_codec": _name_video_codec(guess, release),
@@ -311,6 +313,8 @@ def _mi_hdr_full(video: dict) -> str | None:
             tags.append("HDR10" if tag == "HDR" else tag)
     return ".".join(tags) or None
 
+
+_HYBRID = re.compile(r"(?:^|[ ._\-\[(])HYBRID(?:$|[ ._\-\])])", re.IGNORECASE)
 
 # Le sorgenti da disco: un video da lì senza un encoder è un remux.
 _DISC_LABELS = ("BluRay", "3D BluRay", "HDDVD", "PAL DVD", "NTSC DVD", "DVD")
@@ -504,6 +508,10 @@ def release_values(
             and values.get("source") in _DISC_LABELS and not has_encoder(video)):
         values["type"] = "REMUX"
     release = overrides.get("type") or values["type"] or "ENCODE"
+    # Un remux con Dolby Vision profilo 8: il DV è stato aggiunto a un altro
+    # video (un remux puro ha profilo 7 o 5), quindi è un ibrido.
+    if video and release == "REMUX" and not values.get("hybrid") and dv_profile(video) == 8:
+        values["hybrid"] = "HYBRID"
     if video:
         values["resolution"] = _mi_resolution(video) or values["resolution"]
         values["video_codec"] = _mi_video_codec(video, release) or values["video_codec"]
@@ -539,6 +547,11 @@ def release_values(
             values[key] = overrides[key]
     if overrides.get("hdr") not in (None, ""):
         values["hdr_full"] = overrides["hdr"]  # corretto a mano: vale per tutti e due
+    # Un remux viene da un disco: senza una sorgente nel nome, BluRay (o DVD
+    # se è a definizione standard). Decisione dell'utente, 2026-10-02.
+    if values.get("type") == "REMUX" and not values.get("source"):
+        height = int(video.get("height") or 0) if video else 0
+        values["source"] = "DVD" if 0 < height <= 576 else "BluRay"
     # Dopo gli override: seguono la risoluzione, il tipo e la sorgente scelti.
     if values.get("source") == "DVD" and values.get("resolution"):
         standard = {"576": "PAL", "480": "NTSC"}.get(str(values["resolution"])[:3])
@@ -584,6 +597,10 @@ def type_label(rules: dict, values: dict) -> str | None:
     if not key:
         return None
     labels = {**DEFAULT_TYPE_LABELS, **(rules.get("type_labels") or {})}
+    # Un ibrido può avere la sua etichetta (ITT: "REMUX" invece di "VU REMUX",
+    # perché non è più video untouched).
+    if values.get("hybrid"):
+        labels.update(rules.get("hybrid_type_labels") or {})
     label = labels.get(key, key)
     return re.sub(r"\s+", " ", _render(label, {**values, "type": key})).strip() or None
 

@@ -90,6 +90,7 @@ def field_options(session: Session, job: UploadJob) -> dict[str, list[str]]:
         "hdr": HDR_OPTIONS,
         "edition": EDITION_OPTIONS,
         "repack": REPACK_OPTIONS,
+        "hybrid": ["HYBRID"],
     }
 
 

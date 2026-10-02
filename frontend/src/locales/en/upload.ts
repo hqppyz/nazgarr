@@ -396,4 +396,5 @@ export const upload = {
   'upload.match.factor.ambiguousWhy': 'another title is almost as sure',
   'upload.match.factor.product': '{factors} = {confidence}',
   'upload.match.identifyAgainHelp': 'Search TMDB again, also in the trackers’ languages.',
+  'upload.overrides.field.hybrid': 'Hybrid',
 } as const

@@ -14,7 +14,7 @@ import { cn } from '@/lib/utils'
 
 // Stessi campi di nazgarr/upload_naming.py DETECTED_FIELDS, più l'anno.
 const DETECTED_FIELDS = [
-  'type', 'resolution', 'source', 'video_codec', 'audio', 'audio_languages', 'hdr', 'service', 'edition', 'repack',
+  'type', 'resolution', 'source', 'video_codec', 'audio', 'audio_languages', 'hdr', 'service', 'edition', 'repack', 'hybrid',
   'group',
 ] as const
 

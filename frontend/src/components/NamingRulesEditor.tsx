@@ -27,7 +27,7 @@ const DEFAULT_TYPE_LABELS: Record<string, string> = {
 }
 // Stesso ordine di nazgarr/upload_naming.py VARIABLES.
 const VARIABLE_NAMES = [
-  'title', 'local_title', 'year', 'season', 'episode', 'edition', 'repack', 'resolution', 'format', 'source', 'source_full', 'type',
+  'title', 'local_title', 'year', 'season', 'episode', 'edition', 'repack', 'hybrid', 'resolution', 'format', 'source', 'source_full', 'type',
   'service', 'video_codec', 'hdr', 'hdr_full', 'bit_depth', 'audio', 'audio_codec', 'audio_channels', 'audio_atmos',
   'audio_all', 'audio_languages', 'subs_languages', 'subs', 'group',
 ]

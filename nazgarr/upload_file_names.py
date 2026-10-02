@@ -40,9 +40,9 @@ SETTING = "upload_file_naming_rules"
 # Come in nazgarr/upload_execute.py (torf): mai nel torrent.
 EXCLUDE_GLOBS = [".*", "*.part", "*.!qB", "*.!ut", "Thumbs.db", "desktop.ini", "*sample*", "*Sample*"]
 
-_MOVIE = ("{title} {year} {edition} {repack} {resolution} {source_full} {type} {audio} "
+_MOVIE = ("{title} {year} {edition} {repack} {resolution} {source_full} {hybrid} {type} {audio} "
           "{audio_languages} {subs} {hdr} {video_codec} {group}")
-_TV = ("{title} {season} {edition} {repack} {resolution} {source_full} {type} {audio} "
+_TV = ("{title} {season} {edition} {repack} {resolution} {source_full} {hybrid} {type} {audio} "
        "{audio_languages} {subs} {hdr} {video_codec} {group}")
 DEFAULT_RULES = {
     "templates": {"default": _MOVIE, "tv": _TV},
