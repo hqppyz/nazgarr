@@ -30,7 +30,7 @@ from app.adapters.tracker.base import (
 from app.arr import ArrGrab, ArrIndex, host_of
 from app.exclusions import CompiledExclusions, load_exclusions
 from app.file_types import is_video
-from app.hardlinks import media_links, seed_copies_by_inode
+from app.hardlinks import seed_copies_by_inode
 from app.mediainfo_util import compute_unique_id
 from app.models import (
     Candidate,
@@ -43,6 +43,7 @@ from app.models import (
 )
 from app.run_progress import NULL_PROGRESS
 from app.scan_state import is_current, latest_scan_by_disk
+from app.seeding import seeding_media_file_ids
 from app.torrent_file import TorrentInfo, TorrentMetainfoError, compute_info_hash, parse_torrent_info
 from app.torrent_layout import (
     CONFIDENCE_NO_MATCH,
@@ -299,12 +300,15 @@ def find_candidates(ctx: MatchContext, anchor: MediaFile | SeedFile, media_item_
     return match_file(ctx, anchor, media_item_id, tmdb_id), False
 
 
-def orphan_media_files(session: Session, exclusions: CompiledExclusions | None = None) -> list[MediaFile]:
-    """media_file con identità risolta ma senza hardlink verso alcun
-    seed_file (orphan_media, docs/SPEC.md sezione 3) — stessa logica di
-    app/library.py::media_file_states, qui filtrata a quelli risolvibili e
-    non esclusi (Configuration > Exclusions)."""
-    linked_ids = set(media_links(session))  # per inode, vedi app/hardlinks.py
+def orphan_media_files(
+    session: Session, exclusions: CompiledExclusions | None = None, tracker: Tracker | None = None
+) -> list[MediaFile]:
+    """media_file con identità risolta e non in seed (orphan_media, docs/SPEC.md
+    sezione 3): stessa regola della Library (app/seeding.py), un hardlink che
+    nessun client segue non conta. Con un tracker e la ricerca dei cross-seed
+    accesa, "non in seed su questo tracker". Solo quelli risolvibili e non
+    esclusi (Configuration > Exclusions)."""
+    linked_ids = seeding_media_file_ids(session, tracker)
     latest = latest_scan_by_disk(session, MediaFile)
     return [
         mf
@@ -426,7 +430,7 @@ def run_media_to_torrent_matching(
     totals = _new_totals()
     interval = get_rematch_interval(session)
     ctx = MatchContext(session, tracker_row, tracker_adapter, "media_to_torrent", arr_index)
-    orphans = orphan_media_files(session, load_exclusions(session))
+    orphans = orphan_media_files(session, load_exclusions(session), tracker_row)
     if only_media_file_ids is not None:
         # "Cerca ora" dalla scheda di dettaglio: solo i file di quel contenuto.
         orphans = [mf for mf in orphans if mf.id in only_media_file_ids]

@@ -136,6 +136,12 @@ function ReviewRow({ review }: { review: Review }) {
             <span>{(review.confidence * 100).toFixed(0)}%</span>
             {review.ambiguity_reason && <span>{review.ambiguity_reason}</span>}
             {review.status === 'auto_approved' && <Badge>{t('reseeding.autoApproved')}</Badge>}
+            {/* Il file seeda già altrove: è un cross-seed, non un file da salvare. */}
+            {(review.seeding_on?.length ?? 0) > 0 && (
+              <Badge variant="outline" title={t('reseeding.crossSeedHelp', { trackers: review.seeding_on ?? [] })}>
+                {t('reseeding.crossSeed', { trackers: review.seeding_on ?? [] })}
+              </Badge>
+            )}
           </div>
           {review.layout && <p className="text-xs text-muted-foreground">{layoutSummary(review.layout)}</p>}
           <VerifyStatus review={review} />

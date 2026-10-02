@@ -303,3 +303,50 @@ def test_add_torrent_uses_per_client_root_path_override(db_session, tmp_path):
     adapter_b = FakeAdapter()
     executor.execute_review(db_session, match_review_b, adapter_b, tc_without_override.id)
     assert adapter_b.add_torrent_calls[0]["save_path"] == str(root / "torrents")
+
+
+def _single_file_review(db_session, root, disk, tracker, item, run):
+    media_file_path = root / "media" / "movies" / "Movie.2024.mkv"
+    media_file_path.write_bytes(b"content")
+    media_file = MediaFile(
+        disk_id=disk.id, relative_path="media/movies/Movie.2024.mkv", size_bytes=7,
+        st_dev=1, inode=1, media_item_id=item.id, last_scan_id=run.id, last_seen_at=datetime.now(UTC),
+    )
+    db_session.add(media_file)
+    db_session.commit()
+    candidate = Candidate(
+        media_item_id=item.id, tracker_id=tracker.id, torrent_id_remote="2", name="Movie.2024.mkv",
+        size_bytes=7, source="catalog_search", direction="media_to_torrent", confidence=1.0,
+        download_link="https://t.example/dl/2", file_list_json='["Movie.2024.mkv"]',
+    )
+    db_session.add(candidate)
+    db_session.commit()
+    match_review = MatchReview(candidate_id=candidate.id, media_file_id=media_file.id, status="approved")
+    db_session.add(match_review)
+    db_session.commit()
+    return media_file_path, match_review
+
+
+def test_a_cross_seed_reuses_the_hardlink_already_there(db_session, tmp_path):
+    # La stessa release, con lo stesso nome, già in seed per un altro tracker:
+    # lo stesso inode si riusa invece di fallire.
+    root, disk, tracker, item, run = _base_setup(db_session, tmp_path)
+    media_file_path, match_review = _single_file_review(db_session, root, disk, tracker, item, run)
+    existing = root / "torrents" / "Movie.2024.mkv"
+    os.link(media_file_path, existing)
+
+    adapter = FakeAdapter()
+    seed_job = executor.execute_review(db_session, match_review, adapter)
+
+    assert os.path.samefile(media_file_path, existing)
+    assert seed_job.info_hash == "deadbeef" and len(adapter.add_torrent_calls) == 1
+
+
+def test_another_file_at_the_destination_is_never_overwritten(db_session, tmp_path):
+    root, disk, tracker, item, run = _base_setup(db_session, tmp_path)
+    _media_file_path, match_review = _single_file_review(db_session, root, disk, tracker, item, run)
+    (root / "torrents" / "Movie.2024.mkv").write_bytes(b"something else")
+
+    with pytest.raises(executor.ExecutionError, match="already exists"):
+        executor.execute_review(db_session, match_review, FakeAdapter())
+    assert (root / "torrents" / "Movie.2024.mkv").read_bytes() == b"something else"

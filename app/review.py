@@ -26,7 +26,6 @@ from app import full_check
 from app.adapter_factory import build_torrent_client_adapter
 from app.exclusions import load_exclusions
 from app.executor import ExecutionError, execute_review, reconcile_seed_job, retry_seed_job
-from app.hardlinks import media_links
 from app.models import (
     Candidate,
     ClientTorrent,
@@ -36,10 +35,12 @@ from app.models import (
     SeedFile,
     SeedJob,
     TorrentClient,
+    Tracker,
 )
 from app.run_progress import NULL_PROGRESS
 from app.scan_state import is_current, latest_scan_by_disk
 from app.seed_refresh import refresh_seeded_torrent
+from app.seeding import seeding_media_file_ids
 from app.settings_repo import get_setting
 
 logger = logging.getLogger(__name__)
@@ -61,12 +62,19 @@ def get_confidence_threshold(session: Session, direction: str) -> float:
     return float(raw) if raw is not None else default
 
 
-def _supersede_active_reviews(session: Session, *, media_file_id: int | None, seed_file_id: int | None) -> int:
+def _supersede_active_reviews(
+    session: Session, *, media_file_id: int | None, seed_file_id: int | None, tracker_id: int | None = None
+) -> int:
     """Marca come 'rejected' ogni review ancora attiva per lo stesso file
-    orfano. Senza questo, ogni nuovo run che rimatcha lo stesso file
-    aggiungerebbe una nuova review lasciando quella vecchia in coda per
-    sempre — mai più di una valutazione attiva alla volta per lo stesso file."""
+    orfano sullo stesso tracker. Senza questo, ogni nuovo run che rimatcha lo
+    stesso file aggiungerebbe una nuova review lasciando quella vecchia in
+    coda per sempre — mai più di una valutazione attiva alla volta per file e
+    tracker. Per tracker e non per file: con i cross-seed (app/seeding.py) lo
+    stesso file può avere una proposta su ogni tracker."""
     query = session.query(MatchReview).filter(MatchReview.status.in_(READY_FOR_DECISION_STATUSES))
+    if tracker_id is not None:
+        query = query.join(Candidate, Candidate.id == MatchReview.candidate_id)
+        query = query.filter(Candidate.tracker_id == tracker_id)
     if media_file_id is not None:
         query = query.filter(MatchReview.media_file_id == media_file_id)
     else:
@@ -158,11 +166,19 @@ def _create_review(
     # coda a ogni nuova ricerca — resta solo nell'audit trail di candidate.
     rejected = _user_rejected_torrents(session, media_file_id=media_file_id, seed_file_id=seed_file_id)
     busy = _torrents_already_in_progress(session, media_file_id=media_file_id, seed_file_id=seed_file_id)
-    candidates = [c for c in candidates if (c.tracker_id, c.torrent_id_remote) not in rejected | busy]
+    # Un torrent già in un client (con un'altra copia dei file) non si può
+    # aggiungere di nuovo: il client lo rifiuterebbe come duplicato.
+    in_client = hashes_in_clients(session)
+    candidates = [
+        c for c in candidates
+        if (c.tracker_id, c.torrent_id_remote) not in rejected | busy and (c.info_hash or "").lower() not in in_client
+    ]
     if not candidates:
         return None
 
-    _supersede_active_reviews(session, media_file_id=media_file_id, seed_file_id=seed_file_id)
+    _supersede_active_reviews(
+        session, media_file_id=media_file_id, seed_file_id=seed_file_id, tracker_id=candidates[0].tracker_id
+    )
 
     best = max(candidates, key=lambda c: c.confidence)
     if best.confidence <= 0.0:
@@ -406,7 +422,16 @@ def close_resolved_reviews(session: Session) -> int:
     ]
     if not active:
         return 0
-    hardlinked = set(media_links(session))
+    # In seed davvero (un client lo segue), e con i cross-seed per tracker:
+    # una review si chiude quando il file seeda sul tracker del suo candidato.
+    seeding_by_tracker: dict[int | None, set[int]] = {}
+
+    def seeding_for(tracker_id: int | None) -> set[int]:
+        if tracker_id not in seeding_by_tracker:
+            tracker = session.get(Tracker, tracker_id) if tracker_id is not None else None
+            seeding_by_tracker[tracker_id] = seeding_media_file_ids(session, tracker)
+        return seeding_by_tracker[tracker_id]
+
     tracked = {
         row[0]
         for row in session.query(ClientTorrentFile.seed_file_id)
@@ -422,7 +447,8 @@ def close_resolved_reviews(session: Session) -> int:
         # sua review esce dalla coda.
         if review.media_file_id is not None:
             mf = review.media_file
-            resolved = (mf is None or not is_current(mf, latest_media) or mf.id in hardlinked
+            tracker_id = review.candidate.tracker_id if review.candidate is not None else None
+            resolved = (mf is None or not is_current(mf, latest_media) or mf.id in seeding_for(tracker_id)
                         or exclusions.is_excluded(mf.relative_path) or _identity_changed(review, mf))
         else:
             sf = review.seed_file

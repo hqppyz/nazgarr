@@ -179,7 +179,56 @@ def test_orphan_media_files_excludes_hardlinked(db_session):
     )
     db_session.add(seed_file)
     db_session.commit()
+    # Un hardlink che nessun client segue (es. scaricato a mano e importato da
+    # Radarr nella cartella torrent) non è un seed: il file si cerca lo stesso.
+    assert {mf.id for mf in matching.orphan_media_files(db_session)} == {linked.id, orphan.id}
+
+    _seed_in_client(db_session, seed_file, "https://a.example")
 
     orphans = matching.orphan_media_files(db_session)
 
     assert [mf.id for mf in orphans] == [orphan.id]
+
+
+def _seed_in_client(db_session, seed_file, announce):
+    from app.models import ClientTorrent, ClientTorrentFile, TorrentClient
+
+    client = db_session.query(TorrentClient).first()
+    if client is None:
+        client = TorrentClient(label="q", adapter_type="qbittorrent", base_url="http://q")
+        db_session.add(client)
+        db_session.commit()
+    torrent = ClientTorrent(torrent_client_id=client.id, info_hash=f"h{seed_file.id}{announce}", name="x",
+                            save_path="/x", state="uploading", tracker_url=announce, last_polled_at=datetime.now(UTC))
+    db_session.add(torrent)
+    db_session.commit()
+    db_session.add(ClientTorrentFile(client_torrent_id=torrent.id, path_in_torrent=seed_file.relative_path,
+                                     size_bytes=1, seed_file_id=seed_file.id, last_scan_id=seed_file.last_scan_id))
+    db_session.commit()
+
+
+def test_a_file_seeding_on_one_tracker_is_searched_on_the_others(db_session):
+    from app import settings_repo
+
+    disk = _make_disk(db_session)
+    run = pipeline.start_run(db_session, "manual")
+    item = MediaItem(content_type="movie", tmdb_id=1)
+    a = Tracker(label="A", adapter_type="unit3d", base_url="https://a.example", api_token="x")
+    b = Tracker(label="B", adapter_type="unit3d", base_url="https://b.example", api_token="x")
+    db_session.add_all([item, a, b])
+    db_session.commit()
+    mf = MediaFile(disk_id=disk.id, relative_path="movies/x.mkv", size_bytes=1, st_dev=1, inode=1,
+                   media_item_id=item.id, last_scan_id=run.id, last_seen_at=datetime.now(UTC))
+    db_session.add(mf)
+    db_session.commit()
+    sf = SeedFile(disk_id=disk.id, relative_path="torrents/x.mkv", size_bytes=1, st_dev=1, inode=1,
+                  media_file_id=mf.id, last_scan_id=run.id, last_seen_at=datetime.now(UTC))
+    db_session.add(sf)
+    db_session.commit()
+    _seed_in_client(db_session, sf, "https://www.a.example")
+
+    assert matching.orphan_media_files(db_session, tracker=a) == []
+    assert [f.id for f in matching.orphan_media_files(db_session, tracker=b)] == [mf.id]  # cross-seed
+
+    settings_repo.set_setting(db_session, "cross_seed_search", "false")
+    assert matching.orphan_media_files(db_session, tracker=b) == []

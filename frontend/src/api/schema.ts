@@ -3095,6 +3095,11 @@ export interface components {
             verify_detail?: string | null;
             /** Verify Check Id */
             verify_check_id?: string | null;
+            /**
+             * Seeding On
+             * @default []
+             */
+            seeding_on: string[];
         };
         /** RunResponse */
         RunResponse: {

@@ -58,6 +58,15 @@ def scoped_torrent_ids(session: Session, scope: str | None) -> set[int] | None:
     return {torrent_id for torrent_id, url in rows if torrent_host(url) in hosts}
 
 
+def tracker_torrent_ids(session: Session, tracker: Tracker) -> set[int]:
+    """I client_torrent di questo tracker su tutti i client, anche quelli
+    disattivati: per il matching un torrent fermo in un client spento è
+    comunque un seed che esiste (app/seeding.py)."""
+    hosts = {torrent_host(url) for url in (tracker.announce_url, tracker.base_url)} - {None}
+    rows = session.query(ClientTorrent.id, ClientTorrent.tracker_url).all()
+    return {torrent_id for torrent_id, url in rows if torrent_host(url) in hosts}
+
+
 def enabled_torrent_ids(session: Session) -> set[int]:
     """I torrent dei client abilitati: con un filtro, gli unici che esistono."""
     rows = (

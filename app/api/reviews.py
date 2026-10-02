@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session, object_session
 
-from app import review
+from app import review, seeding
 from app.api_errors import coded_detail
 from app.deps import get_session
 from app.executor import ExecutionError
@@ -123,6 +123,8 @@ class ReviewResponse(BaseModel):
     verify_status: str | None = None  # verifying | passed | failed
     verify_detail: str | None = None
     verify_check_id: str | None = None
+    # Dove il file è già in seed (tracker o host): non vuoto = un cross-seed.
+    seeding_on: list[str] = []
 
     @classmethod
     def from_model(cls, r: MatchReview) -> "ReviewResponse":
@@ -139,6 +141,7 @@ class ReviewResponse(BaseModel):
             layout=_layout_summary(r.candidate),
             seed_job=SeedJobResponse.from_model(seed_job) if seed_job is not None else None,
             verify_status=r.verify_status, verify_detail=r.verify_detail, verify_check_id=r.verify_check_id,
+            seeding_on=seeding.seeding_on(session, r.media_file_id) if session is not None and r.media_file_id else [],
         )
 
 

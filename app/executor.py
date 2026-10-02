@@ -159,6 +159,18 @@ def _require_every_video(candidate) -> None:
             )
 
 
+def _reusable_link(source_path: str, target_path: str) -> bool:
+    """True se la destinazione esiste già ed è lo stesso file della sorgente
+    (stesso inode, mai un link simbolico): un cross-seed della stessa release
+    con lo stesso nome su un altro tracker riusa quell'hardlink, gli stessi
+    byte. Un altro file al suo posto resta un errore: mai sovrascritto."""
+    if not os.path.lexists(target_path):
+        return False
+    if not os.path.islink(target_path) and os.path.isfile(target_path) and os.path.samefile(source_path, target_path):
+        return True
+    raise ExecutionError(f"Destination path already exists: {target_path}")
+
+
 def _execute_layout_media_to_torrent(
     session: Session, review: MatchReview, adapter: TorrentClientAdapter, torrent_client_id: int | None = None,
     skip_recheck: bool = False,
@@ -196,9 +208,9 @@ def _execute_layout_media_to_torrent(
             target_path = resolve_scoped(target_root, _torrent_rel_path(candidate, f.torrent_path))
         except ScopeViolation as exc:
             raise ExecutionError(f"Path outside the allowed scope: {exc.candidate}") from exc
-        if os.path.exists(target_path):
-            raise ExecutionError(f"Destination path already exists: {target_path}")
         _check_same_filesystem(source_path, target_root)
+        if _reusable_link(source_path, target_path):
+            continue  # già lì, stesso inode: niente da creare (e niente da togliere se fallisce)
         links.append((source_path, target_path))
 
     if not candidate.download_link:
@@ -349,8 +361,7 @@ def _execute_media_to_torrent(
         raise ExecutionError(f"Path outside the allowed scope: {exc.candidate}") from exc
 
     _check_same_filesystem(source_path, target_root)
-    if os.path.exists(target_path):
-        raise ExecutionError(f"Destination path already exists: {target_path}")
+    reuse = _reusable_link(source_path, target_path)
     os.makedirs(os.path.dirname(target_path), exist_ok=True)
 
     seed_job = SeedJob(
@@ -362,7 +373,7 @@ def _execute_media_to_torrent(
 
     return _create_hardlink_then_seed(
         session, seed_job, candidate, adapter, source_path, target_path, disk, target_root, torrent_client_id,
-        skip_recheck,
+        skip_recheck, reuse=reuse,
     )
 
 
@@ -377,6 +388,7 @@ def _create_hardlink_then_seed(
     target_root: str,
     torrent_client_id: int | None = None,
     skip_recheck: bool = False,
+    reuse: bool = False,
 ) -> SeedJob:
     if not candidate.download_link:
         seed_job.final_status = "failed"
@@ -385,10 +397,11 @@ def _create_hardlink_then_seed(
         raise ExecutionError(seed_job.error_message)
 
     try:
-        os.link(source_path, target_path)
+        if not reuse:  # già lì con lo stesso inode (_reusable_link): un cross-seed
+            os.link(source_path, target_path)
         seed_job.hardlink_created_at = datetime.now(UTC)
         session.commit()
-        logger.info("Hardlink creato per candidate %s: %s", candidate.id, target_path)
+        logger.info("Hardlink %s per candidate %s: %s", "riusato" if reuse else "creato", candidate.id, target_path)
 
         client_save_path = client_visible_path(session, disk, torrent_client_id, target_root)
         info_hash = _add_to_client(adapter, candidate, client_save_path, seed_job, skip_recheck,

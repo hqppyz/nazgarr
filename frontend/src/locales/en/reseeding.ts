@@ -46,4 +46,12 @@ export const reseeding = {
   'reseeding.scheduleDisabled': 'Schedule disabled.',
   'reseeding.scheduleActive': 'active',
   'reseeding.scheduleInactive': 'inactive',
+  'reseeding.crossSeed': 'Cross-seed · seeding on {trackers}',
+  'reseeding.crossSeedHelp':
+    'This file already seeds on {trackers}: approving adds the same files to this tracker too, reusing the hardlink when the names match.',
+  'reseeding.searchTitle': 'Search',
+  'reseeding.searchDescription': 'Which library files each scan looks for on your trackers.',
+  'reseeding.crossSeedLabel': 'Look for cross-seeds',
+  'reseeding.crossSeedSettingHelp':
+    'A file already seeding on one tracker is searched on the others too. Off: only files that seed nowhere are searched. A hardlink in the torrent folder that no client tracks never counts as seeding.',
 } as const

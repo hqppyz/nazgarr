@@ -213,8 +213,10 @@ def test_queue_is_cleaned_of_files_that_no_longer_need_anything(db_session):
     client = TorrentClient(label="q", adapter_type="qbittorrent", base_url="http://q")
     db_session.add(client)
     db_session.commit()
+    # In seed sul tracker della review (il suo announce): con i cross-seed la
+    # review si chiude solo quando il file seeda su QUEL tracker.
     ct = ClientTorrent(torrent_client_id=client.id, info_hash="h", name="x", save_path="/x", state="uploading",
-                       last_polled_at=datetime.now(UTC))
+                       tracker_url=tracker.base_url, last_polled_at=datetime.now(UTC))
     db_session.add(ct)
     db_session.commit()
     db_session.add(ClientTorrentFile(client_torrent_id=ct.id, path_in_torrent="x.mkv", size_bytes=1,
@@ -339,3 +341,69 @@ def test_a_seeding_execution_whose_torrent_left_the_client_is_shown_as_removed()
     assert review.seed_job_display_status(job, {"abc"}) == "seeding"
     assert review.seed_job_display_status(job, set()) == "removed"
     assert review.seed_job_display_status(SeedJob(final_status="failed", info_hash="x"), set()) == "failed"
+
+
+def test_each_tracker_keeps_its_own_proposal_for_the_same_file(db_session):
+    # Cross-seed: lo stesso file può avere una review su ogni tracker; una
+    # nuova ricerca sostituisce solo quella del suo tracker.
+    a = _tracker(db_session)
+    b = Tracker(label="b", adapter_type="unit3d", base_url="https://b.example", api_token="x")
+    db_session.add(b)
+    db_session.commit()
+    item = _media_item(db_session)
+    mf = _media_file_stub(db_session, item)
+
+    on_a = review.create_review_for_media_file(db_session, mf, [_candidate(db_session, item, a, confidence=0.5)])
+    on_b = review.create_review_for_media_file(db_session, mf, [_candidate(db_session, item, b, confidence=0.5)])
+    assert (on_a.status, on_b.status) == ("pending", "pending")
+
+    again_on_a = review.create_review_for_media_file(db_session, mf, [_candidate(db_session, item, a, confidence=0.6)])
+    db_session.refresh(on_a)
+    db_session.refresh(on_b)
+    assert (on_a.status, on_b.status, again_on_a.status) == ("rejected", "pending", "pending")
+
+
+def test_a_torrent_already_in_a_client_is_not_proposed_again(db_session):
+    from app.models import ClientTorrent, TorrentClient
+
+    tracker = _tracker(db_session)
+    item = _media_item(db_session)
+    mf = _media_file_stub(db_session, item)
+    client = TorrentClient(label="q", adapter_type="qbittorrent", base_url="http://q")
+    db_session.add(client)
+    db_session.commit()
+    db_session.add(ClientTorrent(torrent_client_id=client.id, info_hash="abc", name="x", save_path="/x",
+                                 state="uploading", last_polled_at=datetime.now(UTC)))
+    db_session.commit()
+    candidate = _candidate(db_session, item, tracker, confidence=0.9)
+    candidate.info_hash = "ABC"
+    db_session.commit()
+
+    assert review.create_review_for_media_file(db_session, mf, [candidate]) is None
+
+
+def test_a_review_says_where_the_file_already_seeds(db_session):
+    from app.api.reviews import ReviewResponse
+    from app.models import ClientTorrent, ClientTorrentFile, TorrentClient
+
+    tracker = _tracker(db_session)
+    item = _media_item(db_session)
+    mf = _media_file_stub(db_session, item)
+    sf = _seed_file_stub(db_session, mf)
+    sf.media_file_id = mf.id
+    client = TorrentClient(label="q", adapter_type="qbittorrent", base_url="http://q")
+    db_session.add(client)
+    db_session.commit()
+    ct = ClientTorrent(torrent_client_id=client.id, info_hash="h", name="x", save_path="/x", state="uploading",
+                       tracker_url="https://www.t.example", last_polled_at=datetime.now(UTC))
+    other = ClientTorrent(torrent_client_id=client.id, info_hash="h2", name="x", save_path="/x", state="uploading",
+                          tracker_url="https://public.example", last_polled_at=datetime.now(UTC))
+    db_session.add_all([ct, other])
+    db_session.commit()
+    for torrent in (ct, other):
+        db_session.add(ClientTorrentFile(client_torrent_id=torrent.id, path_in_torrent="x.mkv", size_bytes=1,
+                                         seed_file_id=sf.id, last_scan_id=sf.last_scan_id))
+    db_session.commit()
+    row = _review_for(db_session, _candidate(db_session, item, tracker, confidence=0.5), media_file_id=mf.id)
+
+    assert ReviewResponse.from_model(row).seeding_on == ["public.example", "t"]

@@ -16,6 +16,9 @@ const VERIFY_KEY = 'verify_before_execute'
 // Spenta di default (app/review.py skip_recheck_enabled): l'unica eccezione
 // al recheck del client, solo insieme alla verifica completa.
 const SKIP_RECHECK_KEY = 'skip_client_recheck_when_verified'
+// Accesa di default (app/seeding.py cross_seed_enabled): un file in seed su
+// un tracker si cerca anche sugli altri.
+const CROSS_SEED_KEY = 'cross_seed_search'
 
 function SettingSwitch({
   settingKey,
@@ -90,9 +93,30 @@ function ExecutionCard() {
   )
 }
 
+function SearchCard() {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{t('reseeding.searchTitle')}</CardTitle>
+        <CardDescription>{t('reseeding.searchDescription')}</CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-4">
+        <SettingSwitch
+          settingKey={CROSS_SEED_KEY}
+          defaultOn
+          first
+          label={t('reseeding.crossSeedLabel')}
+          help={t('reseeding.crossSeedSettingHelp')}
+        />
+      </CardContent>
+    </Card>
+  )
+}
+
 export function AutoApproveSection() {
   return (
     <>
+      <SearchCard />
       <Card>
         <CardHeader>
           <CardTitle>{t('integrations.autoApproveThresholdsTitle')}</CardTitle>
