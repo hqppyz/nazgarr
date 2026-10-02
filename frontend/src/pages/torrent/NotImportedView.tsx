@@ -1,15 +1,17 @@
-import { ArrowRightIcon, CircleCheckIcon, EyeOffIcon, Loader2Icon, RefreshCwIcon, SearchIcon, UploadIcon } from 'lucide-react'
+import { ArrowRightIcon, CircleCheckIcon, EyeOffIcon, Loader2Icon, RefreshCwIcon, SearchIcon, TriangleAlertIcon, UploadIcon } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import type { Schemas } from '@/api/client'
 import { useNotImported, useRefreshNotImported } from '@/api/hooks/library'
 import { LibrarySummaryCards } from '@/components/LibrarySummaryCards'
+import { TorrentViewSwitch } from '@/components/LibraryViewSwitch'
 import { RowContextMenu, type RowMenuItem } from '@/components/RowContextMenu'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { Popover, PopoverContent, PopoverHeader, PopoverTitle, PopoverTrigger } from '@/components/ui/popover'
 import { Toggle } from '@/components/ui/toggle'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { t } from '@/lib/i18n'
@@ -41,30 +43,73 @@ function formatSeedTime(seconds: number | null | undefined): string {
 // Una risposta in cache di prima di questo campo non lo ha: come "tracker sconosciuto".
 const NO_REQUIREMENT: Torrent['seed_requirement'] = { status: 'unknown_tracker', remaining: {} }
 
-function SeedRequirementCell({ requirement = NO_REQUIREMENT }: { requirement?: Torrent['seed_requirement'] }) {
+type Warning = Torrent['removal_warnings'][number]
+
+// I problemi oltre a seedtime e ratio (file condivisi con altri torrent,
+// errori del client, download in corso: nazgarr/api/torrents.py), in un
+// popover per non allargare la colonna.
+function WarningsPopover({ warnings }: { warnings: Warning[] }) {
+  if (warnings.length === 0) return null
+  const title = t('notImported.removable.warningsTitle', { count: warnings.length })
+  return (
+    <Popover>
+      <PopoverTrigger
+        openOnHover
+        delay={150}
+        aria-label={title}
+        onClick={(e) => e.stopPropagation()}
+        className="inline-flex cursor-pointer items-center rounded p-0.5 text-amber-600 hover:bg-amber-500/15 dark:text-amber-400"
+      >
+        <TriangleAlertIcon className="size-3.5" />
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-80 max-w-[calc(100vw-2rem)]" onClick={(e) => e.stopPropagation()}>
+        <PopoverHeader>
+          <PopoverTitle>{title}</PopoverTitle>
+        </PopoverHeader>
+        <ul className="grid gap-1.5 text-xs">
+          {warnings.map((warning) => (
+            <li key={warning.code} className="rounded bg-muted/60 px-2 py-1">
+              {t(`notImported.removable.warning.${warning.code}`, warning.params as Record<string, string | number>)}
+            </li>
+          ))}
+        </ul>
+      </PopoverContent>
+    </Popover>
+  )
+}
+
+function SeedRequirementCell({
+  requirement = NO_REQUIREMENT,
+  warnings = [],
+}: {
+  requirement?: Torrent['seed_requirement']
+  warnings?: Warning[]
+}) {
   const { status, remaining = {}, tracker_label: tracker } = requirement
   const rule = [
     requirement.min_seed_time_seconds != null && formatSeedTime(requirement.min_seed_time_seconds),
     requirement.min_ratio != null && t('notImported.removable.ratio', { ratio: requirement.min_ratio }),
   ].filter(Boolean).join(requirement.rule === 'all' ? ` ${t('notImported.removable.and')} ` : ` ${t('notImported.removable.or')} `)
+  let value: React.ReactNode
   if (status === 'met') {
-    return (
-      <Badge
-        variant="outline"
+    // "OK" in verde; con un problema in più, in giallo e il popover accanto.
+    value = (
+      <span
         title={t('notImported.removable.metHelp', { tracker: tracker ?? '', rule })}
-        className="h-auto gap-1 border-emerald-500/40 bg-emerald-500/10 py-0 text-[length:var(--text-xxs)] leading-4 text-emerald-700 dark:text-emerald-300"
+        className={cn(
+          'font-mono text-xs font-semibold',
+          warnings.length ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400',
+        )}
       >
-        <CircleCheckIcon className="size-3" />
-        {t('notImported.removable.met')}
-      </Badge>
+        {t('notImported.removable.ok')}
+      </span>
     )
-  }
-  if (status === 'pending') {
+  } else if (status === 'pending') {
     const left = [
       remaining.seed_time_seconds != null && formatSeedTime(remaining.seed_time_seconds),
       remaining.ratio != null && t('notImported.removable.ratioLeft', { ratio: remaining.ratio.toFixed(2) }),
     ].filter(Boolean).join(' · ')
-    return (
+    value = (
       <span
         className="font-mono text-xs text-amber-600 tabular-nums dark:text-amber-400"
         title={t('notImported.removable.pendingHelp', { tracker: tracker ?? '', rule })}
@@ -72,14 +117,26 @@ function SeedRequirementCell({ requirement = NO_REQUIREMENT }: { requirement?: T
         {t('notImported.removable.left', { left })}
       </span>
     )
+  } else {
+    const help =
+      status === 'unknown'
+        ? t('notImported.removable.unknownHelp', { tracker: tracker ?? '' })
+        : status === 'no_rules'
+          ? t('notImported.removable.noRulesHelp', { tracker: tracker ?? '' })
+          : t('notImported.removable.unknownTrackerHelp')
+    value = <span className="text-xs text-muted-foreground" title={help}>{status === 'unknown' ? '?' : '—'}</span>
   }
-  const help =
-    status === 'unknown'
-      ? t('notImported.removable.unknownHelp', { tracker: tracker ?? '' })
-      : status === 'no_rules'
-        ? t('notImported.removable.noRulesHelp', { tracker: tracker ?? '' })
-        : t('notImported.removable.unknownTrackerHelp')
-  return <span className="text-xs text-muted-foreground" title={help}>{status === 'unknown' ? '?' : '—'}</span>
+  return (
+    <span className="inline-flex items-center justify-end gap-1">
+      {value}
+      <WarningsPopover warnings={warnings} />
+    </span>
+  )
+}
+
+// Rimovibile senza rischi: requisito del tracker soddisfatto e nessun altro problema.
+function safeToRemove(torrent: Torrent): boolean {
+  return torrent.seed_requirement?.status === 'met' && (torrent.removal_warnings ?? []).length === 0
 }
 
 function contentLabel(torrent: Torrent): string | null {
@@ -104,9 +161,10 @@ function CategoryBadge({ category }: { category: string }) {
   )
 }
 
-// Torrent in seed senza hardlink in libreria, per torrent, con il perché
-// (nazgarr/not_imported.py). Sola lettura: niente viene rimosso da qui — le
-// azioni, se arriveranno, passeranno dalla coda di approvazione.
+// Triage (prima "Non importati"): torrent in seed senza hardlink in libreria,
+// per torrent, con il perché (nazgarr/not_imported.py). Sola lettura: niente
+// viene rimosso da qui. In futuro (idea dell'utente, 2026-10-02) un click per
+// togliere quelli senza rischi, sempre dalla coda di approvazione.
 export function NotImportedView() {
   const navigate = useNavigate()
   const { data, isPending } = useNotImported()
@@ -133,18 +191,19 @@ export function NotImportedView() {
       (tor) =>
         (showExcluded || !tor.excluded) &&
         (category === 'all' || tor.category === category) &&
-        (!onlyRemovable || tor.seed_requirement?.status === 'met') &&
+        (!onlyRemovable || safeToRemove(tor)) &&
         (!query || tor.name.toLowerCase().includes(query) || (contentLabel(tor) ?? '').toLowerCase().includes(query)),
     )
   }, [data, category, search, showExcluded, onlyRemovable])
   const removableCount = (data?.torrents ?? []).filter(
-    (tor) => (showExcluded || !tor.excluded) && tor.seed_requirement?.status === 'met',
+    (tor) => (showExcluded || !tor.excluded) && safeToRemove(tor),
   ).length
 
   if (isPending) return <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
 
   return (
     <div className="grid gap-4">
+      <TorrentViewSwitch />
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="grid gap-1">
           <h1 className="text-lg font-semibold">{t('notImported.title')}</h1>
@@ -283,7 +342,7 @@ export function NotImportedView() {
                         {formatSeedTime(tor.seeding_time_seconds)}
                       </TableCell>
                       <TableCell className="text-right">
-                        <SeedRequirementCell requirement={tor.seed_requirement} />
+                        <SeedRequirementCell requirement={tor.seed_requirement} warnings={tor.removal_warnings} />
                       </TableCell>
                     </TableRow>
                     </RowContextMenu>

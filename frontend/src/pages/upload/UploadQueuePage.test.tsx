@@ -6,6 +6,7 @@ import { UploadQueuePage } from '@/pages/upload/UploadQueuePage'
 
 const reorder = vi.fn()
 const remove = vi.fn(() => Promise.resolve())
+const cancel = vi.fn(() => Promise.resolve())
 const job = (id: number, status: string, extra = {}) => ({
   id, status, title: `Movie ${id}`, year: 2024, kind: 'movie', relative_path: `m${id}.mkv`, tmdb_id: null,
   content_type: null, poster_path: null, queue_position: null, progress_done: null, progress_total: null,
@@ -28,6 +29,7 @@ vi.mock('@/api/hooks/uploads', () => ({
   useReorderQueue: () => ({ mutate: reorder, isPending: false }),
   useUpload: () => ({ data: undefined }),
   useDeleteUpload: () => ({ mutateAsync: remove, isPending: false }),
+  useCancelUpload: () => ({ mutateAsync: cancel, isPending: false }),
 }))
 vi.mock('@/api/hooks/metadata', () => ({ posterUrl: () => '', useMetadataDetails: () => ({ data: undefined }) }))
 vi.mock('@/components/AuthedPoster', () => ({ AuthedPoster: () => null }))
@@ -52,5 +54,22 @@ describe('UploadQueuePage', () => {
     expect(remove).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('button', { name: /Remove from the history/ }))
     expect(remove).toHaveBeenCalledWith(4)
+  })
+
+  it('cancels the running upload, and cancels then removes one waiting in the queue', async () => {
+    render(<MemoryRouter><UploadQueuePage /></MemoryRouter>)
+    remove.mockClear()
+
+    const running = screen.getByRole('button', { name: 'Cancel the upload (it moves to the history)' })
+    fireEvent.click(running)
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel the upload (it moves to the history)' }))
+    await vi.waitFor(() => expect(cancel).toHaveBeenCalledWith(1))
+    expect(remove).not.toHaveBeenCalled()
+
+    const [queued] = screen.getAllByRole('button', { name: /Remove the upload/ })
+    fireEvent.click(queued)
+    fireEvent.click(screen.getAllByRole('button', { name: /Remove the upload/ })[0])
+    await vi.waitFor(() => expect(remove).toHaveBeenCalledWith(2))
+    expect(cancel).toHaveBeenCalledWith(2)
   })
 })

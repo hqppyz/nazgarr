@@ -165,3 +165,32 @@ def test_api_says_whether_the_tracker_seeding_requirement_is_met(db_session, tmp
     assert body["h-old"].status == "met" and body["h-old"].tracker_label == "T"
     assert body["h-name"].status == "pending" and body["h-name"].remaining == {"seed_time_seconds": 6 * 86400}
     assert body["h-random"].status == "unknown_tracker"
+
+
+def test_api_warns_about_what_seed_time_and_ratio_do_not_say(db_session, tmp_path):
+    from nazgarr.api.torrents import list_not_imported, removal_warnings
+    from nazgarr.models import ClientTorrentFile
+
+    index = _setup(db_session, tmp_path)
+    rows = {t.info_hash: t for t in db_session.query(ClientTorrent).all()}
+    # Un secondo torrent sugli stessi file di h-old (cross-seed).
+    twin = ClientTorrent(torrent_client_id=rows["h-old"].torrent_client_id, info_hash="h-twin", name="Old.Twin",
+                         save_path=rows["h-old"].save_path, state="uploading",
+                         last_polled_at=rows["h-old"].last_polled_at)
+    db_session.add(twin)
+    db_session.flush()
+    for f in db_session.query(ClientTorrentFile).filter_by(client_torrent_id=rows["h-old"].id).all():
+        db_session.add(ClientTorrentFile(client_torrent_id=twin.id, path_in_torrent=f.path_in_torrent,
+                                         size_bytes=f.size_bytes, seed_file_id=f.seed_file_id,
+                                         last_scan_id=f.last_scan_id))
+    rows["h-random"].state = "missingFiles"
+    db_session.commit()
+    not_imported.classify_not_imported(db_session, index)
+
+    body = {t.info_hash: t.removal_warnings for t in list_not_imported(session=db_session).torrents}
+
+    assert [(w.code, w.params["torrents"]) for w in body["h-old"]] == [("shared_files", "Old.Twin")]
+    assert [w.code for w in body["h-random"]] == ["client_error"]
+    assert body["h-name"] == []
+    assert [w.code for w in removal_warnings("downloading", [])] == ["downloading"]
+    assert removal_warnings("stalledUP", []) == [] and removal_warnings("pausedDL", []) == []

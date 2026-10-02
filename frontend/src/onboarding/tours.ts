@@ -158,7 +158,7 @@ export const TOURS: Tour[] = [
       { id: 'filter', anchor: 'views.tracker-filter', side: 'left', next: true },
       { id: 'library', anchor: 'views.library-switch', side: 'bottom', next: true, route: '/library/folder' },
       { id: 'states', anchor: 'views.summary', side: 'bottom', next: true, route: '/library/folder' },
-      { id: 'not_imported', anchor: 'views.summary', side: 'bottom', next: true, route: '/torrent/not-imported' },
+      { id: 'not_imported', anchor: 'views.summary', side: 'bottom', next: true, route: '/torrent/triage' },
       { id: 'review', anchor: 'views.review', side: 'top', next: true, route: '/reseeding' },
     ],
   },

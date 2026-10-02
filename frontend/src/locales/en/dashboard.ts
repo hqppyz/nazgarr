@@ -28,7 +28,7 @@ export const dashboard = {
     'Files in your torrent folders that no torrent client is tracking. Those also in the library are searched to seed them again.',
   'dashboard.viewOrphanedTorrents': 'View orphaned torrents',
 
-  'dashboard.notImported': 'Not imported',
+  'dashboard.notImported': 'Triage',
   'dashboard.notImportedDescription':
     'Seeding torrents with no hardlink in your library: old releases replaced by an upgrade, copies, or downloads never imported.',
   'dashboard.viewNotImported': 'Triage not imported',

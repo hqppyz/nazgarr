@@ -28,7 +28,7 @@ export const dashboard = {
     'File nelle tue cartelle torrent che nessun client torrent sta seguendo. Quelli presenti anche nella libreria vengono cercati per rimetterli in seed.',
   'dashboard.viewOrphanedTorrents': 'Vedi i torrent orfani',
 
-  'dashboard.notImported': 'Non importati',
+  'dashboard.notImported': 'Triage',
   'dashboard.notImportedDescription':
     'Torrent in seed senza hardlink nella tua libreria: vecchie release sostituite da un upgrade, copie o download mai importati.',
   'dashboard.viewNotImported': 'Smista i non importati',

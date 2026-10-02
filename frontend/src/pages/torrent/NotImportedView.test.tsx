@@ -10,6 +10,7 @@ const torrent = (id: number, category: string, name: string, extra = {}) => ({
   season_number: null, episode_number: null, quality: '1080p', replaced_by: null, total_bytes: 1e9,
   video_bytes: 1e9, file_count: 2, ratio: 1.5, seeding_time_seconds: 3 * 86_400, added_at: null, state: 'uploading',
   seed_requirement: { status: 'unknown_tracker', remaining: {} },
+  removal_warnings: [],
   ...extra,
 })
 
@@ -30,6 +31,11 @@ vi.mock('@/api/hooks/library', () => ({
             status: 'pending', tracker_label: 'T', min_seed_time_seconds: 7 * 86_400, min_ratio: null, rule: 'any',
             remaining: { seed_time_seconds: 4 * 86_400 },
           },
+        }),
+        // Requisito soddisfatto, ma i file li usa anche un altro torrent.
+        torrent(4, 'never_imported', 'Shared.Files.mkv', {
+          seed_requirement: { status: 'met', tracker_label: 'T', min_seed_time_seconds: 86_400, min_ratio: null, rule: 'any', remaining: {} },
+          removal_warnings: [{ code: 'shared_files', params: { count: 1, torrents: 'Twin' } }],
         }),
         // Da una cache di prima del campo: senza seed_requirement non deve rompersi.
         torrent(3, 'never_imported', 'Excluded.Sample.mkv', { excluded: true, seed_requirement: undefined }),
@@ -60,10 +66,14 @@ describe('NotImportedView', () => {
   it("says which torrents met their tracker's seeding requirement, and filters them", () => {
     render(<MemoryRouter><NotImportedView /></MemoryRouter>)
 
-    expect(screen.getByText('Safe to remove')).toBeTruthy() // il badge (il filtro ha anche il conteggio)
+    // "OK" per entrambi, il secondo con il problema in più nel popover.
+    expect(screen.getAllByText('OK')).toHaveLength(2)
+    expect(screen.getByRole('button', { name: 'Check before removing (1)' })).toBeTruthy()
     expect(screen.getByText('4d left')).toBeTruthy()
+    // Senza rischi solo quello senza altri problemi.
     fireEvent.click(screen.getByRole('button', { name: /Safe to remove \(1\)/ }))
     expect(screen.queryByText('Random.Download.mkv')).toBeNull()
+    expect(screen.queryByText('Shared.Files.mkv')).toBeNull()
     expect(screen.getByText('Old.Movie.1080p.mkv')).toBeTruthy()
   })
 })

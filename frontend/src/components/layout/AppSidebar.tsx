@@ -20,9 +20,6 @@ import {
   SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
-  SidebarMenuSub,
-  SidebarMenuSubButton,
-  SidebarMenuSubItem,
   SidebarRail,
   useSidebar,
 } from '@/components/ui/sidebar'
@@ -155,41 +152,14 @@ export function AppSidebar() {
         </SidebarGroup>
 
         {NAV_GROUPS.map((group) => {
-          // Un gruppo con una sola voce non ha bisogno di un dropdown —
-          // si comporta come Dashboard: link piatto con icona e titolo
-          // del gruppo, evidenziato anche sulle sue sotto-route (es.
-          // /upload/new, /upload/123 restano "dentro" Upload).
-          if (group.items.length === 1) {
-            const item = group.items[0]
-            const isActive = location.pathname === item.to || location.pathname.startsWith(`${item.to}/`)
-            return (
-              <SidebarGroup key={group.title} className="px-2 py-0.5">
-                <SidebarGroupContent>
-                  <SidebarMenu>
-                    <SidebarMenuItem>
-                      <SidebarMenuButton
-                        render={<Link to={item.to} />}
-                        isActive={isActive}
-                        tooltip={group.title}
-                      >
-                        <group.icon className="size-4" />
-                        {group.title}
-                      </SidebarMenuButton>
-                      {item.badge && (
-                        <SidebarMenuBadge className="font-mono text-[length:var(--text-xxs)] text-muted-foreground">
-                          {item.badge}
-                        </SidebarMenuBadge>
-                      )}
-                    </SidebarMenuItem>
-                  </SidebarMenu>
-                </SidebarGroupContent>
-              </SidebarGroup>
-            )
-          }
-
-          // Gruppo con più voci: link al padre (vista di default) e voci
-          // sempre visibili sotto, niente menu da espandere.
-          const parentActive = group.items.some((item) => location.pathname === item.to)
+          // Ogni gruppo è una voce sola, come Dashboard: link piatto con icona e
+          // titolo, evidenziato anche sulle sue viste e sotto-route (es.
+          // /library/poster, /upload/123). Le viste di Library e Torrent si
+          // scelgono in cima alla pagina.
+          const isActive = group.items.some(
+            (item) => location.pathname === item.to || location.pathname.startsWith(`${item.to}/`),
+          )
+          const badge = group.items.length === 1 ? group.items[0].badge : undefined
           return (
             <SidebarGroup key={group.title} className="px-2 py-0.5">
               <SidebarGroupContent>
@@ -197,21 +167,17 @@ export function AppSidebar() {
                   <SidebarMenuItem>
                     <SidebarMenuButton
                       render={<Link to={group.to ?? group.items[0].to} />}
-                      isActive={parentActive}
+                      isActive={isActive}
                       tooltip={group.title}
                     >
                       <group.icon className="size-4" />
                       {group.title}
                     </SidebarMenuButton>
-                    <SidebarMenuSub>
-                      {group.items.map((item) => (
-                        <SidebarMenuSubItem key={item.to}>
-                          <SidebarMenuSubButton render={<Link to={item.to} />} isActive={location.pathname === item.to}>
-                            {item.title}
-                          </SidebarMenuSubButton>
-                        </SidebarMenuSubItem>
-                      ))}
-                    </SidebarMenuSub>
+                    {badge && (
+                      <SidebarMenuBadge className="font-mono text-[length:var(--text-xxs)] text-muted-foreground">
+                        {badge}
+                      </SidebarMenuBadge>
+                    )}
                   </SidebarMenuItem>
                 </SidebarMenu>
               </SidebarGroupContent>

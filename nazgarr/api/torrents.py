@@ -11,10 +11,19 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from nazgarr import arr, not_imported, seed_requirements
+from nazgarr.adapters.torrent_client.base import CHECKING_STATES, ERROR_STATES, is_stopped_state
 from nazgarr.api_errors import coded_detail
 from nazgarr.deps import get_session
 from nazgarr.library_detail import _host, _quality
-from nazgarr.models import ClientTorrentFile, MediaItem, NotImportedTorrent, RunLog, SeedFile, TorrentClient
+from nazgarr.models import (
+    ClientTorrent,
+    ClientTorrentFile,
+    MediaItem,
+    NotImportedTorrent,
+    RunLog,
+    SeedFile,
+    TorrentClient,
+)
 from nazgarr.tracker_scope import torrent_host
 
 router = APIRouter(prefix="/api/torrents", tags=["torrents"])
@@ -45,6 +54,15 @@ class SeedRequirement(BaseModel):
     remaining: dict[str, float] = {}  # seed_time_seconds e/o ratio che mancano
 
 
+class RemovalWarning(BaseModel):
+    """Un motivo, oltre a seedtime e ratio, per pensarci prima di togliere il
+    torrent: code ("shared_files", "client_error", "checking", "downloading")
+    e i parametri del messaggio."""
+
+    code: str
+    params: dict = {}
+
+
 class NotImportedItem(BaseModel):
     client_torrent_id: int
     name: str
@@ -73,6 +91,39 @@ class NotImportedItem(BaseModel):
     source: TorrentSource | None = None  # None se i suoi file non sono nell'indice dell'ultima scan
     # Requisito di seed del tracker e se è soddisfatto (nazgarr/seed_requirements.py).
     seed_requirement: SeedRequirement
+    removal_warnings: list[RemovalWarning] = []
+
+
+def _shared_with(session: Session) -> dict[int, list[str]]:
+    """Per ogni torrent, gli altri torrent dei client che usano gli stessi
+    file (cross-seed, o un altro tracker sugli stessi byte): togliere i dati
+    di uno lascerebbe gli altri senza."""
+    by_file: dict[int, set[int]] = {}
+    for torrent_id, seed_file_id in session.query(ClientTorrentFile.client_torrent_id, ClientTorrentFile.seed_file_id):
+        if seed_file_id is not None:
+            by_file.setdefault(seed_file_id, set()).add(torrent_id)
+    others: dict[int, set[int]] = {}
+    for torrents in by_file.values():
+        if len(torrents) > 1:
+            for torrent_id in torrents:
+                others.setdefault(torrent_id, set()).update(torrents - {torrent_id})
+    names = dict(session.query(ClientTorrent.id, ClientTorrent.name).filter(
+        ClientTorrent.id.in_({o for group in others.values() for o in group})).all()) if others else {}
+    return {tid: sorted(names.get(o, "?") for o in group) for tid, group in others.items()}
+
+
+def removal_warnings(state: str | None, shared: list[str]) -> list[RemovalWarning]:
+    out = []
+    if shared:
+        params = {"count": len(shared), "torrents": ", ".join(shared[:3])}
+        out.append(RemovalWarning(code="shared_files", params=params))
+    if state in ERROR_STATES:
+        out.append(RemovalWarning(code="client_error", params={"state": state}))
+    elif state in CHECKING_STATES:
+        out.append(RemovalWarning(code="checking", params={"state": state}))
+    elif (state in ("downloading", "allocating") or (state or "").endswith("DL")) and not is_stopped_state(state):
+        out.append(RemovalWarning(code="downloading", params={"state": state}))
+    return out
 
 
 def _sources(session: Session) -> dict[int, TorrentSource]:
@@ -128,6 +179,7 @@ def list_not_imported(session: Session = Depends(get_session)):
     torrents = []
     sources = _sources(session)
     requirements = seed_requirements.by_host(session)
+    shared = _shared_with(session)
     for row in rows:
         ct = row.client_torrent
         if not row.excluded:
@@ -152,6 +204,7 @@ def list_not_imported(session: Session = Depends(get_session)):
             seed_requirement=SeedRequirement(**seed_requirements.evaluate(
                 requirements.get(torrent_host(ct.tracker_url)), ct.ratio, ct.seeding_time_seconds,
             )),
+            removal_warnings=removal_warnings(ct.state, shared.get(ct.id, [])),
         ))
     torrents.sort(key=lambda t: t.total_bytes, reverse=True)
     status = not_imported.load_status(session)

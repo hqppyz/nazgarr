@@ -1,5 +1,6 @@
 import { useSeedFiles } from '@/api/hooks/library'
 import { FileBrowser } from '@/components/FileBrowser'
+import { TorrentViewSwitch } from '@/components/LibraryViewSwitch'
 import { useTreeMenu } from '@/components/useTreeMenu'
 import { t } from '@/lib/i18n'
 import type { StatusOption } from '@/lib/library-filters'
@@ -25,7 +26,12 @@ export function TorrentFolderView() {
       <FileBrowser
         files={data ?? []}
         statusOptions={STATUS_OPTIONS}
-        header={<p className="text-xs text-muted-foreground">{t('library.torrentRightClickHint')}</p>}
+        header={
+          <>
+            <TorrentViewSwitch />
+            <p className="text-xs text-muted-foreground">{t('library.torrentRightClickHint')}</p>
+          </>
+        }
         actions={menu.actions}
       />
       {menu.dialog}

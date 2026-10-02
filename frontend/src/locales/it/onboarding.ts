@@ -133,7 +133,7 @@ export const onboarding = {
   'onboarding.tour.trackers.language.body': 'Per i nomi degli upload: il titolo in questa lingua, il suo audio per primo, e come vengono scritti i sottotitoli.',
   'onboarding.tour.trackers.seed.title': 'Seed minimo',
   'onboarding.tour.trackers.seed.body':
-    'La regola hit and run del tracker (seedtime e/o ratio). Così Non importati ti dice quali vecchi torrent puoi rimuovere in sicurezza. Facoltativo.',
+    'La regola hit and run del tracker (seedtime e/o ratio). Così il Triage ti dice quali vecchi torrent puoi rimuovere in sicurezza. Facoltativo.',
   'onboarding.tour.trackers.profile.title': 'Profilo di upload',
   'onboarding.tour.trackers.profile.body': 'Come vengono nominati e categorizzati gli upload su questo tracker. Un tracker conosciuto ne ha già uno: cambialo solo se serve.',
   'onboarding.tour.exclusions.presets.title': 'Esclusioni pronte',
@@ -187,7 +187,7 @@ export const onboarding = {
   'onboarding.tour.views.states.title': 'In seed o orfano',
   'onboarding.tour.views.states.body':
     'In seed: un hardlink è in seed in un client. Orfano: niente lo mette in seed, quindi è un candidato per un reseed. Clicca una scheda per filtrare.',
-  'onboarding.tour.views.not_imported.title': 'Non importati',
+  'onboarding.tour.views.not_imported.title': 'Triage',
   'onboarding.tour.views.not_imported.body':
     'Non tutti i file che vagano sono perduti: questi sono in seed senza un hardlink nella tua libreria, ognuno con il motivo (sostituito da un upgrade, una copia, mai importato). Con un requisito di seed sul tracker, ti dice anche quali puoi togliere.',
   'onboarding.tour.views.review.title': 'La coda di revisione',

@@ -284,7 +284,7 @@ function MetricCards({ data }: { data: Dashboard }) {
         }
         trend={trendOf(num(data.ignored_bytes), previous?.ignored_bytes, true)}
         description={t('dashboard.notImportedDescription')}
-        action={{ label: t('dashboard.viewNotImported'), to: '/torrent/not-imported', icon: FileSearchIcon }}
+        action={{ label: t('dashboard.viewNotImported'), to: '/torrent/triage', icon: FileSearchIcon }}
       />
       <MetricCard
         title={t('dashboard.duplicates')}

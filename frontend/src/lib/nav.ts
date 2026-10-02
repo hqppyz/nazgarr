@@ -16,9 +16,10 @@ import { t } from '@/lib/i18n'
 //   dà una panoramica sull'intero stato dell'app (libreria, reseeding,
 //   upload), non solo sul reseeding.
 // - Un gruppo con una sola voce si mostra come link piatto (icona +
-//   titolo del gruppo, nessun dropdown) — vedi AppSidebar.tsx. Library è
-//   l'unico gruppo con più voci: non si espande, è un link alla vista di
-//   default (Configuration > Interface) con Folder/Poster sempre sotto.
+//   titolo del gruppo, nessun dropdown) — vedi AppSidebar.tsx.
+// - Anche Library e Torrent sono una voce sola (decisione dell'utente,
+//   2026-10-02): le loro viste (Folder/Poster, File/Triage) si scelgono con
+//   il selettore in cima alla pagina, non dalla sidebar.
 // "Verify from .torrent" e "Description templates" restano deliberatamente
 // fuori da questa fase (vedi piano Fase 8): il primo non ha ancora un
 // endpoint API dedicato, il secondo è già raggiungibile editando il
@@ -65,7 +66,7 @@ export const NAV_GROUPS: NavGroup[] = [
     to: '/torrent/folder',
     items: [
       { title: t('nav.files'), to: '/torrent/folder' },
-      { title: t('nav.notImported'), to: '/torrent/not-imported' },
+      { title: t('nav.notImported'), to: '/torrent/triage' },
     ],
   },
   {

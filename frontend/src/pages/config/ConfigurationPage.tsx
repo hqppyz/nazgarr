@@ -19,6 +19,7 @@ import {
 import type { ReactNode } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Masonry } from '@/components/Masonry'
 import { SettingsHeader } from '@/components/SettingsHeader'
@@ -151,14 +152,46 @@ export function ConfigurationPage() {
   const requested = params.get('tab') ?? ''
   const current = ALL_TABS.some((tab) => tab.value === requested) ? requested : (RENAMED[requested] ?? 'application')
 
+  const select = (value: string) => setParams({ tab: value }, { replace: true })
+  const currentTab = ALL_TABS.find((tab) => tab.value === current)
+
   return (
     <Tabs
       value={current}
-      onValueChange={(value) => setParams({ tab: String(value) }, { replace: true })}
+      onValueChange={(value) => select(String(value))}
       orientation="vertical"
-      className="gap-6"
+      className="flex-col gap-4 md:flex-row md:gap-6"
     >
-      <TabsList className="w-56 shrink-0 items-stretch gap-0.5 bg-transparent p-0">
+      {/* Da telefono la colonna delle sezioni non ci sta: un select in cima. */}
+      <Select value={current} onValueChange={(value) => value != null && select(String(value))}>
+        <SelectTrigger className="w-full md:hidden" aria-label={t('nav.configuration')}>
+          <SelectValue>
+            {() =>
+              currentTab && (
+                <span className="flex items-center gap-2">
+                  <currentTab.icon className="size-4" />
+                  {currentTab.label}
+                </span>
+              )
+            }
+          </SelectValue>
+        </SelectTrigger>
+        <SelectContent>
+          {GROUPS.map((group) => (
+            <SelectGroup key={group.title}>
+              <SelectLabel>{group.title}</SelectLabel>
+              {group.tabs.map((tab) => (
+                <SelectItem key={tab.value} value={tab.value}>
+                  <tab.icon className="size-4" />
+                  {tab.label}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          ))}
+        </SelectContent>
+      </Select>
+      {/* La colonna delle sezioni resta ferma mentre il contenuto scorre. */}
+      <TabsList className="sticky top-0 hidden max-h-[calc(100svh-6rem)] w-56 shrink-0 items-stretch gap-0.5 self-start overflow-y-auto bg-transparent p-0 md:flex">
         {GROUPS.map((group, i) => (
           <div key={group.title} className={cn('grid gap-0.5', i > 0 && 'mt-3')}>
             <p className="px-3 pb-1 text-[length:var(--text-xxs)] font-medium tracking-wide text-muted-foreground uppercase">

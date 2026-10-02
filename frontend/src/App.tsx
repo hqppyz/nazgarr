@@ -26,7 +26,7 @@ const overrides: Record<string, ReactNode> = {
   '/library/poster': <PosterView />,
   '/library/folder': <FolderView />,
   '/torrent/folder': <TorrentFolderView />,
-  '/torrent/not-imported': <NotImportedView />,
+  '/torrent/triage': <NotImportedView />,
   '/reseeding': <ReseedingPage />,
   '/upload': <UploadQueuePage />,
   '/config': <ConfigurationPage />,
@@ -42,6 +42,8 @@ function App() {
       <Route element={<AppLayout />}>
         <Route index element={<Navigate to={NAV_DASHBOARD.to} replace />} />
         <Route path="/library" element={<LibraryDefaultView />} />
+        {/* "Non importati" è diventato Triage: i link salvati arrivano lì. */}
+        <Route path="/torrent/not-imported" element={<Navigate to="/torrent/triage" replace />} />
         {/* Prototipo del logo (branch feature/ring-logo): fuori dalla navigazione,
             caricato a parte perché porta con sé Three.js. */}
         <Route

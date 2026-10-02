@@ -133,7 +133,7 @@ export const onboarding = {
   'onboarding.tour.trackers.language.body': 'For upload names: the title in this language, its audio first, and how subtitles are written.',
   'onboarding.tour.trackers.seed.title': 'Minimum seeding',
   'onboarding.tour.trackers.seed.body':
-    'The hit and run rule of the tracker (seed time and/or ratio). Not imported then tells which old torrents you can remove safely. Optional.',
+    'The hit and run rule of the tracker (seed time and/or ratio). Triage then tells which old torrents you can remove safely. Optional.',
   'onboarding.tour.trackers.profile.title': 'Upload profile',
   'onboarding.tour.trackers.profile.body': 'How uploads to this tracker are named and categorised. A known tracker already has one: change it only if needed.',
   'onboarding.tour.exclusions.presets.title': 'Ready-made exclusions',
@@ -187,7 +187,7 @@ export const onboarding = {
   'onboarding.tour.views.states.title': 'Seeding or orphaned',
   'onboarding.tour.views.states.body':
     'Seeding: a hardlink seeds in a client. Orphaned: nothing seeds it, so it is a candidate for a reseed. Click a card to filter.',
-  'onboarding.tour.views.not_imported.title': 'Not imported',
+  'onboarding.tour.views.not_imported.title': 'Triage',
   'onboarding.tour.views.not_imported.body':
     'Not every file that wanders is lost: these seed with no hardlink in your library, each with the reason (an upgrade replaced it, a copy, never imported). With a seeding requirement on the tracker, it also tells which ones can go.',
   'onboarding.tour.views.review.title': 'The review queue',

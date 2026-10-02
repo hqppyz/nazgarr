@@ -9,7 +9,6 @@ import { AppSidebar } from '@/components/layout/AppSidebar'
 import { RunNowButton } from '@/components/RunNowButton'
 import { RunStatusIndicator } from '@/components/RunStatusIndicator'
 import { TrackerFilterSelect } from '@/components/TrackerFilterSelect'
-import { Separator } from '@/components/ui/separator'
 import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar'
 import { setSizeUnits } from '@/lib/library-filters'
 import { NAV_DASHBOARD, resolveSectionTitle } from '@/lib/nav'
@@ -25,7 +24,6 @@ function TopHeader() {
   return (
     <header className="flex h-12 shrink-0 items-center gap-2 border-b px-3">
       <SidebarTrigger />
-      <Separator orientation="vertical" className="h-4" />
       <div className="flex flex-1 items-center gap-1.5 text-sm">
         {parent && <span className="text-muted-foreground">{parent}</span>}
         {parent && <span className="text-muted-foreground">/</span>}
@@ -57,7 +55,7 @@ export function AppLayout() {
         <UploadNotices />
         <SidebarInset className="h-svh overflow-hidden">
           <TopHeader />
-          <div className="flex-1 overflow-auto p-6">
+          <div className="flex-1 overflow-auto p-4 md:p-6">
             <Outlet />
           </div>
         </SidebarInset>

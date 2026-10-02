@@ -1,5 +1,5 @@
 export const notImported = {
-  'notImported.title': 'Non importati',
+  'notImported.title': 'Triage',
   'notImported.description':
     'I torrent che i tuoi client hanno in seed senza nessun hardlink nella libreria, raggruppati per torrent, con il motivo. Sola lettura: da qui non si rimuove niente.',
   'notImported.category.superseded': 'Sostituiti',
@@ -39,6 +39,12 @@ export const notImported = {
   'notImported.removable.column': 'Rimovibile',
   'notImported.removable.columnHelp':
     'Se il torrent ha già soddisfatto il requisito di seed del suo tracker (seedtime minimo e/o ratio, impostati sul tracker) e si può rimuovere senza un hit and run.',
+  'notImported.removable.ok': 'OK',
+  'notImported.removable.warningsTitle': 'Da controllare prima di toglierlo ({count})',
+  'notImported.removable.warning.shared_files': 'I suoi file li usano anche altri {count} torrent ({torrents}): togliere i dati li lascerebbe senza.',
+  'notImported.removable.warning.client_error': 'Il client segnala un errore ({state}).',
+  'notImported.removable.warning.checking': 'Il client lo sta verificando ({state}).',
+  'notImported.removable.warning.downloading': 'Ancora in download ({state}).',
   'notImported.removable.met': 'Rimovibile senza rischi',
   'notImported.removable.metHelp': '{tracker} chiede {rule}: soddisfatto.',
   'notImported.removable.left': 'mancano {left}',
@@ -51,5 +57,5 @@ export const notImported = {
   'notImported.removable.noRulesHelp': '{tracker} non ha un requisito di seed impostato: aggiungilo in Impostazioni › Tracker.',
   'notImported.removable.unknownTrackerHelp': 'Il tracker di questo torrent non è configurato in Nazgarr.',
   'notImported.removable.filter': 'Rimovibili senza rischi',
-  'notImported.removable.filterHelp': 'Solo i torrent che hanno già soddisfatto il requisito di seed del loro tracker',
+  'notImported.removable.filterHelp': 'Solo i torrent che hanno già soddisfatto il requisito di seed del loro tracker e non hanno altri problemi',
 } as const

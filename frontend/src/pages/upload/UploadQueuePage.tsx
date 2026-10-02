@@ -1,17 +1,16 @@
-import { ArrowDownIcon, ArrowUpIcon, PlusIcon, Trash2Icon } from 'lucide-react'
+import { ArrowDownIcon, ArrowUpIcon, CircleXIcon, PlusIcon, Trash2Icon } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 
 import { posterUrl } from '@/api/hooks/metadata'
-import { useDeleteUpload, useReorderQueue, useUploads, type UploadJobSummary } from '@/api/hooks/uploads'
+import { useCancelUpload, useDeleteUpload, useReorderQueue, useUploads, type UploadJobSummary } from '@/api/hooks/uploads'
 import { AuthedPoster } from '@/components/AuthedPoster'
 import { ActionBadge } from '@/components/upload/TrackerCheckCard'
 import { UploadDetailSheet } from '@/components/upload/UploadDetailSheet'
 import { UploadStatusBadge } from '@/components/upload/UploadStatusBadge'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { t } from '@/lib/i18n'
@@ -29,21 +28,23 @@ function title(job: UploadJobSummary) {
 }
 
 function Poster({ job }: { job: UploadJobSummary }) {
-  if (!job.tmdb_id || !job.content_type) return <div className="aspect-[2/3] w-10 shrink-0 rounded bg-muted" />
+  if (!job.tmdb_id || !job.content_type) return <div className="aspect-[2/3] w-11 shrink-0 rounded bg-muted" />
   return (
     <AuthedPoster
       contentType={job.content_type}
       tmdbId={job.tmdb_id}
       hasPoster
       url={posterUrl({ content_type: job.content_type as 'movie' | 'tv', tmdb_id: job.tmdb_id, poster_path: job.poster_path })}
-      className="aspect-[2/3] w-10 shrink-0 overflow-hidden rounded"
+      className="aspect-[2/3] w-11 shrink-0 overflow-hidden rounded"
     />
   )
 }
 
-function TargetOutcomes({ job }: { job: UploadJobSummary }) {
+// Un tracker per riga nella colonna di destra (in fila sotto il titolo da
+// telefono): con più tracker l'esito di ognuno resta leggibile.
+function TargetOutcomes({ job, className }: { job: UploadJobSummary; className?: string }) {
   return (
-    <div className="flex flex-wrap gap-1.5">
+    <div className={cn('flex flex-wrap gap-1.5 sm:grid sm:content-center sm:justify-items-start sm:gap-1', className)}>
       {job.targets.map((target) => (
         <span key={target.id} className="inline-flex items-center gap-1 text-xs">
           <span className="text-muted-foreground">{target.tracker_label}</span>
@@ -64,6 +65,28 @@ function TargetOutcomes({ job }: { job: UploadJobSummary }) {
   )
 }
 
+// Titolo, badge e sorgente: la parte che cresce, a sinistra.
+function JobHeading({ job, status }: { job: UploadJobSummary; status?: React.ReactNode }) {
+  return (
+    <div className="grid min-w-0 flex-1 gap-1">
+      <div className="flex min-w-0 flex-wrap items-center gap-2">
+        <span className="truncate font-medium">{title(job)}</span>
+        {job.kind && <Badge variant="outline">{t(`upload.kind.${job.kind}`)}</Badge>}
+        {job.origin === 'watch' && <Badge variant="outline">{t('upload.watch.badge')}</Badge>}
+        {status}
+      </div>
+      <p className="truncate font-mono text-xs text-muted-foreground" title={sourceLabel(job)}>
+        {sourceLabel(job)}
+      </p>
+    </div>
+  )
+}
+
+// Ogni upload una riga a sé, senza un contenitore intorno (decisione
+// dell'utente, 2026-10-02): poster, titolo e sorgente, esito per tracker,
+// data o avanzamento, azioni.
+const ROW = 'flex cursor-pointer flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border bg-card p-3 transition-colors hover:bg-muted/50 sm:flex-nowrap'
+
 function ActiveList({ jobs }: { jobs: UploadJobSummary[] }) {
   const navigate = useNavigate()
   const reorder = useReorderQueue()
@@ -78,42 +101,46 @@ function ActiveList({ jobs }: { jobs: UploadJobSummary[] }) {
     reorder.mutate(ids, { onError: (error) => toast.error(error.message) })
   }
 
-  if (jobs.length === 0) return <p className="py-6 text-center text-sm text-muted-foreground">{t('upload.history.noActive')}</p>
+  if (jobs.length === 0) return <p className="py-10 text-center text-sm text-muted-foreground">{t('upload.history.noActive')}</p>
   return (
     <ul className="grid gap-2">
       {jobs.map((job) => {
         const pct = job.progress_total ? Math.round((100 * (job.progress_done ?? 0)) / job.progress_total) : null
         const index = queued.indexOf(job)
         return (
-          <li
-            key={job.id}
-            className="flex cursor-pointer items-center gap-3 rounded-md border p-2 hover:bg-muted/50"
-            onClick={() => navigate(`/upload/${job.id}`)}
-          >
+          <li key={job.id} className={ROW} onClick={() => navigate(`/upload/${job.id}`)}>
             <Poster job={job} />
-            <div className="grid min-w-0 flex-1 gap-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="truncate text-sm font-medium">{title(job)}</span>
-                {job.kind && <Badge variant="outline">{t(`upload.kind.${job.kind}`)}</Badge>}
-                {job.origin === 'watch' && <Badge variant="outline">{t('upload.watch.badge')}</Badge>}
-                {job.status === 'queued' && (
-                  <span className="text-xs text-muted-foreground">#{index + 1}</span>
-                )}
-              </div>
-              <p className="truncate font-mono text-xs text-muted-foreground">{sourceLabel(job)}</p>
-              {job.status === 'running' && pct !== null && <Progress value={pct} className="max-w-sm" />}
-              <TargetOutcomes job={job} />
+            <JobHeading
+              job={job}
+              status={
+                <>
+                  <UploadStatusBadge status={job.status} />
+                  {job.status === 'queued' && <span className="text-xs text-muted-foreground">#{index + 1}</span>}
+                </>
+              }
+            />
+            <TargetOutcomes job={job} className="sm:w-56 sm:shrink-0" />
+            <div className="w-full sm:w-40 sm:shrink-0">
+              {job.status === 'running' && pct !== null && (
+                <div className="grid gap-1">
+                  <Progress value={pct} />
+                  <span className="text-right text-xs text-muted-foreground tabular-nums">{pct}%</span>
+                </div>
+              )}
             </div>
-            {job.status === 'queued' && queued.length > 1 && (
-              <div className="flex flex-col" onClick={(e) => e.stopPropagation()}>
-                <Button variant="ghost" size="icon-sm" disabled={index === 0} title={t('upload.history.moveUp')} onClick={() => move(job, -1)}>
-                  <ArrowUpIcon className="size-4" />
-                </Button>
-                <Button variant="ghost" size="icon-sm" disabled={index === queued.length - 1} title={t('upload.history.moveDown')} onClick={() => move(job, 1)}>
-                  <ArrowDownIcon className="size-4" />
-                </Button>
-              </div>
-            )}
+            <div className="ml-auto flex shrink-0 items-center" onClick={(e) => e.stopPropagation()}>
+              {job.status === 'queued' && queued.length > 1 && (
+                <div className="flex flex-col">
+                  <Button variant="ghost" size="icon-xs" disabled={index === 0} title={t('upload.history.moveUp')} onClick={() => move(job, -1)}>
+                    <ArrowUpIcon className="size-4" />
+                  </Button>
+                  <Button variant="ghost" size="icon-xs" disabled={index === queued.length - 1} title={t('upload.history.moveDown')} onClick={() => move(job, 1)}>
+                    <ArrowDownIcon className="size-4" />
+                  </Button>
+                </div>
+              )}
+              <QuickDelete job={job} />
+            </div>
           </li>
         )
       })}
@@ -121,63 +148,77 @@ function ActiveList({ jobs }: { jobs: UploadJobSummary[] }) {
   )
 }
 
-// Cestino di una riga dello storico: il primo click chiede conferma sul posto
-// (torna com'era dopo qualche secondo), il secondo elimina. Solo il record:
+// Il job che il worker sta eseguendo (upload sui tracker in corso) si
+// annulla e basta: finisce nello storico, da dove si elimina. Gli altri in
+// corso (identificazione, analisi, in coda: passi senza effetti fuori da
+// Nazgarr) si annullano ed eliminano insieme; quelli fermi a una decisione
+// si eliminano e basta.
+const CANCEL_FIRST = ['identifying', 'analyzing', 'queued']
+
+// Cestino di una riga: il primo click chiede conferma sul posto (torna
+// com'era dopo qualche secondo), il secondo agisce. Solo il record:
 // tracker, client e disco restano come sono.
 function QuickDelete({ job }: { job: UploadJobSummary }) {
   const remove = useDeleteUpload()
+  const cancel = useCancelUpload()
   const [armed, setArmed] = useState(false)
   useEffect(() => {
     if (!armed) return
     const timer = setTimeout(() => setArmed(false), 4000)
     return () => clearTimeout(timer)
   }, [armed])
+  const running = job.status === 'running'
+  const label = running
+    ? t('upload.history.cancelRunning')
+    : FINAL_STATES.includes(job.status)
+      ? t('upload.history.delete')
+      : t('upload.history.removeActive')
+
+  async function act() {
+    if (running) {
+      await cancel.mutateAsync(job.id)
+      toast.success(t('upload.history.cancelled', { title: title(job) }))
+      return
+    }
+    if (CANCEL_FIRST.includes(job.status)) await cancel.mutateAsync(job.id)
+    await remove.mutateAsync(job.id)
+    toast.success(t('upload.history.deleted', { title: title(job) }))
+  }
+
   return (
     <Button
       variant={armed ? 'destructive' : 'ghost'}
       size={armed ? 'sm' : 'icon-sm'}
       className="shrink-0"
-      disabled={remove.isPending}
-      title={t('upload.history.delete')}
-      aria-label={t('upload.history.delete')}
+      disabled={remove.isPending || cancel.isPending}
+      title={label}
+      aria-label={label}
       onClick={(event) => {
         event.stopPropagation()
         if (!armed) return setArmed(true)
-        remove
-          .mutateAsync(job.id)
-          .then(() => toast.success(t('upload.history.deleted', { title: title(job) })))
-          .catch((error: Error) => toast.error(error.message))
+        act().catch((error: Error) => toast.error(error.message))
       }}
     >
-      {armed ? t('upload.history.deleteConfirm') : <Trash2Icon />}
+      {armed ? (running ? t('upload.cancelJob') : t('upload.history.deleteConfirm')) : running ? <CircleXIcon /> : <Trash2Icon />}
     </Button>
   )
 }
 
 function HistoryList({ jobs, onOpen }: { jobs: UploadJobSummary[]; onOpen: (id: number) => void }) {
-  if (jobs.length === 0) return <p className="py-6 text-center text-sm text-muted-foreground">{t('upload.noUploadsYet')}</p>
+  if (jobs.length === 0) return <p className="py-10 text-center text-sm text-muted-foreground">{t('upload.noUploadsYet')}</p>
   return (
     <ul className="grid gap-2">
       {jobs.map((job) => (
-        <li
-          key={job.id}
-          className={cn('flex cursor-pointer items-center gap-3 rounded-md border p-2 hover:bg-muted/50', job.status === 'cancelled' && 'opacity-60')}
-          onClick={() => onOpen(job.id)}
-        >
+        <li key={job.id} className={cn(ROW, job.status === 'cancelled' && 'opacity-60')} onClick={() => onOpen(job.id)}>
           <Poster job={job} />
-          <div className="grid min-w-0 flex-1 gap-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="truncate text-sm font-medium">{title(job)}</span>
-              {job.kind && <Badge variant="outline">{t(`upload.kind.${job.kind}`)}</Badge>}
-              {job.origin === 'watch' && <Badge variant="outline">{t('upload.watch.badge')}</Badge>}
-              <UploadStatusBadge status={job.status} />
-            </div>
-            <TargetOutcomes job={job} />
-          </div>
-          <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+          <JobHeading job={job} status={<UploadStatusBadge status={job.status} />} />
+          <TargetOutcomes job={job} className="sm:w-56 sm:shrink-0" />
+          <span className="text-xs text-muted-foreground tabular-nums sm:w-40 sm:shrink-0 sm:text-right">
             {job.finished_at && parseApiDate(job.finished_at).toLocaleString()}
           </span>
-          <QuickDelete job={job} />
+          <div className="ml-auto flex shrink-0" onClick={(e) => e.stopPropagation()}>
+            <QuickDelete job={job} />
+          </div>
         </li>
       ))}
     </ul>
@@ -202,33 +243,30 @@ export function UploadQueuePage() {
   const history = jobs.filter((job) => FINAL_STATES.includes(job.status))
 
   return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between">
-        <CardTitle>{t('misc.upload')}</CardTitle>
-        <Button onClick={() => navigate('/upload/new')}>
-          <PlusIcon className="size-4" />
-          {t('upload.newUpload')}
-        </Button>
-      </CardHeader>
-      <CardContent>
-        {isPending ? (
-          <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
-        ) : (
-          <Tabs defaultValue={params.get('tab') ?? (active.length > 0 || history.length === 0 ? 'active' : 'history')}>
+    <div className="grid gap-4">
+      {isPending ? (
+        <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
+      ) : (
+        <Tabs defaultValue={params.get('tab') ?? (active.length > 0 || history.length === 0 ? 'active' : 'history')}>
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <TabsList>
               <TabsTrigger value="active">{t('upload.history.activeTab', { count: active.length })}</TabsTrigger>
               <TabsTrigger value="history">{t('upload.history.historyTab', { count: history.length })}</TabsTrigger>
             </TabsList>
-            <TabsContent value="active" className="pt-3">
-              <ActiveList jobs={active} />
-            </TabsContent>
-            <TabsContent value="history" className="pt-3">
-              <HistoryList jobs={history} onOpen={setOpenId} />
-            </TabsContent>
-          </Tabs>
-        )}
-      </CardContent>
+            <Button onClick={() => navigate('/upload/new')}>
+              <PlusIcon className="size-4" />
+              {t('upload.newUpload')}
+            </Button>
+          </div>
+          <TabsContent value="active" className="pt-2">
+            <ActiveList jobs={active} />
+          </TabsContent>
+          <TabsContent value="history" className="pt-2">
+            <HistoryList jobs={history} onOpen={setOpenId} />
+          </TabsContent>
+        </Tabs>
+      )}
       <UploadDetailSheet uploadId={openId} onClose={() => setOpenId(null)} />
-    </Card>
+    </div>
   )
 }

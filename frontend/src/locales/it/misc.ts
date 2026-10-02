@@ -5,7 +5,7 @@ export const misc = {
   'nav.posterView': 'Vista a poster',
   'nav.torrent': 'Torrent',
   'nav.files': 'File',
-  'nav.notImported': 'Non importati',
+  'nav.notImported': 'Triage',
   'nav.reseeding': 'Reseeding',
   'nav.upload': 'Upload',
   'nav.configuration': 'Impostazioni',
