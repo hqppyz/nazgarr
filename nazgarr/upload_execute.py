@@ -153,19 +153,45 @@ def prepare_content(session: Session, job: UploadJob, ctx: dict) -> str:
     (upload_file_names "original") è la sorgente stessa; con nomi nuovi
     (dal torrent in hardlink, o generati) si creano prima gli hardlink con
     quei nomi nella cartella di seed, e il torrent nasce da lì: quello
-    pubblicato e quello in seed sono per forza gli stessi file."""
+    pubblicato e quello in seed sono per forza gli stessi file.
+
+    Un file solo tolto dalla sua cartella (plan.single_file) va negli
+    hardlink anche con i nomi originali: nella cartella di seed, dentro la
+    sua cartella se resta (plan.folder). Se la sorgente è già nella cartella
+    di seeding, seeda sul posto, dentro la sua cartella. ctx["save_path"] è
+    dove il client lo cercherà."""
     plan = upload_file_names.plan(session, job)
-    upload_jobs.log_event(session, job, "file_names", mode=plan.mode, name=plan.content_name)
+    upload_jobs.log_event(session, job, "file_names", mode=plan.mode, name=plan.content_name,
+                          **({"single_file": True, "folder": plan.folder} if plan.single_file else {}))
     session.commit()
-    if not plan.renamed:
+    if not plan.renamed and not plan.single_file:
         refresh_mediainfo(session, job, plan, None)
         return job.source_path
+    if not plan.renamed and _seeds_in_place(job, ctx):
+        source = plan.files[0][0]
+        ctx["save_path"] = os.path.dirname(source)
+        refresh_mediainfo(session, job, plan, None)
+        return source
     root = ctx["seed_root"]()
-    pairs = [(source, os.path.join(root, *target.split("/"))) for source, target in plan.files]
+    base = os.path.join(root, *plan.folder.split("/")) if plan.folder else root
+    pairs = [(source, os.path.join(base, *target.split("/"))) for source, target in plan.files]
     ctx["created_links"] = link_files(pairs, root)
-    ctx["prelinked"] = True
-    refresh_mediainfo(session, job, plan, root)
-    return os.path.join(root, *plan.content_name.split("/"))
+    ctx["save_path"] = base
+    refresh_mediainfo(session, job, plan, base)
+    return os.path.join(base, *plan.content_name.split("/"))
+
+
+def _seeds_in_place(job: UploadJob, ctx: dict) -> bool:
+    """La sorgente è già nella cartella di seeding (o in quella per gli
+    upload). Mai per la cartella osservata: da lì la release se ne va."""
+    if job.origin == "watch":
+        return False
+    if _inside(job.source_path, seeding_area(job)):
+        return True
+    try:
+        return _inside(job.source_path, ctx["seed_root"]())
+    except UploadJobError:
+        return False
 
 
 _COMPLETE_NAME = re.compile(r"^(Complete name\s*:\s*).*$", re.MULTILINE)
@@ -409,8 +435,8 @@ def run_upload(session: Session, job: UploadJob, target: UploadTarget, ctx: dict
     session.commit()
     try:
         root = ctx["seed_root"]()
-        if ctx.get("prelinked"):  # già in seed con i nomi del torrent (prepare_content)
-            save_path = root
+        if ctx.get("save_path"):  # già in seed con i nomi del torrent (prepare_content)
+            save_path = ctx["save_path"]
         else:
             pairs = _upload_pairs(job, torrent, root)
             link_files(pairs, root)

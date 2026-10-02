@@ -45,4 +45,14 @@ export const uploadSettings = {
   'uploadSettings.autoRenameLabel': 'Rinomina i file in automatico',
   'uploadSettings.autoRenameHelp':
     'Acceso: i nomi del torrent in hardlink se c’è, altrimenti questo pattern per i file della libreria e le release della cartella osservata. Spento: ogni upload parte con i nomi originali; su ogni upload puoi comunque scegliere un’altra opzione.',
+  'uploadSettings.singleFileLabel': 'File singolo al posto di una cartella con un file',
+  'uploadSettings.singleFileHelp':
+    "Quando l'unico file che entra nel torrent è dentro una cartella, il torrent è solo quel file, senza cartella. Sample e file di sistema non entrano mai nel torrent e non contano; un nfo sì, e il torrent resta una cartella.",
+  'uploadSettings.singleFileFolderLabel': 'Cartella del file singolo',
+  'uploadSettings.singleFileFolder.keep': 'Tieni la cartella',
+  'uploadSettings.singleFileFolder.remove': 'Togli la cartella',
+  'uploadSettings.singleFileFolderHelp.keep':
+    'Il file seeda dentro la sua cartella nella cartella delle release, e il client punta lì. Una sorgente già nella cartella di seeding seeda dove si trova.',
+  'uploadSettings.singleFileFolderHelp.remove':
+    'Il file seeda direttamente nella cartella delle release, senza la sua cartella. Una sorgente già nella cartella di seeding seeda dove si trova, dentro la sua cartella.',
 } as const

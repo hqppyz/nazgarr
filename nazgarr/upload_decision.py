@@ -212,7 +212,8 @@ def file_names_preview(session: Session, job: UploadJob) -> dict:
             if plan.mode != mode:
                 continue  # es. "generated" senza titolo ripiega sui nomi originali
             targets = [target for _source, target in plan.files]
-            previews[mode] = {"name": plan.content_name, "files": targets[:PREVIEW_FILES], "count": len(targets)}
+            previews[mode] = {"name": plan.content_name, "files": targets[:PREVIEW_FILES], "count": len(targets),
+                              "single_file": plan.single_file, "folder": plan.folder}
         return {
             "available": [m for m in available if m in previews],
             "default": upload_file_names.default_mode(session, job),

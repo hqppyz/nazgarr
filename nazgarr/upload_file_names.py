@@ -85,6 +85,11 @@ class FilePlan:
     mode: str
     content_name: str  # la cartella del torrent, o il file se è uno solo
     files: list[tuple[str, str]]  # (file della sorgente, percorso dentro il torrent)
+    # Un file solo tolto dalla sua cartella (single_file): il torrent è il
+    # file, e folder la cartella (relativa a quella di seed) in cui seeda, se
+    # resta; None, direttamente nella cartella di seed.
+    single_file: bool = False
+    folder: str | None = None
 
     @property
     def renamed(self) -> bool:
@@ -256,8 +261,42 @@ def default_mode(session: Session, job: UploadJob) -> str:
     return "generated" if _in_media_library(job) or job.origin == "watch" else "original"
 
 
+SINGLE_FILE_SETTING = "upload_single_file"
+SINGLE_FILE_FOLDER_SETTING = "upload_single_file_folder"
+FOLDER_CHOICES = ("keep", "remove")
+
+
+def single_file_folder(session: Session) -> str | None:
+    """Con l'impostazione accesa (Settings › Releases, spenta di default),
+    "keep" o "remove": cosa fare della cartella che conteneva il file."""
+    if (settings_repo.get_setting(session, SINGLE_FILE_SETTING) or "").lower() != "true":
+        return None
+    choice = (settings_repo.get_setting(session, SINGLE_FILE_FOLDER_SETTING) or "keep").lower()
+    return choice if choice in FOLDER_CHOICES else "keep"
+
+
+def _as_single_file(found: FilePlan, folder_choice: str | None) -> FilePlan:
+    """Una cartella con un file solo dentro il torrent (decisione
+    dell'utente, 2026-10-02): il torrent diventa quel file, senza cartella.
+    Conta quello che entra nel torrent: un sample o un Thumbs.db non ne
+    fanno parte, un nfo sì (e la cartella resta). La cartella può restare
+    come cartella di seed (il client punta lì dentro) o sparire: il file
+    seeda direttamente nella cartella di seed."""
+    if folder_choice is None or len(found.files) != 1 or "/" not in found.files[0][1]:
+        return found
+    source, target = found.files[0]
+    folder, name = target.rsplit("/", 1)
+    return FilePlan(found.mode, name, [(source, name)], single_file=True,
+                    folder=folder if folder_choice == "keep" else None)
+
+
 def plan(session: Session, job: UploadJob, mode: str | None = None) -> FilePlan:
-    """Il piano dei nomi per la modalità scelta (o quella di default)."""
+    """Il piano dei nomi per la modalità scelta (o quella di default), un
+    file solo senza la sua cartella se l'impostazione è accesa."""
+    return _as_single_file(_plan(session, job, mode), single_file_folder(session))
+
+
+def _plan(session: Session, job: UploadJob, mode: str | None) -> FilePlan:
     files = _source_files(job)
     analysis = json.loads(job.analysis_json or "{}")
     overrides = json.loads(job.overrides_json or "{}")

@@ -8,7 +8,7 @@ import { t } from '@/lib/i18n'
 interface FileNames {
   available: string[]
   default: string | null
-  previews: Record<string, { name: string; files: string[]; count: number }>
+  previews: Record<string, { name: string; files: string[]; count: number; single_file?: boolean; folder?: string | null }>
 }
 
 // I nomi dei file dentro il torrent di un upload (nazgarr/upload_file_names.py):
@@ -59,6 +59,11 @@ export function FileNamesCard({ job }: { job: UploadJob }) {
                   {file.slice(file.indexOf('/') + 1)}
                 </span>
               ))}
+            {preview.single_file && (
+              <span className="pl-5 break-all text-muted-foreground">
+                {preview.folder ? t('upload.fileNames.seedsInFolder', { folder: preview.folder }) : t('upload.fileNames.seedsWithoutFolder')}
+              </span>
+            )}
             {preview.count > preview.files.length && (
               <span className="pl-5 text-muted-foreground">
                 {t('upload.fileNames.more', { count: preview.count - preview.files.length })}

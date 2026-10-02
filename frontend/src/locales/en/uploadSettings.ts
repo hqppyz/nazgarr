@@ -45,4 +45,14 @@ export const uploadSettings = {
   'uploadSettings.autoRenameLabel': 'Rename files automatically',
   'uploadSettings.autoRenameHelp':
     'On: the names of the hardlinked torrent if there is one, otherwise this pattern for library files and watched-folder releases. Off: every upload starts with the original names; you can still pick another option on each upload.',
+  'uploadSettings.singleFileLabel': 'Single file instead of a folder with one file',
+  'uploadSettings.singleFileHelp':
+    'When the only file going into the torrent sits in a folder, the torrent is just that file, with no folder. Samples and system files never go into the torrent, so they do not count; an nfo does, and the torrent stays a folder.',
+  'uploadSettings.singleFileFolderLabel': 'Folder of the single file',
+  'uploadSettings.singleFileFolder.keep': 'Keep the folder',
+  'uploadSettings.singleFileFolder.remove': 'Remove the folder',
+  'uploadSettings.singleFileFolderHelp.keep':
+    'The file seeds inside its folder in the releases folder, and the client points there. A source already in the seeding folder seeds where it is.',
+  'uploadSettings.singleFileFolderHelp.remove':
+    'The file seeds directly in the releases folder, without its folder. A source already in the seeding folder seeds where it is, inside its folder.',
 } as const

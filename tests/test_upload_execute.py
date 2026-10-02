@@ -515,3 +515,60 @@ def test_a_release_folder_leaves_with_its_files_and_lists_what_the_torrent_did_n
     assert (folder / "Sample" / "sample.mkv").is_file()  # non era nel torrent: resta, e si dice
     leftovers = next(e for e in job.events if e.code == "watch_source_leftovers")
     assert json.loads(leftovers.params_json)["files"] == ["My Movie 2024/Sample/sample.mkv"]
+
+
+def _single_file(db_session, choice):
+    from nazgarr import settings_repo, upload_file_names
+    settings_repo.set_setting(db_session, upload_file_names.SINGLE_FILE_SETTING, "true")
+    settings_repo.set_setting(db_session, upload_file_names.SINGLE_FILE_FOLDER_SETTING, choice)
+    db_session.commit()
+
+
+@pytest.mark.parametrize("choice", ["keep", "remove"])
+def test_a_folder_with_one_file_becomes_a_single_file_torrent(db_session, tmp_path, env, choice):
+    _single_file(db_session, choice)
+    env["disk"].watch_rel_path = "releases"
+    db_session.commit()
+    folder = env["root"] / "releases" / "My Movie 2024"
+    write_video(folder / "My.Movie.2024.1080p.WEB-DL-NZG.mkv", 300 * KB)
+    write_video(folder / "Sample" / "sample.mkv", 10 * KB)  # mai nel torrent: non conta
+    job = _approved(db_session, env, "releases/My Movie 2024", {"a": _upload("Movie A"), "b": {"action": "skip"}})
+    job.origin = "watch"
+    db_session.commit()
+
+    _run(db_session, tmp_path, job)
+
+    assert job.status == "done", [e.code for e in job.events]
+    torrent = torf.Torrent.read(job.targets[0].torrent_path)
+    assert torrent.mode == "singlefile" and torrent.name == "My.Movie.2024.1080p.WEB-DL-NZG.mkv"
+    seeds_in = env["root"] / "torrents" / ("My Movie 2024" if choice == "keep" else "")
+    assert (seeds_in / "My.Movie.2024.1080p.WEB-DL-NZG.mkv").is_file()
+    assert env["client"].added == [(job.targets[0].torrent_path, str(seeds_in).rstrip(os.sep))]
+    assert env["client"].skipped == [True]
+    assert not (folder / "My.Movie.2024.1080p.WEB-DL-NZG.mkv").exists()  # spostato dalla cartella osservata
+
+
+def test_a_single_file_already_in_the_seeding_folder_seeds_in_place(db_session, tmp_path, env):
+    _single_file(db_session, "remove")
+    video = write_video(env["root"] / "torrents" / "Movie.2024-GRP" / "Movie.2024-GRP.mkv", 300 * KB)
+    job = _approved(db_session, env, "torrents/Movie.2024-GRP", {"a": _upload("Movie A"), "b": {"action": "skip"}})
+
+    _run(db_session, tmp_path, job)
+
+    assert job.status == "done", [e.code for e in job.events]
+    assert torf.Torrent.read(job.targets[0].torrent_path).mode == "singlefile"
+    assert env["client"].added == [(job.targets[0].torrent_path, str(video.parent))]
+    assert video.stat().st_nlink == 1  # nessun hardlink nuovo
+
+
+def test_a_folder_with_more_files_stays_a_folder(db_session, tmp_path, env):
+    _single_file(db_session, "keep")
+    folder = env["root"] / "media" / "Movie (2024)"
+    write_video(folder / "Movie.mkv", 300 * KB)
+    (folder / "Movie.nfo").write_text("nfo")
+    job = _approved(db_session, env, "media/Movie (2024)", {"a": _upload("Movie A"), "b": {"action": "skip"}})
+
+    _run(db_session, tmp_path, job)
+
+    torrent = torf.Torrent.read(job.targets[0].torrent_path)
+    assert torrent.mode == "multifile" and torrent.name == "Movie (2024)"

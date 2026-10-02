@@ -344,6 +344,8 @@ export const upload = {
   'upload.fileNames.mode.generated': 'Generati',
   'upload.fileNames.mode.original': 'Originali',
   'upload.fileNames.more': '… e altri {count}',
+  'upload.fileNames.seedsInFolder': 'seeda nella cartella {folder}',
+  'upload.fileNames.seedsWithoutFolder': 'seeda senza cartella',
   'upload.fileNames.help.hardlink': 'I nomi del torrent che ha già in seed questi file su un client: la release originale.',
   'upload.fileNames.help.generated': 'Costruiti dal pattern in Impostazioni › Release, a partire dal nome della release e dalla MediaInfo.',
   'upload.fileNames.help.original': 'I nomi che i file hanno nelle tue cartelle (nella libreria, quelli di Plex/Radarr/Sonarr).',
