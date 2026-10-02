@@ -53,7 +53,7 @@ function HealthCard({ data, history }: { data: Dashboard; history: HistoryPoint[
   const delta = oldest ? data.health_pct - oldest.health_snapshot : null
   const ago = daysAgo(oldest?.finished_at)
   return (
-    <Card>
+    <Card data-tour="views.health">
       <CardHeader>
         <CardTitle>{t('dashboard.libraryHealth')}</CardTitle>
       </CardHeader>
@@ -226,7 +226,7 @@ const num = (value: number | null | undefined) => value ?? 0
 function MetricCards({ data }: { data: Dashboard }) {
   const previous = data.previous
   return (
-    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" data-tour="views.metrics">
       <MetricCard
         title={t('dashboard.hardlinkedMedia')}
         dot={STATUS_STYLES.seeding.dot}
@@ -325,7 +325,7 @@ export function DashboardPage() {
 
       <MetricCards data={data} />
 
-      <div className="grid gap-6 xl:grid-cols-5">
+      <div className="grid gap-6 xl:grid-cols-5" data-tour="views.changes">
         <ChangesCard className="xl:col-span-3" />
         <ScanHistoryCard className="xl:col-span-2" />
       </div>

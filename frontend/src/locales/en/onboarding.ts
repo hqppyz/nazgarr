@@ -44,6 +44,7 @@ export const onboarding = {
   'onboarding.step.upload.title': 'Upload',
   'onboarding.step.upload.summary': 'Image hosts for the screenshots, and the upload defaults.',
   'onboarding.step.first_scan.title': 'First scan',
+  'onboarding.step.views.title': 'Tour of the views',
   'onboarding.step.first_scan.summary': 'Scan everything once. A long one is the right time for a second breakfast.',
 
   'onboarding.restart.title': 'Getting started tour',
@@ -135,4 +136,61 @@ export const onboarding = {
     'The hit and run rule of the tracker (seed time and/or ratio). Not imported then tells which old torrents you can remove safely. Optional.',
   'onboarding.tour.trackers.profile.title': 'Upload profile',
   'onboarding.tour.trackers.profile.body': 'How uploads to this tracker are named and categorised. A known tracker already has one: change it only if needed.',
+  'onboarding.tour.exclusions.presets.title': 'Ready-made exclusions',
+  'onboarding.tour.exclusions.presets.body':
+    'Sets of files that never count: media server metadata (artwork, .nfo) is on by default; samples and scene leftovers can be added. Excluded files stay on disk, they are just left out of states, counts and searches.',
+  'onboarding.tour.exclusions.custom.title': 'Your own patterns',
+  'onboarding.tour.exclusions.custom.body': 'Anything else to leave out, as patterns on the path (e.g. */Extras/*). You can also exclude a file or a folder by right-clicking it in the Library.',
+
+  'onboarding.tour.reseeding.search.title': 'What gets searched',
+  'onboarding.tour.reseeding.search.body':
+    'Every scan looks for the library files that do not seed. With cross-seeds on, a file seeding on one tracker is also searched on the others.',
+  'onboarding.tour.reseeding.thresholds.title': 'How sure is sure',
+  'onboarding.tour.reseeding.thresholds.body':
+    'Above these confidences a match is marked as recommended; below, it waits in the queue as a proposal. Either way, nothing runs until you approve it, unless you turn on automatic execution below.',
+  'onboarding.tour.reseeding.execution.title': 'Before anything is done',
+  'onboarding.tour.reseeding.execution.body':
+    'The full check reads every piece before a hardlink or a torrent is created, so the client recheck cannot fail. Automatic execution is off, and stays off unless you choose otherwise.',
+
+  'onboarding.tour.upload.hosts.title': 'Image hosts',
+  'onboarding.tour.upload.hosts.body':
+    'Where the screenshots of your uploads go, in this order: drag to change it, remove the ones you do not want. Imgbox and Pixhost need no key; for the others paste your API key on the right.',
+  'onboarding.tour.upload.screenshots.title': 'Screenshots',
+  'onboarding.tour.upload.screenshots.body': 'How many per upload, and whether HDR frames are tone-mapped so they do not look washed out.',
+  'onboarding.tour.upload.description.title': 'Description',
+  'onboarding.tour.upload.description.body': 'A header and a signature in BBCode around the description Nazgarr writes for each upload.',
+  'onboarding.tour.upload.names.title': 'File names',
+  'onboarding.tour.upload.names.body':
+    'How files are named inside a new torrent when they come from your library: the hardlinked release name if there is one, otherwise this pattern.',
+
+  'onboarding.tour.first_scan.run.title': 'The first scan',
+  'onboarding.tour.first_scan.run.body':
+    'Click "Run now": Nazgarr reads your disks, recognises every file, indexes your clients and searches your trackers. It only reads: nothing is linked, added or moved.',
+  'onboarding.tour.first_scan.progress.title': 'It takes a while',
+  'onboarding.tour.first_scan.progress.body':
+    'The progress is at the bottom right, and you can keep using Nazgarr meanwhile. A first scan of a large library is the right time for a second breakfast. Meanwhile, a look around.',
+
+  'onboarding.tour.views.intro.title': 'A look from the tower',
+  'onboarding.tour.views.intro.body': 'Like a tower that keeps watch, the Dashboard sees everything at once. A short tour of where things are; the numbers fill in as the scan goes.',
+  'onboarding.tour.views.health.title': 'Library health',
+  'onboarding.tour.views.health.body': 'How much of your library, by size, is seeding through a hardlink. Next to it, how it changed over time.',
+  'onboarding.tour.views.metrics.title': 'What needs a look',
+  'onboarding.tour.views.metrics.body':
+    'Hardlinked media, orphaned torrents, torrents not imported into the library and duplicates, with the trend since the last scan. Each card opens the matching list.',
+  'onboarding.tour.views.changes.title': 'What changed',
+  'onboarding.tour.views.changes.body': 'File by file, what changed since the previous scan, and the history of the scans.',
+  'onboarding.tour.views.filter.title': 'One tracker at a time',
+  'onboarding.tour.views.filter.body': 'Every view can count all torrents, only your configured trackers, or a single one. The choice is remembered.',
+  'onboarding.tour.views.library.title': 'Your library',
+  'onboarding.tour.views.library.body':
+    'The files of your media folders, as a folder tree or as posters. Right-click a file or a folder: upload or reseed it, or exclude it.',
+  'onboarding.tour.views.states.title': 'Seeding or orphaned',
+  'onboarding.tour.views.states.body':
+    'Seeding: a hardlink seeds in a client. Orphaned: nothing seeds it, so it is a candidate for a reseed. Click a card to filter.',
+  'onboarding.tour.views.not_imported.title': 'Not imported',
+  'onboarding.tour.views.not_imported.body':
+    'Not every file that wanders is lost: these seed with no hardlink in your library, each with the reason (an upgrade replaced it, a copy, never imported). With a seeding requirement on the tracker, it also tells which ones can go.',
+  'onboarding.tour.views.review.title': 'The review queue',
+  'onboarding.tour.views.review.body':
+    'Every proposal waits here, with its confidence and what it would do. Approve or reject: nothing passes without your word. The road goes ever on: the next scans keep it filled.',
 } as const

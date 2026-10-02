@@ -15,7 +15,7 @@ export function LibrarySummaryCards({
   onSelect: (status: string) => void
 }) {
   return (
-    <div className="grid grid-cols-[repeat(auto-fit,minmax(9rem,1fr))] gap-3">
+    <div className="grid grid-cols-[repeat(auto-fit,minmax(9rem,1fr))] gap-3" data-tour="views.summary">
       {statusOptions.map((option) => {
         const s = summary[option.value] ?? { count: 0, size: 0 }
         const style = summaryStyle(option.value)

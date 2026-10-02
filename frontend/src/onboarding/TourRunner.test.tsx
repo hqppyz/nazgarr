@@ -127,4 +127,31 @@ describe('TourRunner', () => {
     expect(highlights.length).toBeGreaterThan(before)
     expect(last().element?.getAttribute('data-tour')).toBe('storage.seeding-folder') // cartella scelta: avanti
   })
+
+  it('goes to the screen of each step in the tour of the views', () => {
+    setup()
+    page('<div data-tour="views.library-switch"></div>')
+    act(() => {
+      tourStore.start('views')
+      tourStore.goTo(5) // la Library
+    })
+    tick()
+
+    expect(where.path).toBe('/library/folder')
+    expect(last().element?.getAttribute('data-tour')).toBe('views.library-switch')
+  })
+
+  it('moves from the first scan to the tour of the views', () => {
+    setup()
+    page('<button data-tour="dashboard.run" data-tour-filled="true"></button>')
+    act(() => tourStore.start('first_scan'))
+    tick()
+    tick()
+    expect(last().popover.title).toBe('It takes a while') // la scansione è partita: avanti da solo
+
+    act(() => last().popover.onNextClick())
+    tick()
+
+    expect(tourStore.get()?.key).toBe('views')
+  })
 })

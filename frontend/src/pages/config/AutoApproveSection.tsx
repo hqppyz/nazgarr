@@ -62,7 +62,7 @@ function ExecutionCard() {
   const { data: verify } = useSetting(VERIFY_KEY)
   const verifyOn = (verify?.value ?? 'true').toLowerCase() !== 'false'
   return (
-    <Card>
+    <Card data-tour="reseeding.execution">
       <CardHeader>
         <CardTitle>{t('integrations.executionTitle')}</CardTitle>
         <CardDescription>{t('integrations.executionDescription')}</CardDescription>
@@ -95,7 +95,7 @@ function ExecutionCard() {
 
 function SearchCard() {
   return (
-    <Card>
+    <Card data-tour="reseeding.search">
       <CardHeader>
         <CardTitle>{t('reseeding.searchTitle')}</CardTitle>
         <CardDescription>{t('reseeding.searchDescription')}</CardDescription>
@@ -117,7 +117,7 @@ export function AutoApproveSection() {
   return (
     <>
       <SearchCard />
-      <Card>
+      <Card data-tour="reseeding.thresholds">
         <CardHeader>
           <CardTitle>{t('integrations.autoApproveThresholdsTitle')}</CardTitle>
           <CardDescription>{t('integrations.autoApproveThresholdsDescription')}</CardDescription>

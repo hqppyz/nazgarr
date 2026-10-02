@@ -57,7 +57,7 @@ function PresetsCard() {
   }
 
   return (
-    <Card>
+    <Card data-tour="exclusions.presets">
       <CardHeader>
         <CardTitle>{t('exclusions.presetsTitle')}</CardTitle>
         <CardDescription>{t('exclusions.presetsDescription')}</CardDescription>
@@ -115,7 +115,7 @@ function CustomPatternsCard() {
   }
 
   return (
-    <Card>
+    <Card data-tour="exclusions.custom">
       <CardHeader>
         <CardTitle>{t('exclusions.customTitle')}</CardTitle>
         <CardDescription>{t('exclusions.customDescription')}</CardDescription>

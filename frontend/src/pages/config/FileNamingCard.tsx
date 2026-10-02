@@ -21,7 +21,7 @@ export function FileNamingCard() {
   const feedback = autosaveFeedback(t('uploadSettings.fileNamesTitle'))
 
   return (
-    <Card data-masonry="full">
+    <Card data-masonry="full" data-tour="upload.file-names">
       <CardHeader>
         <CardTitle>{t('uploadSettings.fileNamesTitle')}</CardTitle>
         <CardDescription>{t('uploadSettings.fileNamesDescription')}</CardDescription>

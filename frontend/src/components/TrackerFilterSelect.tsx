@@ -23,7 +23,7 @@ export function TrackerFilterSelect() {
   }
   return (
     <Select value={value} onValueChange={(v) => v != null && setValue.mutate(v)}>
-      <SelectTrigger size="sm" className="w-52" title={t('trackerFilter.help')}>
+      <SelectTrigger size="sm" className="w-52" title={t('trackerFilter.help')} data-tour="views.tracker-filter">
         {/* Con un tracker scelto, la sua icona al posto di quella del filtro. */}
         {selected ? (
           <span className="flex shrink-0 [&>*]:size-4">

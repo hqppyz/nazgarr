@@ -22,6 +22,8 @@ export function RunNowButton() {
       <Button
         size="sm"
         variant="outline"
+        data-tour="dashboard.run"
+        data-tour-filled="true"
         className="text-destructive hover:text-destructive"
         disabled={stopping}
         onClick={() =>
@@ -39,6 +41,7 @@ export function RunNowButton() {
   return (
     <Button
       size="sm"
+      data-tour="dashboard.run"
       onClick={() =>
         triggerRun.mutate(undefined, {
           onError: (error) => toast.error(t('common.runFailed', { message: error.message })),

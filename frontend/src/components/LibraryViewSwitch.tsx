@@ -11,7 +11,7 @@ export function LibraryViewSwitch() {
   const current: LibraryView = location.pathname.startsWith(LIBRARY_VIEW_PATHS.poster) ? 'poster' : 'folder'
   return (
     <Tabs value={current} onValueChange={(v) => navigate(LIBRARY_VIEW_PATHS[v as LibraryView])}>
-      <TabsList>
+      <TabsList data-tour="views.library-switch">
         <TabsTrigger value="folder">{t('library.folderView')}</TabsTrigger>
         <TabsTrigger value="poster">{t('library.posterView')}</TabsTrigger>
       </TabsList>

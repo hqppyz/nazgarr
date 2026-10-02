@@ -35,6 +35,11 @@ export function GettingStartedCard() {
           <CardDescription>{t(ready ? 'onboarding.checklist.readyDescription' : 'onboarding.checklist.description')}</CardDescription>
         </div>
         <div className="flex gap-1">
+          {ready && (
+            <Button variant="outline" size="sm" onClick={() => tourStore.start('views')}>
+              {t('onboarding.step.views.title')}
+            </Button>
+          )}
           <Button variant="ghost" size="sm" onClick={() => save({ ...state, status: ready ? 'done' : 'dismissed' })}>
             {t(ready ? 'onboarding.checklist.finish' : 'onboarding.checklist.hide')}
           </Button>

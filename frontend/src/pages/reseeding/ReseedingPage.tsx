@@ -178,7 +178,7 @@ function ReviewCard() {
   const { data: reviews, isPending } = useReviews()
 
   return (
-    <Card>
+    <Card data-tour="views.review">
       <CardHeader>
         <CardTitle>Review</CardTitle>
       </CardHeader>

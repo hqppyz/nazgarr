@@ -22,12 +22,18 @@ export interface TourStep {
   backTo?: string
   // Solo con questa risposta del benvenuto.
   when?: keyof OnboardingState['answers']
+  // La schermata del passo, se non è quella del tour (tour delle viste).
+  route?: string
 }
 
 export interface Tour {
-  key: string // lo stesso del passo della checklist
+  key: string // lo stesso del passo della checklist (o "views")
   route: string
   steps: TourStep[]
+  // Il tour che segue questo, invece del prossimo passo della checklist;
+  // last: nessuno, si torna alla dashboard.
+  then?: string
+  last?: boolean
 }
 
 const dialogStep = (tour: string, id: string, back: string): TourStep => ({
@@ -98,6 +104,60 @@ export const TOURS: Tour[] = [
       { id: 'language', anchor: 'trackers.card.language', side: 'right', next: true },
       { id: 'seed', anchor: 'trackers.card.seed', side: 'right', next: true },
       { id: 'profile', anchor: 'trackers.card.profile', side: 'top', next: true, when: 'upload' },
+    ],
+  },
+  {
+    key: 'exclusions',
+    route: '/config?tab=exclusions',
+    steps: [
+      { id: 'presets', anchor: 'exclusions.presets', side: 'right', next: true },
+      { id: 'custom', anchor: 'exclusions.custom', side: 'left', next: true },
+    ],
+  },
+  {
+    key: 'reseeding',
+    route: '/config?tab=matching',
+    steps: [
+      { id: 'search', anchor: 'reseeding.search', side: 'right', next: true },
+      { id: 'thresholds', anchor: 'reseeding.thresholds', side: 'right', next: true },
+      { id: 'execution', anchor: 'reseeding.execution', side: 'left', next: true },
+    ],
+  },
+  {
+    key: 'upload',
+    route: '/config?tab=upload',
+    steps: [
+      { id: 'hosts', anchor: 'upload.image-hosts', side: 'bottom', next: true },
+      { id: 'screenshots', anchor: 'upload.screenshots', side: 'right', next: true },
+      { id: 'description', anchor: 'upload.description', side: 'left', next: true },
+      { id: 'names', anchor: 'upload.file-names', side: 'top', next: true },
+    ],
+  },
+  {
+    key: 'first_scan',
+    route: '/dashboard',
+    then: 'views',
+    steps: [
+      { id: 'run', anchor: 'dashboard.run', side: 'bottom', waitFor: { filled: 'dashboard.run' },
+        skipIf: { status: 'first_scan' }, skipTo: 'progress' },
+      { id: 'progress', side: 'bottom', next: true },
+    ],
+  },
+  {
+    // Il giro delle viste, dopo la prima scansione: non è un passo della checklist.
+    key: 'views',
+    route: '/dashboard',
+    last: true,
+    steps: [
+      { id: 'intro', next: true },
+      { id: 'health', anchor: 'views.health', side: 'right', next: true },
+      { id: 'metrics', anchor: 'views.metrics', side: 'bottom', next: true },
+      { id: 'changes', anchor: 'views.changes', side: 'top', next: true },
+      { id: 'filter', anchor: 'views.tracker-filter', side: 'left', next: true },
+      { id: 'library', anchor: 'views.library-switch', side: 'bottom', next: true, route: '/library/folder' },
+      { id: 'states', anchor: 'views.summary', side: 'bottom', next: true, route: '/library/folder' },
+      { id: 'not_imported', anchor: 'views.summary', side: 'bottom', next: true, route: '/torrent/not-imported' },
+      { id: 'review', anchor: 'views.review', side: 'top', next: true, route: '/reseeding' },
     ],
   },
 ]

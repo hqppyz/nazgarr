@@ -95,7 +95,7 @@ export function UploadSettingsSection() {
   return (
     <>
       {/* Per primi, a tutta larghezza: priorità e API key affiancate. */}
-      <Card data-masonry="full">
+      <Card data-masonry="full" data-tour="upload.image-hosts">
         <CardHeader>
           <CardTitle>{t('uploadSettings.imageHostsTitle')}</CardTitle>
           <CardDescription>{t('uploadSettings.imageHostsDescription')}</CardDescription>
@@ -124,7 +124,7 @@ export function UploadSettingsSection() {
           </div>
         </CardContent>
       </Card>
-      <Card>
+      <Card data-tour="upload.screenshots">
         <CardHeader>
           <CardTitle>{t('uploadSettings.screenshotsTitle')}</CardTitle>
           <CardDescription>{t('uploadSettings.screenshotsDescription')}</CardDescription>
@@ -141,7 +141,7 @@ export function UploadSettingsSection() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card data-tour="upload.description">
         <CardHeader>
           <CardTitle>{t('uploadSettings.descriptionTitle')}</CardTitle>
         </CardHeader>

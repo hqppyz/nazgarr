@@ -2,7 +2,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { driver, type Driver } from 'driver.js'
 import 'driver.js/dist/driver.css'
 import { useEffect, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 
 import type { Schemas } from '@/api/client'
 import { t } from '@/lib/i18n'
@@ -37,6 +37,11 @@ function foreignLayerOpen(anchor: Element | null): boolean {
 export function TourRunner() {
   const active = useActiveTour()
   const navigate = useNavigate()
+  const location = useLocation()
+  const here = useRef('')
+  useEffect(() => {
+    here.current = location.pathname + location.search
+  }, [location])
   const queryClient = useQueryClient()
   const { state, save } = useOnboarding()
   const driverRef = useRef<Driver | null>(null)
@@ -84,10 +89,15 @@ export function TourRunner() {
       const current = stateRef.current ?? DEFAULT_STATE
       const seen = current.seen.includes(tour.key) ? current.seen : [...current.seen, tour.key]
       const next = { ...current, seen }
-      // Il prossimo passo della checklist con un tour e non ancora fatto.
-      const nextStep = visibleSteps(next)
-        .filter((s) => s.key !== tour.key && tourFor(s.key))
-        .find((s) => !isDone(s, status(), next))
+      // Il tour che segue questo, o il prossimo passo della checklist con un
+      // tour e non ancora fatto.
+      const nextStep = tour.last
+        ? undefined
+        : tour.then
+        ? { key: tour.then }
+        : visibleSteps(next)
+          .filter((s) => s.key !== tour.key && tourFor(s.key))
+          .find((s) => !isDone(s, status(), next))
       return { next, nextStep }
     }
     const finish = () => {
@@ -196,6 +206,8 @@ export function TourRunner() {
 
     // Il passo prima non resta evidenziato mentre si aspetta l'ancora nuova.
     destroy()
+    // Un passo su un'altra schermata (tour delle viste) ci porta lì.
+    if (step.route && here.current !== step.route) navigate(step.route)
     tick()
     const timer = window.setInterval(tick, TICK_MS)
     // Le condizioni sulla configurazione: setup-status più spesso mentre si aspetta.
