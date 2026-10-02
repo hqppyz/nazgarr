@@ -227,3 +227,19 @@ def test_the_detected_details_suggest_what_the_trackers_accept(db_session, tmp_p
     assert options["type"] == ["REMUX", "WEBDL"]
     assert options["resolution"] == ["720p", "1080p", "2160p"]
     assert "BluRay" in options["source"] and "NF" in options["service"] and "TrueHD" in options["audio"]
+
+
+def test_files_are_renamed_automatically_unless_turned_off(db_session, tmp_path):
+    from nazgarr import settings_repo, upload_file_names, upload_jobs
+    from tests.upload_helpers import make_disk, make_tracker, write_video
+
+    make_tracker(db_session)
+    disk = make_disk(db_session, tmp_path)
+    write_video(tmp_path / "releases" / "My.Movie.2024.mkv")
+    watched = upload_jobs.create_job(db_session, disk, "releases/My.Movie.2024.mkv", origin="watch")
+
+    # Una release della cartella osservata prende il nome generato...
+    assert upload_file_names.default_mode(db_session, watched) == "generated"
+    # ...a meno che il rename automatico sia spento: allora i nomi originali.
+    settings_repo.set_setting(db_session, upload_file_names.AUTO_RENAME_SETTING, "false")
+    assert upload_file_names.default_mode(db_session, watched) == "original"

@@ -301,3 +301,28 @@ def test_the_naming_editor_offers_every_variable():
     editor = (Path(__file__).resolve().parent.parent / "frontend/src/components/NamingRulesEditor.tsx").read_text()
     listed = re.search(r"const VARIABLE_NAMES = \[(.*?)\]", editor, re.S).group(1)
     assert re.findall(r"'(\w+)'", listed) == list(VARIABLES)
+
+
+def test_a_remux_is_recognised_from_vu_or_from_a_disc_without_an_encoder():
+    from nazgarr.upload_naming import detect, release_values
+
+    # "VU": la convenzione ITT dei remux, che guessit non conosce.
+    assert detect("Film.2023.2160p.UHD.BluRay.VU.DV.HDR.TrueHD.7.1-GRP")["type"] == "REMUX"
+    assert detect("Film.2023.1080p.BluRay.UNTOUCHED.DTS-HD.MA-GRP")["type"] == "REMUX"
+    assert detect("Vuelta.2023.1080p.BluRay.x264-GRP")["type"] == "ENCODE"  # "VU" dentro una parola non conta
+
+    job = _job()
+    untouched = {"video": {"format": "HEVC", "height": 2160, "width": 3840, "writing_library": None,
+                           "encoding_settings": False}}
+    encoded = {"video": {"format": "HEVC", "height": 2160, "width": 3840, "writing_library": "x265 3.5",
+                         "encoding_settings": True}}
+    # Un disco senza traccia di encoder è un remux, e il codec si scrive HEVC.
+    remux = release_values(job, detect("Film.2023.2160p.BluRay-GRP"), untouched, {}, None)
+    assert (remux["type"], remux["video_codec"]) == ("REMUX", "HEVC")
+    # Con x265 dentro resta un encode.
+    encode = release_values(job, detect("Film.2023.2160p.BluRay-GRP"), encoded, {}, None)
+    assert (encode["type"], encode["video_codec"]) == ("ENCODE", "x265")
+    # Un WEB-DL senza encoder non diventa un remux, e la scelta a mano vince.
+    assert release_values(job, detect("Film.2023.2160p.WEB-DL-GRP"), untouched, {}, None)["type"] == "WEBDL"
+    assert release_values(job, detect("Film.2023.2160p.BluRay-GRP"), untouched, {"type": "ENCODE"}, None)["type"] \
+        == "ENCODE"

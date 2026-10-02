@@ -233,13 +233,27 @@ def _in_media_library(job: UploadJob) -> bool:
     return os.path.realpath(job.source_path).startswith(media + os.sep)
 
 
+AUTO_RENAME_SETTING = "upload_auto_rename"
+
+
+def auto_rename(session: Session) -> bool:
+    """Rinominare in automatico (Settings › Releases), acceso di default:
+    spento, ogni upload parte con i nomi originali, e gli altri restano da
+    scegliere a mano."""
+    return (settings_repo.get_setting(session, AUTO_RENAME_SETTING) or "true").lower() != "false"
+
+
 def default_mode(session: Session, job: UploadJob) -> str:
-    """Il nome del torrent in hardlink se c'è; se no un nome generato, ma
-    solo per un file della libreria (nomi alla Plex): una sorgente già nella
-    cartella dei torrent ha già il suo nome di release, e lo tiene."""
+    """Il nome del torrent in hardlink se c'è; se no un nome generato, per un
+    file della libreria (nomi alla Plex) o una release della cartella
+    osservata (la tua, da chiamare come vuole il pattern). Una sorgente già
+    nella cartella dei torrent ha già il suo nome di release, e lo tiene.
+    Con il rename automatico spento, sempre i nomi originali."""
+    if not auto_rename(session):
+        return "original"
     if "hardlink" in available_modes(session, job):
         return "hardlink"
-    return "generated" if _in_media_library(job) else "original"
+    return "generated" if _in_media_library(job) or job.origin == "watch" else "original"
 
 
 def plan(session: Session, job: UploadJob, mode: str | None = None) -> FilePlan:

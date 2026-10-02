@@ -274,6 +274,8 @@ The Phase 6 pipeline handled one file towards one tracker, synchronously inside 
 
 **The media folder is optional** (user decision, 2026-10-02): Nazgarr can also be used only to scan torrents and to upload releases, with no media folder at all. The storage step only needs the torrent folder. Without a library there is no health: the Dashboard says so instead of showing 100%, and scans store no health point, while the torrent numbers keep their trend.
 - **Language check:** each tracker with a language gets a warning when no audio track (commentary excluded) is in that language.
+- **Remux detection** (user decision, 2026-10-02): "VU" or "UNTOUCHED" in the name means REMUX, since guessit doesn't know them. A disc source (BluRay, HD DVD, DVD) whose video carries no encoder trace (no x264/x265 writing library, no encoding settings) is a REMUX too, even if the name doesn't say so. A manual choice still wins.
+- **Automatic rename** (setting `upload_auto_rename`, on by default): the default file names are those of the hardlinked torrent if there is one; otherwise the pattern is used for library files and watched-folder releases. Off: every upload starts with its original names, and each upload can still pick another option.
 
 ## 10. UI/UX — general structure
 

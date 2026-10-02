@@ -42,4 +42,7 @@ export const uploadSettings = {
   'uploadSettings.autoMatchLabel': 'Automatic TMDB match',
   'uploadSettings.autoMatchDescription':
     'For every upload, by hand or from the watched folder: a match at least this sure (0-1) is confirmed on its own; below, or when two titles look alike, it waits for you. Change match takes it back. 0 turns it off. Default: 0.9.',
+  'uploadSettings.autoRenameLabel': 'Rename files automatically',
+  'uploadSettings.autoRenameHelp':
+    'On: the names of the hardlinked torrent if there is one, otherwise this pattern for library files and watched-folder releases. Off: every upload starts with the original names; you can still pick another option on each upload.',
 } as const

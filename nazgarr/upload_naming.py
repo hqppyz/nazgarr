@@ -102,11 +102,16 @@ def _as_list(value) -> list:
     return list(value) if isinstance(value, list) else [value]
 
 
+# "VU" (video untouched, la convenzione dei remux su ITT) e "UNTOUCHED": un
+# remux anche se il nome non dice REMUX. guessit non li conosce.
+_UNTOUCHED = re.compile(r"(?:^|[ ._\-\[(])(?:VU|UNTOUCHED)(?:$|[ ._\-\])])")
+
+
 def release_type(guess: dict, name: str = "") -> str:
     """Chiave type_id dei profili (REMUX, ENCODE, WEBDL, ...)."""
     others = {str(o) for o in _as_list(guess.get("other"))}
     source = str(guess.get("source") or "").lower()
-    if "Remux" in others:
+    if "Remux" in others or _UNTOUCHED.search(name):
         return "REMUX"
     if source == "web":
         if "Mux" in others:  # guessit non distingue WEBMux da DLMux
@@ -307,6 +312,19 @@ def _mi_hdr_full(video: dict) -> str | None:
     return ".".join(tags) or None
 
 
+# Le sorgenti da disco: un video da lì senza un encoder è un remux.
+_DISC_LABELS = ("BluRay", "3D BluRay", "HDDVD", "PAL DVD", "NTSC DVD", "DVD")
+
+
+def has_encoder(video: dict) -> bool:
+    """Il video porta le tracce di un encode: la libreria x264/x265 (o
+    un'altra) che l'ha scritto, o le sue impostazioni di encoding."""
+    library = str(video.get("writing_library") or "").lower()
+    return bool(video.get("encoding_settings")) or any(
+        name in library for name in ("x264", "x265", "nvenc", "qsv", "svt", "aomenc", "rav1e", "xvid", "divx")
+    )
+
+
 def _mi_video_codec(video: dict, release: str) -> str | None:
     fmt = str(video.get("format") or "")
     library = str(video.get("writing_library") or "").lower()
@@ -479,6 +497,12 @@ def release_values(
     video = (mediainfo or {}).get("video") or {}
     tracks = (mediainfo or {}).get("audio") or []
     subtitles = (mediainfo or {}).get("subtitles") or []
+    # Il nome dice encode (o niente), ma è un disco senza traccia di encoder:
+    # è un remux (decisione dell'utente, 2026-10-02). Prima del codec, che
+    # per un remux si scrive AVC/HEVC e non x264/x265.
+    if (video and not overrides.get("type") and values["type"] in (None, "ENCODE")
+            and values.get("source") in _DISC_LABELS and not has_encoder(video)):
+        values["type"] = "REMUX"
     release = overrides.get("type") or values["type"] or "ENCODE"
     if video:
         values["resolution"] = _mi_resolution(video) or values["resolution"]
