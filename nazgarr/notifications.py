@@ -64,6 +64,14 @@ def render(name: str, data: dict) -> Notification:
         ok = data.get("status") == "seeding"
         body = f"{torrent} on {tracker}." + ("" if ok else f" {data.get('error') or ''}".rstrip())
         return Notification(name, "Reseed seeding" if ok else "Reseed failed", body, "success" if ok else "error", data)
+    if name == "upload.detected":
+        return Notification(name, "New release detected", f"{data.get('path')} on {data.get('disk')}: upload started.",
+                            "info", data)
+    if name == "upload.ready":
+        title = f"{data.get('title') or data.get('path')}" + (f" ({data['year']})" if data.get("year") else "")
+        trackers = ", ".join(data.get("trackers") or [])
+        return Notification(name, "Upload ready for your decision", f"{title}" + (f" → {trackers}" if trackers else ""),
+                            "info", data)
     if name == "upload.finished":
         status = data.get("status")
         lines = [

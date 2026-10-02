@@ -18,7 +18,6 @@ from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from nazgarr import upload_watch
 from nazgarr.api_errors import CodedError, coded_detail, from_coded_error
 from nazgarr.deps import get_session
 from nazgarr.fs_scope import ScopeViolation, resolve_scoped
@@ -270,9 +269,6 @@ def update_disk(disk_id: int, body: DiskUpdateRequest, session: Session = Depend
         disk.upload_rel_path = body.upload_rel_path or None
     if body.watch_rel_path is not None and (body.watch_rel_path or None) != disk.watch_rel_path:
         disk.watch_rel_path = _watch_folder(session, disk, body.watch_rel_path or None)
-        session.commit()
-        # Quello che c'è già nella cartella non parte da solo (nazgarr/upload_watch.py).
-        upload_watch.baseline(session, disk)
     session.commit()
     return DiskResponse.from_model(disk)
 

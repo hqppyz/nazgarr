@@ -20,7 +20,7 @@ import time
 
 from sqlalchemy.orm import Session
 
-from nazgarr import adapter_factory, arr, mediainfo_util, upload_decision, upload_jobs
+from nazgarr import adapter_factory, arr, events, mediainfo_util, upload_decision, upload_jobs
 from nazgarr.file_types import is_video
 from nazgarr.models import (
     ClientTorrent,
@@ -293,5 +293,10 @@ def handle(session: Session, job: UploadJob, worker) -> None:
 
     if upload_jobs.transition(session, job, "analyzing", "awaiting_decision", stage=None):
         upload_jobs.log_event(session, job, "analysis_done")
+        # Per webhook e notifiche: un upload aspetta la tua decisione.
+        events.emit(session, "upload.ready", {
+            "upload_id": job.id, "title": job.title, "year": job.year, "path": job.relative_path,
+            "origin": job.origin, "trackers": [t.tracker.label for t in job.targets],
+        })
         session.commit()
 

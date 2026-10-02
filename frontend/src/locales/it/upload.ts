@@ -368,4 +368,7 @@ export const upload = {
   'upload.event.auto_match_skipped': 'Nessun match automatico: il titolo migliore non è abbastanza sicuro.',
   'upload.event.auto_match_failed': 'Match automatico impossibile: scegli il titolo a mano.',
   'upload.event.match_reopened': 'Match riaperto: scegli di nuovo il titolo.',
+  'upload.notice.detected': 'Nuova release rilevata',
+  'upload.notice.ready': 'Upload pronto per la tua decisione',
+  'upload.notice.open': 'Apri',
 } as const

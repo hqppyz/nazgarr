@@ -5,11 +5,16 @@ nome del releaser come gruppo e il match TMDB automatico sopra soglia
 (nazgarr/upload_identify.py). Arriva fino alla decisione e lì aspetta l'utente:
 mai un upload, un hardlink o un torrent senza la sua approvazione.
 
-Un elemento è pronto quando dimensione e data di modifica restano uguali per
-STABLE_SECONDS e non ha file parziali dentro (ancora in copia, se no). Ogni
-elemento visto è in watch_entry: una release fa partire un solo upload, anche
-dopo aver cancellato il suo job. Quello che c'era già quando la cartella è
-stata scelta non parte (baseline): si carica a mano se serve.
+Un elemento è pronto appena nessuno ci scrive più (decisione dell'utente,
+2026-10-02: la cartella è solo di passaggio, si parte subito): niente file
+parziali dentro, e l'ultima modifica è di almeno QUIET_SECONDS fa. Un file
+spostato dentro (stessa data di modifica di prima) parte al primo giro; una
+copia, che aggiorna la data mentre scrive, QUIET_SECONDS dopo la fine. La
+dimensione deve anche essere quella del giro prima. Si controlla ogni
+INTERVAL_SECONDS: niente eventi del filesystem (inotify), che sulle share
+FUSE di Unraid, su NFS e SMB non arrivano sempre. Ogni elemento visto è in
+watch_entry: una release fa partire un solo upload, anche dopo aver
+cancellato il suo job.
 
 Il percorso passa sempre da resolve_scoped (nazgarr/fs_scope.py); i link
 simbolici non si seguono."""
@@ -17,11 +22,11 @@ simbolici non si seguono."""
 import logging
 import os
 from collections.abc import Callable
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session
 
-from nazgarr import settings_repo, upload_jobs
+from nazgarr import events, settings_repo, upload_jobs
 from nazgarr.file_types import is_video
 from nazgarr.fs_scope import ScopeViolation, resolve_scoped
 from nazgarr.models import Disk, WatchEntry
@@ -29,8 +34,8 @@ from nazgarr.upload_jobs import UploadJobError
 
 logger = logging.getLogger(__name__)
 
-INTERVAL_SECONDS = 60
-STABLE_SECONDS = 120
+INTERVAL_SECONDS = 10
+QUIET_SECONDS = 15
 RELEASER_SETTING = "upload_releaser_name"
 # File ancora in scrittura (download, copia) secondo i client e i programmi più comuni.
 PARTIAL_SUFFIXES = (".part", ".!qb", ".!ut", ".tmp", ".crdownload", ".partial", ".filepart")
@@ -84,28 +89,6 @@ def watch_root(disk: Disk) -> str | None:
     return root if os.path.isdir(root) else None
 
 
-def baseline(session: Session, disk: Disk, now: datetime | None = None) -> int:
-    """Quando la cartella osservata viene scelta o cambiata: quello che c'è
-    già è "visto" e non parte da solo."""
-    now = now or datetime.now(UTC)
-    session.query(WatchEntry).filter(WatchEntry.disk_id == disk.id).delete(synchronize_session=False)
-    root = watch_root(disk)
-    count = 0
-    for path in _entries(root) if root else []:
-        size, mtime, _partial = _signature(path)
-        session.add(WatchEntry(
-            disk_id=disk.id, relative_path=os.path.relpath(path, disk.root_path), size_bytes=size, mtime=mtime,
-            stable_since=now, started_at=now, error_message="present_when_chosen",
-        ))
-        count += 1
-    session.commit()
-    return count
-
-
-def _as_utc(value: datetime) -> datetime:
-    return value if value.tzinfo else value.replace(tzinfo=UTC)
-
-
 def scan(session: Session, kick: Callable[[int, str], None] | None = None, now: datetime | None = None) -> list[int]:
     """Un giro su tutte le cartelle osservate: gli id dei job creati."""
     now = now or datetime.now(UTC)
@@ -126,15 +109,19 @@ def scan(session: Session, kick: Callable[[int, str], None] | None = None, now: 
                 continue  # sparito o illeggibile mentre lo si leggeva: al prossimo giro
             row = known.get(relative)
             if row is None:
-                session.add(WatchEntry(disk_id=disk.id, relative_path=relative, size_bytes=size, mtime=mtime,
-                                       stable_since=now))
-                continue
-            if row.started_at is not None:
-                continue
-            if (row.size_bytes, row.mtime) != (size, mtime) or partial:
-                row.size_bytes, row.mtime, row.stable_since = size, mtime, now
-                continue
-            if size == 0 or now - _as_utc(row.stable_since) < timedelta(seconds=STABLE_SECONDS):
+                row = WatchEntry(disk_id=disk.id, relative_path=relative, size_bytes=size, mtime=mtime,
+                                 stable_since=now)
+                session.add(row)
+                session.flush()
+                unchanged = True  # visto ora: pronto se nessuno ci scrive (spostato dentro)
+            else:
+                if row.started_at is not None:
+                    continue
+                unchanged = (row.size_bytes, row.mtime) == (size, mtime)
+                if not unchanged:
+                    row.size_bytes, row.mtime, row.stable_since = size, mtime, now
+            quiet = now.timestamp() - mtime >= QUIET_SECONDS
+            if partial or size == 0 or not unchanged or not quiet:
                 continue
             session.commit()  # gli elementi nuovi di questo giro restano anche se l'upload non parte
             try:
@@ -156,6 +143,8 @@ def scan(session: Session, kick: Callable[[int, str], None] | None = None, now: 
             row.job_id, row.started_at = job.id, now
             created.append(job.id)
             logger.info("Cartella osservata: upload #%s avviato per %r", job.id, relative)
+            events.emit(session, "upload.detected", {"upload_id": job.id, "path": relative, "disk": disk.label})
+            session.commit()
             if kick is not None:
                 kick(job.id, job.status)
         # Uscito prima di partire (spostato, cancellato): se torna, si riparte da capo.

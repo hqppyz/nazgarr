@@ -11,6 +11,7 @@ from datetime import datetime
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
+from sqlalchemy import func
 from sqlalchemy.orm import Session, object_session
 
 from nazgarr import (
@@ -297,6 +298,49 @@ def list_upload_trackers(session: Session = Depends(get_session)):
 class ImageHostStatusResponse(BaseModel):
     with_api_key: list[str]
     usable: list[str]
+
+
+class UploadNotice(BaseModel):
+    id: int  # l'id dell'evento del job: il frontend ricorda l'ultimo visto
+    upload_id: int
+    kind: str  # detected | ready
+    title: str | None
+    year: int | None
+    path: str
+
+
+class UploadNoticesResponse(BaseModel):
+    notices: list[UploadNotice]
+    latest_id: int  # da qui parte un browser che non ha mai chiesto (niente arretrati)
+
+
+_NOTICE_CODES = {"job_created": "detected", "analysis_done": "ready"}
+
+
+@router.get("/notices", response_model=UploadNoticesResponse)
+def upload_notices(after: int | None = None, session: Session = Depends(get_session)):
+    """Gli avvisi nell'app per le release della cartella osservata: rilevata,
+    e pronta per la tua decisione. Solo dopo l'evento `after`; senza, nessun
+    arretrato, solo da dove partire."""
+    latest = session.query(func.max(UploadEvent.id)).scalar() or 0
+    if after is None:
+        return UploadNoticesResponse(notices=[], latest_id=latest)
+    rows = (
+        session.query(UploadEvent, UploadJob)
+        .join(UploadJob, UploadJob.id == UploadEvent.job_id)
+        .filter(UploadEvent.id > after, UploadEvent.code.in_(_NOTICE_CODES), UploadJob.origin == "watch")
+        .order_by(UploadEvent.id)
+        .limit(50)
+        .all()
+    )
+    return UploadNoticesResponse(
+        notices=[
+            UploadNotice(id=event.id, upload_id=job.id, kind=_NOTICE_CODES[event.code], title=job.title,
+                         year=job.year, path=job.relative_path)
+            for event, job in rows
+        ],
+        latest_id=latest,
+    )
 
 
 @router.get("/image-hosts", response_model=ImageHostStatusResponse)

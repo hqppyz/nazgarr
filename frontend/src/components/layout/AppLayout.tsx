@@ -15,6 +15,7 @@ import { setSizeUnits } from '@/lib/library-filters'
 import { NAV_DASHBOARD, resolveSectionTitle } from '@/lib/nav'
 import { usesTrackerFilter } from '@/lib/trackerFilter'
 import { TourRunner } from '@/onboarding/TourRunner'
+import { UploadNotices } from '@/components/upload/UploadNotices'
 import { WelcomeDialog } from '@/onboarding/WelcomeDialog'
 
 function TopHeader() {
@@ -53,6 +54,7 @@ export function AppLayout() {
         <AppSidebar />
         <WelcomeDialog />
         <TourRunner />
+        <UploadNotices />
         <SidebarInset className="h-svh overflow-hidden">
           <TopHeader />
           <div className="flex-1 overflow-auto p-6">

@@ -36,7 +36,7 @@ export const disks = {
   'disks.watchFolderColumn': 'Osservata',
   'disks.watchFolderLabel': 'Cartella osservata per le nuove release (facoltativa)',
   'disks.watchFolderHelp':
-    'Ogni nuovo file o cartella messo qui avvia da solo un upload, fino alla decisione: aspetta la tua approvazione. Quando è in seed, si sposta nella cartella degli upload con i nomi del torrent. Quello che c’è già dentro quando la scegli non parte.',
+    'Ogni nuovo file o cartella messo qui avvia da solo un upload, fino alla decisione: aspetta la tua approvazione. Quando è in seed, si sposta nella cartella degli upload con i nomi del torrent. Parte appena un file viene spostato dentro, o pochi secondi dopo la fine di una copia.',
   'disks.notWatched': 'nessuna',
   'disks.clearPath': 'Svuota',
 } as const

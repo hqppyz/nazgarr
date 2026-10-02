@@ -354,3 +354,28 @@ def test_a_sure_match_confirms_itself_in_the_classic_flow_too(client, tmp_path, 
     detail = client.get(f"/api/uploads/{resp.json()['id']}").json()
     assert detail["tmdb_id"] == 603 and detail["status"] != "awaiting_match"
     assert "auto_matched" in [e["code"] for e in detail["events"]]
+
+
+def test_notices_tell_about_watched_releases_only_from_now_on(client, tmp_path, setup):
+    from nazgarr import upload_jobs
+    from nazgarr.models import Disk
+
+    session = client.app.state.session_factory()
+    try:
+        disk = session.get(Disk, setup["disk_id"])
+        write_video(tmp_path / "media" / "Old.mkv")
+        write_video(tmp_path / "releases" / "My.Movie.2024.mkv")
+        upload_jobs.create_job(session, disk, "media/Old.mkv")  # a mano: nessun avviso
+        start = client.get("/api/uploads/notices").json()
+        assert start["notices"] == []  # un browser nuovo non riceve arretrati
+        job = upload_jobs.create_job(session, disk, "releases/My.Movie.2024.mkv", origin="watch")
+        upload_jobs.log_event(session, job, "analysis_done")
+        session.commit()
+        job_id = job.id
+    finally:
+        session.close()
+
+    body = client.get("/api/uploads/notices", params={"after": start["latest_id"]}).json()
+
+    assert [(n["upload_id"], n["kind"]) for n in body["notices"]] == [(job_id, "detected"), (job_id, "ready")]
+    assert client.get("/api/uploads/notices", params={"after": body["latest_id"]}).json()["notices"] == []

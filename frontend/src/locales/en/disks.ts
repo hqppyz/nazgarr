@@ -36,7 +36,7 @@ export const disks = {
   'disks.watchFolderColumn': 'Watched',
   'disks.watchFolderLabel': 'Watched folder for new releases (optional)',
   'disks.watchFolderHelp':
-    'Every new file or folder put here starts an upload on its own, up to the decision: it waits for your approval. Once it seeds, it moves to the uploads folder with the torrent names. What is already inside when you choose it does not start.',
+    'Every new file or folder put here starts an upload on its own, up to the decision: it waits for your approval. Once it seeds, it moves to the uploads folder with the torrent names. It starts as soon as a file is moved in, or a few seconds after a copy ends.',
   'disks.notWatched': 'none',
   'disks.clearPath': 'Clear',
 } as const

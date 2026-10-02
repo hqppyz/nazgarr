@@ -30,6 +30,8 @@ CATALOG: dict[str, str] = {
     "review.created": "A match is waiting for your review, or was approved automatically.",
     "review.decided": "A review was approved or rejected.",
     "seed_job.finished": "A reseed is seeding, or it failed.",
+    "upload.detected": "A new release in a watched folder started an upload.",
+    "upload.ready": "An upload is analysed and waits for your decision.",
     "upload.finished": "An upload job finished: done, partial, failed or cancelled.",
     "test": "Sent by \"Send a test\", to try a webhook.",
 }

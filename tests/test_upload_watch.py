@@ -9,7 +9,14 @@ from nazgarr.models import UploadJob, WatchEntry
 from tests.upload_helpers import FakeTMDB, make_disk, make_tracker, tmdb_result, write_video
 
 T0 = datetime(2026, 10, 2, 12, 0, tzinfo=UTC)
-LATER = T0 + timedelta(seconds=upload_watch.STABLE_SECONDS + 1)
+QUIET = timedelta(seconds=upload_watch.QUIET_SECONDS)
+
+
+def _written_at(path, when):
+    """La data di modifica di un file (o di tutto ciò che c'è in una cartella)."""
+    for item in [path, *path.rglob("*")] if path.is_dir() else [path]:
+        os.utime(item, (when.timestamp(), when.timestamp()))
+    return path
 
 
 @pytest.fixture
@@ -26,13 +33,12 @@ def _jobs(db_session):
     return db_session.query(UploadJob).order_by(UploadJob.id).all()
 
 
-def test_a_new_release_starts_once_it_stops_changing(db_session, tmp_path, watched):
-    write_video(tmp_path / "releases" / "My.Movie.2024.1080p.WEB-DL.mkv")
+def test_a_release_moved_in_starts_right_away(db_session, tmp_path, watched):
+    # Spostata dentro: la sua data di modifica è di prima, nessuno ci scrive.
+    _written_at(write_video(tmp_path / "releases" / "My.Movie.2024.1080p.WEB-DL.mkv"), T0 - timedelta(hours=2))
     kicked = []
 
-    assert upload_watch.scan(db_session, kick=lambda *a: kicked.append(a), now=T0) == []  # appena visto
-    assert upload_watch.scan(db_session, now=T0 + timedelta(seconds=30)) == []  # non ancora stabile
-    [job_id] = upload_watch.scan(db_session, kick=lambda *a: kicked.append(a), now=LATER)
+    [job_id] = upload_watch.scan(db_session, kick=lambda *a: kicked.append(a), now=T0)
 
     job = db_session.get(UploadJob, job_id)
     assert (job.origin, job.relative_path, job.status) == ("watch", "releases/My.Movie.2024.1080p.WEB-DL.mkv",
@@ -41,40 +47,44 @@ def test_a_new_release_starts_once_it_stops_changing(db_session, tmp_path, watch
     # Una volta sola, anche dopo aver cancellato il job.
     upload_jobs.cancel_job(db_session, job)
     upload_jobs.delete_job(db_session, job)
-    assert upload_watch.scan(db_session, now=LATER + timedelta(hours=1)) == []
+    assert upload_watch.scan(db_session, now=T0 + timedelta(hours=1)) == []
+
+
+def test_a_copy_starts_once_nobody_writes_to_it(db_session, tmp_path, watched):
+    video = write_video(tmp_path / "releases" / "My.Movie.2024.mkv")
+    _written_at(video, T0)  # appena scritto
+    assert upload_watch.scan(db_session, now=T0 + timedelta(seconds=5)) == []
+
+    # La copia continua: dimensione e data cambiano.
+    video.write_bytes(b"x" * 40000)
+    _written_at(video, T0 + timedelta(seconds=8))
+    assert upload_watch.scan(db_session, now=T0 + timedelta(seconds=10)) == []
+
+    # Finita: dopo QUIET_SECONDS senza scritture parte.
+    assert upload_watch.scan(db_session, now=T0 + timedelta(seconds=8) + QUIET) != []
 
 
 def test_a_release_still_copying_waits(db_session, tmp_path, watched):
     folder = tmp_path / "releases" / "Show.S01.1080p"
     write_video(folder / "Show.S01E01.mkv")
     write_video(folder / "Show.S01E02.mkv.part")
-    upload_watch.scan(db_session, now=T0)
+    _written_at(folder, T0 - timedelta(hours=1))
 
-    assert upload_watch.scan(db_session, now=LATER) == []  # un file parziale dentro
+    assert upload_watch.scan(db_session, now=T0) == []  # un file parziale dentro
 
     os.rename(folder / "Show.S01E02.mkv.part", folder / "Show.S01E02.mkv")
-    upload_watch.scan(db_session, now=LATER)
-    assert upload_watch.scan(db_session, now=LATER + timedelta(seconds=upload_watch.STABLE_SECONDS + 1))
+    _written_at(folder, T0 - timedelta(hours=1))
+    assert upload_watch.scan(db_session, now=T0 + timedelta(seconds=10)) != []
 
 
-def test_the_releaser_name_is_the_group(db_session, tmp_path, watched):
+def test_the_releaser_name_is_the_group_and_what_is_already_there_starts_too(db_session, tmp_path, watched):
+    # La cartella è solo di passaggio: anche quello che c'era già parte.
     settings_repo.set_setting(db_session, upload_watch.RELEASER_SETTING, "  NZG ")
-    write_video(tmp_path / "releases" / "My.Movie.2024.mkv")
-    upload_watch.scan(db_session, now=T0)
-    [job_id] = upload_watch.scan(db_session, now=LATER)
+    _written_at(write_video(tmp_path / "releases" / "My.Movie.2024.mkv"), T0 - timedelta(days=3))
+
+    [job_id] = upload_watch.scan(db_session, now=T0)
 
     assert json.loads(db_session.get(UploadJob, job_id).overrides_json) == {"group": "NZG"}
-
-
-def test_what_was_there_when_the_folder_was_chosen_does_not_start(db_session, tmp_path, watched):
-    write_video(tmp_path / "releases" / "Old.Release.2020.mkv")
-    upload_watch.baseline(db_session, watched, now=T0)
-    write_video(tmp_path / "releases" / "New.Release.2024.mkv")
-
-    upload_watch.scan(db_session, now=T0)
-    created = upload_watch.scan(db_session, now=LATER)
-
-    assert [db_session.get(UploadJob, i).relative_path for i in created] == ["releases/New.Release.2024.mkv"]
 
 
 def test_only_videos_and_folders_count_and_links_are_never_followed(db_session, tmp_path, watched):
@@ -83,8 +93,7 @@ def test_only_videos_and_folders_count_and_links_are_never_followed(db_session, 
     elsewhere = write_video(tmp_path / "elsewhere" / "Secret.mkv")
     os.symlink(elsewhere, tmp_path / "releases" / "Link.mkv")
 
-    upload_watch.scan(db_session, now=T0)
-    assert upload_watch.scan(db_session, now=LATER) == []
+    assert upload_watch.scan(db_session, now=T0 + timedelta(days=1)) == []
     assert db_session.query(WatchEntry).count() == 0
 
 
@@ -93,12 +102,11 @@ def test_without_a_tracker_to_upload_to_it_waits_and_retries(db_session, tmp_pat
     disk = make_disk(db_session, tmp_path)
     disk.watch_rel_path = "releases"
     db_session.commit()
-    write_video(tmp_path / "releases" / "My.Movie.2024.mkv")
-    upload_watch.scan(db_session, now=T0)
-    assert upload_watch.scan(db_session, now=LATER) == []
+    _written_at(write_video(tmp_path / "releases" / "My.Movie.2024.mkv"), T0 - timedelta(hours=1))
+    assert upload_watch.scan(db_session, now=T0) == []
 
     make_tracker(db_session)
-    assert len(upload_watch.scan(db_session, now=LATER + timedelta(minutes=1))) == 1
+    assert len(upload_watch.scan(db_session, now=T0 + timedelta(seconds=10))) == 1
 
 
 def _identified(db_session, monkeypatch, tmp_path, name, results, origin="watch"):

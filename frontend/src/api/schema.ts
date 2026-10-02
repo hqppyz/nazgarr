@@ -1236,6 +1236,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/uploads/notices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Upload Notices
+         * @description Gli avvisi nell'app per le release della cartella osservata: rilevata,
+         *     e pronta per la tua decisione. Solo dopo l'evento `after`; senza, nessun
+         *     arretrato, solo da dove partire.
+         */
+        get: operations["upload_notices_api_uploads_notices_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/uploads/image-hosts": {
         parameters: {
             query?: never;
@@ -1810,23 +1832,6 @@ export interface paths {
         };
         /** Health */
         get: operations["health_api_health_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/{full_path}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Serve Spa */
-        get: operations["serve_spa__full_path__get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3953,6 +3958,28 @@ export interface components {
             seasons: number[];
             /** Episode */
             episode?: number | null;
+        };
+        /** UploadNotice */
+        UploadNotice: {
+            /** Id */
+            id: number;
+            /** Upload Id */
+            upload_id: number;
+            /** Kind */
+            kind: string;
+            /** Title */
+            title: string | null;
+            /** Year */
+            year: number | null;
+            /** Path */
+            path: string;
+        };
+        /** UploadNoticesResponse */
+        UploadNoticesResponse: {
+            /** Notices */
+            notices: components["schemas"]["UploadNotice"][];
+            /** Latest Id */
+            latest_id: number;
         };
         /** UploadOverridesRequest */
         UploadOverridesRequest: {
@@ -6653,6 +6680,37 @@ export interface operations {
             };
         };
     };
+    upload_notices_api_uploads_notices_get: {
+        parameters: {
+            query?: {
+                after?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadNoticesResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     image_host_status_api_uploads_image_hosts_get: {
         parameters: {
             query?: never;
@@ -7739,37 +7797,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HealthResponse"];
-                };
-            };
-        };
-    };
-    serve_spa__full_path__get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                full_path: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

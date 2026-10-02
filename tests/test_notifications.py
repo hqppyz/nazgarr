@@ -89,3 +89,14 @@ def test_the_plugins_api_sets_events_and_sends_a_test(client, ntfy):
     assert tested == {"status": "delivered", "error": None}
     assert SENT[-1][1].title == "Nazgarr test"
     assert client.get("/api/plugins/config/notification/ntfy").json()["last_delivery"]["status"] == "delivered"
+
+
+def test_watched_releases_have_their_own_messages():
+    from nazgarr.notifications import render
+
+    detected = render("upload.detected", {"upload_id": 3, "path": "releases/My.Movie.2024.mkv", "disk": "main"})
+    ready = render("upload.ready", {"upload_id": 3, "title": "My Movie", "year": 2024, "trackers": ["ITT", "B"]})
+
+    assert detected.title == "New release detected"
+    assert detected.body == "releases/My.Movie.2024.mkv on main: upload started."
+    assert (ready.title, ready.body) == ("Upload ready for your decision", "My Movie (2024) → ITT, B")
