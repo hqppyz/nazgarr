@@ -27,3 +27,12 @@ describe('healthLabel', () => {
     expect(healthLabel(20).color).toContain('red')
   })
 })
+
+describe('dailyHealth without a library', () => {
+  it('leaves out the scans that have no health', () => {
+    const point = (finished_at: string, health_snapshot: number | null) =>
+      ({ finished_at, health_snapshot }) as unknown as Parameters<typeof dailyHealth>[0][number]
+    expect(dailyHealth([point('2026-10-02T10:00:00Z', null), point('2026-10-01T10:00:00Z', 80)]).map((d) => d.health))
+      .toEqual([80])
+  })
+})

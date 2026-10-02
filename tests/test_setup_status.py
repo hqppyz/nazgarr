@@ -46,3 +46,11 @@ def test_each_step_follows_the_real_configuration(db_session, tmp_path):
 def test_the_endpoint_answers_after_login(client):
     body = client.get("/api/system/setup-status").json()
     assert body["complete"] is False and set(body["steps"]) >= {"storage", "first_scan", "upload"}
+
+
+def test_the_media_folder_is_optional(db_session, tmp_path):
+    # Solo torrent e upload: basta la cartella dei torrent.
+    db_session.add(Disk(label="d", root_path=str(tmp_path), torrents_rel_path="torrents"))
+    db_session.commit()
+
+    assert _done(db_session)["storage"] is True

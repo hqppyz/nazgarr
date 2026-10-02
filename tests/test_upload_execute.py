@@ -447,3 +447,49 @@ def test_renamed_links_are_removed_when_nothing_is_seeded(db_session, tmp_path, 
     assert job.status == "done"
     assert not (env["root"] / "torrents" / "The.Matrix.1999.mkv").exists()
     assert video.exists()  # la libreria non si tocca
+
+
+def _watched_job(db_session, env, name, decisions, **overrides):
+    env["disk"].watch_rel_path = "releases"
+    db_session.commit()
+    video = write_video(env["root"] / "releases" / name, 300 * KB)
+    job = _approved(db_session, env, "releases/" + name, decisions)
+    job.origin = "watch"
+    if overrides:
+        job.overrides_json = json.dumps({**json.loads(job.overrides_json or "{}"), **overrides})
+    db_session.commit()
+    return video
+
+
+def test_a_release_leaves_the_watched_folder_once_it_seeds(db_session, tmp_path, env):
+    # La cartella osservata è solo di passaggio: la release resta dove seeda.
+    video = _watched_job(db_session, env, "My.Movie.2024.1080p.WEB-DL-NZG.mkv",
+                         {"a": _upload("Movie A"), "b": {"action": "skip"}})
+    job = db_session.query(upload_jobs.UploadJob).one()
+
+    _run(db_session, tmp_path, job)
+
+    assert job.status == "done", [e.code for e in job.events]
+    assert not video.exists()
+    seeding = env["root"] / "torrents" / "My.Movie.2024.1080p.WEB-DL-NZG.mkv"
+    assert seeding.is_file() and seeding.stat().st_nlink == 1  # ora l'unica copia, in seed
+    assert "watch_source_moved" in [e.code for e in job.events]
+
+
+def test_a_release_stays_in_the_watched_folder_when_nothing_seeds(db_session, tmp_path, env):
+    video = _watched_job(db_session, env, "My.Movie.2024.mkv", {"a": _upload("Movie A"), "b": {"action": "skip"}},
+                         no_seed=True)
+    job = db_session.query(upload_jobs.UploadJob).one()
+
+    _run(db_session, tmp_path, job)
+
+    assert video.is_file()
+
+
+def test_an_upload_by_hand_never_removes_its_source(db_session, tmp_path, env):
+    video = write_video(env["root"] / "media" / "The.Matrix.1999.mkv", 300 * KB)
+    job = _approved(db_session, env, "media/" + video.name, {"a": _upload("Matrix A"), "b": {"action": "skip"}})
+
+    _run(db_session, tmp_path, job)
+
+    assert job.status == "done" and video.is_file()

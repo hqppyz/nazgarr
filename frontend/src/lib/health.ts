@@ -18,7 +18,8 @@ export function healthLabel(value: number): { label: string; dot: string; color:
 export function dailyHealth(history: HistoryPoint[]): { day: number; health: number }[] {
   const byDay = new Map<number, { at: number; health: number }>()
   for (const point of history) {
-    if (!point.finished_at) continue
+    // Senza libreria (solo torrent e upload) una scansione non ha salute.
+    if (!point.finished_at || point.health_snapshot == null) continue
     const at = parseApiDate(point.finished_at)
     const day = new Date(at.getFullYear(), at.getMonth(), at.getDate()).getTime()
     const current = byDay.get(day)

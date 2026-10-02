@@ -70,7 +70,7 @@ function AppSidebarFooter() {
         <StatBox
           dotClassName="bg-emerald-500"
           label={t('layout.health')}
-          value={dashboard ? `${Math.round(dashboard.health_pct)}/100` : '—'}
+          value={dashboard?.total_media_size ? `${Math.round(dashboard.health_pct)}/100` : '—'}
         />
         <StatBox
           dotClassName="bg-amber-500"

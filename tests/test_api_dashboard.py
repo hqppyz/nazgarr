@@ -115,3 +115,23 @@ def test_dashboard_and_history_take_a_tracker_filter(client):
     assert resp.status_code == 200
     assert client.get("/api/dashboard/history?tracker=configured").json() == []
     assert client.get("/api/dashboard?tracker=bogus").status_code == 200  # un filtro sconosciuto = tutti
+
+
+def test_without_a_library_the_history_keeps_the_torrent_numbers(client):
+    # Solo torrent e upload: niente salute, ma l'andamento delle card sì.
+    from datetime import UTC, datetime
+
+    from app import pipeline
+
+    session = client.app.state.session_factory()
+    try:
+        run = pipeline.start_run(session, "manual")
+        run.current_phase = None
+        run.finished_at = datetime.now(UTC)
+        run.health_snapshot, run.orphan_torrent_bytes = None, 1234
+        session.commit()
+    finally:
+        session.close()
+
+    [point] = client.get("/api/dashboard/history").json()
+    assert (point["health_snapshot"], point["orphan_torrent_bytes"]) == (None, 1234)

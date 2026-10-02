@@ -124,16 +124,17 @@ def test_a_sure_match_from_the_watched_folder_confirms_itself(db_session, tmp_pa
     assert any(e.code == "auto_matched" for e in job.events)
 
 
-def test_an_unsure_or_manual_match_waits_for_the_user(db_session, tmp_path, monkeypatch):
+def test_an_unsure_match_waits_and_a_manual_upload_matches_too(db_session, tmp_path, monkeypatch):
     make_tracker(db_session)
     unsure = _identified(db_session, monkeypatch, tmp_path, "The.Matrix.1999.1080p.mkv",
                          {("movie", "The Matrix", 1999): [tmdb_result(9999, "The Matrix Revisited", 2001)]})
     assert unsure.status == "awaiting_match"
     assert any(e.code == "auto_match_skipped" for e in unsure.events)
 
+    # Anche un upload creato a mano si conferma da solo, se è sicuro.
     manual = _identified(db_session, monkeypatch, tmp_path, "Dune.2021.mkv",
                          {("movie", "Dune", 2021): [tmdb_result(438631, "Dune", 2021)]}, origin=None)
-    assert manual.status == "awaiting_match"  # creato a mano: si sceglie sempre
+    assert manual.status == "analyzing"
 
 
 def test_the_threshold_can_be_raised_or_turned_off(db_session, tmp_path, monkeypatch):

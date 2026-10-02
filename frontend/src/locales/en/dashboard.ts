@@ -38,4 +38,5 @@ export const dashboard = {
   'dashboard.duplicatesDescription':
     'Identical copies of the same content on different inodes (the space shown), plus paths that point to the same file twice.',
   'dashboard.viewDuplicates': 'View duplicates',
+  'dashboard.noLibrary': 'No media folder set: Nazgarr is working on your torrents and uploads only.',
 } as const

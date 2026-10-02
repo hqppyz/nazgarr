@@ -266,9 +266,12 @@ The Phase 6 pipeline handled one file towards one tracker, synchronously inside 
 - **Starting:** every new video file or folder put there starts an upload on its own, once its size and mtime stay the same for 2 minutes and it holds no partial files. The upload goes to every tracker that has an upload profile.
 - **Once only:** `watch_entry` remembers each entry, so a release starts one upload even after its job is deleted. What is already inside when the folder is chosen doesn't start.
 - **Releaser name:** the setting `upload_releaser_name` becomes the `{group}` override of these jobs, and stays editable.
-- **Automatic match:** TMDB candidates now carry a confidence (`app/upload_match_score.py`). A watched job confirms its best candidate on its own when the confidence is at least `upload_auto_match_threshold` (default 0.9; 0 turns it off). Ambiguous candidates (two titles nearly as sure) are never confirmed on their own.
+- **Automatic match:** TMDB candidates now carry a confidence (`app/upload_match_score.py`). Every upload, by hand or from the watched folder, confirms its best candidate on its own when the confidence is at least `upload_auto_match_threshold` (default 0.9; 0 turns it off). Ambiguous candidates (two titles nearly as sure) are never confirmed on their own.
 - **Where it stops:** the job goes as far as the decision and waits there. Nothing is uploaded, linked or added to a client without approval.
+- **A way in, not a home:** the watched folder is only a way in. Once at least one tracker succeeds and the release seeds from the releases (upload) folder under the torrent names, the original in the watched folder is removed. It is removed only if each of its files has another link, the copy that seeds (`_clear_watch_source`). With "don't seed", or when nothing succeeded, it stays where it was.
 - **Rollback:** "Change match" (`back_to_match`) takes a job from the decision back to the match and redoes the analysis.
+
+**The media folder is optional** (user decision, 2026-10-02): Nazgarr can also be used only to scan torrents and to upload releases, with no media folder at all. The storage step only needs the torrent folder. Without a library there is no health: the Dashboard says so instead of showing 100%, and scans store no health point, while the torrent numbers keep their trend.
 - **Language check:** each tracker with a language gets a warning when no audio track (commentary excluded) is in that language.
 
 ## 10. UI/UX — general structure

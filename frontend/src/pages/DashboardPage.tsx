@@ -49,8 +49,23 @@ function daysAgo(value: string | null | undefined): number | null {
 function HealthCard({ data, history }: { data: Dashboard; history: HistoryPoint[] | undefined }) {
   const { label, dot, color } = healthLabel(data.health_pct)
   // history è dalla più recente: il confronto è con la prima della finestra.
-  const oldest = history && history.length > 1 ? history[history.length - 1] : null
-  const delta = oldest ? data.health_pct - oldest.health_snapshot : null
+  const withHealth = (history ?? []).filter((point) => point.health_snapshot != null)
+  const oldest = withHealth.length > 1 ? withHealth[withHealth.length - 1] : null
+  const delta = oldest?.health_snapshot != null ? data.health_pct - oldest.health_snapshot : null
+  // Senza una cartella media (solo torrent e upload) la salute non ha senso.
+  if (!data.total_media_size) {
+    return (
+      <Card data-tour="views.health">
+        <CardHeader>
+          <CardTitle>{t('dashboard.libraryHealth')}</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-2 text-center">
+          <p className="text-3xl font-semibold text-muted-foreground">—</p>
+          <p className="text-xs text-muted-foreground">{t('dashboard.noLibrary')}</p>
+        </CardContent>
+      </Card>
+    )
+  }
   const ago = daysAgo(oldest?.finished_at)
   return (
     <Card data-tour="views.health">
@@ -232,15 +247,15 @@ function MetricCards({ data }: { data: Dashboard }) {
         dot={STATUS_STYLES.seeding.dot}
         value={
           <p className="text-3xl font-semibold tabular-nums">
-            {num(data.health_pct).toFixed(1)}
-            <span className="ml-0.5 text-base font-normal text-muted-foreground">%</span>
+            {data.total_media_size ? num(data.health_pct).toFixed(1) : '—'}
+            {data.total_media_size ? <span className="ml-0.5 text-base font-normal text-muted-foreground">%</span> : null}
           </p>
         }
         subline={t('dashboard.seedingOfTotal', {
           seeding: formatBytes(num(data.seeding_media_size)),
           total: formatBytes(num(data.total_media_size)),
         })}
-        trend={trendOf(num(data.health_pct), previous?.health_snapshot, false)}
+        trend={data.total_media_size ? trendOf(num(data.health_pct), previous?.health_snapshot, false) : undefined}
         description={t('dashboard.hardlinkedDescription')}
         action={{ label: t('dashboard.viewOrphanedMedia'), to: '/library/folder?status=orphan_media', icon: Link2Icon }}
       />

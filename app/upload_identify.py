@@ -153,8 +153,8 @@ DEFAULT_AUTO_MATCH_THRESHOLD = 0.9
 
 
 def auto_match_threshold(session: Session) -> float | None:
-    """La confidence oltre la quale un job della cartella osservata conferma
-    da solo il match (Settings > Upload). Mai salvata = 0.9; 0 = spento."""
+    """La confidence oltre la quale un upload conferma da solo il match
+    (Settings > Upload). Mai salvata = 0.9; 0 = spento."""
     raw = settings_repo.get_setting(session, AUTO_MATCH_SETTING)
     if raw in (None, ""):
         return DEFAULT_AUTO_MATCH_THRESHOLD
@@ -166,18 +166,21 @@ def auto_match_threshold(session: Session) -> float | None:
 
 
 def _auto_match(session: Session, job: UploadJob, candidates: list[dict]) -> None:
-    """Solo per i job della cartella osservata (app/upload_watch.py): il
-    candidato più sicuro, se supera la soglia, si conferma da solo, con gli
-    stessi controlli della conferma a mano. Sotto soglia, o se qualcosa non
-    torna (tipo, stagione), il job aspetta al match come sempre. Dalla
-    decisione si torna indietro con "Change match" (back_to_match)."""
-    if job.origin != "watch" or not candidates:
+    """Per ogni upload, dalla cartella osservata o creato a mano (decisione
+    dell'utente, 2026-10-02): il candidato più sicuro, se supera la soglia, si
+    conferma da solo, con gli stessi controlli della conferma a mano. Sotto
+    soglia, se è ambiguo o se qualcosa non torna (tipo, stagione), il job
+    aspetta al match come sempre. Dalla decisione si torna indietro con
+    "Change match" (back_to_match)."""
+    if not candidates:
         return
     best = candidates[0]
     threshold = auto_match_threshold(session)
-    if threshold is None or best.get("ambiguous") or best.get("confidence", 0) < threshold:
+    if threshold is None:
+        return  # spento: niente da dire nel registro
+    if best.get("ambiguous") or best.get("confidence", 0) < threshold:
         upload_jobs.log_event(session, job, "auto_match_skipped", confidence=best.get("confidence", 0),
-                              threshold=threshold or 0)
+                              threshold=threshold)
         session.commit()
         return
     try:

@@ -40,6 +40,7 @@ from app import (
     settings_repo,
     upload_file_names,
     upload_jobs,
+    upload_watch,
 )
 from app.adapter_factory import ImageHostConfigError
 from app.adapters.image_host.base import ImageHostError
@@ -504,6 +505,51 @@ def _cleanup_unused_links(session: Session, job: UploadJob, ctx: dict, overrides
     session.commit()
 
 
+def _source_files(path: str) -> list[str]:
+    if not os.path.isdir(path):
+        return [path]
+    return [os.path.join(folder, name) for folder, _dirs, files in os.walk(path, followlinks=False) for name in files]
+
+
+def _clear_watch_source(session: Session, job: UploadJob, overrides: dict) -> None:
+    """La cartella osservata è solo di passaggio (decisione dell'utente,
+    2026-10-02): a upload fatto la release resta solo nella cartella delle
+    release, dove seeda con i nomi del torrent (gli hardlink di questo job),
+    e l'originale nella cartella osservata si toglie. Un "move" fatto con un
+    hardlink e poi la rimozione, mai prima: se qualcosa va storto la release
+    resta dov'era.
+
+    Solo se almeno un tracker è andato, se si mette in seed, se la sorgente è
+    davvero dentro la cartella osservata e se ogni suo file ha un altro link
+    (la copia che seeda): se no non si tocca niente."""
+    if job.origin != "watch" or overrides.get("no_seed") or job.disk is None:
+        return
+    if not any(t.status == "done" and t.action != "skip" for t in job.targets):
+        return
+    watch = upload_watch.watch_root(job.disk)
+    source = os.path.realpath(job.source_path)
+    if watch is None or not source.startswith(os.path.realpath(watch) + os.sep):
+        return
+    files = _source_files(source)
+    try:
+        unlinked = [f for f in files if os.path.islink(f) or os.stat(f, follow_symlinks=False).st_nlink < 2]
+    except OSError:
+        unlinked = files
+    if unlinked:
+        upload_jobs.log_event(session, job, "watch_source_kept", level="warning", count=len(unlinked))
+        session.commit()
+        return
+    for path in files:
+        with contextlib.suppress(OSError):
+            os.unlink(path)
+    if os.path.isdir(source):
+        for folder, _dirs, _files in sorted(os.walk(source), key=lambda entry: -len(entry[0])):
+            with contextlib.suppress(OSError):
+                os.rmdir(folder)  # solo se vuota
+    upload_jobs.log_event(session, job, "watch_source_moved", count=len(files))
+    session.commit()
+
+
 def handle(session: Session, job: UploadJob, worker) -> None:
     if not upload_jobs.transition(session, job, "queued", "running", queue_position=None):
         return
@@ -570,6 +616,7 @@ def handle(session: Session, job: UploadJob, worker) -> None:
         session.commit()
 
     _cleanup_unused_links(session, job, ctx, overrides)
+    _clear_watch_source(session, job, overrides)
     outcomes = [t.status for t in job.targets if t.action != "skip"]
     if all(s == "done" for s in outcomes):
         final = "done"

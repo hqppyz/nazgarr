@@ -28,7 +28,7 @@ export const onboarding = {
   'onboarding.checklist.guide': 'Guide me',
 
   'onboarding.step.storage.title': 'Storage',
-  'onboarding.step.storage.summary': 'Your disks: the media library and the torrent folder on each one.',
+  'onboarding.step.storage.summary': 'Your disks: the torrent folder on each one, and the media library if you have one.',
   'onboarding.step.clients.title': 'Torrent clients',
   'onboarding.step.clients.summary': 'Connect your torrent client, so Nazgarr knows what it seeds.',
   'onboarding.step.metadata.title': 'Metadata',
@@ -70,7 +70,7 @@ export const onboarding = {
   'onboarding.tour.storage.create.body': 'Nazgarr checks that the path exists and remembers which filesystem it is on.',
   'onboarding.tour.storage.media.title': 'The media folder',
   'onboarding.tour.storage.media.body':
-    'Click it and pick the folder with your library (movies and series), the one Plex, Jellyfin or Radarr/Sonarr use. Every file in it is matched with what you seed.',
+    'Click it and pick the folder with your library (movies and series), the one Plex, Jellyfin or Radarr/Sonarr use. Every file in it is matched with what you seed. Optional: without it, Nazgarr works on your torrents and uploads only.',
   'onboarding.tour.storage.seeding.title': 'The seeding folder',
   'onboarding.tour.storage.seeding.body':
     'Now the folder where your torrent client downloads and seeds (e.g. torrents/). Files seeding here without a hardlink in the library show up as "not imported"; library files with no torrent as "orphaned".',
@@ -195,8 +195,8 @@ export const onboarding = {
     'Every proposal waits here, with its confidence and what it would do. Approve or reject: nothing passes without your word. The road goes ever on: the next scans keep it filled.',
   'onboarding.tour.storage.watch.title': 'A folder for your releases (optional)',
   'onboarding.tour.storage.watch.body':
-    'If you release your own encodes: what you put in this folder starts an upload on its own, up to the decision, where it waits for your approval.',
+    'If you release your own encodes: what you put in this folder starts an upload on its own, up to the decision, where it waits for your approval. Once it seeds, it moves to the uploads folder.',
   'onboarding.tour.upload.releases.title': 'Your releases',
   'onboarding.tour.upload.releases.body':
-    'Your releaser name, used as the group of the uploads from the watched folder, and how sure a TMDB match must be to be confirmed on its own.',
+    'Your releaser name, used as the group of the uploads from the watched folder, and how sure a TMDB match must be to be confirmed on its own, for every upload.',
 } as const

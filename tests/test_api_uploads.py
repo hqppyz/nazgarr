@@ -2,7 +2,7 @@ import os
 
 import pytest
 
-from app import adapter_factory, upload_analysis, upload_identify
+from app import adapter_factory, settings_repo, upload_analysis, upload_identify
 from app.adapters.media_resolver.base import ResolvedMedia
 from app.api import metadata as metadata_api
 from app.models import UploadJob
@@ -42,6 +42,8 @@ def setup(client, tmp_path, monkeypatch):
     session = client.app.state.session_factory()
     disk = make_disk(session, tmp_path)
     tracker = make_tracker(session)
+    # Il match automatico spento: questi test provano il punto di match.
+    settings_repo.set_setting(session, upload_identify.AUTO_MATCH_SETTING, "0")
     ids = disk.id, tracker.id
     session.close()
     client.app.state.upload_worker = UploadWorker(
@@ -337,3 +339,18 @@ def test_the_file_naming_pattern_is_editable_and_previewed(client):
 
     mine = {**current["rules"], "templates": {"default": "{title} {year} {group}"}}
     assert client.put("/api/uploads/file-naming", json={"rules": mine}).json()["rules"] == mine
+
+
+
+def test_a_sure_match_confirms_itself_in_the_classic_flow_too(client, tmp_path, setup):
+    session = client.app.state.session_factory()
+    settings_repo.set_setting(session, upload_identify.AUTO_MATCH_SETTING, "0.9")
+    session.close()
+    video = write_video(tmp_path / "media" / "Movie.Name.2024.1080p.WEB.mkv")
+    setup["resolver"].resolved = ResolvedMedia(tmdb_id=603, content_type="movie", title="Movie Name", year=2024)
+
+    resp = client.post("/api/uploads", json={"disk_id": setup["disk_id"], "relative_path": "media/" + video.name})
+
+    detail = client.get(f"/api/uploads/{resp.json()['id']}").json()
+    assert detail["tmdb_id"] == 603 and detail["status"] != "awaiting_match"
+    assert "auto_matched" in [e["code"] for e in detail["events"]]

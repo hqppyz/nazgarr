@@ -29,7 +29,9 @@ OPTIONAL = ("arr", "upload")
 
 def setup_status(session: Session) -> dict:
     disks = session.query(Disk).all()
-    storage_ready = any(d.media_rel_path and d.torrents_rel_path for d in disks)
+    # La cartella media è facoltativa: si può usare Nazgarr solo per i torrent
+    # e gli upload (decisione dell'utente, 2026-10-02).
+    storage_ready = any(d.torrents_rel_path for d in disks)
     enabled_clients = {c.id for c in session.query(TorrentClient).filter(TorrentClient.enabled.is_(True))}
     # Collegare un client a dei dischi è facoltativo: senza, vale per tutti i
     # dischi confrontando i percorsi (app/torrent_indexer.py).

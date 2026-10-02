@@ -73,7 +73,7 @@ def _entries(root: str) -> list[str]:
     return sorted(out)
 
 
-def _watch_root(disk: Disk) -> str | None:
+def watch_root(disk: Disk) -> str | None:
     if not disk.watch_rel_path:
         return None
     try:
@@ -89,7 +89,7 @@ def baseline(session: Session, disk: Disk, now: datetime | None = None) -> int:
     già è "visto" e non parte da solo."""
     now = now or datetime.now(UTC)
     session.query(WatchEntry).filter(WatchEntry.disk_id == disk.id).delete(synchronize_session=False)
-    root = _watch_root(disk)
+    root = watch_root(disk)
     count = 0
     for path in _entries(root) if root else []:
         size, mtime, _partial = _signature(path)
@@ -112,7 +112,7 @@ def scan(session: Session, kick: Callable[[int, str], None] | None = None, now: 
     releaser = releaser_name(session)
     created = []
     for disk in session.query(Disk).filter(Disk.watch_rel_path.isnot(None)).all():
-        root = _watch_root(disk)
+        root = watch_root(disk)
         if root is None:
             continue
         known = {row.relative_path: row for row in session.query(WatchEntry).filter(WatchEntry.disk_id == disk.id)}

@@ -8,6 +8,7 @@ from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app import health, not_imported, tracker_scope
@@ -67,7 +68,7 @@ class HistoryPoint(BaseModel):
     run_id: int
     run_type: str
     finished_at: datetime | None
-    health_snapshot: float
+    health_snapshot: float | None  # None: nessuna libreria (solo torrent e upload)
     orphan_torrent_bytes: int | None = None
     ignored_bytes: int | None = None
     duplicate_wasted_bytes: int | None = None
@@ -132,7 +133,12 @@ def _scoped_history(session: Session, scope: str):
     """Le scansioni finite con i loro numeri, dalla più recente: righe RunLog
     per lo storico globale, (RunLog, TrackerHealthSnapshot) per un filtro."""
     if scope == tracker_scope.ALL:
-        query = session.query(RunLog).filter(RunLog.finished_at.isnot(None), RunLog.health_snapshot.isnot(None))
+        # Le scansioni con dei numeri: la salute, o almeno quelli dei torrent
+        # (senza libreria non c'è salute, ma l'andamento delle card sì).
+        query = session.query(RunLog).filter(
+            RunLog.finished_at.isnot(None),
+            or_(RunLog.health_snapshot.isnot(None), RunLog.orphan_torrent_bytes.isnot(None)),
+        )
         return query.order_by(RunLog.id.desc())
     query = (
         session.query(RunLog, TrackerHealthSnapshot)

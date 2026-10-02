@@ -136,7 +136,7 @@ def _save_tracker_snapshots(session: Session, run: RunLog) -> None:
     for scope in tracker_scope.snapshot_scopes(session):
         snap = health.compute_snapshot(session, tracker=scope)
         session.add(TrackerHealthSnapshot(
-            run_id=run.id, scope=scope, health_snapshot=snap["health_pct"],
+            run_id=run.id, scope=scope, health_snapshot=snap["health_pct"] if snap["total_media_size"] else None,
             orphan_torrent_bytes=snap["orphan_torrent_bytes"], ignored_bytes=snap["ignored_bytes"],
             duplicate_wasted_bytes=snap["duplicate_wasted_bytes"],
         ))
@@ -453,7 +453,9 @@ def run_bulk_import(session: Session, run: RunLog, data_dir: str) -> RunLog:
         run.pending_review = snapshot["pending_review"]
         run.orphan_torrent_count = snapshot["orphan_torrent_count"]
         run.ignored_count = snapshot["ignored_count"]
-        run.health_snapshot = snapshot["health_pct"]
+        # Senza libreria (solo torrent e upload) la salute non ha senso: niente
+        # punto nello storico, invece di un 100% che non dice niente.
+        run.health_snapshot = snapshot["health_pct"] if snapshot["total_media_size"] else None
         run.orphan_torrent_bytes = snapshot["orphan_torrent_bytes"]
         run.ignored_bytes = snapshot["ignored_bytes"]
         run.duplicate_wasted_bytes = snapshot["duplicate_wasted_bytes"]

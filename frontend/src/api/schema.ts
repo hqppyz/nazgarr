@@ -2593,7 +2593,7 @@ export interface components {
             /** Finished At */
             finished_at: string | null;
             /** Health Snapshot */
-            health_snapshot: number;
+            health_snapshot: number | null;
             /** Orphan Torrent Bytes */
             orphan_torrent_bytes?: number | null;
             /** Ignored Bytes */
