@@ -65,10 +65,8 @@ export function FileBrowser({
         excludedCount={excludedCount}
         filters={filters}
         onFiltersChange={setFilters}
+        actions={<PackSelectButton selection={selection} />}
       />
-      <div className="flex justify-end">
-        <PackSelectButton selection={selection} />
-      </div>
       <Card className="py-0">
         {/* Con una ricerca attiva ogni risultato va reso visibile subito,
             non sepolto in una cartella chiusa. */}

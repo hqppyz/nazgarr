@@ -3,7 +3,7 @@
 // lista invece di una cartella. I sottotitoli accanto agli episodi li
 // aggiunge il backend.
 
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 
 import type { UploadJob } from '@/api/hooks/uploads'
 
@@ -32,6 +32,9 @@ export interface PackSelection {
   files: PackFile[]
   has: (file: PackFile) => boolean
   toggle: (file: PackFile) => void
+  // Un clic su un video: con SHIFT anche tutti quelli fra lui e l'ultimo
+  // cliccato, nell'ordine in cui la vista li mostra (ordered).
+  pick: (file: PackFile, shift: boolean, ordered: PackFile[]) => void
   setMany: (files: PackFile[], on: boolean) => void
   clear: () => void
 }
@@ -58,13 +61,31 @@ export function usePackSelection(): PackSelection {
     }),
     [],
   )
+  const last = useRef<string | null>(null)
+  const pick = useCallback(
+    (file: PackFile, shift: boolean, ordered: PackFile[]) => {
+      const keys = ordered.map(packKey)
+      const from = last.current ? keys.indexOf(last.current) : -1
+      const to = keys.indexOf(packKey(file))
+      last.current = packKey(file)
+      if (!shift || from < 0 || to < 0) {
+        toggle(file)
+        return
+      }
+      // Tutto l'intervallo prende lo stato che avrà il video cliccato.
+      const on = !selected.has(packKey(file))
+      setMany(ordered.slice(Math.min(from, to), Math.max(from, to) + 1), on)
+    },
+    [selected, setMany, toggle],
+  )
   const clear = useCallback(() => setSelected(new Map()), [])
   const setActive = useCallback((on: boolean) => {
     setActiveState(on)
+    last.current = null
     if (!on) setSelected(new Map())
   }, [])
   const files = useMemo(() => [...selected.values()].sort((a, b) => a.path.localeCompare(b.path)), [selected])
-  return { active, setActive, files, has: (file) => selected.has(packKey(file)), toggle, setMany, clear }
+  return { active, setActive, files, has: (file) => selected.has(packKey(file)), toggle, pick, setMany, clear }
 }
 
 // La pagina del nuovo upload con il pack già scelto (nello state della

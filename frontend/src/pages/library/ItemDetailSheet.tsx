@@ -90,11 +90,14 @@ function FileRow({
   showEpisode,
   uploadTmdb,
   selection,
+  ordered = [],
 }: {
   file: DetailFile
   showEpisode: boolean
   uploadTmdb: string
   selection?: PackSelection
+  // I video sceglibili nell'ordine mostrato, per SHIFT+clic.
+  ordered?: { diskId: number; path: string }[]
 }) {
   const exclude = useExcludeFile()
   const navigate = useNavigate()
@@ -111,7 +114,8 @@ function FileRow({
             aria-label={file.relative_path}
             className="mt-0.5 size-3.5 shrink-0 accent-primary"
             checked={selection.has(packFile(file))}
-            onChange={() => selection.toggle(packFile(file))}
+            onClick={(e) => selection.pick(packFile(file), e.shiftKey, ordered)}
+            onChange={() => {}}
           />
         )}
         {file.is_video ? (
@@ -228,6 +232,7 @@ function Seasons({ files, uploadTmdb, selection }: { files: DetailFile[]; upload
     }
     return [...bySeason.entries()].sort(([a], [b]) => a - b)
   }, [files])
+  const ordered = useMemo(() => seasons.flatMap(([, seasonFiles]) => seasonFiles.filter(packable).map(packFile)), [seasons])
   return (
     <div className="grid gap-2">
       {seasons.map(([season, seasonFiles]) => {
@@ -274,7 +279,7 @@ function Seasons({ files, uploadTmdb, selection }: { files: DetailFile[]; upload
                 </Button>
               )}
               {seasonFiles.map((f) => (
-                <FileRow key={f.media_file_id} file={f} showEpisode uploadTmdb={uploadTmdb} selection={selection} />
+                <FileRow key={f.media_file_id} file={f} showEpisode uploadTmdb={uploadTmdb} selection={selection} ordered={ordered} />
               ))}
             </CollapsibleContent>
           </Collapsible>

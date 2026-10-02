@@ -3,17 +3,23 @@ import { useNavigate } from 'react-router-dom'
 
 import { Button } from '@/components/ui/button'
 import { t } from '@/lib/i18n'
+import { cn } from '@/lib/utils'
 import { packProblem, packUploadTarget, type PackSelection } from '@/lib/pack'
 
 // Il pulsante che accende la selezione per un pack.
 export function PackSelectButton({ selection }: { selection: PackSelection }) {
   return (
+    // Giallo solo nei bordi: si nota, ma non diventa l'azione principale.
     <Button
       size="sm"
-      variant={selection.active ? 'secondary' : 'outline'}
+      variant="outline"
       aria-pressed={selection.active}
       onClick={() => selection.setActive(!selection.active)}
       title={t('pack.selectHelp')}
+      className={cn(
+        'border-amber-500/70 text-amber-700 hover:bg-amber-500/10 hover:text-amber-800 dark:border-amber-400/60 dark:text-amber-300 dark:hover:text-amber-200',
+        selection.active && 'bg-amber-500/15',
+      )}
     >
       <PackageIcon className="size-4" />
       {selection.active ? t('pack.selectStop') : t('pack.select')}

@@ -112,7 +112,8 @@ function packable(file: TreeFileEntry): boolean {
 
 const packFile = (file: TreeFileEntry) => ({ diskId: file.disk_id as number, path: file.relative_path });
 
-function PackCheckbox({ checked, indeterminate = false, label, onChange }: { checked: boolean; indeterminate?: boolean; label: string; onChange: (on: boolean) => void }) {
+// onPick riceve SHIFT (dal clic, non dal change: lì non c'è).
+function PackCheckbox({ checked, indeterminate = false, label, onPick }: { checked: boolean; indeterminate?: boolean; label: string; onPick: (shift: boolean) => void }) {
   return (
     <input
       type="checkbox"
@@ -122,8 +123,11 @@ function PackCheckbox({ checked, indeterminate = false, label, onChange }: { che
       ref={(el) => {
         if (el) el.indeterminate = indeterminate;
       }}
-      onClick={(e) => e.stopPropagation()}
-      onChange={(e) => onChange(e.target.checked)}
+      onClick={(e) => {
+        e.stopPropagation();
+        onPick(e.shiftKey);
+      }}
+      onChange={() => {}}
     />
   );
 }
@@ -148,6 +152,12 @@ export function FileTree({ files, expandAll = false, duplicateKeys, onOpenFile, 
     walk(tree, 0);
     return out;
   }, [tree, toggled, expandAll]);
+
+  // I video sceglibili nell'ordine mostrato, per SHIFT+clic.
+  const orderedPackable = useMemo(
+    () => rows.filter(({ node }) => node.file && packable(node.file)).map(({ node }) => packFile(node.file as TreeFileEntry)),
+    [rows],
+  );
 
   const toggle = (path: string) =>
     setToggled((prev) => {
@@ -195,7 +205,7 @@ export function FileTree({ files, expandAll = false, duplicateKeys, onOpenFile, 
                           label={t("pack.selectFolder")}
                           checked={picked === videos.length}
                           indeterminate={picked > 0 && picked < videos.length}
-                          onChange={(on) => selection.setMany(videos.map(packFile), on)}
+                          onPick={() => selection.setMany(videos.map(packFile), picked < videos.length)}
                         />
                       );
                     })()}
@@ -219,13 +229,13 @@ export function FileTree({ files, expandAll = false, duplicateKeys, onOpenFile, 
           return (
             <RowContextMenu key={node.path} title={file.relative_path} items={actions?.file?.(file) ?? []}>
             <TableRow
-              className={cn(file.excluded && "opacity-60", (openable || (picking && packable(file))) && "cursor-pointer")}
-              onClick={picking && packable(file) ? () => selection?.toggle(packFile(file)) : openable ? () => onOpenFile(file) : undefined}
+              className={cn(file.excluded && "opacity-60", (openable || (picking && packable(file))) && "cursor-pointer", picking && "select-none")}
+              onClick={picking && packable(file) ? (e) => selection?.pick(packFile(file), e.shiftKey, orderedPackable) : openable ? () => onOpenFile(file) : undefined}
             >
               <TableCell className="max-w-0" style={indent}>
                 <div className={cn("flex items-center gap-1.5", picking ? "pl-0" : "pl-5")}>
                   {picking && selection && (packable(file) ? (
-                    <PackCheckbox label={file.relative_path} checked={selection.has(packFile(file))} onChange={() => selection.toggle(packFile(file))} />
+                    <PackCheckbox label={file.relative_path} checked={selection.has(packFile(file))} onPick={(shift) => selection.pick(packFile(file), shift, orderedPackable)} />
                   ) : (
                     <span className="size-3.5 shrink-0" />
                   ))}

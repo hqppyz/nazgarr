@@ -12,12 +12,15 @@ export function FileFilterBar({
   excludedCount,
   filters,
   onFiltersChange,
+  actions,
 }: {
   statusOptions: StatusOption[]
   summary: Record<string, StateSummary>
   excludedCount: number
   filters: LibraryFilters
   onFiltersChange: (filters: LibraryFilters) => void
+  // A destra dei filtri per peso, es. "Componi un pack".
+  actions?: React.ReactNode
 }) {
   const set = <K extends keyof LibraryFilters>(key: K, value: LibraryFilters[K]) =>
     onFiltersChange({ ...filters, [key]: value })
@@ -76,6 +79,7 @@ export function FileFilterBar({
             className="w-24"
           />
         </div>
+        {actions}
       </div>
     </div>
   )
