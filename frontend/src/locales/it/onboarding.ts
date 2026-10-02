@@ -161,7 +161,7 @@ export const onboarding = {
   'onboarding.tour.upload.description.body': 'Un’intestazione e una firma in BBCode attorno alla descrizione che Nazgarr scrive per ogni upload.',
   'onboarding.tour.upload.names.title': 'Nomi dei file',
   'onboarding.tour.upload.names.body':
-    'Come vengono nominati i file dentro un nuovo torrent quando arrivano dalla tua libreria: il nome della release collegata con hardlink se c’è, altrimenti questo pattern.',
+    "Come vengono nominati i file dentro un nuovo torrent: i nomi della release collegata con hardlink se c'è, altrimenti questo pattern, per i file della libreria e le release della cartella osservata. Spegni il rename automatico per tenere i nomi originali; ogni upload può comunque scegliere.",
 
   'onboarding.tour.first_scan.run.title': 'La prima scansione',
   'onboarding.tour.first_scan.run.body':
@@ -176,20 +176,20 @@ export const onboarding = {
   'onboarding.tour.views.health.body': 'Quanta parte della tua libreria, per dimensione, è in seed tramite un hardlink. Accanto, come è cambiata nel tempo.',
   'onboarding.tour.views.metrics.title': 'Cosa merita un’occhiata',
   'onboarding.tour.views.metrics.body':
-    'Media con hardlink, torrent orfani, torrent non importati nella libreria e duplicati, con l’andamento dall’ultima scansione. Ogni scheda apre l’elenco corrispondente.',
+    "Media con hardlink, torrent orfani, torrent da smistare nel Triage e duplicati, con l'andamento dall'ultima scansione. Ogni scheda apre l'elenco corrispondente.",
   'onboarding.tour.views.changes.title': 'Cosa è cambiato',
   'onboarding.tour.views.changes.body': 'File per file, cosa è cambiato dalla scansione precedente, e la cronologia delle scansioni.',
   'onboarding.tour.views.filter.title': 'Un tracker alla volta',
   'onboarding.tour.views.filter.body': 'Ogni vista può contare tutti i torrent, solo i tracker configurati, o uno solo. La scelta viene ricordata.',
   'onboarding.tour.views.library.title': 'La tua libreria',
   'onboarding.tour.views.library.body':
-    'I file delle tue cartelle media, come albero di cartelle o come locandine. Clic destro su un file o una cartella: caricalo, fanne il reseed o escludilo.',
+    'I file delle tue cartelle media, come albero di cartelle o come locandine: si cambia da qui. Clic destro su un file o una cartella per caricarlo, farne il reseed o escluderlo.',
   'onboarding.tour.views.states.title': 'In seed o orfano',
   'onboarding.tour.views.states.body':
     'In seed: un hardlink è in seed in un client. Orfano: niente lo mette in seed, quindi è un candidato per un reseed. Clicca una scheda per filtrare.',
   'onboarding.tour.views.not_imported.title': 'Triage',
   'onboarding.tour.views.not_imported.body':
-    'Non tutti i file che vagano sono perduti: questi sono in seed senza un hardlink nella tua libreria, ognuno con il motivo (sostituito da un upgrade, una copia, mai importato). Con un requisito di seed sul tracker, ti dice anche quali puoi togliere.',
+    "Non tutti i file che vagano sono perduti: questi sono in seed senza un hardlink nella tua libreria, ognuno con il motivo (sostituito da un upgrade, una copia, mai importato). Con un requisito di seed sul tracker, un OK verde dice quali puoi togliere; quello che c'è da controllare prima (file condivisi con un altro torrent, un errore del client) sta nel popover accanto.",
   'onboarding.tour.views.review.title': 'La coda di revisione',
   'onboarding.tour.views.review.body':
     'Ogni proposta aspetta qui, con la sua confidenza e cosa farebbe. Approva o rifiuta: nulla passa senza il tuo consenso. Il cammino continua: le prossime scansioni la terranno piena.',
@@ -199,4 +199,20 @@ export const onboarding = {
   'onboarding.tour.upload.releases.title': 'Le tue release',
   'onboarding.tour.upload.releases.body':
     'Il tuo nome da releaser, usato come gruppo degli upload dalla cartella osservata, e quanto deve essere sicuro un match TMDB per essere confermato da solo, per ogni upload.',
+  'onboarding.tour.views.pack.title':
+    'Componi un pack',
+  'onboarding.tour.views.pack.body':
+    "Episodi scaricati uno alla volta, anche quelli già in seed con il loro torrent, diventano un season pack o un complete pack: sceglili (SHIFT+clic per un intervallo) e crea il pack. L'upload parte da una cartella nuova di hardlink, una sottocartella per stagione, sottotitoli compresi. Episodi di release diverse chiedono la tua conferma.",
+  'onboarding.tour.views.torrents.title':
+    'I tuoi torrent',
+  'onboarding.tour.views.torrents.body':
+    'File: cosa contengono le cartelle di seeding, come albero, con gli stessi filtri e la stessa scelta per un pack (anche senza una cartella media). Triage: i torrent che non sono mai arrivati in libreria.',
+  'onboarding.tour.views.uploads.title':
+    'I tuoi upload',
+  'onboarding.tour.views.uploads.body':
+    "In corso e storico, una riga per upload con l'esito su ogni tracker. Il cestino toglie solo il record (tracker, client e disco restano come sono); su un upload in esecuzione lo annulla.",
+  'onboarding.tour.upload.single_file.title':
+    'Un file singolo, non una cartella',
+  'onboarding.tour.upload.single_file.body':
+    "Quando l'unico file che entra nel torrent è dentro una cartella, il torrent può essere solo quel file. Scegli se il file seeda dentro la sua cartella o direttamente nella cartella delle release. Spento di default.",
 } as const

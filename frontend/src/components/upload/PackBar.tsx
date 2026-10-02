@@ -16,6 +16,7 @@ export function PackSelectButton({ selection }: { selection: PackSelection }) {
       aria-pressed={selection.active}
       onClick={() => selection.setActive(!selection.active)}
       title={t('pack.selectHelp')}
+      data-tour="views.pack"
       className={cn(
         'border-amber-500/70 text-amber-700 hover:bg-amber-500/10 hover:text-amber-800 dark:border-amber-400/60 dark:text-amber-300 dark:hover:text-amber-200',
         selection.active && 'bg-amber-500/15',

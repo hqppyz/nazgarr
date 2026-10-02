@@ -49,7 +49,7 @@ function SingleFileSwitch() {
   const enabled = (data?.value ?? '').toLowerCase() === 'true'
   const choice = folder.data?.value === 'remove' ? 'remove' : 'keep'
   return (
-    <div className="grid gap-3 rounded-md border p-3">
+    <div className="grid gap-3 rounded-md border p-3" data-tour="upload.single-file">
       <div className="flex items-start gap-3">
         <Switch
           id="upload-single-file"

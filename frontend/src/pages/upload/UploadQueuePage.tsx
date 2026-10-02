@@ -249,7 +249,7 @@ export function UploadQueuePage() {
       ) : (
         <Tabs defaultValue={params.get('tab') ?? (active.length > 0 || history.length === 0 ? 'active' : 'history')}>
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <TabsList>
+            <TabsList data-tour="views.uploads">
               <TabsTrigger value="active">{t('upload.history.activeTab', { count: active.length })}</TabsTrigger>
               <TabsTrigger value="history">{t('upload.history.historyTab', { count: history.length })}</TabsTrigger>
             </TabsList>

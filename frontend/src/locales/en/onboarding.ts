@@ -161,7 +161,7 @@ export const onboarding = {
   'onboarding.tour.upload.description.body': 'A header and a signature in BBCode around the description Nazgarr writes for each upload.',
   'onboarding.tour.upload.names.title': 'File names',
   'onboarding.tour.upload.names.body':
-    'How files are named inside a new torrent when they come from your library: the hardlinked release name if there is one, otherwise this pattern.',
+    'How the files inside a new torrent are named: the names of the hardlinked release if there is one, otherwise this pattern, for library files and watched-folder releases. Turn off the automatic rename to keep the original names; each upload can still choose.',
 
   'onboarding.tour.first_scan.run.title': 'The first scan',
   'onboarding.tour.first_scan.run.body':
@@ -176,20 +176,20 @@ export const onboarding = {
   'onboarding.tour.views.health.body': 'How much of your library, by size, is seeding through a hardlink. Next to it, how it changed over time.',
   'onboarding.tour.views.metrics.title': 'What needs a look',
   'onboarding.tour.views.metrics.body':
-    'Hardlinked media, orphaned torrents, torrents not imported into the library and duplicates, with the trend since the last scan. Each card opens the matching list.',
+    'Hardlinked media, orphaned torrents, torrents to triage and duplicates, with the trend since the last scan. Each card opens the matching list.',
   'onboarding.tour.views.changes.title': 'What changed',
   'onboarding.tour.views.changes.body': 'File by file, what changed since the previous scan, and the history of the scans.',
   'onboarding.tour.views.filter.title': 'One tracker at a time',
   'onboarding.tour.views.filter.body': 'Every view can count all torrents, only your configured trackers, or a single one. The choice is remembered.',
   'onboarding.tour.views.library.title': 'Your library',
   'onboarding.tour.views.library.body':
-    'The files of your media folders, as a folder tree or as posters. Right-click a file or a folder: upload or reseed it, or exclude it.',
+    'The files of your media folders, as a folder tree or as posters: switch here. Right-click a file or a folder to upload it, reseed it or exclude it.',
   'onboarding.tour.views.states.title': 'Seeding or orphaned',
   'onboarding.tour.views.states.body':
     'Seeding: a hardlink seeds in a client. Orphaned: nothing seeds it, so it is a candidate for a reseed. Click a card to filter.',
   'onboarding.tour.views.not_imported.title': 'Triage',
   'onboarding.tour.views.not_imported.body':
-    'Not every file that wanders is lost: these seed with no hardlink in your library, each with the reason (an upgrade replaced it, a copy, never imported). With a seeding requirement on the tracker, it also tells which ones can go.',
+    'Not every file that wanders is lost: these seed without a hardlink in your library, each with its reason (replaced by an upgrade, a copy, never imported). With a seeding requirement on the tracker, a green OK says which can go; anything else to check before removing one (files shared with another torrent, a client error) sits in the popover next to it.',
   'onboarding.tour.views.review.title': 'The review queue',
   'onboarding.tour.views.review.body':
     'Every proposal waits here, with its confidence and what it would do. Approve or reject: nothing passes without your word. The road goes ever on: the next scans keep it filled.',
@@ -199,4 +199,20 @@ export const onboarding = {
   'onboarding.tour.upload.releases.title': 'Your releases',
   'onboarding.tour.upload.releases.body':
     'Your releaser name, used as the group of the uploads from the watched folder, and how sure a TMDB match must be to be confirmed on its own, for every upload.',
+  'onboarding.tour.views.pack.title':
+    'Compose a pack',
+  'onboarding.tour.views.pack.body':
+    'Episodes downloaded one at a time, even ones already seeding with their own torrent, become a season pack or a complete pack: pick them (Shift-click for a run) and create the pack. The upload starts from a new folder of hardlinks, one subfolder per season, subtitles included. Episodes from different releases need your confirmation.',
+  'onboarding.tour.views.torrents.title':
+    'Your torrents',
+  'onboarding.tour.views.torrents.body':
+    'Files: what your seeding folders hold, as a tree, with the same filters and the same pack picking (no media folder needed). Triage: the torrents that never made it to the library.',
+  'onboarding.tour.views.uploads.title':
+    'Your uploads',
+  'onboarding.tour.views.uploads.body':
+    'In progress and history, one row per upload with the outcome on each tracker. The trash removes the record only (trackers, clients and disk stay as they are); on an upload that is running it cancels it.',
+  'onboarding.tour.upload.single_file.title':
+    'A single file, not a folder',
+  'onboarding.tour.upload.single_file.body':
+    'When the only file going into the torrent sits in a folder, the torrent can be just that file. Choose whether the file seeds inside its folder or directly in the releases folder. Off by default.',
 } as const

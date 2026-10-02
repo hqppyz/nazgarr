@@ -133,6 +133,7 @@ export const TOURS: Tour[] = [
       { id: 'releases', anchor: 'upload.releases', side: 'right', next: true, route: '/config?tab=releases' },
       { id: 'description', anchor: 'upload.description', side: 'left', next: true, route: '/config?tab=releases' },
       { id: 'names', anchor: 'upload.file-names', side: 'top', next: true, route: '/config?tab=releases' },
+      { id: 'single_file', anchor: 'upload.single-file', side: 'top', next: true, route: '/config?tab=releases' },
     ],
   },
   {
@@ -158,7 +159,10 @@ export const TOURS: Tour[] = [
       { id: 'filter', anchor: 'views.tracker-filter', side: 'left', next: true },
       { id: 'library', anchor: 'views.library-switch', side: 'bottom', next: true, route: '/library/folder' },
       { id: 'states', anchor: 'views.summary', side: 'bottom', next: true, route: '/library/folder' },
+      { id: 'pack', anchor: 'views.pack', side: 'left', next: true, route: '/library/folder', when: 'upload' },
+      { id: 'torrents', anchor: 'views.torrent-switch', side: 'bottom', next: true, route: '/torrent/folder' },
       { id: 'not_imported', anchor: 'views.summary', side: 'bottom', next: true, route: '/torrent/triage' },
+      { id: 'uploads', anchor: 'views.uploads', side: 'bottom', next: true, route: '/upload', when: 'upload' },
       { id: 'review', anchor: 'views.review', side: 'top', next: true, route: '/reseeding' },
     ],
   },
