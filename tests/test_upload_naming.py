@@ -266,7 +266,7 @@ def test_the_tracker_language_must_be_in_an_audio_track():
     assert audio_language_check("it", {"audio": []}) is None
 
 
-def test_hdr_full_adds_the_dolby_vision_profile():
+def test_hdr_full_writes_every_hdr_format_with_the_dolby_vision_profile():
     from nazgarr.upload_naming import release_values
 
     job = _job()
@@ -275,14 +275,16 @@ def test_hdr_full_adds_the_dolby_vision_profile():
         return release_values(job, {}, {"video": {"format": "HEVC", "height": 2160, "width": 3840, **video}},
                               overrides or {}, None)
 
+    # Solo Dolby Vision: DV con il profilo.
+    assert values({"hdr_format": "Dolby Vision", "hdr_format_profile": "dvhe.05"})["hdr_full"] == "DV.P5"
+    # Con HDR10 (o HDR10+, HLG) si aggiungono, uniti da un punto.
     p7 = values({"hdr_format": "Dolby Vision / SMPTE ST 2086", "hdr_format_profile": "dvhe.07 / ",
                  "hdr_format_compatibility": "Blu-ray / HDR10"})
-    assert (p7["hdr"], p7["hdr_full"]) == ("DV HDR", "DV.P7 HDR")
-    p8 = values({"hdr_format_string": "Dolby Vision, Version 1.0, Profile 8.1, dvhe.08.06, BL+RPU, HDR10 compatible",
-                 "hdr_format": "Dolby Vision"})
-    assert p8["hdr_full"].startswith("DV.P8")
-    # HDR10+ e HDR10 non hanno un profilo nei nomi: come {hdr}.
-    hdr10 = values({"hdr_format": "SMPTE ST 2094 App 4", "hdr_format_compatibility": "HDR10+ Profile B compatible"})
-    assert hdr10["hdr_full"] == hdr10["hdr"] == "HDR10+"
+    assert (p7["hdr"], p7["hdr_full"]) == ("DV HDR", "DV.P7.HDR10")
+    p8 = values({"hdr_format_string": "Dolby Vision, Version 1.0, Profile 8.1, dvhe.08.06, BL+RPU",
+                 "hdr_format": "Dolby Vision / SMPTE ST 2094 App 4", "transfer_characteristics": "HLG"})
+    assert p8["hdr_full"] == "DV.P8.HDR10+.HLG"
+    assert values({"hdr_format": "SMPTE ST 2094 App 4"})["hdr_full"] == "HDR10+"
+    assert values({"hdr_format": "SMPTE ST 2086", "hdr_format_compatibility": "HDR10"})["hdr_full"] == "HDR10"
     # Corretto a mano: vale anche per {hdr_full}.
     assert values({"hdr_format": "Dolby Vision", "hdr_format_profile": "dvhe.05"}, {"hdr": "HDR"})["hdr_full"] == "HDR"

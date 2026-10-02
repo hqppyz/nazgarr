@@ -31,7 +31,7 @@ VARIABLES = {
     "title": "Dune: Part Two", "local_title": "Dune - Parte due", "year": "2024", "season": "S02",
     "episode": "E03", "edition": "Extended", "repack": "REPACK", "resolution": "2160p", "format": "UHD",
     "source": "BluRay", "source_full": "BluRay",
-    "type": "REMUX", "service": "ATVP", "video_codec": "HEVC", "hdr": "DV HDR", "hdr_full": "DV.P7 HDR",
+    "type": "REMUX", "service": "ATVP", "video_codec": "HEVC", "hdr": "DV HDR", "hdr_full": "DV.P7.HDR10",
     "bit_depth": "10bit",
     "audio": "TrueHD 7.1 Atmos", "audio_codec": "TrueHD", "audio_channels": "7.1", "audio_atmos": "Atmos",
     "audio_all": "TrueHD 7.1 DD+ 5.1 Atmos", "audio_languages": "ITA ENG", "subs_languages": "ITA ENG",
@@ -293,13 +293,18 @@ def dv_profile(video: dict) -> int | None:
 
 
 def _mi_hdr_full(video: dict) -> str | None:
-    """{hdr} con il profilo Dolby Vision: "DV.P7 HDR", "DV.P8 HDR", "DV.P5".
-    Per HDR10, HDR10+ e HLG nessun profilo si usa nei nomi: come {hdr}."""
-    hdr = _mi_hdr(video)
-    profile = dv_profile(video)
-    if not hdr or profile is None:
-        return hdr
-    return " ".join(f"DV.P{profile}" if tag == "DV" else tag for tag in hdr.split())
+    """Tutti i formati HDR per esteso, uniti da un punto (decisione
+    dell'utente, 2026-10-02): Dolby Vision con il suo profilo, poi HDR10 /
+    HDR10+ e HLG se ci sono. "DV.P5", "DV.P7.HDR10", "DV.P8.HDR10+.HLG",
+    "HDR10", "HDR10+". Senza profilo leggibile, "DV"."""
+    tags = []
+    for tag in (_mi_hdr(video) or "").split():
+        if tag == "DV":
+            profile = dv_profile(video)
+            tags.append(f"DV.P{profile}" if profile is not None else "DV")
+        else:
+            tags.append("HDR10" if tag == "HDR" else tag)
+    return ".".join(tags) or None
 
 
 def _mi_video_codec(video: dict, release: str) -> str | None:
