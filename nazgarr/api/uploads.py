@@ -21,6 +21,7 @@ from nazgarr import (
     upload_file_names,
     upload_identify,
     upload_jobs,
+    upload_match_score,
     upload_profiles,
     upload_verify,
 )
@@ -228,7 +229,8 @@ class UploadJobDetail(UploadJobSummary):
             **cls.fields_from(j),
             source_path=j.source_path, imdb_id=j.imdb_id, tvdb_id=j.tvdb_id, mal_id=j.mal_id,
             forced_ids=_loads(j.forced_ids_json, {}), overrides=_loads(j.overrides_json, {}),
-            layout=_loads(j.layout_json, None), candidates=_loads(j.candidates_json, []),
+            layout=_loads(j.layout_json, None),
+            candidates=upload_match_score.explained(_loads(j.candidates_json, []), _loads(j.layout_json, None)),
             analysis=_loads(j.analysis_json, None), mediainfo_text=j.mediainfo_text,
             screenshot_urls=_loads(j.screenshot_urls_json, []),
             descriptions={t.id: t.description_rendered for t in j.targets if t.description_rendered},

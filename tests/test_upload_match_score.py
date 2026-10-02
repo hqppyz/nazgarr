@@ -37,3 +37,18 @@ def test_two_near_equal_candidates_are_ambiguous():
     assert first["confidence"] == second["confidence"] == 0.9
     assert first["ambiguous"] and second["ambiguous"]
     assert other["confidence"] < 0.9 and other["tmdb_id"] == 3
+
+
+def test_the_confidence_says_what_was_compared():
+    from nazgarr.upload_match_score import explained
+
+    [best] = scored([_c(1, "The Matrix", 1998, original="Matrix")], "Matrix", 1999, "movie")
+    parts = best["confidence_parts"]
+    assert (parts["title_matched"], parts["title"]) == ("Matrix", 1.0)  # il titolo originale somiglia di più
+    assert (parts["year_guess"], parts["year_candidate"], parts["year"]) == (1999, 1998, 0.85)
+    assert (parts["type_guess"], parts["type_candidate"], parts["type"]) == ("movie", "movie", 1.0)
+
+    # Un candidato salvato prima dei dettagli li riceve dal nome della sorgente.
+    [old] = explained([_c(1, "Matrix", 1999) | {"confidence": 1.0}], {"title": "Matrix", "year": 1999,
+                                                                      "content_type": "movie"})
+    assert old["confidence_parts"]["title_matched"] == "Matrix"

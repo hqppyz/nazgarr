@@ -127,7 +127,53 @@ function ConfidenceDetail({ candidate }: { candidate: MetadataCandidate }) {
               : t(passes ? 'upload.match.summaryAbove' : 'upload.match.summaryBelow', { threshold: percent(threshold) })}
         </span>
       </p>
-      <p className="text-muted-foreground">{confidenceExplained(candidate)}</p>
+      <ConfidenceFactors candidate={candidate} />
+    </div>
+  )
+}
+
+// Riga per riga, cosa ha portato a quella percentuale: il titolo che
+// somiglia di più, l'anno del file contro quello di TMDB, il tipo, e la
+// penalità se un altro titolo è quasi pari.
+function ConfidenceFactors({ candidate }: { candidate: MetadataCandidate }) {
+  const parts = candidate.confidence_parts
+  if (!parts) return null
+  if (parts.basis !== 'name') return <p className="text-muted-foreground">{t(`upload.match.basis.${parts.basis}`)}</p>
+  const kind = (type: string | undefined) => (type === 'tv' ? t('upload.match.series') : t('upload.match.movie'))
+  const yearReason =
+    parts.year_guess == null || parts.year_candidate == null
+      ? t('upload.match.factor.yearUnknown')
+      : parts.year_guess === parts.year_candidate
+        ? t('upload.match.factor.yearSame')
+        : Math.abs(parts.year_guess - parts.year_candidate) === 1
+          ? t('upload.match.factor.yearOneOff')
+          : t('upload.match.factor.yearDifferent')
+  const rows: [string, number, string][] = [
+    [t('upload.match.factor.title'), parts.title ?? 0,
+      t('upload.match.factor.titleWhy', { guess: parts.title_guess ?? '—', matched: parts.title_matched ?? '—' })],
+    [t('upload.match.factor.year'), parts.year ?? 0,
+      t('upload.match.factor.yearWhy', { guess: parts.year_guess ?? '—', candidate: parts.year_candidate ?? '—', reason: yearReason })],
+    [t('upload.match.factor.type'), parts.type ?? 0,
+      parts.type === 1
+        ? t('upload.match.factor.typeSame', { type: kind(parts.type_candidate) })
+        : t('upload.match.factor.typeDifferent', { guess: kind(parts.type_guess), candidate: kind(parts.type_candidate) })],
+  ]
+  if (parts.ambiguous) rows.push([t('upload.match.factor.ambiguous'), parts.ambiguous, t('upload.match.factor.ambiguousWhy')])
+  return (
+    <div className="grid gap-1">
+      {rows.map(([label, value, why]) => (
+        <div key={label} className="grid grid-cols-[4.5rem_3rem_minmax(0,1fr)] gap-2">
+          <span className="text-muted-foreground">{label}</span>
+          <span className="text-right font-mono tabular-nums">{percent(value)}</span>
+          <span className="min-w-0 break-words text-muted-foreground">{why}</span>
+        </div>
+      ))}
+      <p className="text-muted-foreground">
+        {t('upload.match.factor.product', {
+          factors: rows.map(([, value]) => percent(value)).join(' × '),
+          confidence: percent(candidate.confidence),
+        })}
+      </p>
     </div>
   )
 }

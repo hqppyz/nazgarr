@@ -78,7 +78,8 @@ describe('MatchStep', () => {
       ...job,
       candidates: [
         { ...job.candidates[0], source: 'search', confidence: 0.85,
-          confidence_parts: { basis: 'name', title: 1, year: 0.85, type: 1 } },
+          confidence_parts: { basis: 'name', title: 1, title_guess: 'Severance', title_matched: 'Severance', year: 0.85,
+            year_guess: 2021, year_candidate: 2022, type: 1, type_guess: 'tv', type_candidate: 'tv' } },
         job.candidates[1],
       ],
     } as unknown as UploadJob
@@ -87,7 +88,10 @@ describe('MatchStep', () => {
     // Nel dettaglio del candidato scelto, sotto i link: niente riquadro sopra la griglia.
     expect(screen.getByText(/Reliability 85%\./)).toBeTruthy()
     expect(screen.getByText(/Below the automatic match threshold \(90%\)/)).toBeTruthy()
-    expect(screen.getByText('From the name: title 100% × year 85% × type 100%.')).toBeTruthy()
+    // Fattore per fattore, con il motivo, e il prodotto.
+    expect(screen.getByText('file 2021, TMDB 2022: one year apart (often release vs. name)')).toBeTruthy()
+    expect(screen.getByText('"Severance" from the file, closest TMDB title "Severance"')).toBeTruthy()
+    expect(screen.getByText('100% × 85% × 100% = 85%')).toBeTruthy()
     expect(screen.queryByText(/Best match/)).toBeNull()
   })
 })

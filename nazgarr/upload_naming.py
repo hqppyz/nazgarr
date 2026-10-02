@@ -31,7 +31,8 @@ VARIABLES = {
     "title": "Dune: Part Two", "local_title": "Dune - Parte due", "year": "2024", "season": "S02",
     "episode": "E03", "edition": "Extended", "repack": "REPACK", "resolution": "2160p", "format": "UHD",
     "source": "BluRay", "source_full": "BluRay",
-    "type": "REMUX", "service": "ATVP", "video_codec": "HEVC", "hdr": "DV HDR", "bit_depth": "10bit",
+    "type": "REMUX", "service": "ATVP", "video_codec": "HEVC", "hdr": "DV HDR", "hdr_full": "DV.P7 HDR",
+    "bit_depth": "10bit",
     "audio": "TrueHD 7.1 Atmos", "audio_codec": "TrueHD", "audio_channels": "7.1", "audio_atmos": "Atmos",
     "audio_all": "TrueHD 7.1 DD+ 5.1 Atmos", "audio_languages": "ITA ENG", "subs_languages": "ITA ENG",
     "subs": "SUBS ITA ENG", "group": "GRP",
@@ -278,6 +279,29 @@ def _mi_hdr(video: dict) -> str | None:
     return " ".join(tags) or None
 
 
+# Il profilo Dolby Vision come lo scrive MediaInfo: "dvhe.07.06", "dvav.08",
+# o "Profile 7" nelle versioni che lo spiegano a parole.
+_DV_PROFILE = re.compile(r"dv(?:he|av|h1|a1)\.0?(\d{1,2})|profile\s*(\d{1,2})", re.IGNORECASE)
+
+
+def dv_profile(video: dict) -> int | None:
+    text = " ".join(str(video.get(key) or "") for key in ("hdr_format_profile", "hdr_format", "hdr_format_string"))
+    if "dolby vision" not in text.lower() and "dv" not in text.lower():
+        return None
+    match = _DV_PROFILE.search(text)
+    return int(match.group(1) or match.group(2)) if match else None
+
+
+def _mi_hdr_full(video: dict) -> str | None:
+    """{hdr} con il profilo Dolby Vision: "DV.P7 HDR", "DV.P8 HDR", "DV.P5".
+    Per HDR10, HDR10+ e HLG nessun profilo si usa nei nomi: come {hdr}."""
+    hdr = _mi_hdr(video)
+    profile = dv_profile(video)
+    if not hdr or profile is None:
+        return hdr
+    return " ".join(f"DV.P{profile}" if tag == "DV" else tag for tag in hdr.split())
+
+
 def _mi_video_codec(video: dict, release: str) -> str | None:
     fmt = str(video.get("format") or "")
     library = str(video.get("writing_library") or "").lower()
@@ -455,6 +479,7 @@ def release_values(
         values["resolution"] = _mi_resolution(video) or values["resolution"]
         values["video_codec"] = _mi_video_codec(video, release) or values["video_codec"]
         values["hdr"] = _mi_hdr(video)
+        values["hdr_full"] = _mi_hdr_full(video)
         values["bit_depth"] = f"{video['bit_depth']}bit" if video.get("bit_depth") else None
     if tracks:
         audio = _audio_values(tracks, rules)
@@ -467,6 +492,8 @@ def release_values(
         values["subs_languages"] = _languages_value(subtitles, rules.get("subs_languages") or {"style": "all"})
     if not values.get("hdr") and rules.get("sdr_label"):
         values["hdr"] = rules["sdr_label"]
+    # Senza MediaInfo (o senza profilo DV) è uguale a {hdr}.
+    values["hdr_full"] = values.get("hdr_full") or values.get("hdr")
     values["subs"] = None
     if subtitles:
         # Regole v1-v3 avevano solo un'etichetta fissa (subs_label).
@@ -481,6 +508,8 @@ def release_values(
     for key in DETECTED_FIELDS:
         if overrides.get(key) not in (None, ""):
             values[key] = overrides[key]
+    if overrides.get("hdr") not in (None, ""):
+        values["hdr_full"] = overrides["hdr"]  # corretto a mano: vale per tutti e due
     # Dopo gli override: seguono la risoluzione, il tipo e la sorgente scelti.
     if values.get("source") == "DVD" and values.get("resolution"):
         standard = {"576": "PAL", "480": "NTSC"}.get(str(values["resolution"])[:3])

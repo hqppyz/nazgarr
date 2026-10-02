@@ -98,6 +98,9 @@ def summarize(media_info: MediaInfo, file_name: str | None = None) -> dict:
             "bit_rate": _int(video.bit_rate),
             "hdr_format": video.hdr_format,
             "hdr_format_compatibility": video.hdr_format_compatibility,
+            # Il profilo Dolby Vision (es. "dvhe.07"), per {hdr_full} nei nomi.
+            "hdr_format_profile": video.hdr_format_profile,
+            "hdr_format_string": video.hdr_format_string,
             "transfer_characteristics": video.transfer_characteristics,
             "writing_library": video.writing_library,
             "encoding_settings": bool(video.encoding_settings),
