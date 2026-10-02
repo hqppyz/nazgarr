@@ -66,14 +66,14 @@ A Community-Applications-style template is published at [`unraid/nazgarr-templat
 
 ### Without Docker (Python package)
 
-Every release also ships a Python package with the web UI already built inside, so neither Docker nor Node is needed. You need Python 3.12 or newer, [pipx](https://pipx.pypa.io), and `mediainfo` and `ffmpeg` from your package manager:
+Every stable release also ships a Python package with the web UI already built inside, so neither Docker nor Node is needed. You need Python 3.12 or newer, [pipx](https://pipx.pypa.io), and `mediainfo` and `ffmpeg` from your package manager:
 
 ```bash
 sudo apt install pipx mediainfo ffmpeg        # Debian/Ubuntu
 brew install pipx media-info ffmpeg            # macOS
 ```
 
-Install it from the [latest release](https://github.com/lktorrentz/nazgarr/releases) (the `.whl` asset):
+Install it from the [latest stable release](https://github.com/lktorrentz/nazgarr/releases/latest) (the `.whl` asset):
 
 ```bash
 pipx install https://github.com/lktorrentz/nazgarr/releases/download/vX.Y.Z/nazgarr-X.Y.Z-py3-none-any.whl
