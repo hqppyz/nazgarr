@@ -31,6 +31,8 @@ def setup_status(session: Session) -> dict:
     disks = session.query(Disk).all()
     storage_ready = any(d.media_rel_path and d.torrents_rel_path for d in disks)
     enabled_clients = {c.id for c in session.query(TorrentClient).filter(TorrentClient.enabled.is_(True))}
+    # Collegare un client a dei dischi è facoltativo: senza, vale per tutti i
+    # dischi confrontando i percorsi (app/torrent_indexer.py).
     linked = {row.torrent_client_id for row in session.query(DiskTorrentClient)} & enabled_clients
     trackers = session.query(Tracker).filter(Tracker.enabled.is_(True)).all()
     arr = sum(session.query(model).filter_by(enabled=True).count() for model in (RadarrInstance, SonarrInstance))
@@ -41,7 +43,7 @@ def setup_status(session: Session) -> dict:
 
     steps = {
         "storage": {"done": storage_ready, "count": len(disks)},
-        "clients": {"done": bool(linked), "count": len(enabled_clients), "linked": len(linked)},
+        "clients": {"done": bool(enabled_clients), "count": len(enabled_clients), "linked": len(linked)},
         "metadata": {"done": bool(settings_repo.get_setting(session, "tmdb_api_key")) or arr > 0},
         "arr": {"done": arr > 0, "count": arr},
         "trackers": {"done": bool(trackers), "count": len(trackers)},

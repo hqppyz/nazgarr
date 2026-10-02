@@ -8,6 +8,8 @@ import { t } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 import { useOnboarding, useSetupStatus } from '@/onboarding/state'
 import { isDone, visibleSteps } from '@/onboarding/steps'
+import { tourStore } from '@/onboarding/tourStore'
+import { tourFor } from '@/onboarding/tours'
 
 // La checklist "Getting started" in cima alla dashboard, finché il tour è
 // attivo. Ogni passo è fatto quando lo dice la configurazione reale (un disco
@@ -52,7 +54,14 @@ export function GettingStartedCard() {
               <li key={step.key}>
                 <Link
                   to={step.to}
-                  onClick={() => step.from === 'seen' && markSeen(step.key)}
+                  onClick={(event) => {
+                    if (step.from === 'seen') markSeen(step.key)
+                    // Con un tour guidato, il tour porta lui alla schermata.
+                    if (tourFor(step.key)) {
+                      event.preventDefault()
+                      tourStore.start(step.key)
+                    }
+                  }}
                   className={cn(
                     'group flex items-start gap-2 rounded-md p-2 hover:bg-muted/60',
                     next?.key === step.key && 'bg-primary/5 ring-1 ring-primary/30',
@@ -72,7 +81,13 @@ export function GettingStartedCard() {
                     </span>
                     <span className="text-xs text-muted-foreground">{t(`onboarding.step.${step.key}.summary`)}</span>
                   </span>
-                  <ArrowRightIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground opacity-0 group-hover:opacity-100" />
+                  {tourFor(step.key) ? (
+                    <span className="mt-0.5 shrink-0 text-xs text-primary opacity-0 group-hover:opacity-100">
+                      {t('onboarding.checklist.guide')}
+                    </span>
+                  ) : (
+                    <ArrowRightIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground opacity-0 group-hover:opacity-100" />
+                  )}
                 </Link>
               </li>
             )

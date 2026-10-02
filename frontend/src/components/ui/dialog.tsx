@@ -5,8 +5,27 @@ import { cn } from "cn"
 import { Button } from "@/components/ui/button"
 import { XIcon } from "lucide-react"
 
-function Dialog({ ...props }: DialogPrimitive.Root.Props) {
-  return <DialogPrimitive.Root data-slot="dialog" {...props} />
+// Il tour del primo accesso (src/onboarding) mette il suo fumetto e il suo
+// overlay fuori dal dialog: un click lì non deve chiuderlo.
+function fromTour(event: Event | undefined) {
+  const target = event?.target
+  return target instanceof Element && target.closest(".driver-popover, .driver-overlay") !== null
+}
+
+function Dialog({ onOpenChange, ...props }: DialogPrimitive.Root.Props) {
+  return (
+    <DialogPrimitive.Root
+      data-slot="dialog"
+      onOpenChange={(open, details) => {
+        if (!open && details.reason === "outside-press" && fromTour(details.event)) {
+          details.cancel()
+          return
+        }
+        onOpenChange?.(open, details)
+      }}
+      {...props}
+    />
+  )
 }
 
 function DialogTrigger({ ...props }: DialogPrimitive.Trigger.Props) {

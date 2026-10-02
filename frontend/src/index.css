@@ -138,3 +138,58 @@
     cursor: pointer;
     }
 }
+/* Il fumetto del tour del primo accesso (driver.js, src/onboarding): gli
+   stessi colori, bordi e font del resto dell'interfaccia, chiaro e scuro. */
+.driver-popover.nazgarr-tour {
+  background: var(--popover);
+  color: var(--popover-foreground);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 10px 30px -10px rgb(0 0 0 / 0.35);
+  font-family: inherit;
+  max-width: 340px;
+  padding: 16px;
+}
+.driver-popover.nazgarr-tour .driver-popover-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  font-family: inherit;
+}
+.driver-popover.nazgarr-tour .driver-popover-description {
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: var(--muted-foreground);
+  font-family: inherit;
+  white-space: pre-line;
+}
+.driver-popover.nazgarr-tour .driver-popover-progress-text {
+  font-size: 0.7rem;
+  color: var(--muted-foreground);
+}
+.driver-popover.nazgarr-tour .driver-popover-navigation-btns button {
+  text-shadow: none;
+  font-family: inherit;
+  font-size: 0.78rem;
+  border-radius: calc(var(--radius) * 0.8);
+  border: 1px solid var(--border);
+  background: var(--background);
+  color: var(--foreground);
+  padding: 4px 10px;
+}
+.driver-popover.nazgarr-tour .driver-popover-next-btn {
+  background: var(--primary) !important;
+  color: var(--primary-foreground) !important;
+  border-color: var(--primary) !important;
+}
+.driver-popover.nazgarr-tour .driver-popover-close-btn {
+  color: var(--muted-foreground);
+}
+.driver-popover.nazgarr-tour .driver-popover-arrow-side-left.driver-popover-arrow { border-left-color: var(--popover); }
+.driver-popover.nazgarr-tour .driver-popover-arrow-side-right.driver-popover-arrow { border-right-color: var(--popover); }
+.driver-popover.nazgarr-tour .driver-popover-arrow-side-top.driver-popover-arrow { border-top-color: var(--popover); }
+.driver-popover.nazgarr-tour .driver-popover-arrow-side-bottom.driver-popover-arrow { border-bottom-color: var(--popover); }
+.nazgarr-tour-waiting {
+  margin-top: 8px;
+  font-size: 0.75rem;
+  color: var(--primary);
+}

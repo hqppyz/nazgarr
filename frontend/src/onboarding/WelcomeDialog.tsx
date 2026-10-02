@@ -6,6 +6,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Switch } from '@/components/ui/switch'
 import { t } from '@/lib/i18n'
 import { DEFAULT_STATE, useOnboarding, useSetupStatus } from '@/onboarding/state'
+import { tourStore } from '@/onboarding/tourStore'
 
 // Il benvenuto del primo accesso: si apre da solo su un'istanza ancora da
 // configurare (nessun tour mai visto e nessun disco). Due domande adattano il
@@ -20,6 +21,8 @@ export function WelcomeDialog() {
   const finish = (status: 'active' | 'dismissed') => {
     save({ ...DEFAULT_STATE, status, answers })
     setClosed(true)
+    // "Start": subito il primo tour guidato, dai dischi.
+    if (status === 'active') tourStore.start('storage')
   }
 
   return (

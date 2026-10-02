@@ -22,8 +22,13 @@ def test_each_step_follows_the_real_configuration(db_session, tmp_path):
     client = TorrentClient(label="q", adapter_type="qbittorrent", base_url="http://q")
     db_session.add_all([disk, client])
     db_session.commit()
-    # Un disco senza cartella torrent e un client non collegato a nessun disco non bastano.
-    assert _done(db_session)["storage"] is False and _done(db_session)["clients"] is False
+    # Un disco senza cartella torrent non basta; un client abilitato sì, anche
+    # senza dischi collegati (vale per tutti, confrontando i percorsi).
+    assert _done(db_session)["storage"] is False and _done(db_session)["clients"] is True
+    client.enabled = False
+    db_session.commit()
+    assert _done(db_session)["clients"] is False
+    client.enabled = True
 
     disk.torrents_rel_path = "torrents"
     db_session.add(DiskTorrentClient(disk_id=disk.id, torrent_client_id=client.id))

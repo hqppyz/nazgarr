@@ -207,13 +207,13 @@ function AddTrackerDialog() {
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger render={<Button><PlusIcon className="size-4" />{t('trackers.addTracker')}</Button>} />
-      <DialogContent>
+      <DialogTrigger render={<Button data-tour="trackers.add"><PlusIcon className="size-4" />{t('trackers.addTracker')}</Button>} />
+      <DialogContent data-tour="trackers.dialog">
         <DialogHeader>
           <DialogTitle>{t('trackers.addTracker')}</DialogTitle>
         </DialogHeader>
         <div className="grid gap-3">
-          <div className="grid gap-1.5">
+          <div className="grid gap-1.5" data-tour="trackers.dialog.preset">
             <Label>{t('trackers.preset')}</Label>
             <Select value={presetKey} onValueChange={applyPreset}>
               <SelectTrigger>
@@ -260,7 +260,7 @@ function AddTrackerDialog() {
               </SelectContent>
             </Select>
           </div>
-          <div className="grid gap-1.5">
+          <div className="grid gap-1.5" data-tour="trackers.dialog.url">
             <Label htmlFor="t-base-url">{t('trackers.apiUrl')}</Label>
             <Input
               id="t-base-url"
@@ -269,11 +269,11 @@ function AddTrackerDialog() {
               placeholder="https://mytracker.example"
             />
           </div>
-          <div className="grid gap-1.5">
+          <div className="grid gap-1.5" data-tour="trackers.dialog.token">
             <Label htmlFor="t-api-token">{t('trackers.apiToken')}</Label>
             <Input id="t-api-token" value={apiToken} onChange={(e) => setApiToken(e.target.value)} />
           </div>
-          <div className="grid gap-1.5">
+          <div className="grid gap-1.5" data-tour="trackers.dialog.announce">
             <Label htmlFor="t-announce-url">{t('trackers.announceUrl')}</Label>
             <Input
               id="t-announce-url"
@@ -289,6 +289,7 @@ function AddTrackerDialog() {
         </div>
         <DialogFooter>
           <Button
+            data-tour="trackers.dialog.create"
             onClick={submit}
             disabled={
               !label ||
@@ -465,7 +466,7 @@ export function TrackersSection() {
         {trackers?.map((tracker) => {
           const profile = tracker.upload_profile
           return (
-            <Card key={tracker.id} className={cn('min-w-0', !tracker.enabled && 'opacity-70')}>
+            <Card key={tracker.id} data-tour="trackers.card" className={cn('min-w-0', !tracker.enabled && 'opacity-70')}>
               <CardHeader className="flex flex-row items-center gap-3">
                 <TrackerLogo trackerId={tracker.id} />
                 <div className="grid min-w-0 flex-1 gap-0.5">
@@ -491,7 +492,7 @@ export function TrackersSection() {
                   <SecretPresence present={tracker.has_announce_url} />
                   <span className="text-muted-foreground">{t('trackers.rssKeyColumn')}</span>
                   <SecretPresence present={tracker.has_rss_key} />
-                  <span className="text-muted-foreground">{t('trackers.clientColumn')}</span>
+                  <span className="text-muted-foreground" data-tour="trackers.card.client">{t('trackers.clientColumn')}</span>
                   <TrackerClientSelect
                     value={tracker.torrent_client_id ?? null}
                     onChange={(torrentClientId) =>
@@ -501,7 +502,7 @@ export function TrackersSection() {
                       )
                     }
                   />
-                  <span className="text-muted-foreground" title={t('trackers.languageHelp')}>
+                  <span className="text-muted-foreground" title={t('trackers.languageHelp')} data-tour="trackers.card.language">
                     {t('trackers.languageColumn')}
                   </span>
                   <TrackerLanguageSelect
@@ -513,7 +514,7 @@ export function TrackersSection() {
                       )
                     }
                   />
-                  <span className="text-muted-foreground" title={t('trackers.seedRequirement.help')}>
+                  <span className="text-muted-foreground" title={t('trackers.seedRequirement.help')} data-tour="trackers.card.seed">
                     {t('trackers.seedRequirement.column')}
                   </span>
                   <TrackerSeedRequirement
@@ -550,7 +551,7 @@ export function TrackersSection() {
                   </span>
                 </div>
                 <div className="flex justify-end gap-1 border-t pt-3">
-                  <Button variant="ghost" size="sm" onClick={() => setProfileTrackerId(tracker.id)}>
+                  <Button variant="ghost" size="sm" data-tour="trackers.card.profile" onClick={() => setProfileTrackerId(tracker.id)}>
                     <FileUpIcon className="size-4" />
                     {t('trackers.uploadProfile')}
                   </Button>

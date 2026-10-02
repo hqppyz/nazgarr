@@ -54,17 +54,17 @@ function AddDiskDialog() {
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger render={<Button><PlusIcon className="size-4" />{t('disks.addDisk')}</Button>} />
-      <DialogContent>
+      <DialogTrigger render={<Button data-tour="storage.add"><PlusIcon className="size-4" />{t('disks.addDisk')}</Button>} />
+      <DialogContent data-tour="storage.dialog">
         <DialogHeader>
           <DialogTitle>{t('disks.addDisk')}</DialogTitle>
         </DialogHeader>
         <div className="grid gap-3">
-          <div className="grid gap-1.5">
+          <div className="grid gap-1.5" data-tour="storage.dialog.label">
             <Label htmlFor="disk-label">{t('disks.label')}</Label>
             <Input id="disk-label" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="main" />
           </div>
-          <div className="grid gap-1.5">
+          <div className="grid gap-1.5" data-tour="storage.dialog.root">
             <Label htmlFor="disk-root-path">root_path</Label>
             <Input
               id="disk-root-path"
@@ -94,7 +94,7 @@ function AddDiskDialog() {
           ) : null}
         </div>
         <DialogFooter>
-          <Button onClick={submit} disabled={!label || !rootPath || createDisk.isPending}>
+          <Button data-tour="storage.dialog.create" onClick={submit} disabled={!label || !rootPath || createDisk.isPending}>
             {t('disks.create')}
           </Button>
         </DialogFooter>
@@ -109,6 +109,7 @@ function VerifyButton({ diskId }: { diskId: number }) {
     <Button
       variant="ghost"
       size="icon-sm"
+      data-tour="storage.verify"
       title={t('disks.verifyHardlink')}
       onClick={() =>
         verify.mutate(diskId, {
@@ -135,7 +136,9 @@ function RelPathCell({
   field,
   title,
   emptyLabel,
+  tour,
 }: {
+  tour?: string
   diskId: number
   value: string | null
   field: 'media_rel_path' | 'torrents_rel_path' | 'new_torrent_rel_path' | 'upload_rel_path'
@@ -149,6 +152,8 @@ function RelPathCell({
     <>
       <button
         className="font-mono text-xs text-muted-foreground hover:underline"
+        data-tour={tour}
+        data-tour-filled={value ? 'true' : undefined}
         onClick={() => setBrowserOpen(true)}
       >
         {value || emptyLabel || t('disks.setPath')}
@@ -229,7 +234,7 @@ export function DisksSection() {
   const deleteDisk = useDeleteDisk()
 
   return (
-    <Card>
+    <Card data-tour="storage.card">
       <CardHeader className="flex flex-row items-center justify-between">
         <CardTitle>Disks</CardTitle>
         <AddDiskDialog />
@@ -256,11 +261,11 @@ export function DisksSection() {
               </TableRow>
             )}
             {disks?.map((disk) => (
-              <TableRow key={disk.id}>
+              <TableRow key={disk.id} data-tour="storage.row">
                 <TableCell className="font-medium">{disk.label}</TableCell>
                 <TableCell className="font-mono text-xs">{disk.root_path}</TableCell>
                 <TableCell>
-                  <RelPathCell diskId={disk.id} value={disk.media_rel_path} field="media_rel_path" title={t('disks.mediaFolder')} />
+                  <RelPathCell diskId={disk.id} value={disk.media_rel_path} field="media_rel_path" title={t('disks.mediaFolder')} tour="storage.media-folder" />
                 </TableCell>
                 <TableCell>
                   <RelPathCell
@@ -268,6 +273,7 @@ export function DisksSection() {
                     value={disk.torrents_rel_path}
                     field="torrents_rel_path"
                     title={t('disks.seedingFolderDialogTitle')}
+                    tour="storage.seeding-folder"
                   />
                 </TableCell>
                 <TableCell>
@@ -278,6 +284,7 @@ export function DisksSection() {
                     value={disk.new_torrent_rel_path}
                     field="new_torrent_rel_path"
                     title={t('disks.newHardlinkFolderLabel')}
+                    tour="storage.new-folder"
                     emptyLabel={t('disks.sameAsSeedingFolder')}
                   />
                 </TableCell>
@@ -289,6 +296,7 @@ export function DisksSection() {
                     value={disk.upload_rel_path}
                     field="upload_rel_path"
                     title={t('disks.uploadFolderLabel')}
+                    tour="storage.upload-folder"
                     emptyLabel={t('disks.sameAsSeedingFolder')}
                   />
                 </TableCell>

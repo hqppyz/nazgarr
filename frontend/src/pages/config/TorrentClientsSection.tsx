@@ -119,8 +119,8 @@ function AddTorrentClientDialog() {
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger render={<Button><PlusIcon className="size-4" />{t('torrentClients.addClient')}</Button>} />
-      <DialogContent>
+      <DialogTrigger render={<Button data-tour="clients.add"><PlusIcon className="size-4" />{t('torrentClients.addClient')}</Button>} />
+      <DialogContent data-tour="clients.dialog">
         <DialogHeader>
           <DialogTitle>{t('torrentClients.addTorrentClient')}</DialogTitle>
         </DialogHeader>
@@ -129,7 +129,7 @@ function AddTorrentClientDialog() {
             <Label htmlFor="tc-label">{t('torrentClients.label')}</Label>
             <Input id="tc-label" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="qbit" />
           </div>
-          <div className="grid gap-1.5">
+          <div className="grid gap-1.5" data-tour="clients.dialog.type">
             <Label>{t('torrentClients.type')}</Label>
             <Select
               value={adapterType}
@@ -155,7 +155,7 @@ function AddTorrentClientDialog() {
             </Select>
             <p className="text-xs text-muted-foreground">{t('torrentClients.plannedAdapters')}</p>
           </div>
-          <div className="grid gap-1.5">
+          <div className="grid gap-1.5" data-tour="clients.dialog.url">
             <Label htmlFor="tc-base-url">{t('torrentClients.url')}</Label>
             <Input
               id="tc-base-url"
@@ -167,7 +167,7 @@ function AddTorrentClientDialog() {
           {pluginSpec ? (
             <AdapterConfigFields idPrefix="tc-config" fields={pluginSpec.config_fields} values={config} onChange={setConfig} />
           ) : isQui ? (
-            <>
+            <div className="grid gap-3" data-tour="clients.dialog.credentials">
               <div className="grid gap-1.5">
                 <Label htmlFor="tc-api-token">{t('torrentClients.apiKey')}</Label>
                 <Input
@@ -189,9 +189,9 @@ function AddTorrentClientDialog() {
                 />
                 <p className="text-xs text-muted-foreground">{t('torrentClients.instanceHelp')}</p>
               </div>
-            </>
+            </div>
           ) : (
-            <>
+            <div className="grid gap-3" data-tour="clients.dialog.credentials">
               <div className="grid gap-1.5">
                 <Label htmlFor="tc-username">{t('torrentClients.username')}</Label>
                 <Input id="tc-username" value={username} onChange={(e) => setUsername(e.target.value)} />
@@ -200,11 +200,11 @@ function AddTorrentClientDialog() {
                 <Label htmlFor="tc-password">{t('torrentClients.password')}</Label>
                 <Input id="tc-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
               </div>
-            </>
+            </div>
           )}
         </div>
         <DialogFooter>
-          <Button onClick={submit} disabled={!canSubmit || createTorrentClient.isPending}>
+          <Button data-tour="clients.dialog.create" onClick={submit} disabled={!canSubmit || createTorrentClient.isPending}>
             {t('torrentClients.create')}
           </Button>
         </DialogFooter>
@@ -347,6 +347,7 @@ function TestButton({ id }: { id: number }) {
     <Button
       variant="ghost"
       size="icon-sm"
+      data-tour="clients.test"
       title={t('torrentClients.testConnection')}
       onClick={() =>
         test.mutate(id, {
@@ -417,8 +418,20 @@ function DisksDialog({ torrentClientId, disks: associations }: { torrentClientId
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger render={<Button variant="ghost" size="icon-sm" title={t('torrentClients.enabledDisks')}><HardDriveIcon className="size-4" /></Button>} />
-      <DialogContent>
+      <DialogTrigger
+        render={
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            title={t('torrentClients.enabledDisks')}
+            data-tour="clients.disks"
+            data-tour-filled={associations.length > 0 ? 'true' : undefined}
+          >
+            <HardDriveIcon className="size-4" />
+          </Button>
+        }
+      />
+      <DialogContent data-tour="clients.disks-dialog">
         <DialogHeader>
           <DialogTitle>{t('torrentClients.enabledDisksForClient')}</DialogTitle>
           <DialogDescription>{t('torrentClients.rootPathOverrideHelp')}</DialogDescription>
@@ -539,7 +552,7 @@ export function TorrentClientsSection() {
           torrent ha nell'indice dell'ultima scan, e le azioni. */}
       <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
         {torrentClients?.map((tc) => (
-          <Card key={tc.id} className={cn('min-w-0', !tc.enabled && 'opacity-70')}>
+          <Card key={tc.id} data-tour="clients.card" className={cn('min-w-0', !tc.enabled && 'opacity-70')}>
             <CardHeader className="flex flex-row items-center gap-3">
               <ClientLogo type={tc.adapter_type} />
               <div className="grid min-w-0 flex-1 gap-0.5">
@@ -579,7 +592,9 @@ export function TorrentClientsSection() {
                   )}
                 </span>
               </div>
-              <ClientLabels tc={tc} />
+              <div data-tour="clients.labels">
+                <ClientLabels tc={tc} />
+              </div>
               <div className="flex justify-end gap-1 border-t pt-3">
                 <TestButton id={tc.id} />
                 <DisksDialog torrentClientId={tc.id} disks={tc.disks} />

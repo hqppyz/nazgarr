@@ -442,7 +442,9 @@ function ArrInstancesCard({
   deleteMutation,
   testConnectionMutation,
   testInstanceMutation,
+  tour,
 }: {
+  tour: string
   title: string
   logoSrc: string
   urlPlaceholder: string
@@ -455,7 +457,7 @@ function ArrInstancesCard({
   testInstanceMutation: UseMutationResult<ArrInstanceTestResult, Error, number>
 }) {
   return (
-    <Card>
+    <Card data-tour={tour}>
       <CardHeader>
         <div className="flex w-full items-center justify-between gap-3">
           <div className="flex items-center gap-3">
@@ -554,6 +556,7 @@ export function IntegrationsSection() {
   return (
     <>
       <ArrInstancesCard
+        tour="integrations.radarr"
         title="Radarr"
         logoSrc="/logos/radarr.svg"
         urlPlaceholder="http://radarr:7878"
@@ -567,6 +570,7 @@ export function IntegrationsSection() {
       />
 
       <ArrInstancesCard
+        tour="integrations.sonarr"
         title="Sonarr"
         logoSrc="/logos/sonarr.svg"
         urlPlaceholder="http://sonarr:8989"
