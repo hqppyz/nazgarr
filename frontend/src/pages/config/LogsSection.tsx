@@ -10,7 +10,9 @@ import { cn } from '@/lib/utils'
 // DEBUG si chiama "Verbose": il dettaglio per capire un problema, non per
 // leggerlo ogni giorno (nazgarr/logging_config.py ci mette le librerie chiacchierone).
 const LEVELS = ['DEBUG', 'INFO', 'WARNING', 'ERROR'] as const
-const LEVEL_LABEL: Record<string, string> = { DEBUG: 'Verbose', INFO: 'Info', WARNING: 'Warning', ERROR: 'Error' }
+const LEVEL_LABEL: Record<string, string> = {
+  DEBUG: t('logs.levelVerbose'), INFO: t('logs.levelInfo'), WARNING: t('logs.levelWarning'), ERROR: t('logs.levelError'),
+}
 const LEVEL_TAG: Record<string, string> = { DEBUG: 'VRB', INFO: 'INF', WARNING: 'WRN', ERROR: 'ERR', CRITICAL: 'CRT' }
 
 

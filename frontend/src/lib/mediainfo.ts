@@ -1,3 +1,5 @@
+import { uiLocale } from '@/lib/i18n'
+
 // Formattazione del riepilogo MediaInfo (nazgarr/mediainfo_util.py summarize)
 // come l'anteprima di un tracker UNIT3D.
 
@@ -49,7 +51,7 @@ export function flagOf(language: string | null | undefined): string | null {
   return String.fromCodePoint(...[...country].map((c) => 0x1f1e6 + c.charCodeAt(0) - 65))
 }
 
-const languageNames = new Intl.DisplayNames(['en'], { type: 'language' })
+const languageNames = new Intl.DisplayNames([uiLocale()], { type: 'language' })
 
 export function languageName(language: string | null | undefined): string {
   if (!language) return 'Unknown'

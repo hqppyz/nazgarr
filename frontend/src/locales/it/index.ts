@@ -1,3 +1,5 @@
+import type { MessageKey } from '@/locales/en'
+
 import { activity } from './activity'
 import { application } from './application'
 import { auth } from './auth'
@@ -34,10 +36,10 @@ import { trackerFilter } from './trackerFilter'
 import { upload } from './upload'
 import { uploadSettings } from './uploadSettings'
 
-// Ogni modulo di dominio esporta chiavi già namespaced (es. "errors.foo",
-// "disks.title") — qui solo un merge piatto, mai nesting: t() resta un
-// semplice lookup O(1) su un oggetto, senza dover camminare un albero.
-export const en = {
+// Lo stesso merge piatto di locales/en/index.ts. Il tipo pretende ogni chiave
+// dell'inglese: una traduzione mancante è un errore di compilazione (e un
+// test controlla anche le chiavi in più e i segnaposto).
+export const it: Record<MessageKey, string> = {
   ...activity,
   ...application,
   ...auth,
@@ -73,6 +75,4 @@ export const en = {
   ...uploadSettings,
   ...plugins,
   ...webhooks,
-} as const
-
-export type MessageKey = keyof typeof en
+}

@@ -30,7 +30,7 @@ import {
 } from '@/components/AdapterConfigFields'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
-import { t } from '@/lib/i18n'
+import { t, uiLocale } from '@/lib/i18n'
 import { TrackerLogo } from '@/pages/config/ServiceIcons'
 import { cn, selectLabel } from '@/lib/utils'
 import { TrackerSeedRequirement } from '@/pages/config/TrackerSeedRequirement'
@@ -80,7 +80,7 @@ const LANGUAGES = [
 
 function languageName(code: string) {
   try {
-    return new Intl.DisplayNames(['en'], { type: 'language' }).of(code) ?? code
+    return new Intl.DisplayNames([uiLocale()], { type: 'language' }).of(code) ?? code
   } catch {
     return code
   }

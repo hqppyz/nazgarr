@@ -1,0 +1,26 @@
+// Vocabolario condiviso — azioni/stati generici ripetuti identici in
+// decine di componenti (Salva/Elimina/Modifica/Caricamento…). Un dialog o
+// una card specifica usa queste chiavi invece di re-imporre una propria
+// traduzione locale della stessa parola.
+export const common = {
+  'common.save': 'Salva',
+  'common.saved': 'Salvato.',
+  'common.itemSaved': '{item} salvato.',
+  'common.delete': 'Elimina',
+  'common.edit': 'Modifica',
+  'common.cancel': 'Annulla',
+  'common.loading': 'Caricamento…',
+  'common.saveFailed': 'Salvataggio non riuscito: {message}',
+  'common.leaveBlank': 'Lascia vuoto per non cambiarlo',
+  'common.workInProgress': 'Lavori in corso',
+  'common.workInProgressHint': 'Questa sezione è in costruzione e sarà disponibile in una versione futura.',
+  'common.errorsTitle': '{count} errori',
+  'common.errorsNoDetail': 'Per questi errori non è stato salvato nessun dettaglio: vedi la scheda Log.',
+  'common.errorsMoreInLogs': 'Altri {count} nella scheda Log.',
+  'common.runNow': 'Scansiona ora',
+  'common.runFailed': 'Scansione non riuscita: {message}',
+  'common.stopRun': 'Ferma la scansione',
+  'common.stopping': 'Arresto…',
+  'common.stopFailed': 'Impossibile fermare la scansione: {message}',
+  'common.choose': 'Scegli…',
+} as const

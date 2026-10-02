@@ -1,0 +1,26 @@
+export const application = {
+  'application.tagline':
+    'La tua libreria media, le cartelle torrent, gli hardlink tra loro, i tuoi client torrent e i tuoi tracker, in un unico posto.',
+  'application.contributeTitle': 'Contribuisci',
+  'application.contributeDescription':
+    'Nazgarr è open source. Segnalazioni di bug, idee e pull request sono benvenute: succede tutto su GitHub.',
+  'application.repository': 'Repository',
+  'application.license': 'Licenza',
+  'application.viewOnGitHub': 'Vedi su GitHub',
+  'application.reportBug': 'Segnala un bug',
+  'application.howToContribute': 'Come contribuire',
+  'application.releases': 'Release',
+  'application.buildTitle': 'Build',
+  'application.buildDescription': 'Versione e dettagli dell’ambiente di esecuzione.',
+  'application.version': 'Versione',
+  'application.commit': 'Commit',
+  'application.pythonVersion': 'Python',
+  'application.platform': 'Piattaforma',
+  'application.uptime': 'Uptime',
+  'application.updatesTitle': 'Aggiornamenti',
+  'application.checkForUpdates': 'Controlla gli aggiornamenti',
+  'application.upToDate': 'Sei aggiornato.',
+  'application.channelStable': 'Canale stable (immagine :stable / :latest): vengono proposte solo le release stable.',
+  'application.channelTest': 'Canale nightly (immagine :nightly): viene proposta ogni nuova build.',
+  'application.updateAvailable': 'Aggiornamento disponibile: {version}',
+} as const

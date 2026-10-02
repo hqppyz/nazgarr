@@ -1,0 +1,15 @@
+export const layout = {
+  'layout.switchToLightTheme': 'Passa al tema chiaro',
+  'layout.switchToDarkTheme': 'Passa al tema scuro',
+  'layout.health': 'Salute',
+  'layout.toReview': 'Da rivedere',
+  'layout.lastRun': 'ultima scansione {time}',
+  'layout.timeNever': 'mai',
+  'layout.timeNow': 'adesso',
+  'layout.timeMinutesAgo': '{minutes} min fa',
+  'layout.timeHoursAgo': '{hours} h fa',
+  'layout.timeDaysAgo': '{days} d fa',
+  'layout.version': 'Versione v{version}',
+  'layout.themeSettings': 'Tema e interfaccia',
+  'layout.logout': 'Esci ({username})',
+} as const

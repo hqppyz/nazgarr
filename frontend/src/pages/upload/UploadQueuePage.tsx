@@ -203,7 +203,7 @@ export function UploadQueuePage() {
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
-        <CardTitle>Upload</CardTitle>
+        <CardTitle>{t('misc.upload')}</CardTitle>
         <Button onClick={() => navigate('/upload/new')}>
           <PlusIcon className="size-4" />
           {t('upload.newUpload')}

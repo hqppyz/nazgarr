@@ -1,0 +1,22 @@
+// Etichette che erano scritte direttamente nei componenti: navigazione,
+// titoli di schede, livelli dei log.
+export const misc = {
+  'nav.dashboard': 'Dashboard',
+  'nav.library': 'Library',
+  'nav.folderView': 'Folder view',
+  'nav.posterView': 'Poster view',
+  'nav.torrent': 'Torrent',
+  'nav.files': 'Files',
+  'nav.notImported': 'Not imported',
+  'nav.reseeding': 'Reseeding',
+  'nav.upload': 'Upload',
+  'nav.configuration': 'Configuration',
+  'misc.disks': 'Disks',
+  'misc.review': 'Review',
+  'misc.schedule': 'Schedule',
+  'misc.upload': 'Upload',
+  'logs.levelVerbose': 'Verbose',
+  'logs.levelInfo': 'Info',
+  'logs.levelWarning': 'Warning',
+  'logs.levelError': 'Error',
+} as const

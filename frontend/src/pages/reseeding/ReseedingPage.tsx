@@ -180,7 +180,7 @@ function ReviewCard() {
   return (
     <Card data-tour="views.review">
       <CardHeader>
-        <CardTitle>Review</CardTitle>
+        <CardTitle>{t('misc.review')}</CardTitle>
       </CardHeader>
       <CardContent className="p-0">
         {isPending && <p className="p-3 text-sm text-muted-foreground">{t('common.loading')}</p>}
@@ -327,7 +327,7 @@ function ScheduleCard() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Schedule</CardTitle>
+        <CardTitle>{t('misc.schedule')}</CardTitle>
         <CardDescription>
           {t('reseeding.cronHintPre')}
           <code>0 */6 * * *</code>

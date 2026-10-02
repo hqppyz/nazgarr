@@ -1,5 +1,6 @@
 import type { Schemas } from '@/api/client'
 import { parseApiDate } from '@/lib/time'
+import { uiLocale } from '@/lib/i18n'
 
 export type RunResponse = Schemas['RunResponse']
 export type PhaseProgress = Schemas['PhaseProgressResponse']
@@ -58,5 +59,5 @@ export function formatDuration(seconds: number): string {
 }
 
 export function formatCount(n: number): string {
-  return n.toLocaleString('en-US')
+  return n.toLocaleString(uiLocale())
 }

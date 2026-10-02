@@ -1,6 +1,6 @@
 export const timeLanguage = {
   'timeLanguage.languageTitle': 'Language',
-  'timeLanguage.languageDescription': 'Only English is available today — more languages may follow later.',
+  'timeLanguage.languageDescription': 'The interface language, saved in this browser.',
   'timeLanguage.timeZoneTitle': 'Time zone',
   'timeLanguage.timeZoneDescription': 'Used to display dates and times consistently across every viewer of this instance.',
   'timeLanguage.dateFormatTitle': 'Date format',

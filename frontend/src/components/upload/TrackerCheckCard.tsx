@@ -7,7 +7,7 @@ import { UploadStatusBadge } from '@/components/upload/UploadStatusBadge'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { t } from '@/lib/i18n'
+import { t, uiLocale } from '@/lib/i18n'
 import { formatBytes } from '@/lib/library-filters'
 import { dupeUrl } from '@/lib/upload'
 import { cn } from '@/lib/utils'
@@ -61,7 +61,7 @@ function Verification({ dupe }: { dupe: Dupe }) {
 
 function languageName(code: string) {
   try {
-    return new Intl.DisplayNames(['en'], { type: 'language' }).of(code) ?? code
+    return new Intl.DisplayNames([uiLocale()], { type: 'language' }).of(code) ?? code
   } catch {
     return code
   }

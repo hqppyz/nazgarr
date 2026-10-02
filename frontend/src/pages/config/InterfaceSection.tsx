@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { pushActivity } from '@/lib/activity'
 import { autosaveFeedback } from '@/lib/autosave'
-import { t } from '@/lib/i18n'
+import { currentLocale, LOCALE_NAMES, LOCALES, setLocale, t, type Locale } from '@/lib/i18n'
 import { formatBytes, type SizeUnits } from '@/lib/library-filters'
 import { LIBRARY_VIEW_SETTING, libraryViewOf, type LibraryView } from '@/lib/library-view'
 import { cn } from '@/lib/utils'
@@ -184,12 +184,25 @@ function LanguageRegionCard({ className }: { className?: string }) {
       <CardContent className="grid gap-4">
         <div className="grid gap-1.5">
           <Label>{t('timeLanguage.languageTitle')}</Label>
-          <Select value="en" disabled>
+          {/* Salvata nel browser; si ricarica la pagina perché molte etichette
+              si calcolano una volta sola (lib/i18n.ts). */}
+          <Select
+            value={currentLocale()}
+            onValueChange={(value) => {
+              if (!value || value === currentLocale()) return
+              setLocale(value as Locale)
+              window.location.reload()
+            }}
+          >
             <SelectTrigger className="w-full">
-              <SelectValue />
+              <SelectValue>{(v: string | null) => LOCALE_NAMES[(v ?? 'en') as Locale]}</SelectValue>
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="en">English</SelectItem>
+              {LOCALES.map((locale) => (
+                <SelectItem key={locale} value={locale}>
+                  {LOCALE_NAMES[locale]}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
           <p className="text-xs text-muted-foreground">{t('timeLanguage.languageDescription')}</p>

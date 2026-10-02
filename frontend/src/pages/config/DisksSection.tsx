@@ -249,7 +249,7 @@ export function DisksSection() {
   return (
     <Card data-tour="storage.card">
       <CardHeader className="flex flex-row items-center justify-between">
-        <CardTitle>Disks</CardTitle>
+        <CardTitle>{t('misc.disks')}</CardTitle>
         <AddDiskDialog />
       </CardHeader>
       <CardContent>

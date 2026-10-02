@@ -8,6 +8,8 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 
+import { t } from '@/lib/i18n'
+
 // Struttura di navigazione da docs/SPEC.md §10, con aggiustamenti su
 // richiesta esplicita dell'utente:
 // - Dashboard promossa a voce di primo livello (non più sotto Reseeding):
@@ -45,41 +47,41 @@ export interface NavLink {
   icon: LucideIcon
 }
 
-export const NAV_DASHBOARD: NavLink = { title: 'Dashboard', to: '/dashboard', icon: LayoutDashboard }
+export const NAV_DASHBOARD: NavLink = { title: t('nav.dashboard'), to: '/dashboard', icon: LayoutDashboard }
 
 export const NAV_GROUPS: NavGroup[] = [
   {
-    title: 'Library',
+    title: t('nav.library'),
     icon: FolderTree,
     to: '/library',
     items: [
-      { title: 'Folder view', to: '/library/folder' },
-      { title: 'Poster view', to: '/library/poster' },
+      { title: t('nav.folderView'), to: '/library/folder' },
+      { title: t('nav.posterView'), to: '/library/poster' },
     ],
   },
   {
-    title: 'Torrent',
+    title: t('nav.torrent'),
     icon: HardDriveDownload,
     to: '/torrent/folder',
     items: [
-      { title: 'Files', to: '/torrent/folder' },
-      { title: 'Not imported', to: '/torrent/not-imported' },
+      { title: t('nav.files'), to: '/torrent/folder' },
+      { title: t('nav.notImported'), to: '/torrent/not-imported' },
     ],
   },
   {
-    title: 'Reseeding',
+    title: t('nav.reseeding'),
     icon: Gauge,
-    items: [{ title: 'Reseeding', to: '/reseeding' }],
+    items: [{ title: t('nav.reseeding'), to: '/reseeding' }],
   },
   {
-    title: 'Upload',
+    title: t('nav.upload'),
     icon: UploadCloud,
-    items: [{ title: 'Upload', to: '/upload' }],
+    items: [{ title: t('nav.upload'), to: '/upload' }],
   },
   {
-    title: 'Configuration',
+    title: t('nav.configuration'),
     icon: Settings,
-    items: [{ title: 'Configuration', to: '/config' }],
+    items: [{ title: t('nav.configuration'), to: '/config' }],
   },
 ]
 

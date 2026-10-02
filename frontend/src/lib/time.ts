@@ -1,3 +1,5 @@
+import { uiLocale } from '@/lib/i18n'
+
 // "3 days ago" / "in 5 days", arrotondato all'unità più grande sensata:
 // per ultima/prossima ricerca sul tracker nella scheda di dettaglio.
 const UNITS: [Intl.RelativeTimeFormatUnit, number][] = [
@@ -6,7 +8,7 @@ const UNITS: [Intl.RelativeTimeFormatUnit, number][] = [
   ['minute', 60],
 ]
 
-const formatter = new Intl.RelativeTimeFormat('en', { numeric: 'auto' })
+const formatter = new Intl.RelativeTimeFormat(uiLocale(), { numeric: 'auto' })
 
 export function relativeFromNow(iso: string | null | undefined, now: number = Date.now()): string {
   if (!iso) return '—'

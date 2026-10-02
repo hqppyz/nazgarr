@@ -165,7 +165,7 @@ export const onboarding = {
 
   'onboarding.tour.first_scan.run.title': 'The first scan',
   'onboarding.tour.first_scan.run.body':
-    'Click "Run now": Nazgarr reads your disks, recognises every file, indexes your clients and searches your trackers. It only reads: nothing is linked, added or moved.',
+    'Click "Scan now": Nazgarr reads your disks, recognises every file, indexes your clients and searches your trackers. It only reads: nothing is linked, added or moved.',
   'onboarding.tour.first_scan.progress.title': 'It takes a while',
   'onboarding.tour.first_scan.progress.body':
     'The progress is at the bottom right, and you can keep using Nazgarr meanwhile. A first scan of a large library is the right time for a second breakfast. Meanwhile, a look around.',
