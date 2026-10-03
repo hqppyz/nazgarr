@@ -25,12 +25,17 @@ export const torrentClients = {
   'torrentClients.enabledDisks': 'Enabled disks',
   'torrentClients.enabledDisksForClient': 'Disks enabled for this client',
   'torrentClients.rootPathOverrideHelp':
-    "Optional. With no disk selected, the client is matched against every disk by path: enough when it sees your files at the same paths (e.g. both use /data). Select disks to restrict the client to them, and set a mapping only if it sees them elsewhere: a folder of the disk (empty = the whole disk) and how the client sees it. E.g. Nazgarr /data/qbittorrent = qBittorrent /download.",
-  'torrentClients.mappingNazgarrFolder': 'Disk folder (Nazgarr)',
-  'torrentClients.mappingClientFolder': 'The same folder, as the client sees it',
-  'torrentClients.mappingDiskRoot': '(the whole disk)',
+    'Optional. With no disk turned on, the client serves every disk, at the same paths as Nazgarr. If it sees a disk elsewhere, say which folder of the disk and how it sees it.',
+  'torrentClients.mappingNazgarrFolder':
+    'Disk folder',
+  'torrentClients.mappingClientFolder':
+    'As the client sees it',
+  'torrentClients.mappingDiskRoot':
+    'whole disk',
   'torrentClients.mappingSamePath': '(same path as Nazgarr)',
   'torrentClients.mappingSameExplained': 'The client sees this disk at the same paths as Nazgarr.',
+  'torrentClients.mappingBrowse': 'Pick the folder',
+  'torrentClients.mappingPreview': 'Nazgarr',
   'torrentClients.mappingSaved': 'Mapping saved: it applies from the next scan.',
   'torrentClients.rootPathOverridePlaceholder': '/mnt/disk1',
   'torrentClients.noDisksConfigured': 'No disks configured.',

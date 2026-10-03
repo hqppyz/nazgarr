@@ -25,12 +25,17 @@ export const torrentClients = {
   'torrentClients.enabledDisks': 'Dischi abilitati',
   'torrentClients.enabledDisksForClient': 'Dischi abilitati per questo client',
   'torrentClients.rootPathOverrideHelp':
-    "Facoltativo. Senza dischi selezionati, il client viene confrontato con ogni disco per percorso: basta quando vede i tuoi file agli stessi percorsi (es. entrambi usano /data). Seleziona dei dischi per limitare il client a quelli, e imposta una corrispondenza solo se li vede altrove: una cartella del disco (vuota = tutto il disco) e come la vede il client. Es. Nazgarr /data/qbittorrent = qBittorrent /download.",
-  'torrentClients.mappingNazgarrFolder': 'Cartella del disco (Nazgarr)',
-  'torrentClients.mappingClientFolder': 'La stessa cartella, vista dal client',
-  'torrentClients.mappingDiskRoot': '(tutto il disco)',
+    'Facoltativo. Senza dischi accesi il client vale per tutti, agli stessi percorsi di Nazgarr. Se vede un disco altrove, indica quale cartella del disco e come la vede lui.',
+  'torrentClients.mappingNazgarrFolder':
+    'Cartella del disco',
+  'torrentClients.mappingClientFolder':
+    'Come la vede il client',
+  'torrentClients.mappingDiskRoot':
+    'tutto il disco',
   'torrentClients.mappingSamePath': '(stesso percorso di Nazgarr)',
   'torrentClients.mappingSameExplained': 'Il client vede questo disco agli stessi percorsi di Nazgarr.',
+  'torrentClients.mappingBrowse': 'Scegli la cartella',
+  'torrentClients.mappingPreview': 'Nazgarr',
   'torrentClients.mappingSaved': 'Corrispondenza salvata: vale dalla prossima scansione.',
   'torrentClients.rootPathOverridePlaceholder': '/mnt/disk1',
   'torrentClients.noDisksConfigured': 'Nessun disco configurato.',
