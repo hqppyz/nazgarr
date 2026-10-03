@@ -54,6 +54,9 @@ def export_data(client) -> dict:
         "label": c["label"], "type": c["adapter_type"], "url": c["base_url"], "enabled": c["enabled"],
         **({"username": c["username"], "password": _placeholder("CLIENT", c["label"], "PASSWORD")}
            if c.get("username") else {}),
+        # Deluge: solo la password, nessun utente.
+        **({"password": _placeholder("CLIENT", c["label"], "PASSWORD")}
+           if c["adapter_type"] == "deluge" and not c.get("username") else {}),
         **({"qui_instance": c["qui_instance_id"], "api_token": _placeholder("CLIENT", c["label"], "TOKEN")}
            if c["adapter_type"] == "qui" else {}),
         "categories": {"movie": c.get("category_movie"), "tv": c.get("category_tv"),

@@ -8,7 +8,9 @@ from nazgarr.cli_client.helpers import find, secret
 from nazgarr.cli_client.output import EXIT_USAGE, confirm, console, emit, err_console, fail, table
 
 app = typer.Typer(help="Torrent clients: add, test, link to disks, default labels.", no_args_is_help=True)
-TYPES = ("qbittorrent", "qui")
+TYPES = ("qbittorrent", "qui", "deluge", "transmission", "rutorrent")
+# La Web UI di Deluge ha solo la password, nessun utente.
+PASSWORD_ONLY = ("deluge",)
 
 
 def _client(client, ref: str) -> dict:
@@ -38,9 +40,12 @@ def list_clients(ctx: typer.Context):
 def add_client(
     ctx: typer.Context,
     label: str = typer.Argument(..., help="A name for the client, e.g. qbit."),
-    url: str = typer.Option(..., "--url", help="Web UI address, e.g. http://qbittorrent:8080."),
-    adapter_type: str = typer.Option("qbittorrent", "--type", help="qbittorrent or qui (or a plugin type)."),
-    username: str = typer.Option(None, "--username", "-u", help="qBittorrent user (the password is asked)."),
+    url: str = typer.Option(..., "--url", help="Web UI address, e.g. http://qbittorrent:8080. rTorrent: its XML-RPC "
+                            "URL (http://rtorrent:8000/RPC2) or the ruTorrent address."),
+    adapter_type: str = typer.Option("qbittorrent", "--type",
+                                     help="qbittorrent, qui, deluge, transmission or rutorrent (or a plugin type)."),
+    username: str = typer.Option(None, "--username", "-u",
+                                 help="Web UI user (the password is asked). Deluge: no user, its password is asked."),
     qui_instance: int = typer.Option(None, "--qui-instance", help="qui: the instance ID (the API token is asked)."),
     password_stdin: bool = typer.Option(False, "--password-stdin", help="Read the password or token from stdin."),
     test: bool = typer.Option(True, "--test/--no-test", help="Test the connection after adding it."),
@@ -51,6 +56,8 @@ def add_client(
         if qui_instance is None:
             raise fail("qui needs --qui-instance.", EXIT_USAGE)
         body |= {"qui_instance_id": qui_instance, "api_token": secret("qui API token", password_stdin)}
+    elif adapter_type in PASSWORD_ONLY:
+        body |= {"password": secret("Password", password_stdin)}
     elif username:
         body |= {"username": username, "password": secret("Password", password_stdin)}
     client = api(ctx)
