@@ -39,7 +39,7 @@ CATALOG = [
     Setting("skip_client_recheck_when_verified",
             "Skip the client recheck when Nazgarr verified 100% (off by default).", "bool", safety=True),
     # Upload
-    Setting("upload_releaser_name", "Your group name, for uploads from the watched folder."),
+    Setting("upload_releaser_name", "Your group name: watched-folder uploads, and uploads whose name has no group."),
     Setting("upload_auto_match_threshold", "TMDB match confirmed on its own at or above this (0-1, 0 = off).",
             "float"),
     Setting("upload_auto_rename", "Rename files in new torrents automatically (true/false).", "bool"),

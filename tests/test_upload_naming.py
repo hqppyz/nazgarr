@@ -32,7 +32,7 @@ def test_itt_remux_name_from_mediainfo_with_the_italian_title():
     assert (values["audio_languages"], values["subs_languages"], values["bit_depth"]) == ("ITA ENG", "ITA ENG", "8bit")
     # Il nome non dice la sorgente: per un remux è BluRay (decisione dell'utente, 2026-10-02).
     assert build_name(ITT_RULES, values) == (
-        "17 Again - Ritorno al liceo 2009 1080p FullHD BluRay VU REMUX TrueHD 5.1 DD 5.1 ITA ENG SUBS VC-1-MaTiTa"
+        "17 Again - Ritorno al liceo 2009 1080p FullHD BluRay VU REMUX TrueHD 5.1 DD 5.1 ITA ENG SUBS SDR VC-1-MaTiTa"
     )
 
 
@@ -180,8 +180,8 @@ def test_itt_names_follow_the_wiki_source_and_format():
     web = release_values(_job(), detect("Movie.2009.1080p.NF.WEB-DL.DDP5.1.H.264-GRP"), None, {}, ITT_RULES)
     encode = release_values(_job(), detect("Movie.2009.720p.BluRay.DD5.1.x264-GRP"), None, {}, ITT_RULES)
 
-    assert build_name(ITT_RULES, web) == "17 Again 2009 1080p FullHD NF WEB-DL DD+ 5.1 H.264-GRP"
-    assert build_name(ITT_RULES, encode) == "17 Again 2009 720p SD BluRay DD 5.1 x264-GRP"
+    assert build_name(ITT_RULES, web) == "17 Again 2009 1080p FullHD NF WEB-DL DD+ 5.1 SDR H.264-GRP"
+    assert build_name(ITT_RULES, encode) == "17 Again 2009 720p SD BluRay DD 5.1 SDR x264-GRP"
     assert (web["format"], encode["format"]) == ("FullHD", "SD")  # ITT non ha HD
 
 
@@ -358,3 +358,20 @@ def test_a_remux_without_a_source_comes_from_a_blu_ray_or_a_dvd():
                         {}, None)
     assert (hd["type"], hd["source"]) == ("REMUX", "BluRay")
     assert (sd["type"], sd["source"]) == ("REMUX", "PAL DVD")
+
+
+def test_itt_writes_sdr_when_there_is_no_hdr():
+    from types import SimpleNamespace
+
+    from nazgarr.upload_naming import build_name, detect, release_values, with_tracker_language
+
+    rules = with_tracker_language(ITT_RULES, "it")
+    job = SimpleNamespace(title="Dune", year=2021, content_type="movie", seasons_json="[]", kind="movie", episode=None)
+    video = {"format": "AVC", "width": 1920, "height": 800, "transfer_characteristics": "BT.709"}
+    mediainfo = {"video": video, "audio": [{"language": "it", "format": "E-AC-3", "channels": 6, "default": True}]}
+    name = build_name(rules, release_values(job, detect("Dune.2021.1080p.WEB-DL.H.264-GRP.mkv"), mediainfo, {}, rules))
+    assert " SDR H.264-GRP" in name
+    hdr = {**video, "format": "HEVC", "hdr_format": "SMPTE ST 2086", "transfer_characteristics": "PQ"}
+    values = release_values(job, detect("Dune.2021.WEB-DL-GRP.mkv"), {**mediainfo, "video": hdr}, {}, rules)
+    name = build_name(rules, values)
+    assert " HDR " in name and "SDR" not in name

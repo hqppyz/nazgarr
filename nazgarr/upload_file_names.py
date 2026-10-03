@@ -329,6 +329,21 @@ def plan(session: Session, job: UploadJob, mode: str | None = None) -> FilePlan:
     return _as_single_file(_plan(session, job, mode), single_file_folder(session))
 
 
+def name_detected(session: Session, job: UploadJob) -> dict:
+    """I valori letti dal nome scelto dall'analisi (torrent in hardlink, nome
+    originale di Radarr/Sonarr, o il nome della sorgente:
+    nazgarr/upload_analysis.py), con quello che il nome del file non dice
+    preso dal nome della cartella. Senza un gruppo nel nome, il nome del
+    releaser delle impostazioni (decisione dell'utente, 2026-10-03)."""
+    from nazgarr.upload_watch import releaser_name
+
+    name_source = json.loads(job.analysis_json or "{}").get("name_source") or {}
+    detected = detect_with_fallback(name_source.get("name") or upload_pack.name(job), name_source.get("fallback"))
+    if not detected.get("group"):
+        detected["group"] = releaser_name(session)
+    return detected
+
+
 def _plan(session: Session, job: UploadJob, mode: str | None) -> FilePlan:
     files = _source_files(job)
     analysis = json.loads(job.analysis_json or "{}")
@@ -340,8 +355,5 @@ def _plan(session: Session, job: UploadJob, mode: str | None) -> FilePlan:
             return found
         mode = "generated"
     if mode == "generated" and files:
-        name_source = analysis.get("name_source") or {}
-        detected = detect_with_fallback(name_source.get("name") or upload_pack.name(job),
-                                        name_source.get("fallback"))
-        return _generated(session, job, files, analysis.get("mediainfo"), overrides, detected)
+        return _generated(session, job, files, analysis.get("mediainfo"), overrides, name_detected(session, job))
     return _original(job, files)

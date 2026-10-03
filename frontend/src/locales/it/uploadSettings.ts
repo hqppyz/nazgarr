@@ -38,7 +38,7 @@ export const uploadSettings = {
   'uploadSettings.releasesDescription':
     'Per quello che rilasci tu: mettilo nella cartella osservata di un disco (Impostazioni › Archiviazione) e l’upload parte da solo, fino alla decisione. Quando è in seed, viene spostato nella cartella delle release: la cartella osservata è solo un ingresso.',
   'uploadSettings.releaserLabel': 'Nome del releaser',
-  'uploadSettings.releaserDescription': 'Il gruppo in fondo ai nomi degli upload dalla cartella osservata (es. -NZG). Modificabile su ogni upload.',
+  'uploadSettings.releaserDescription': 'Il gruppo in fondo ai nomi degli upload dalla cartella osservata, e di ogni upload il cui nome non ha un gruppo (es. -NZG). Modificabile su ogni upload.',
   'uploadSettings.autoMatchLabel': 'Match TMDB automatico',
   'uploadSettings.autoMatchDescription':
     'Per ogni upload, a mano o dalla cartella osservata: un match almeno così sicuro (0-1) viene confermato da solo; sotto, o quando due titoli si somigliano, aspetta te. Cambia match lo riporta indietro. 0 lo disattiva. Predefinito: 0.9.',

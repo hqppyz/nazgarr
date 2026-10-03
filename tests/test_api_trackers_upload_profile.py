@@ -100,8 +100,8 @@ def test_naming_rules_edit_marks_them_customized_and_update_restores_bundled(cli
     rules = created["naming_rules"]
 
     edited = client.patch(f"/api/trackers/{tracker_id}/upload-profile",
-                          json={"naming_rules": {**rules, "sdr_label": "SDR"}}).json()
-    assert edited["naming_customized"] is True and edited["naming_rules"]["sdr_label"] == "SDR"
+                          json={"naming_rules": {**rules, "sdr_label": "STD"}}).json()
+    assert edited["naming_customized"] is True and edited["naming_rules"]["sdr_label"] == "STD"
 
     restored = client.post(f"/api/trackers/{tracker_id}/upload-profile/naming/update").json()
     assert restored["naming_customized"] is False and restored["naming_rules"] == rules
