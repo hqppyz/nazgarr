@@ -55,7 +55,26 @@ type DiskAssociation = Schemas['DiskAssociationResponse']
 const ADAPTER_TYPES = [
   { value: 'qbittorrent', label: 'qBittorrent' },
   { value: 'qui', label: t('torrentClients.quiLabel') },
+  { value: 'deluge', label: 'Deluge' },
+  { value: 'transmission', label: 'Transmission' },
+  { value: 'rutorrent', label: t('torrentClients.rtorrentLabel') },
 ]
+
+// Come lo raggiunge Nazgarr, per tipo: l'indirizzo di esempio e cosa scriverci.
+const URL_PLACEHOLDERS: Record<string, string> = {
+  qbittorrent: 'http://qbittorrent:8080',
+  qui: 'http://qui:7476',
+  deluge: 'http://deluge:8112',
+  transmission: 'http://transmission:9091',
+  rutorrent: 'http://rtorrent:8000/RPC2',
+}
+const TYPE_HELP: Record<string, string> = {
+  deluge: t('torrentClients.typeHelp.deluge'),
+  transmission: t('torrentClients.typeHelp.transmission'),
+  rutorrent: t('torrentClients.typeHelp.rutorrent'),
+}
+// La Web UI di Deluge ha solo la password.
+const PASSWORD_ONLY = new Set(['deluge'])
 
 // I client dei plugin, con i campi che dichiarano.
 function usePluginClientTypes() {
@@ -81,6 +100,7 @@ function AddTorrentClientDialog() {
   const [quiInstanceId, setQuiInstanceId] = useState('')
   const createTorrentClient = useCreateTorrentClient()
   const isQui = adapterType === 'qui'
+  const passwordOnly = PASSWORD_ONLY.has(adapterType)
 
   function reset() {
     setLabel('')
@@ -98,7 +118,7 @@ function AddTorrentClientDialog() {
         label,
         adapter_type: adapterType,
         base_url: baseUrl,
-        username: isQui ? undefined : username || undefined,
+        username: isQui || passwordOnly ? undefined : username || undefined,
         password: isQui ? undefined : password || undefined,
         api_token: isQui ? apiToken || undefined : undefined,
         qui_instance_id: isQui && quiInstanceId ? Number(quiInstanceId) : undefined,
@@ -155,7 +175,9 @@ function AddTorrentClientDialog() {
                 ))}
               </SelectContent>
             </Select>
-            <p className="text-xs text-muted-foreground">{t('torrentClients.plannedAdapters')}</p>
+            {TYPE_HELP[adapterType] ? (
+              <p className="text-xs text-muted-foreground">{TYPE_HELP[adapterType]}</p>
+            ) : null}
           </div>
           <div className="grid gap-1.5" data-tour="clients.dialog.url">
             <Label htmlFor="tc-base-url">{t('torrentClients.url')}</Label>
@@ -163,7 +185,7 @@ function AddTorrentClientDialog() {
               id="tc-base-url"
               value={baseUrl}
               onChange={(e) => setBaseUrl(e.target.value)}
-              placeholder={isQui ? 'http://qui:7476' : 'http://qbittorrent:8080'}
+              placeholder={URL_PLACEHOLDERS[adapterType] ?? 'http://client:8080'}
             />
           </div>
           {pluginSpec ? (
@@ -194,10 +216,12 @@ function AddTorrentClientDialog() {
             </div>
           ) : (
             <div className="grid gap-3" data-tour="clients.dialog.credentials">
-              <div className="grid gap-1.5">
-                <Label htmlFor="tc-username">{t('torrentClients.username')}</Label>
-                <Input id="tc-username" value={username} onChange={(e) => setUsername(e.target.value)} />
-              </div>
+              {passwordOnly ? null : (
+                <div className="grid gap-1.5">
+                  <Label htmlFor="tc-username">{t('torrentClients.username')}</Label>
+                  <Input id="tc-username" value={username} onChange={(e) => setUsername(e.target.value)} />
+                </div>
+              )}
               <div className="grid gap-1.5">
                 <Label htmlFor="tc-password">{t('torrentClients.password')}</Label>
                 <Input id="tc-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
@@ -225,6 +249,7 @@ function EditTorrentClientDialog({ tc }: { tc: TorrentClient }) {
   const [quiInstanceId, setQuiInstanceId] = useState(tc.qui_instance_id?.toString() ?? '')
   const updateTorrentClient = useUpdateTorrentClient()
   const isQui = tc.adapter_type === 'qui'
+  const passwordOnly = PASSWORD_ONLY.has(tc.adapter_type)
   const pluginSpec = usePluginClientTypes().find((a) => a.adapter_type === tc.adapter_type)
   const secretsSet = (tc.config as { secrets_set?: string[] }).secrets_set ?? []
   const [config, setConfig] = useState<ConfigValues | null>(null)
@@ -238,7 +263,7 @@ function EditTorrentClientDialog({ tc }: { tc: TorrentClient }) {
         body: {
           label,
           base_url: baseUrl,
-          username: isQui ? undefined : username || undefined,
+          username: isQui || passwordOnly ? undefined : username || undefined,
           password: isQui ? undefined : password || undefined,
           api_token: isQui ? apiToken || undefined : undefined,
           qui_instance_id: isQui && quiInstanceId ? Number(quiInstanceId) : undefined,
@@ -308,10 +333,12 @@ function EditTorrentClientDialog({ tc }: { tc: TorrentClient }) {
             </>
           ) : (
             <>
-              <div className="grid gap-1.5">
-                <Label htmlFor="tc-edit-username">{t('torrentClients.username')}</Label>
-                <Input id="tc-edit-username" value={username} onChange={(e) => setUsername(e.target.value)} />
-              </div>
+              {passwordOnly ? null : (
+                <div className="grid gap-1.5">
+                  <Label htmlFor="tc-edit-username">{t('torrentClients.username')}</Label>
+                  <Input id="tc-edit-username" value={username} onChange={(e) => setUsername(e.target.value)} />
+                </div>
+              )}
               <div className="grid gap-1.5">
                 <Label htmlFor="tc-edit-password">{t('torrentClients.password')}</Label>
                 <Input

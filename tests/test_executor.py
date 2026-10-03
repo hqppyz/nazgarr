@@ -350,3 +350,24 @@ def test_another_file_at_the_destination_is_never_overwritten(db_session, tmp_pa
     with pytest.raises(executor.ExecutionError, match="already exists"):
         executor.execute_review(db_session, match_review, FakeAdapter())
     assert (root / "torrents" / "Movie.2024.mkv").read_bytes() == b"something else"
+
+
+@pytest.mark.parametrize("can_skip", [True, False])
+def test_the_recheck_is_skipped_only_by_a_client_that_can(can_skip):
+    from types import SimpleNamespace
+
+    class Adapter:
+        can_skip_recheck = can_skip
+
+        def add_torrent(self, url, save_path, force_recheck=True, expected_info_hash=None, **kwargs):
+            self.kwargs = kwargs
+            return "h1"
+
+    adapter, seed_job = Adapter(), SimpleNamespace(recheck_skipped=None)
+    candidate = SimpleNamespace(download_link="https://t.example/dl/1", info_hash="h1")
+
+    executor._add_to_client(adapter, candidate, "/torrents", seed_job, skip_recheck=True)
+
+    # Transmission e rTorrent ricontrollano comunque: il seed job non lo registra come saltato.
+    assert adapter.kwargs == ({"skip_check_verified": True} if can_skip else {})
+    assert seed_job.recheck_skipped is (True if can_skip else None)

@@ -10,7 +10,7 @@ cambia.
 Un plugin si fa trovare con un entry point del gruppo "nazgarr.plugins":
 
     [project.entry-points."nazgarr.plugins"]
-    deluge = "nazgarr_deluge:setup"
+    flood = "nazgarr_flood:setup"
 
 Il modulo dichiara con quali versioni dell'SDK funziona (REQUIRES_SDK, es.
 ">=1.0,<2") e setup() registra i suoi adapter con nazgarr_sdk.register.

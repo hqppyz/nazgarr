@@ -22,9 +22,29 @@ def test_create_list_update_delete_torrent_client(client):
 def test_rejects_unsupported_adapter_type(client):
     response = client.post(
         "/api/torrent-clients",
-        json={"label": "deluge", "adapter_type": "deluge", "base_url": "http://deluge:8112"},
+        json={"label": "utorrent", "adapter_type": "utorrent", "base_url": "http://utorrent:8080"},
     )
     assert response.status_code == 400
+
+
+def test_deluge_transmission_and_rtorrent_are_built_in(client):
+    from nazgarr import adapter_factory
+    from nazgarr.adapters.torrent_client.deluge import DelugeAdapter
+    from nazgarr.adapters.torrent_client.rtorrent import RTorrentAdapter
+    from nazgarr.adapters.torrent_client.transmission import TransmissionAdapter
+    from nazgarr.models import TorrentClient
+
+    expected = {"deluge": DelugeAdapter, "transmission": TransmissionAdapter, "rutorrent": RTorrentAdapter}
+    for adapter_type, cls in expected.items():
+        created = client.post("/api/torrent-clients", json={
+            "label": adapter_type, "adapter_type": adapter_type, "base_url": f"http://{adapter_type}:8080",
+            "username": "u", "password": "pw-1234",
+        })
+        assert created.status_code == 201, created.text
+        assert "pw-1234" not in created.text
+        with client.app.state.session_factory() as session:
+            adapter = adapter_factory.build_torrent_client_adapter(session.get(TorrentClient, created.json()["id"]))
+        assert isinstance(adapter, cls)
 
 
 def test_connection_test_reports_success(client, monkeypatch):

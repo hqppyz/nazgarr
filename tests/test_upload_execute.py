@@ -218,6 +218,22 @@ def test_reseed_links_the_files_with_the_tracker_names(db_session, tmp_path, env
     assert env["trackers"]["a"].uploads == []  # un reseed non pubblica niente
 
 
+def test_a_client_that_cannot_skip_the_recheck_is_never_asked_to(db_session, tmp_path, env):
+    # Transmission e rTorrent ricontrollano sempre: niente "verificato senza
+    # recheck" nel registro, e nessun avviso di file fuori posto.
+    video = write_video(env["root"] / "media" / "The.Matrix.1999.1080p.WEB-DL.H.264-GRP.mkv", 300 * KB)
+    job = _approved(db_session, env, "media/" + video.name, {"a": _upload("Matrix A"), "b": {"action": "skip"}})
+    env["client"].can_skip_recheck = False
+
+    _run(db_session, tmp_path, job)
+
+    assert job.status == "done"
+    assert env["client"].skipped == [False]
+    codes = [e.code for e in job.events]
+    assert "added_to_client" in codes
+    assert "added_to_client_verified" not in codes and "recheck_files_not_in_place" not in codes
+
+
 def test_an_upload_seen_elsewhere_by_the_client_is_rechecked(db_session, tmp_path, env):
     video = write_video(env["root"] / "media" / "The.Matrix.1999.1080p.WEB-DL.H.264-GRP.mkv", 300 * KB)
     job = _approved(db_session, env, "media/" + video.name, {"a": _upload("Matrix A"), "b": {"action": "skip"}})

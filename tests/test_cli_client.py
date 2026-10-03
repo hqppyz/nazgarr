@@ -177,6 +177,22 @@ def test_the_whole_setup_from_the_command_line(cli_env, client, capsys):
     assert code == 1 and "overlaps" in err
 
 
+def test_a_deluge_client_has_only_a_password(cli_env, client, capsys):
+    import yaml
+
+    _login(capsys)
+    code, _out, err = run(capsys, "client", "add", "dl", "--type", "deluge", "--url", "http://deluge.test:8112",
+                          "--password-stdin", "--no-test", stdin="delugepass\n")
+    assert code == 0, err
+    added = json.loads(run(capsys, "--json", "client", "ls")[1])[0]
+    assert (added["adapter_type"], added["username"]) == ("deluge", None)
+    with client.app.state.session_factory() as session:
+        from nazgarr.models import TorrentClient
+        assert session.get(TorrentClient, added["id"]).password == "delugepass"
+    exported = yaml.safe_load(run(capsys, "config", "export")[1])
+    assert exported["torrent_clients"][0]["password"] == "${NAZGARR_CLIENT_DL_PASSWORD}"
+
+
 def test_safety_settings_ask_before_changing(cli_env, client, capsys):
     _login(capsys)
     code, _out, err = run(capsys, "settings", "set", "verify_before_execute", "false")

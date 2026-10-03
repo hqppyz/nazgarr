@@ -339,7 +339,10 @@ def _add_to_client(
         upload_jobs.log_event(session, job, "no_client", level="warning", target=target)
         return None
     visible = client_visible_path(session, job.disk, client_id, save_path)
-    skip = torrent is not None and files_in_place(torrent, save_path)
+    # Transmission e rTorrent non sanno aggiungere un torrent senza
+    # ricontrollarlo: lì il recheck c'è sempre.
+    can_skip = getattr(adapter, "can_skip_recheck", True)
+    skip = torrent is not None and can_skip and files_in_place(torrent, save_path)
     info_hash = adapter.add_torrent(
         torrent_file, save_path=visible, force_recheck=True, skip_check_verified=skip,
         **client_labels.add_kwargs(target.client_category, target.client_tags),
@@ -353,7 +356,7 @@ def _add_to_client(
             upload_jobs.log_event(session, job, "recheck_after_path_mismatch", level="warning", target=target,
                                   client=client, expected=visible, seen=seen)
             skip = False
-    elif torrent is not None:
+    elif torrent is not None and can_skip:
         upload_jobs.log_event(session, job, "recheck_files_not_in_place", level="warning", target=target,
                               path=save_path)
     # Due codici, due messaggi: con il recheck del client o senza.

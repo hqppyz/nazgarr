@@ -174,3 +174,16 @@ def test_category_and_tags_are_only_labels():
     # La gestione automatica resta spenta: la categoria non sposta i file.
     assert (call["category"], call["tags"], call["auto"]) == ("movie", "release,nzg", False)
     assert adapter.list_categories() == ["anime", "Movie", "tv"]
+
+
+@pytest.mark.parametrize("delete_files", [False, True])
+def test_remove_torrent_deletes_files_only_on_request(delete_files):
+    class DeletingClient(FakeQbtClient):
+        def torrents_delete(self, delete_files, torrent_hashes):
+            self.deleted = (torrent_hashes, delete_files)
+
+    client = DeletingClient(torrents=[FakeTorrent(hash="h1")])
+
+    _adapter(client).remove_torrent("h1", delete_files=delete_files)
+
+    assert client.deleted == ("h1", delete_files)

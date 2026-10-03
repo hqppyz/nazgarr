@@ -42,7 +42,7 @@ It isn't tied to Unraid or to the \*arr stack. Separate disks without FUSE or RA
 - Packs from episodes picked by hand: episodes downloaded one at a time, even ones already seeding with their own torrent, become a season pack or a complete pack.
 
 **Fits your setup**
-- Several torrent clients at once ([qBittorrent](https://www.qbittorrent.org/), [qui](https://github.com/autobrr/qui)), [UNIT3D](https://github.com/HDInnovations/UNIT3D) trackers, optional [Radarr](https://radarr.video/) and [Sonarr](https://sonarr.tv/).
+- Several torrent clients at once ([qBittorrent](https://www.qbittorrent.org/), [qui](https://github.com/autobrr/qui), [Deluge](https://deluge-torrent.org/), [Transmission](https://transmissionbt.com/), [rTorrent](https://github.com/rakshasa/rtorrent)/[ruTorrent](https://github.com/Novik/ruTorrent)), [UNIT3D](https://github.com/HDInnovations/UNIT3D) trackers, optional [Radarr](https://radarr.video/) and [Sonarr](https://sonarr.tv/).
 - Works without a media folder too, just for your torrents and uploads.
 - More instances in one web UI: add another Nazgarr (say a seedbox) with one of its API keys and switch between them, or see them all in one overview.
 - Notifications on Discord and Telegram, plus plugins, signed webhooks and API keys to extend it ([docs/SDK.md](docs/SDK.md)).
@@ -167,6 +167,18 @@ With several separate disks, mount each one under a common parent and point `dis
 
 Every subfolder of `disk_scan_root` shows up in Configuration › Storage, ready to be added as a disk.
 
+**Torrent clients.** Added in Configuration › Clients, as many as you like, each with the address Nazgarr reaches it at:
+
+| Client | Address | Login | Categories and tags |
+| --- | --- | --- | --- |
+| qBittorrent | the Web UI, `http://qbittorrent:8080` | Web UI user and password | categories and tags |
+| qui | `http://qui:7476` and the instance number | its API key | as qBittorrent |
+| Deluge | the Web UI, `http://deluge:8112` | the Web UI password (no user) | category = label of the Label plugin, if on; no tags |
+| Transmission | the Web UI, `http://transmission:9091` | RPC user and password, if set | no categories; tags become labels |
+| rTorrent / ruTorrent | rTorrent's XML-RPC (`http://rtorrent:8000/RPC2`) or the ruTorrent address | the web server login, if any | category = ruTorrent label; no tags |
+
+Every torrent Nazgarr adds is rechecked by the client. Transmission and rTorrent always recheck, even a fresh upload that the others take as already complete.
+
 **Same paths as your torrent client.** Mount the data folder at the same path in Nazgarr and in your client (for example `/data` in both), and it just works. If the client sees a disk elsewhere (say `/downloads`), set that path for the disk in the client's settings.
 
 ## First access
@@ -202,7 +214,7 @@ export APP_SECRET_KEY=$(openssl rand -base64 32 | tr '+/' '-_')
 cd frontend && npm install && npm run dev   # http://localhost:5173, proxies /api to the backend
 ```
 
-Checks, the same as CI: `ruff check .` and `pytest -q` for the backend, `npm run lint`, `npx tsc -b` and `npx vitest run` in `frontend/`. Python dependencies are locked with hashes: edit `requirements.in`, then run `uv pip compile requirements.in --python-version 3.12 --generate-hashes -o requirements.txt`.
+Checks, the same as CI: `ruff check .` and `pytest -q` for the backend, `npm run lint`, `npx tsc -b` and `npx vitest run` in `frontend/`. The torrent client adapters also have tests against real clients in Docker (Transmission, Deluge, rTorrent/ruTorrent), never run in CI: `scripts/test_real_clients.sh` starts the containers, runs them and removes everything. Python dependencies are locked with hashes: edit `requirements.in`, then run `uv pip compile requirements.in --python-version 3.12 --generate-hashes -o requirements.txt`.
 
 Design decisions live in [`docs/SPEC.md`](docs/SPEC.md), the plan in [`docs/ROADMAP.md`](docs/ROADMAP.md), the schema in [`docs/schema.sql`](docs/schema.sql), and the frontend notes in [`frontend/README.md`](frontend/README.md). Issues and pull requests are welcome. If something in the spec looks wrong, open an issue before working around it.
 
@@ -210,7 +222,7 @@ Design decisions live in [`docs/SPEC.md`](docs/SPEC.md), the plan in [`docs/ROAD
 
 - **Metadata:** this product uses the TMDB API but is not endorsed or certified by TMDB.
 - **Fonts and images:** [Geist](https://vercel.com/font) (SIL Open Font License 1.1). Country flags on systems without them come from [Twemoji](https://github.com/jdecked/twemoji) graphics (CC-BY 4.0, by Twitter, Inc. and other contributors), through [country-flag-emoji-polyfill](https://github.com/talkjs/country-flag-emoji-polyfill) (MIT).
-- **Backend:** FastAPI, SQLAlchemy, APScheduler, httpx, qbittorrent-api, pymediainfo and MediaInfo, guessit, torf, FFmpeg.
+- **Backend:** FastAPI, SQLAlchemy, APScheduler, httpx, qbittorrent-api, pymediainfo and MediaInfo, guessit, torf, FFmpeg. Deluge, Transmission and rTorrent are reached through their own APIs (JSON-RPC, RPC, XML-RPC) with httpx and the Python standard library, no extra client library.
 - **Frontend:** React, TanStack Query, Base UI and shadcn/ui, Tailwind CSS, three.js, GSAP, Recharts, driver.js, Lucide icons.
 - **Domain reference:** [Upload-Assistant](https://github.com/Audionut/Upload-Assistant), for tracker conventions in the upload flow. No code is reused from it.
 
