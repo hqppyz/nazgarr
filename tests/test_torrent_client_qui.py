@@ -238,3 +238,12 @@ def test_list_torrents_fetches_details_in_parallel_but_keeps_the_order():
     assert [t.info_hash for t in result] == [t["hash"] for t in torrents]
     assert result[7].files[0].path_in_torrent == "t7.mkv"
     assert progress[-1] == (30, 30) and len(progress) == 30
+
+
+@pytest.mark.parametrize("delete_files", [False, True])
+def test_remove_torrent_uses_the_bulk_delete_with_delete_files(delete_files):
+    mock = _QuiMock()
+
+    _adapter(mock).remove_torrent("h1", delete_files=delete_files)
+
+    assert mock.bulk_actions == [{"hashes": ["h1"], "action": "delete", "deleteFiles": delete_files}]

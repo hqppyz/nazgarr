@@ -12,10 +12,15 @@ orphan_torrent/ignored (sezione 3, multi-client). Sola lettura — non
 aggiunge/modifica mai nulla sul client.
 """
 
+import logging
+import os
+import time
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Literal
+
+logger = logging.getLogger(__name__)
 
 RecheckStatus = Literal["pending", "ok", "failed"]
 
@@ -70,6 +75,11 @@ class TorrentAlreadyInClientError(Exception):
 
 
 class TorrentClientAdapter(ABC):
+    # Se il client sa aggiungere un torrent già completo, senza ricontrollarlo
+    # (skip_check_verified). Transmission e rTorrent non lo sanno fare: lì il
+    # recheck c'è sempre, e i chiamanti non registrano un recheck "saltato".
+    can_skip_recheck: bool = True
+
     @abstractmethod
     def add_torrent(
         self, torrent_file_or_url: str, save_path: str, force_recheck: bool = True,
@@ -113,6 +123,12 @@ class TorrentClientAdapter(ABC):
         un upload aggiunto senza recheck se qualcosa non torna."""
         raise NotImplementedError
 
+    def remove_torrent(self, info_hash: str, delete_files: bool) -> None:
+        """Toglie il torrent dal client; con delete_files il client cancella
+        anche i suoi file (solo quelli del torrent, come fa la sua UI). Solo
+        su richiesta esplicita dell'utente. Default: non supportato."""
+        raise NotImplementedError
+
     def get_torrent_info(self, info_hash: str) -> "ClientTorrentInfo | None":
         """Un solo torrent coi suoi file (None se il client non lo conosce):
         per aggiornare subito un torrent appena messo in seed senza
@@ -135,3 +151,52 @@ def is_stopped_state(state: str | None) -> bool:
     nel modello a stati (docs/SPEC.md §3), ma in quel momento non condivide."""
     return (state or "").lower().startswith(("paused", "stopped"))
 
+
+
+def local_torrent_bytes(torrent_file_or_url: str) -> bytes | None:
+    """Il contenuto del .torrent se torrent_file_or_url è un file locale (un
+    upload: sta nella cartella dati di Nazgarr, che il client non vede),
+    None se è un URL (http/https/magnet: il link del tracker di un reseed),
+    che si passa al client così com'è. Un percorso locale non va mai al
+    client come URL: lo cercherebbe nel suo filesystem (No such file or
+    directory)."""
+    if os.path.isfile(torrent_file_or_url):
+        with open(torrent_file_or_url, "rb") as f:
+            return f.read()
+    return None
+
+
+def wait_for_hash(
+    list_hashes: Callable[[], set[str]], before_hashes: set[str], expected: str | None,
+    poll_interval: float, poll_timeout: float, where: str,
+) -> str:
+    """L'info hash del torrent appena aggiunto: quello atteso (expected, in
+    minuscolo) appena compare, altrimenti il primo nuovo rispetto a
+    before_hashes (diff prima/dopo, come qbittorrent.py). Gli hash si
+    confrontano in minuscolo e si ritornano in minuscolo."""
+    before = {h.lower() for h in before_hashes}
+    deadline = time.monotonic() + poll_timeout
+    while True:
+        current = {h.lower() for h in list_hashes()}
+        if expected is not None:
+            if expected in current:
+                return expected
+        else:
+            new_hashes = current - before
+            if new_hashes:
+                if len(new_hashes) > 1:
+                    logger.warning("Più torrent nuovi rilevati dopo add_torrent: %s", new_hashes)
+                return next(iter(new_hashes))
+        if time.monotonic() >= deadline:
+            raise TorrentAddTimeoutError(
+                f"Nessun nuovo torrent rilevato in {where} entro {poll_timeout}s dall'aggiunta"
+            )
+        time.sleep(poll_interval)
+
+
+def require_recheck(force_recheck: bool) -> None:
+    if not force_recheck:
+        raise ValueError(
+            "force_recheck=False non è permesso: il recheck reale è "
+            "un requisito funzionale, vedi docs/SPEC.md sezione 8."
+        )

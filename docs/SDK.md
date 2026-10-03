@@ -22,7 +22,7 @@ List the pip packages in the `NAZGARR_PLUGINS` environment variable, separated b
 
 ```yaml
 environment:
-  - NAZGARR_PLUGINS=nazgarr-deluge nazgarr-ntfy==0.3.1 git+https://github.com/you/nazgarr-thing
+  - NAZGARR_PLUGINS=nazgarr-flood nazgarr-ntfy==0.3.1 git+https://github.com/you/nazgarr-thing
 ```
 
 Or write them one per line in `plugins.txt` in the data folder (`#` starts a comment). The environment variable wins when both exist.
@@ -151,8 +151,13 @@ Raise `UploadError` when the tracker refuses an upload, and `TrackerRateLimitedE
 | `get_torrent_info(info_hash) -> ClientTorrentInfo \| None` | one torrent with its files |
 | `recheck(info_hash)` | ask the client to check a torrent again |
 | `list_categories() -> list[str]` | the client's categories, for the category pickers |
+| `remove_torrent(info_hash, delete_files)` | remove a torrent from the client; with `delete_files`, also its files (only the torrent's own). Only called on an explicit user request |
 
 Raise `TorrentAddTimeoutError` if the torrent never shows up after adding it, and `TorrentAlreadyInClientError` if the client already has it.
+
+When `torrent_file_or_url` is a local file, send its **content** to the client, never its path: the client usually runs in another container and cannot see Nazgarr's data folder. Only real URLs (http, https, magnet) go to the client as URLs.
+
+Set the class attribute `can_skip_recheck = False` if the client cannot add a torrent as already complete: Nazgarr then never records a skipped recheck for it, and `add_torrent` rechecks even when `skip_check_verified` is true.
 
 ### `MediaResolverAdapter`
 

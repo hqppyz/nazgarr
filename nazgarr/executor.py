@@ -114,7 +114,9 @@ def _add_to_client(
     """Aggiunge il torrent al client. Il recheck del client si salta solo se
     il chiamante l'ha verificato lui stesso al 100% (skip_recheck): resta
     scritto sul seed_job, così si vede quali esecuzioni sono passate così.
-    labels: categoria e tag del client (_labels), solo se ce ne sono."""
+    labels: categoria e tag del client (_labels), solo se ce ne sono.
+    Un client che non sa saltarlo (can_skip_recheck) lo fa comunque."""
+    skip_recheck = skip_recheck and getattr(adapter, "can_skip_recheck", True)
     extra = {"skip_check_verified": True} if skip_recheck else {}
     info_hash = adapter.add_torrent(
         candidate.download_link, save_path=save_path, force_recheck=True,

@@ -154,10 +154,10 @@ class QuiTorrentClientAdapter(TorrentClientAdapter):
             f"entro {self.poll_timeout}s dall'aggiunta"
         )
 
-    def _bulk_action(self, hashes: list[str], action: str) -> None:
+    def _bulk_action(self, hashes: list[str], action: str, **extra) -> None:
         response = self._client.post(
             f"/api/instances/{self.instance_id}/torrents/bulk-action",
-            json={"hashes": hashes, "action": action},
+            json={"hashes": hashes, "action": action, **extra},
         )
         response.raise_for_status()
 
@@ -171,6 +171,11 @@ class QuiTorrentClientAdapter(TorrentClientAdapter):
 
     def recheck(self, info_hash: str) -> None:
         self._bulk_action([info_hash], "recheck")
+
+    def remove_torrent(self, info_hash: str, delete_files: bool) -> None:
+        # Swagger e handler di qui: action "delete" con deleteFiles, che il
+        # server trasforma in "deleteWithFiles" quando è vero.
+        self._bulk_action([info_hash], "delete", deleteFiles=delete_files)
 
     def get_torrent_status(self, info_hash: str) -> TorrentStatus:
         torrent = next((t for t in self._fetch_all_torrents() if t.get("hash") == info_hash), None)
