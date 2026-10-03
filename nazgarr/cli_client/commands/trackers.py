@@ -80,7 +80,7 @@ def add_tracker(
     min_seed_time: str = typer.Option(None, "--min-seed-time", help="Hit and run: minimum seed time, e.g. 7d."),
     min_ratio: float = typer.Option(None, "--min-ratio", help="Hit and run: minimum ratio, e.g. 1.0."),
     seed_rule: str = typer.Option(None, "--seed-rule", help="With both: any (default) or all."),
-    profile: bool = typer.Option(True, "--profile/--no-profile", help="With --preset, create its upload profile."),
+    profile: bool = typer.Option(True, "--profile/--no-profile", help="Create the known upload profile."),
     token_stdin: bool = typer.Option(False, "--token-stdin", help="Read the API token from stdin."),
 ):
     """Add a tracker. The API token is asked (UNIT3D: your profile › Settings › API key)."""
@@ -94,17 +94,18 @@ def add_tracker(
         raise fail("Pass a name and --url, or --preset.", EXIT_USAGE)
     body = {"label": label, "adapter_type": adapter_type, "base_url": url,
             "api_token": secret("API token", token_stdin), "language": language,
+            # Senza --preset il server sceglie da sé il profilo dell'indirizzo (es. ITT).
+            "upload_profile": (bundled["key"] if profile else "none") if bundled else (None if profile else "none"),
             **_seed_body(min_seed_time, min_ratio, seed_rule)}
     if with_announce:
         body["announce_url"] = secret("Announce URL (with your passkey)")
     if client_ref:
         body["torrent_client_id"] = find(client.get("/api/torrent-clients"), client_ref, "torrent client")["id"]
     created = client.post("/api/trackers", {k: v for k, v in body.items() if v is not None})
-    if bundled and profile:
-        client.post(f"/api/trackers/{created['id']}/upload-profile", {"profile_key": bundled["key"]})
+    with_profile = (created.get("upload_profile") or {}).get("source_profile_key")
     emit(state(ctx), created, lambda t: console.print(
         f"Tracker [bold]{t['label']}[/bold] (#{t['id']}) added"
-        + (f", with the {bundled['key']} upload profile." if bundled and profile else ".")))
+        + (f", with the {with_profile} upload profile." if with_profile else ".")))
 
 
 @app.command("edit")

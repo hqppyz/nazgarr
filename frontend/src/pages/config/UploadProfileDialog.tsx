@@ -1,3 +1,4 @@
+import { RotateCcwIcon } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 
@@ -5,6 +6,7 @@ import {
   useBundledUploadProfiles,
   useCreateUploadProfile,
   useDeleteUploadProfile,
+  useRestoreUploadProfile,
   useUpdateNamingFromBundled,
   useUpdateUploadProfile,
   useUploadProfile,
@@ -22,6 +24,15 @@ import { t } from '@/lib/i18n'
 import { selectLabel } from '@/lib/utils'
 import { autosaveFeedback } from '@/lib/autosave'
 
+// L'host senza www., per riconoscere il profilo incluso di un tracker.
+function hostOf(url: string | null | undefined): string {
+  try {
+    return new URL(url ?? '').hostname.toLowerCase().replace(/^www\./, '')
+  } catch {
+    return ''
+  }
+}
+
 function jsonField(value: Record<string, number>) {
   return JSON.stringify(value, null, 2)
 }
@@ -29,11 +40,13 @@ function jsonField(value: Record<string, number>) {
 export function UploadProfileDialog({
   trackerId,
   trackerLabel,
+  trackerBaseUrl = '',
   open,
   onOpenChange,
 }: {
   trackerId: number
   trackerLabel: string
+  trackerBaseUrl?: string
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
@@ -53,7 +66,13 @@ export function UploadProfileDialog({
   const [descriptionTemplateDraft, setDescriptionTemplateDraft] = useState<string | null>(null)
   const [namingRulesDraft, setNamingRulesDraft] = useState<NamingRules | null>(null)
   const updateNaming = useUpdateNamingFromBundled(trackerId)
-  const [bundledKey, setBundledKey] = useState('')
+  const restoreProfile = useRestoreUploadProfile(trackerId)
+  const [restores, setRestores] = useState(0) // l'editor delle regole riparte dalle regole ripristinate
+  const [bundledKeyDraft, setBundledKeyDraft] = useState<string | null>(null)
+  // Di partenza: il profilo da cui è nato, o quello incluso dello stesso indirizzo.
+  const matching = bundled?.find((p) => p.base_url && hostOf(p.base_url) === hostOf(trackerBaseUrl))?.key
+  const bundledKey = bundledKeyDraft ?? profile?.source_profile_key ?? matching ?? ''
+  const setBundledKey = (key: string) => setBundledKeyDraft(key)
 
   const categoryMap = categoryMapDraft ?? (profile ? jsonField(profile.category_id_map) : '{}')
   const typeMap = typeMapDraft ?? (profile ? jsonField(profile.type_id_map) : '{}')
@@ -139,11 +158,54 @@ export function UploadProfileDialog({
 
         {!isPending && profile && (
           <div className="grid gap-5">
-            {profile.source_profile_key && (
+            <div className="grid gap-2 rounded-md border p-3">
               <p className="text-xs text-muted-foreground">
-                {t('trackers.copiedFromBundled', { key: profile.source_profile_key })}
+                {profile.source_profile_key
+                  ? t('trackers.copiedFromBundled', { key: profile.source_profile_key })
+                  : t('trackers.restoreHelpCustom')}
               </p>
-            )}
+              <div className="flex flex-wrap items-center gap-2">
+                <Select value={bundledKey} onValueChange={(v) => setBundledKey(String(v ?? ''))}>
+                  <SelectTrigger className="min-w-56 flex-1 sm:flex-none">
+                    <SelectValue placeholder={t('trackers.bundledProfilePlaceholder')}>
+                      {(v: string | null) =>
+                        selectLabel(bundled, v, (p) => p.key, (p) => p.label, t('trackers.bundledProfilePlaceholder'))
+                      }
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {bundled?.map((p) => (
+                      <SelectItem key={p.key} value={p.key}>
+                        {p.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button
+                  variant="outline"
+                  disabled={!bundledKey || restoreProfile.isPending}
+                  onClick={() => {
+                    const label = bundled?.find((p) => p.key === bundledKey)?.label ?? bundledKey
+                    if (!window.confirm(t('trackers.restoreConfirm', { profile: label }))) return
+                    restoreProfile.mutate(bundledKey, {
+                      onSuccess: () => {
+                        toast.success(t('trackers.restored', { profile: label }))
+                        setCategoryMapDraft(null)
+                        setTypeMapDraft(null)
+                        setResolutionMapDraft(null)
+                        setDescriptionTemplateDraft(null)
+                        setNamingRulesDraft(null)
+                        setRestores((n) => n + 1)
+                      },
+                      onError: (error) => toast.error(error.message),
+                    })
+                  }}
+                >
+                  <RotateCcwIcon className="size-4" />
+                  {t('trackers.restoreProfile')}
+                </Button>
+              </div>
+            </div>
 
             <Section title={t('trackers.section.naming')}>
               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -174,7 +236,7 @@ export function UploadProfileDialog({
                 </div>
               )}
               <NamingRulesEditor
-                key={profile.naming_version ?? 0}
+                key={`${profile.naming_version ?? 0}-${restores}`}
                 trackerId={trackerId}
                 value={namingRules}
                 onChange={setNamingRulesDraft}

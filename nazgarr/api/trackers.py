@@ -39,6 +39,9 @@ class TrackerCreateRequest(BaseModel):
     min_ratio: float | None = Field(default=None, ge=0)
     seed_rule: Literal["any", "all"] | None = None
     config: dict | None = None  # campi di un adapter di un plugin (GET /api/plugins)
+    # Profilo di upload da creare insieme: "auto" = quello bundlato con lo
+    # stesso host (es. ITT), la chiave di un profilo bundlato, o "none".
+    upload_profile: str = "auto"
 
 
 class TrackerUpdateRequest(BaseModel):
@@ -144,6 +147,10 @@ def create_tracker(body: TrackerCreateRequest, session: Session = Depends(get_se
                 adapter_type=body.adapter_type, supported=sorted(supported),
             ),
         )
+    key = upload_profiles.bundled_key_for_url(body.base_url) if body.upload_profile == "auto" else (
+        None if body.upload_profile == "none" else body.upload_profile)
+    if key and key not in {p["key"] for p in upload_profiles.list_bundled_profiles()}:
+        raise HTTPException(status_code=400, detail=coded_detail("bundled_profile_not_found", key=key))
     tracker = Tracker(
         label=body.label, adapter_type=body.adapter_type, base_url=body.base_url,
         api_token=body.api_token, announce_url=body.announce_url,
@@ -155,6 +162,9 @@ def create_tracker(body: TrackerCreateRequest, session: Session = Depends(get_se
     _apply_config(tracker, body.config, creating=True)
     session.add(tracker)
     session.commit()
+    if key:
+        upload_profiles.create_upload_profile(session, tracker, key)
+        session.refresh(tracker)
     return TrackerResponse.from_model(tracker)
 
 
@@ -351,6 +361,20 @@ def update_naming_rules(tracker_id: int, session: Session = Depends(get_session)
     profile = _get_upload_profile_or_404(session, tracker_id)
     try:
         upload_profiles.update_naming_from_bundled(session, profile)
+    except upload_profiles.ProfileNotFoundError as exc:
+        raise HTTPException(status_code=400, detail=from_coded_error(exc)) from exc
+    return UploadProfileResponse.from_model(profile)
+
+
+@router.post("/{tracker_id}/upload-profile/restore", response_model=UploadProfileResponse)
+def restore_upload_profile(
+    tracker_id: int, body: UploadProfileCreateRequest, session: Session = Depends(get_session)
+):
+    """Il profilo bundlato (quello d'origine se profile_key manca) al posto
+    di quello che c'è, modifiche dell'utente comprese."""
+    profile = _get_upload_profile_or_404(session, tracker_id)
+    try:
+        upload_profiles.restore_upload_profile(session, profile, body.profile_key)
     except upload_profiles.ProfileNotFoundError as exc:
         raise HTTPException(status_code=400, detail=from_coded_error(exc)) from exc
     return UploadProfileResponse.from_model(profile)

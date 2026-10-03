@@ -743,6 +743,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/trackers/{tracker_id}/upload-profile/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Restore Upload Profile
+         * @description Il profilo bundlato (quello d'origine se profile_key manca) al posto
+         *     di quello che c'è, modifiche dell'utente comprese.
+         */
+        post: operations["restore_upload_profile_api_trackers__tracker_id__upload_profile_restore_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/trackers/{tracker_id}/upload-profile/naming/preview": {
         parameters: {
             query?: never;
@@ -3937,6 +3958,11 @@ export interface components {
             config?: {
                 [key: string]: unknown;
             } | null;
+            /**
+             * Upload Profile
+             * @default auto
+             */
+            upload_profile: string;
         };
         /** TrackerResponse */
         TrackerResponse: {
@@ -6060,6 +6086,41 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadProfileResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    restore_upload_profile_api_trackers__tracker_id__upload_profile_restore_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tracker_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UploadProfileCreateRequest"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {
