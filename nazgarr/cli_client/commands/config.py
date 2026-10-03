@@ -59,8 +59,8 @@ def export_data(client) -> dict:
         "categories": {"movie": c.get("category_movie"), "tv": c.get("category_tv"),
                        "anime": c.get("category_anime")},
         "tags": {"upload": c.get("tags_upload"), "reseed": c.get("tags_reseed")},
-        "disks": [{"disk": disk_label.get(a["disk_id"], a["disk_id"]), "client_root": a.get("torrent_client_root_path")}
-                  for a in c["disks"]],
+        "disks": [{"disk": disk_label.get(a["disk_id"], a["disk_id"]), "client_root": a.get("torrent_client_root_path"),
+                   "folder": a.get("local_rel_path")} for a in c["disks"]],
     } for c in clients]
     trackers = []
     for t in client.get("/api/trackers"):
@@ -216,6 +216,8 @@ def _plan_clients(plan: Planner, wanted: list[dict], disk_ids: dict) -> dict[str
         else:
             ref = lambda found=found: found["id"]  # noqa: E731
             linked = {a["disk_id"] for a in found["disks"]}
+            mapping_now = {a["disk_id"]: (a.get("torrent_client_root_path"), a.get("local_rel_path"))
+                           for a in found["disks"]}
             changes = _changed(found, fields)
             for key, name in (("password", "password"), ("api_token", "api_token")):
                 resolved = env_secret(spec.get(key)) if spec.get(key) else None
@@ -231,9 +233,15 @@ def _plan_clients(plan: Planner, wanted: list[dict], disk_ids: dict) -> dict[str
             if disk_name not in disk_ids:
                 raise fail(f"Client {label} links disk {link['disk']!r}, which is neither in the file nor on the "
                            "server.", EXIT_USAGE)
+            body = {k: v for k, v in {"torrent_client_root_path": link.get("client_root"),
+                                      "local_rel_path": link.get("folder")}.items() if v}
             if disk_ids.get(disk_name) in linked:
+                if found is not None and mapping_now.get(disk_ids[disk_name]) != (link.get("client_root"),
+                                                                                  link.get("folder")):
+                    plan.add(f"~ link client {label} → disk {link['disk']}: path mapping",
+                             lambda ref=ref, disk_name=disk_name, body=body: client.post(
+                                 f"/api/torrent-clients/{ref()}/disks/{disk_ids[disk_name]}", body))
                 continue
-            body = {"torrent_client_root_path": link.get("client_root")} if link.get("client_root") else {}
             plan.add(f"+ link client {label} → disk {link['disk']}",
                      lambda ref=ref, disk_name=disk_name, body=body: client.post(
                          f"/api/torrent-clients/{ref()}/disks/{disk_ids[disk_name]}", body))

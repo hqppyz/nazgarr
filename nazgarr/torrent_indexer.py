@@ -32,6 +32,7 @@ from urllib.parse import urlsplit
 
 from sqlalchemy.orm import Session
 
+from nazgarr import client_paths
 from nazgarr.adapters.torrent_client.base import ClientTorrentInfo, TorrentClientAdapter
 from nazgarr.db_utils import bulk_upsert
 from nazgarr.models import (
@@ -67,17 +68,17 @@ def announce_origin(url: str | None) -> str | None:
 def _resolve_seed_file_id(
     client_abs_path: str,
     disks: list[Disk],
-    root_path_by_disk_id: dict[int, str | None],
+    mapping_by_disk_id: dict[int, client_paths.Mapping],
     seed_lookup_by_disk: dict[int, dict[str, int]],
 ) -> int | None:
-    candidate = os.path.normpath(client_abs_path)
     for disk in disks:
-        client_root = os.path.normpath(root_path_by_disk_id.get(disk.id) or disk.root_path)
-        if candidate == client_root or candidate.startswith(client_root + os.sep):
-            rel_path = os.path.relpath(candidate, client_root)
-            seed_file_id = seed_lookup_by_disk.get(disk.id, {}).get(rel_path)
-            if seed_file_id is not None:
-                return seed_file_id
+        mapping = mapping_by_disk_id.get(disk.id) or client_paths.Mapping(disk.root_path)
+        rel_path = client_paths.to_disk_relative(mapping, client_abs_path)
+        if rel_path is None:
+            continue
+        seed_file_id = seed_lookup_by_disk.get(disk.id, {}).get(rel_path)
+        if seed_file_id is not None:
+            return seed_file_id
     return None
 
 
@@ -193,7 +194,12 @@ def store_client_torrents(
         # serve solo a limitare i dischi o a dare una radice diversa.
         disks = session.query(Disk).all()
         logger.debug("Client %r: nessun disco associato, confronto con tutti i dischi", torrent_client.label)
-    root_path_by_disk_id = {link.disk_id: link.torrent_client_root_path for link in links}
+    disk_by_id = {disk.id: disk for disk in disks}
+    mapping_by_disk_id = {
+        link.disk_id: client_paths.Mapping(disk_by_id[link.disk_id].root_path, link.torrent_client_root_path,
+                                           link.local_rel_path)
+        for link in links if link.disk_id in disk_by_id
+    }
     seed_lookup_by_disk: dict[int, dict[str, int]] = {
         disk.id: dict(session.query(SeedFile.relative_path, SeedFile.id).filter_by(disk_id=disk.id).all())
         for disk in disks
@@ -204,7 +210,7 @@ def store_client_torrents(
         client_torrent_id = hash_to_id[t.info_hash]
         for f in t.files:
             client_abs_path = os.path.join(t.save_path, f.path_in_torrent)
-            seed_file_id = _resolve_seed_file_id(client_abs_path, disks, root_path_by_disk_id, seed_lookup_by_disk)
+            seed_file_id = _resolve_seed_file_id(client_abs_path, disks, mapping_by_disk_id, seed_lookup_by_disk)
             file_rows.append({
                 "client_torrent_id": client_torrent_id,
                 "path_in_torrent": f.path_in_torrent,
@@ -229,6 +235,7 @@ def store_client_torrents(
             "radice (Configuration > Clients)",
             torrent_client.label, len(file_rows),
             os.path.join(sample.save_path, sample.files[0].path_in_torrent) if sample else None,
-            [root_path_by_disk_id.get(d.id) or d.root_path for d in disks],
+            [(mapping_by_disk_id[d.id].client_root if d.id in mapping_by_disk_id else None) or d.root_path
+             for d in disks],
         )
     return {"torrents_indexed": len(torrent_rows), "files_indexed": len(file_rows), "files_linked": linked}

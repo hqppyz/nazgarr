@@ -132,6 +132,10 @@ CREATE TABLE IF NOT EXISTS disk_torrent_client (
     torrent_client_root_path   TEXT,    -- root of THIS disk as seen by THIS client, if different from
                                          -- disk.root_path — null if this client and Nazgarr see the
                                          -- same path (common case, same host or same mount)
+    local_rel_path             TEXT,    -- which folder of the disk torrent_client_root_path is, relative to
+                                         -- disk.root_path; null = the disk root. E.g. "qbittorrent" with
+                                         -- torrent_client_root_path "/download": Nazgarr /data/qbittorrent is
+                                         -- the client's /download (nazgarr/client_paths.py)
     PRIMARY KEY (disk_id, torrent_client_id)
 );
 

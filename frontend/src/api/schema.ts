@@ -2021,6 +2021,8 @@ export interface components {
         AssociateDiskRequest: {
             /** Torrent Client Root Path */
             torrent_client_root_path?: string | null;
+            /** Local Rel Path */
+            local_rel_path?: string | null;
         };
         /** AuthStatusResponse */
         AuthStatusResponse: {
@@ -2429,6 +2431,8 @@ export interface components {
             disk_id: number;
             /** Torrent Client Root Path */
             torrent_client_root_path: string | null;
+            /** Local Rel Path */
+            local_rel_path?: string | null;
         };
         /** DiskCheck */
         DiskCheck: {

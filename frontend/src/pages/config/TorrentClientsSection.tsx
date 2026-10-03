@@ -46,6 +46,7 @@ import { cn, selectLabel } from '@/lib/utils'
 import { autosaveFeedback } from '@/lib/autosave'
 import { CLIENT_NAMES } from '@/lib/services'
 import { ClientLogo } from '@/pages/config/ServiceIcons'
+import { DiskBrowserDialog } from '@/pages/config/DiskBrowserDialog'
 
 type TorrentClient = Schemas['TorrentClientResponse']
 type Disk = Schemas['DiskResponse']
@@ -365,6 +366,10 @@ function TestButton({ id }: { id: number }) {
   )
 }
 
+// Un disco per questo client: acceso o no e, se il client lo vede altrove,
+// la corrispondenza fra una cartella del disco (vuota = la radice) e la
+// cartella vista dal client (nazgarr/client_paths.py), es. Nazgarr
+// /data/qbittorrent = qBittorrent /download.
 function DiskAssociationRow({
   torrentClientId,
   disk,
@@ -374,40 +379,59 @@ function DiskAssociationRow({
   disk: Disk
   association: DiskAssociation | undefined
 }) {
-  const [draft, setDraft] = useState(association?.torrent_client_root_path ?? '')
+  const [clientRoot, setClientRoot] = useState(association?.torrent_client_root_path ?? '')
+  const [localRel, setLocalRel] = useState(association?.local_rel_path ?? '')
+  const [browserOpen, setBrowserOpen] = useState(false)
   const associate = useAssociateDisk()
   const dissociate = useDissociateDisk()
   const enabled = association !== undefined
+  const save = (feedback?: ReturnType<typeof autosaveFeedback>) =>
+    associate.mutate(
+      { torrentClientId, diskId: disk.id, torrentClientRootPath: clientRoot, localRelPath: localRel },
+      feedback ?? { onError: (error) => toast.error(error.message), onSuccess: () => toast.success(t('torrentClients.mappingSaved')) },
+    )
+  const nazgarrSide = `${disk.root_path.replace(/\/$/, '')}${localRel ? `/${localRel}` : ''}`
 
   return (
-    <div className="grid gap-1.5 rounded border px-3 py-2">
+    <div className="grid gap-2 rounded border px-3 py-2">
       <div className="flex items-center justify-between">
         <span className="text-sm">{disk.label}</span>
         <Switch
           checked={enabled}
           onCheckedChange={(checked) => {
             const feedback = autosaveFeedback(disk.label)
-            if (checked) associate.mutate({ torrentClientId, diskId: disk.id, torrentClientRootPath: draft }, feedback)
+            if (checked) save(feedback)
             else dissociate.mutate({ torrentClientId, diskId: disk.id }, feedback)
           }}
         />
       </div>
       {enabled && (
-        <div className="flex items-center gap-2">
-          <Input
-            className="h-8 font-mono text-xs"
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            placeholder={t('torrentClients.rootPathOverridePlaceholder')}
-          />
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={associate.isPending}
-            onClick={() => associate.mutate({ torrentClientId, diskId: disk.id, torrentClientRootPath: draft })}
-          >
-            {t('common.save')}
-          </Button>
+        <div className="grid gap-2">
+          <div className="grid gap-1 sm:grid-cols-2 sm:gap-2">
+            <div className="grid gap-1">
+              <Label className="text-xs">{t('torrentClients.mappingNazgarrFolder')}</Label>
+              <div className="flex gap-1">
+                <Input className="h-8 font-mono text-xs" value={localRel} onChange={(e) => setLocalRel(e.target.value)}
+                       placeholder={t('torrentClients.mappingDiskRoot')} />
+                <Button variant="outline" size="sm" className="h-8" onClick={() => setBrowserOpen(true)}>…</Button>
+              </div>
+            </div>
+            <div className="grid gap-1">
+              <Label className="text-xs">{t('torrentClients.mappingClientFolder')}</Label>
+              <Input className="h-8 font-mono text-xs" value={clientRoot} onChange={(e) => setClientRoot(e.target.value)}
+                     placeholder={t('torrentClients.mappingSamePath')} />
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="font-mono text-[11px] text-muted-foreground">
+              {clientRoot ? `${nazgarrSide} = ${clientRoot}` : t('torrentClients.mappingSameExplained')}
+            </p>
+            <Button variant="outline" size="sm" disabled={associate.isPending} onClick={() => save()}>
+              {t('common.save')}
+            </Button>
+          </div>
+          <DiskBrowserDialog diskId={disk.id} open={browserOpen} onOpenChange={setBrowserOpen}
+                             title={t('torrentClients.mappingNazgarrFolder')} onSelect={(path) => setLocalRel(path)} />
         </div>
       )}
     </div>

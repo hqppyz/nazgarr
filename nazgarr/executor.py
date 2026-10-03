@@ -23,7 +23,7 @@ from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session
 
-from nazgarr import client_labels, settings_repo
+from nazgarr import client_labels, client_paths, settings_repo
 from nazgarr.adapters.torrent_client.base import TorrentClientAdapter
 from nazgarr.fs_scope import ScopeViolation, resolve_scoped
 from nazgarr.models import Disk, DiskTorrentClient, MatchReview, SeedJob, TorrentClient
@@ -40,27 +40,21 @@ class ExecutionError(Exception):
 def client_visible_path(session: Session, disk: Disk, torrent_client_id: int | None, local_path: str) -> str:
     """Traduce un path lato Nazgarr nel path equivalente visto DA QUESTO
     client torrent, quando i due girano in container/mount diversi per lo
-    stesso disco fisico (disk_torrent_client.torrent_client_root_path per
-    la coppia (disk, torrent_client_id) — non un campo del disco: client
-    diversi sullo stesso disco possono vederlo a path diversi). Se
-    torrent_client_id è None, o nessuna riga/override esiste per quella
-    coppia, assume che client e Nazgarr vedano lo stesso path."""
-    root_override = None
-    if torrent_client_id is not None:
-        link = (
-            session.query(DiskTorrentClient)
-            .filter_by(disk_id=disk.id, torrent_client_id=torrent_client_id)
-            .one_or_none()
-        )
-        root_override = link.torrent_client_root_path if link else None
-    if not root_override:
+    stesso disco fisico (disk_torrent_client: torrent_client_root_path e
+    local_rel_path per la coppia (disk, torrent_client_id), nazgarr/client_paths.py).
+    Senza mappatura, client e Nazgarr vedono lo stesso path. Un path che il
+    client non vede (fuori dalla sottocartella mappata): ClientPathError."""
+    if torrent_client_id is None:
         return local_path
-    root_real = os.path.realpath(disk.root_path)
-    local_real = os.path.realpath(local_path)
-    if local_real != root_real and not local_real.startswith(root_real + os.sep):
-        return local_path  # fuori dal disco: non dovrebbe succedere, non tocchiamo nulla
-    relative = os.path.relpath(local_real, root_real)
-    return root_override if relative == "." else os.path.join(root_override, relative)
+    link = (
+        session.query(DiskTorrentClient)
+        .filter_by(disk_id=disk.id, torrent_client_id=torrent_client_id)
+        .one_or_none()
+    )
+    if link is None:
+        return local_path
+    return client_paths.to_client(
+        client_paths.Mapping(disk.root_path, link.torrent_client_root_path, link.local_rel_path), local_path)
 
 
 def _check_same_filesystem(source_path: str, torrents_root: str) -> None:

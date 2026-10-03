@@ -71,13 +71,13 @@ def test_associate_and_dissociate_disk(client):
     associate = client.post(f"/api/torrent-clients/{tc_id}/disks/{disk_id}")
     assert associate.status_code == 204
     disks = client.get("/api/torrent-clients").json()[0]["disks"]
-    assert disks == [{"disk_id": disk_id, "torrent_client_root_path": None}]
+    assert disks == [{"disk_id": disk_id, "torrent_client_root_path": None, "local_rel_path": None}]
 
     # idempotente: associare due volte non deve fallire né duplicare
     again = client.post(f"/api/torrent-clients/{tc_id}/disks/{disk_id}")
     assert again.status_code == 204
     disks = client.get("/api/torrent-clients").json()[0]["disks"]
-    assert disks == [{"disk_id": disk_id, "torrent_client_root_path": None}]
+    assert disks == [{"disk_id": disk_id, "torrent_client_root_path": None, "local_rel_path": None}]
 
     dissociate = client.delete(f"/api/torrent-clients/{tc_id}/disks/{disk_id}")
     assert dissociate.status_code == 204
@@ -103,10 +103,31 @@ def test_associate_disk_with_root_path_override(client):
     client.post(f"/api/torrent-clients/{tc_b}/disks/{disk_id}", json={"torrent_client_root_path": "/downloads-b"})
 
     by_id = {tc["id"]: tc["disks"] for tc in client.get("/api/torrent-clients").json()}
-    assert by_id[tc_a] == [{"disk_id": disk_id, "torrent_client_root_path": "/downloads-a"}]
-    assert by_id[tc_b] == [{"disk_id": disk_id, "torrent_client_root_path": "/downloads-b"}]
+    assert by_id[tc_a] == [{"disk_id": disk_id, "torrent_client_root_path": "/downloads-a", "local_rel_path": None}]
+    assert by_id[tc_b] == [{"disk_id": disk_id, "torrent_client_root_path": "/downloads-b", "local_rel_path": None}]
 
     # re-associare aggiorna l'override invece di fallire
     client.post(f"/api/torrent-clients/{tc_a}/disks/{disk_id}", json={"torrent_client_root_path": "/downloads-a2"})
     updated = next(tc for tc in client.get("/api/torrent-clients").json() if tc["id"] == tc_a)
-    assert updated["disks"] == [{"disk_id": disk_id, "torrent_client_root_path": "/downloads-a2"}]
+    assert updated["disks"] == [
+        {"disk_id": disk_id, "torrent_client_root_path": "/downloads-a2", "local_rel_path": None}]
+
+
+def test_a_client_seeing_only_a_subfolder_of_the_disk(client):
+    root = client.scan_root / "data"
+    (root / "qbittorrent").mkdir(parents=True)
+    disk_id = client.post("/api/disks", json={"label": "main", "root_path": str(root)}).json()["id"]
+    tc = client.post("/api/torrent-clients", json={"label": "qbit", "adapter_type": "qbittorrent",
+                                                   "base_url": "http://qbit"}).json()["id"]
+
+    response = client.post(f"/api/torrent-clients/{tc}/disks/{disk_id}",
+                           json={"torrent_client_root_path": "/download", "local_rel_path": "/qbittorrent/"})
+
+    assert response.status_code == 204
+    assert client.get("/api/torrent-clients").json()[0]["disks"] == [
+        {"disk_id": disk_id, "torrent_client_root_path": "/download", "local_rel_path": "qbittorrent"}]
+    for body, code in (({"torrent_client_root_path": "/download", "local_rel_path": "missing"}, "folder_not_found"),
+                       ({"torrent_client_root_path": "/download", "local_rel_path": "../x"}, "path_outside_scope"),
+                       ({"local_rel_path": "qbittorrent"}, "client_mapping_needs_client_root")):
+        refused = client.post(f"/api/torrent-clients/{tc}/disks/{disk_id}", json=body)
+        assert refused.status_code == 400 and refused.json()["detail"]["code"] == code, body

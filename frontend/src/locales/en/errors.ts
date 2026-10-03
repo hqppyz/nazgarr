@@ -139,4 +139,6 @@ export const errors = {
   'errors.folder_other_filesystem': "'{path}' is on another filesystem: hardlinks can't reach it from this disk. Add it as a disk of its own.",
   'errors.folder_already_added': "'{path}' is already one of this disk's folders.",
   'errors.folder_overlaps': "'{path}' overlaps '{other}' ({kind}): a folder can't contain another one or sit inside it.",
+  'errors.client_cannot_see_path': 'The client cannot see {path}: it sees only {folder} (as {client_root}). Pick a folder inside it, or change the client mapping.',
+  'errors.client_mapping_needs_client_root': 'Also set how the client sees that folder.',
 } as const

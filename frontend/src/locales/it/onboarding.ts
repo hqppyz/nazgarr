@@ -102,7 +102,7 @@ export const onboarding = {
   'onboarding.tour.clients.test.body': 'Clicca "Prova connessione": ti dice quanti torrent ha il client. Se fallisce, controlla l’indirizzo e le credenziali della WebUI.',
   'onboarding.tour.clients.disks.title': 'Dischi e percorsi (facoltativo)',
   'onboarding.tour.clients.disks.body':
-    'Se il client vede i tuoi file agli stessi percorsi di Nazgarr (entrambi usano /data), qui non c’è niente da fare. Usalo solo per limitare il client ad alcuni dischi, o quando monta un disco altrove (es. /downloads invece di /data/torrents).',
+    "Se il client vede i tuoi file agli stessi percorsi di Nazgarr (entrambi usano /data), qui non c'è niente da fare. Usalo per limitare il client ad alcuni dischi, o quando li vede altrove: indica la cartella del disco e come la vede il client (es. /data/qbittorrent = /download).",
   'onboarding.tour.clients.labels.title': 'Categoria e tag per gli upload',
   'onboarding.tour.clients.labels.body': 'La categoria e i tag che i tuoi upload ricevono su questo client (es. tag "release"). Ogni upload può comunque cambiarli.',
 

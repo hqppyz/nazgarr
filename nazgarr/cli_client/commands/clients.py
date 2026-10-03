@@ -134,14 +134,24 @@ def link_disk(
     ref: str = typer.Argument(..., help="Client name or ID."),
     disk: str = typer.Argument(..., help="Disk name or ID."),
     client_root: str = typer.Option(None, "--client-root",
-                                    help="Where the client sees this disk, if different (e.g. /downloads)."),
+                                    help="How the client sees the folder below (or the whole disk), e.g. /download."),
+    folder: str = typer.Option(None, "--folder",
+                               help="The disk folder the client sees as --client-root (default: the whole disk)."),
 ):
-    """Use the client for a disk (optional: without links it serves every disk)."""
+    """Use the client for a disk, and say where the client sees it if not at the same path.
+
+    E.g. Nazgarr /data/qbittorrent is qBittorrent /download:
+    nazgarr client link qbit main --folder qbittorrent --client-root /download
+    """
+    if folder and not client_root:
+        raise fail("--folder needs --client-root (how the client sees that folder).", EXIT_USAGE)
     client = api(ctx)
     found, target = _client(client, ref), find(client.get("/api/disks"), disk, "disk")
-    client.post(f"/api/torrent-clients/{found['id']}/disks/{target['id']}",
-                {"torrent_client_root_path": client_root} if client_root else {})
-    console.print(f"Client {found['label']} linked to disk {target['label']}.")
+    body = {k: v for k, v in {"torrent_client_root_path": client_root, "local_rel_path": folder}.items() if v}
+    client.post(f"/api/torrent-clients/{found['id']}/disks/{target['id']}", body)
+    mapped = (f" ({target['root_path'].rstrip('/')}/{folder or ''}".rstrip("/") + f" = {client_root})"
+              if client_root else "")
+    console.print(f"Client {found['label']} linked to disk {target['label']}{mapped}.")
 
 
 @app.command("unlink")

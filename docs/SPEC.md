@@ -181,6 +181,20 @@ class TorrentClientAdapter(ABC):
 
 A disk/torrents_rel_path can be associated with several configured clients at once (a common case: qBittorrent for one group of trackers, rutorrent for another, on the same disk) — indexing (`nazgarr/torrent_indexer.py`) therefore aggregates across every client enabled for that disk, never assuming a 1:1 relationship.
 
+### Path mappings between a disk and a client (user report, 2026-10-03)
+
+A client can see a disk elsewhere: in another container, or mounted only on a subfolder. Example: Nazgarr `/data/qbittorrent` is qBittorrent `/download`. The disk–client link (`disk_torrent_client`) stores a pair, like the Remote Path Mappings of Sonarr/Radarr:
+
+- `local_rel_path`: a folder of the disk (empty = the whole disk);
+- `torrent_client_root_path`: how the client sees that folder.
+
+`nazgarr/client_paths.py` translates both ways:
+
+- **Client → Nazgarr**, when indexing. The client's path is compared lexically, never resolved: it does not exist in our filesystem.
+- **Nazgarr → client**, for the save path of a torrent being added. A path outside the mapped folder raises `client_cannot_see_path`. The client never gets a torrent with a path it cannot see.
+
+The old root-only override is the case with an empty folder. It is configured from the disks dialog of a client (UI) or with `nazgarr client link CLIENT DISK --folder … --client-root …`.
+
 ## 6. Content identification (TMDB) and the matching engine
 
 ### Media resolver (inherits ratio-guardian §6)

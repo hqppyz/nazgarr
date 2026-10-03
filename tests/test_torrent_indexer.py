@@ -238,3 +238,24 @@ def test_the_single_torrent_refresh_never_removes_the_others(db_session):
     torrent_indexer.store_client_torrents(db_session, tc, torrents[:1], run.id)
 
     assert db_session.query(ClientTorrent).count() == 2
+
+
+def test_a_client_mounted_on_a_subfolder_of_the_disk(db_session):
+    # Nazgarr /data/qbittorrent = qBittorrent /download (segnalato dall'utente, 2026-10-03).
+    disk, tc = _make_disk_and_client(db_session, root_path="/data", torrent_client_root_path="/download")
+    link = db_session.query(DiskTorrentClient).one()
+    link.local_rel_path = "qbittorrent"
+    db_session.commit()
+    run = pipeline.start_run(db_session, run_type="manual")
+    seed_file = _make_seed_file(db_session, disk, "qbittorrent/movies/Movie.2024.mkv", run)
+
+    adapter = FakeAdapter([
+        ClientTorrentInfo(
+            info_hash="h1", name="Movie.2024.mkv", save_path="/download/movies", state="uploading",
+            files=[ClientTorrentFileInfo(path_in_torrent="Movie.2024.mkv", size_bytes=123)],
+        )
+    ])
+
+    torrent_indexer.index_torrent_client(db_session, tc, adapter, run)
+
+    assert db_session.query(ClientTorrentFile).one().seed_file_id == seed_file.id
