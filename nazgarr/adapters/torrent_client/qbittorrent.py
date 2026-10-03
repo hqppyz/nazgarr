@@ -26,6 +26,7 @@ suo swagger/OpenAPI reale, non solo dedotto. Vedi nazgarr/adapters/torrent_clien
 """
 
 import logging
+import os
 import time
 from collections.abc import Callable
 
@@ -89,8 +90,17 @@ class QBittorrentAdapter(TorrentClientAdapter):
             raise TorrentAlreadyInClientError(
                 f"Torrent {expected} is already in the client (possibly with another save path): nothing added"
             )
+        # Un .torrent locale (un upload: sta nella cartella dati di Nazgarr)
+        # si manda col suo contenuto: il client non vede quel percorso, e
+        # con "urls" lo cercherebbe nel suo filesystem (No such file or
+        # directory). Un URL (il link del tracker di un reseed) resta un URL.
+        if os.path.isfile(torrent_file_or_url):
+            with open(torrent_file_or_url, "rb") as f:
+                source = {"torrent_files": f.read()}
+        else:
+            source = {"urls": torrent_file_or_url}
         self._client.torrents_add(
-            urls=torrent_file_or_url,
+            **source,
             save_path=save_path,
             is_skip_checking=skip_check_verified,
             use_auto_torrent_management=False,

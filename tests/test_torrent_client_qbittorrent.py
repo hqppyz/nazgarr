@@ -43,8 +43,10 @@ class FakeQbtClient:
     def torrents_files(self, torrent_hash):
         return self._files_by_hash.get(torrent_hash, [])
 
-    def torrents_add(self, urls, save_path, is_skip_checking, use_auto_torrent_management, category=None, tags=None):
-        self.added_calls.append({"urls": urls, "save_path": save_path, "is_skip_checking": is_skip_checking,
+    def torrents_add(self, save_path, is_skip_checking, use_auto_torrent_management, urls=None, torrent_files=None,
+                     category=None, tags=None):
+        self.added_calls.append({"urls": urls, "torrent_files": torrent_files, "save_path": save_path,
+                                 "is_skip_checking": is_skip_checking,
                                  "category": category, "tags": tags, "auto": use_auto_torrent_management})
         self._torrents.append(FakeTorrent(hash="new-hash", save_path=save_path))
 
@@ -68,6 +70,19 @@ def test_add_torrent_returns_new_hash_and_forces_recheck():
     assert info_hash == "new-hash"
     assert client.added_calls[0]["is_skip_checking"] is False
     assert client.rechecked == ["new-hash"]
+
+
+def test_a_local_torrent_file_is_sent_by_content_not_by_path(tmp_path):
+    # Il .torrent di un upload sta nella cartella dati di Nazgarr, che il
+    # client non vede: con urls= lo cercherebbe nel suo filesystem.
+    torrent = tmp_path / "tracker-1-seed.torrent"
+    torrent.write_bytes(b"d4:infod4:name1:xee")
+    client = FakeQbtClient()
+
+    _adapter(client).add_torrent(str(torrent), save_path="/downloads/movie")
+
+    assert client.added_calls[0]["torrent_files"] == b"d4:infod4:name1:xee"
+    assert client.added_calls[0]["urls"] is None
 
 
 def test_add_torrent_rejects_force_recheck_false():
