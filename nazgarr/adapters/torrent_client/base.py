@@ -63,6 +63,19 @@ class ClientTorrentInfo:
     ratio: float | None = None
     seeding_time_seconds: int | None = None
     added_on: int | None = None  # epoch in secondi
+    # I seeder dello sciame secondo il tracker (scrape), noi compresi: 1 vuol
+    # dire che siamo l'ultimo. None se il client non lo sa.
+    swarm_seeders: int | None = None
+
+
+def seeders(value) -> int | None:
+    """Un conteggio di seeder del client: solo da 1 in su (0 o -1 vogliono
+    dire "non noto" quasi ovunque, mai "nessuno": noi stessi seediamo)."""
+    try:
+        count = int(value)
+    except (TypeError, ValueError):
+        return None
+    return count if count >= 1 else None
 
 
 class TorrentAddTimeoutError(Exception):

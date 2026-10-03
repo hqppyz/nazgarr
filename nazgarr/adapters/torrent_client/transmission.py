@@ -47,6 +47,7 @@ from nazgarr.adapters.torrent_client.base import (
     TorrentStatus,
     local_torrent_bytes,
     require_recheck,
+    seeders,
     wait_for_hash,
 )
 
@@ -62,7 +63,7 @@ LOCAL_ERROR = 3  # tr_stat_errtype TR_STAT_LOCAL_ERROR
 STATUS_FIELDS = ["hashString", "status", "error", "percentDone", "leftUntilDone"]
 INFO_FIELDS = [
     "hashString", "name", "downloadDir", "status", "error", "labels", "trackers", "files",
-    "uploadRatio", "secondsSeeding", "addedDate",
+    "uploadRatio", "secondsSeeding", "addedDate", "trackerStats",
 ]
 
 
@@ -225,4 +226,7 @@ class TransmissionAdapter(TorrentClientAdapter):
             ratio=float(ratio) if isinstance(ratio, (int, float)) and ratio >= 0 else None,
             seeding_time_seconds=torrent.get("secondsSeeding"),
             added_on=torrent.get("addedDate") or None,
+            # Il più alto fra i tracker (-1: quel tracker non l'ha detto).
+            swarm_seeders=seeders(max((t.get("seederCount", -1) for t in torrent.get("trackerStats") or []),
+                                      default=None)),
         )

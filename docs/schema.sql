@@ -430,6 +430,7 @@ CREATE TABLE IF NOT EXISTS client_torrent (
     last_polled_at      TIMESTAMP NOT NULL,
     ratio               REAL,                   -- as reported by the client (Not imported view). Additive, nullable.
     seeding_time_seconds INTEGER,               -- ditto
+    swarm_seeders       INTEGER,                -- seeders in the swarm per the tracker scrape, us included. Nullable.
     UNIQUE(torrent_client_id, info_hash)
 );
 

@@ -47,6 +47,7 @@ from nazgarr.adapters.torrent_client.base import (
     TorrentStatus,
     local_torrent_bytes,
     require_recheck,
+    seeders,
     wait_for_hash,
 )
 
@@ -57,6 +58,7 @@ ERROR = {"Error"}
 STATUS_KEYS = ["hash", "state", "progress", "total_wanted", "total_done", "paused", "is_auto_managed"]
 INFO_KEYS = [
     "hash", "name", "save_path", "state", "label", "trackers", "files", "ratio", "seeding_time", "time_added",
+    "total_seeds",
 ]
 NOT_AUTHENTICATED = 1  # codice d'errore della Web UI senza sessione
 
@@ -266,4 +268,5 @@ class DelugeAdapter(TorrentClientAdapter):
             ratio=_number(torrent.get("ratio"), float) if (torrent.get("ratio") or 0) >= 0 else None,
             seeding_time_seconds=_number(torrent.get("seeding_time"), int),
             added_on=_number(torrent.get("time_added"), int),
+            swarm_seeders=seeders(torrent.get("total_seeds")),
         )

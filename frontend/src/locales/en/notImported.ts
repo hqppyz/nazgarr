@@ -45,6 +45,7 @@ export const notImported = {
   'notImported.removable.warning.client_error': 'The client reports an error ({state}).',
   'notImported.removable.warning.checking': 'The client is checking it ({state}).',
   'notImported.removable.warning.downloading': 'Still downloading ({state}).',
+  'notImported.removable.warning.last_seeder': "According to the tracker you are the last seeder: once it is gone, nobody can download it anymore.",
   'notImported.removable.met': 'Safe to remove',
   'notImported.removable.metHelp': '{tracker} asks for {rule}: met.',
   'notImported.removable.left': '{left} left',

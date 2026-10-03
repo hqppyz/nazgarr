@@ -39,6 +39,7 @@ from nazgarr.adapters.torrent_client.base import (
     TorrentAlreadyInClientError,
     TorrentClientAdapter,
     TorrentStatus,
+    seeders,
 )
 
 logger = logging.getLogger(__name__)
@@ -203,6 +204,7 @@ class QBittorrentAdapter(TorrentClientAdapter):
                     ratio=_number(getattr(torrent, "ratio", None), float),
                     seeding_time_seconds=_number(getattr(torrent, "seeding_time", None), int),
                     added_on=_number(getattr(torrent, "added_on", None), int),
+                    swarm_seeders=seeders(getattr(torrent, "num_complete", None)),
                 )
             )
             if on_progress is not None:

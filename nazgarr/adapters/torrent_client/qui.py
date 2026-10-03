@@ -49,6 +49,7 @@ from nazgarr.adapters.torrent_client.base import (
     TorrentAlreadyInClientError,
     TorrentClientAdapter,
     TorrentStatus,
+    seeders,
 )
 
 logger = logging.getLogger(__name__)
@@ -254,6 +255,7 @@ class QuiTorrentClientAdapter(TorrentClientAdapter):
             ratio=_number(torrent.get("ratio"), float),
             seeding_time_seconds=_number(torrent.get("seeding_time"), int),
             added_on=_number(torrent.get("added_on"), int),
+            swarm_seeders=seeders(torrent.get("num_complete")),
         )
 
     def _first_tracker_url(self, info_hash: str) -> str | None:

@@ -520,6 +520,7 @@ class ClientTorrent(Base):
     added_at: Mapped[datetime | None]
     ratio: Mapped[float | None]
     seeding_time_seconds: Mapped[int | None]
+    swarm_seeders: Mapped[int | None]  # seeder dello sciame (scrape del tracker), noi compresi
     last_polled_at: Mapped[datetime] = mapped_column(nullable=False)
 
 

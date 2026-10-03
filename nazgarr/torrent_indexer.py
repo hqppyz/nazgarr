@@ -166,6 +166,7 @@ def store_client_torrents(
             "last_polled_at": now,
             "ratio": t.ratio,
             "seeding_time_seconds": t.seeding_time_seconds,
+            "swarm_seeders": t.swarm_seeders,
             "added_at": datetime.fromtimestamp(t.added_on, UTC) if t.added_on else None,
         }
         for t in torrents
@@ -175,7 +176,7 @@ def store_client_torrents(
         conflict_cols=["torrent_client_id", "info_hash"],
         update_cols=[
             "name", "save_path", "category", "tracker_url", "state", "last_polled_at",
-            "ratio", "seeding_time_seconds", "added_at",
+            "ratio", "seeding_time_seconds", "added_at", "swarm_seeders",
         ],
     )
     session.commit()

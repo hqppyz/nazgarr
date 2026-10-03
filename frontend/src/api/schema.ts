@@ -3241,6 +3241,8 @@ export interface components {
             excluded: boolean;
             source?: components["schemas"]["TorrentSource"] | null;
             seed_requirement: components["schemas"]["SeedRequirement"];
+            /** Swarm Seeders */
+            swarm_seeders?: number | null;
             /**
              * Removal Warnings
              * @default []

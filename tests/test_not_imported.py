@@ -276,3 +276,25 @@ def test_files_shared_with_another_torrent_are_never_deleted(db_session, tmp_pat
     with pytest.raises(HTTPException) as error:
         remove_not_imported(rows["h-old"].id, RemoveRequest(delete_files=True), session=db_session)
     assert error.value.detail == {"code": "removal_blocked", "params": {"reason": "shared_files"}}
+
+
+def test_the_last_seeder_is_a_warning_that_does_not_block_removal(db_session, tmp_path, monkeypatch):
+    from nazgarr.api import torrents as api
+    from nazgarr.api.torrents import RemoveRequest, list_not_imported, removal_warnings, remove_not_imported
+
+    assert [w.code for w in removal_warnings("uploading", [], 1)] == ["last_seeder"]
+    assert removal_warnings("uploading", [], 5) == removal_warnings("uploading", [], None) == []
+
+    index = _setup(db_session, tmp_path)
+    rows = _met(db_session, index, "h-old")
+    rows["h-old"].swarm_seeders = 1
+    db_session.commit()
+    item = next(t for t in list_not_imported(session=db_session).torrents if t.info_hash == "h-old")
+    assert item.swarm_seeders == 1 and [w.code for w in item.removal_warnings] == ["last_seeder"]
+
+    removed = []
+    monkeypatch.setattr(api.adapter_factory, "build_torrent_client_adapter", lambda row: type(
+        "C", (), {"remove_torrent": lambda self, h, delete_files: removed.append(h)})())
+    remove_not_imported(rows["h-old"].id, RemoveRequest(delete_files=True), session=db_session)
+    assert removed == ["h-old"]
+

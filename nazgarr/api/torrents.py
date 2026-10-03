@@ -95,6 +95,7 @@ class NotImportedItem(BaseModel):
     source: TorrentSource | None = None  # None se i suoi file non sono nell'indice dell'ultima scan
     # Requisito di seed del tracker e se è soddisfatto (nazgarr/seed_requirements.py).
     seed_requirement: SeedRequirement
+    swarm_seeders: int | None = None  # seeder dello sciame secondo il tracker, noi compresi
     removal_warnings: list[RemovalWarning] = []
 
 
@@ -116,8 +117,13 @@ def _shared_with(session: Session) -> dict[int, list[str]]:
     return {tid: sorted(names.get(o, "?") for o in group) for tid, group in others.items()}
 
 
-def removal_warnings(state: str | None, shared: list[str]) -> list[RemovalWarning]:
+def removal_warnings(state: str | None, shared: list[str], swarm_seeders: int | None = None) -> list[RemovalWarning]:
     out = []
+    # Il tracker dice che nello sciame c'è un solo seeder, noi: togliendolo il
+    # torrent muore. Non blocca la rimozione, ma va detto (decisione
+    # dell'utente, 2026-10-03).
+    if swarm_seeders == 1:
+        out.append(RemovalWarning(code="last_seeder", params={}))
     if shared:
         params = {"count": len(shared), "torrents": ", ".join(shared[:3])}
         out.append(RemovalWarning(code="shared_files", params=params))
@@ -208,7 +214,8 @@ def list_not_imported(session: Session = Depends(get_session)):
             seed_requirement=SeedRequirement(**seed_requirements.evaluate(
                 requirements.get(torrent_host(ct.tracker_url)), ct.ratio, ct.seeding_time_seconds,
             )),
-            removal_warnings=removal_warnings(ct.state, shared.get(ct.id, [])),
+            swarm_seeders=ct.swarm_seeders,
+            removal_warnings=removal_warnings(ct.state, shared.get(ct.id, []), ct.swarm_seeders),
         ))
     torrents.sort(key=lambda t: t.total_bytes, reverse=True)
     status = not_imported.load_status(session)
