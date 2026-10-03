@@ -33,10 +33,11 @@ class _Client(sdk.TorrentClientAdapter):
 
 @pytest.fixture
 def deluge():
-    spec = sdk.register(sdk.AdapterSpec("torrent_client", "deluge", "Deluge", lambda ctx: _Client(ctx.config),
-                                        config_fields=FIELDS, plugin="nazgarr-deluge"))
+    # Un client che Nazgarr non ha già integrato (Deluge ora lo è).
+    spec = sdk.register(sdk.AdapterSpec("torrent_client", "flood", "Flood", lambda ctx: _Client(ctx.config),
+                                        config_fields=FIELDS, plugin="nazgarr-flood"))
     yield spec
-    REGISTRY.unregister("torrent_client", "deluge")
+    REGISTRY.unregister("torrent_client", "flood")
 
 
 def test_values_are_checked_against_the_declared_fields(deluge):
@@ -60,7 +61,7 @@ def test_values_are_checked_against_the_declared_fields(deluge):
 
 
 def test_a_plugin_client_is_configured_through_the_api_and_its_secret_never_comes_back(client, deluge):
-    body = {"label": "Deluge", "adapter_type": "deluge", "base_url": "http://d:8112"}
+    body = {"label": "Flood", "adapter_type": "flood", "base_url": "http://d:8112"}
     assert client.post("/api/torrent-clients", json=body).status_code == 400  # campi obbligatori mancanti
 
     created = client.post("/api/torrent-clients", json={**body, "config": {"url": "http://d:8112", "password": "pw"}})

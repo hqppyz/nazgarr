@@ -13,8 +13,11 @@ from nazgarr.adapters.image_host.ptpimg import PtpimgAdapter
 from nazgarr.adapters.image_host.ptscreens import PtscreensAdapter
 from nazgarr.adapters.image_host.seedpool_cdn import SeedpoolCdnAdapter
 from nazgarr.adapters.image_host.utppm import UtppmAdapter
+from nazgarr.adapters.torrent_client.deluge import DelugeAdapter
 from nazgarr.adapters.torrent_client.qbittorrent import QBittorrentAdapter
 from nazgarr.adapters.torrent_client.qui import QuiTorrentClientAdapter
+from nazgarr.adapters.torrent_client.rtorrent import RTorrentAdapter
+from nazgarr.adapters.torrent_client.transmission import TransmissionAdapter
 from nazgarr.adapters.tracker.base import Unit3dTrackerAdapter
 from nazgarr.plugins.registry import AdapterContext, AdapterSpec, ConfigField, register
 
@@ -35,6 +38,21 @@ def _qui(ctx: AdapterContext) -> QuiTorrentClientAdapter:
     return QuiTorrentClientAdapter(base_url=tc.base_url, api_token=tc.api_token, instance_id=tc.qui_instance_id)
 
 
+def _deluge(ctx: AdapterContext) -> DelugeAdapter:
+    # La Web UI di Deluge ha solo la password, nessun utente.
+    return DelugeAdapter(base_url=ctx.row.base_url, password=ctx.row.password)
+
+
+def _transmission(ctx: AdapterContext) -> TransmissionAdapter:
+    tc = ctx.row
+    return TransmissionAdapter(base_url=tc.base_url, username=tc.username, password=tc.password)
+
+
+def _rtorrent(ctx: AdapterContext) -> RTorrentAdapter:
+    tc = ctx.row
+    return RTorrentAdapter(base_url=tc.base_url, username=tc.username, password=tc.password)
+
+
 def _unit3d(ctx: AdapterContext) -> Unit3dTrackerAdapter:
     tracker = ctx.row
     return Unit3dTrackerAdapter(
@@ -49,6 +67,9 @@ def _keyed(cls):
 
 register(AdapterSpec("torrent_client", "qbittorrent", "qBittorrent", _qbittorrent))
 register(AdapterSpec("torrent_client", "qui", "qui", _qui))
+register(AdapterSpec("torrent_client", "deluge", "Deluge", _deluge))
+register(AdapterSpec("torrent_client", "transmission", "Transmission", _transmission))
+register(AdapterSpec("torrent_client", "rutorrent", "rTorrent / ruTorrent", _rtorrent))
 register(AdapterSpec("tracker", "unit3d", "UNIT3D", _unit3d))
 
 for adapter_type, label, cls in (
