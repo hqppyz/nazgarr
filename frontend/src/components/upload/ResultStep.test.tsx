@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 
@@ -21,11 +22,16 @@ describe('ResultStep', () => {
       ],
     } as unknown as UploadJob
 
-    render(<ResultStep job={job} />)
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <ResultStep job={job} />
+      </QueryClientProvider>,
+    )
 
     expect(screen.getByText('Partly done: some trackers failed')).toBeTruthy()
     expect(screen.getByRole('link', { name: /Open on the tracker/ }).getAttribute('href')).toBe('https://itt/torrents/5')
     expect(screen.getByText(/adding it to the client failed/)).toBeTruthy()
+    expect(screen.getAllByRole('button', { name: /Retry seeding/ })).toHaveLength(1) // solo dove il seed è fallito
     expect(screen.getByText('Upload failed: rejected: dupe')).toBeTruthy()
   })
 })

@@ -362,6 +362,58 @@ def _add_to_client(
     return info_hash
 
 
+# Gli errori di un upload pubblicato ma non in seed, da cui si può riprovare.
+SEED_RETRYABLE = ("seed_failed", "no_client")
+
+
+def _seed_candidates(session: Session, job: UploadJob) -> list[str]:
+    """Dove possono stare i file di un upload pubblicato: la cartella di
+    seed (con la cartella dei nomi nuovi, se c'è) o accanto alla sorgente."""
+    candidates = []
+    with contextlib.suppress(UploadJobError):
+        root = seed_root(job)
+        with contextlib.suppress(Exception):
+            folder = upload_file_names.plan(session, job).folder
+            if folder:
+                candidates.append(os.path.join(root, *folder.split("/")))
+        candidates.append(root)
+    candidates.append(os.path.dirname(job.source_path.rstrip(os.sep)))
+    return candidates
+
+
+def retry_seed(session: Session, job: UploadJob, target: UploadTarget) -> None:
+    """Di nuovo solo l'aggiunta al client di un upload già pubblicato (il
+    .torrent salvato dal tracker), mai l'upload. Con il recheck del client:
+    i file potrebbero essere cambiati da quando Nazgarr li ha letti."""
+    if target.action != "upload" or target.status != "done" or target.error_message not in SEED_RETRYABLE:
+        raise UploadJobError("upload_seed_retry_unavailable")
+    if not target.torrent_path or not os.path.isfile(target.torrent_path):
+        raise UploadJobError("upload_tracker_torrent_unavailable")
+    if _client(session, target)[0] is None:
+        # Senza client all'upload (no_client) o con quello di allora tolto:
+        # quello che il tracker userebbe oggi.
+        target.torrent_client_id = upload_jobs.default_client_id(session, target.tracker)
+    torrent = torf.Torrent.read(target.torrent_path)
+    save_path = next((p for p in _seed_candidates(session, job) if files_in_place(torrent, p)), None)
+    if save_path is None:
+        raise UploadJobError("upload_seed_files_missing")
+    try:
+        info_hash = _add_to_client(session, job, target, target.torrent_path, save_path)
+    except Exception as exc:
+        session.rollback()
+        upload_jobs.log_event(session, job, "seed_failed", level="error", target=target,
+                              error=getattr(exc, "code", None) or str(exc))
+        session.commit()
+        raise UploadJobError("upload_seed_retry_failed", error=getattr(exc, "code", None) or str(exc)) from exc
+    if info_hash is None:  # nessun client: _add_to_client l'ha già scritto
+        session.commit()
+        raise UploadJobError("upload_seed_retry_failed", error="no_client")
+    target.info_hash = info_hash
+    target.error_message = None
+    upload_jobs.log_event(session, job, "seed_retried", target=target, client=target.torrent_client.label)
+    session.commit()
+
+
 def _upload_pairs(job: UploadJob, torrent: torf.Torrent, root: str) -> list[tuple[str, str]]:
     """(file locale, destinazione) per ogni file del torrent. Vuoto se la
     sorgente è già nella cartella di seeding (o in quella per gli upload):

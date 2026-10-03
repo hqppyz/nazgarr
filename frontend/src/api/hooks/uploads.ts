@@ -142,6 +142,25 @@ export function useVerifyTarget(uploadId: number) {
   })
 }
 
+// Di nuovo solo l'aggiunta al client di un upload pubblicato ma non in seed.
+export function useRetrySeed(uploadId: number) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (targetId: number) =>
+      unwrap(
+        api.POST('/api/uploads/{upload_id}/targets/{target_id}/retry-seed', {
+          params: { path: { upload_id: uploadId, target_id: targetId } },
+        }),
+      ),
+    onSuccess: (job) => {
+      queryClient.setQueryData(['uploads', uploadId], job)
+      queryClient.invalidateQueries({ queryKey: ['uploads'] })
+    },
+    // Anche un tentativo fallito aggiunge il suo evento al registro.
+    onError: () => queryClient.invalidateQueries({ queryKey: ['uploads', uploadId] }),
+  })
+}
+
 export function useUpdateOverrides(uploadId: number) {
   const queryClient = useQueryClient()
   return useMutation({

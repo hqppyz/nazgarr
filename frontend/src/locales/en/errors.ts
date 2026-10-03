@@ -112,6 +112,9 @@ export const errors = {
   'errors.upload_screenshots_failed': 'Could not make or upload the screenshots: {error}',
   'errors.upload_tracker_torrent_unavailable':
     "Could not download the torrent back from the tracker, so it can't be seeded: add it to the client from the tracker's page.",
+  'errors.upload_seed_retry_unavailable': "Nothing to retry: this tracker's upload is already seeding, or was not published.",
+  'errors.upload_seed_files_missing': "The files of this upload are no longer where the client should find them.",
+  'errors.upload_seed_retry_failed': "Adding to the client failed again: {error}",
   'errors.upload_reseed_missing_video': "The tracker's torrent has a video Nazgarr can't find locally: {path}",
   'errors.upload_freeleech_not_allowed': '{tracker} does not allow a {value}% freeleech.',
   'errors.tracker_icon_not_available': 'This tracker has no usable icon.',

@@ -715,3 +715,50 @@ def test_the_season_name_of_an_episode():
     assert (season_name("Show (2020) - S02E05 - Title [WEBDL-1080p]", [1, 3])
             == "Show (2020) - S01-S03 - Title [WEBDL-1080p]")
     assert season_name("Show.Season.Pack", [1]) == "Show.Season.Pack"
+
+
+def test_seeding_can_be_retried_without_uploading_again(db_session, tmp_path, env, monkeypatch):
+    video = write_video(env["root"] / "media" / "The.Matrix.1999.1080p.WEB-DL.H.264-GRP.mkv", 300 * KB)
+    job = _approved(db_session, env, "media/" + video.name, {"a": _upload("A"), "b": {"action": "skip"}})
+    client = env["client"]
+    real_add = client.add_torrent
+
+    def broken(*args, **kwargs):
+        raise RuntimeError("No such file or directory")
+
+    monkeypatch.setattr(client, "add_torrent", broken)
+    _run(db_session, tmp_path, job)
+    target = job.targets[0]
+    assert (target.status, target.error_message) == ("done", "seed_failed")
+    uploads = len(env["trackers"]["a"].uploads)
+
+    # Fallisce ancora: resta seed_failed, con il motivo.
+    with pytest.raises(UploadJobError) as failed:
+        upload_execute.retry_seed(db_session, job, target)
+    assert failed.value.code == "upload_seed_retry_failed" and target.error_message == "seed_failed"
+
+    monkeypatch.setattr(client, "add_torrent", real_add)
+    upload_execute.retry_seed(db_session, job, target)
+
+    assert target.error_message is None
+    assert client.added == [(target.torrent_path, str(env["root"] / "torrents"))]
+    assert client.skipped == [False]  # un nuovo tentativo ha sempre il recheck del client
+    assert len(env["trackers"]["a"].uploads) == uploads  # nessun nuovo upload
+    assert "seed_retried" in [e.code for e in job.events]
+    with pytest.raises(UploadJobError) as again:
+        upload_execute.retry_seed(db_session, job, target)
+    assert again.value.code == "upload_seed_retry_unavailable"
+
+
+def test_seeding_is_not_retried_when_the_files_are_gone(db_session, tmp_path, env, monkeypatch):
+    video = write_video(env["root"] / "media" / "Movie.2024.mkv", 100 * KB)
+    job = _approved(db_session, env, "media/" + video.name, {"a": _upload("A"), "b": {"action": "skip"}})
+    monkeypatch.setattr(env["client"], "add_torrent", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("x")))
+    _run(db_session, tmp_path, job)
+    target = job.targets[0]
+    os.unlink(env["root"] / "torrents" / video.name)
+    os.unlink(video)
+
+    with pytest.raises(UploadJobError) as missing:
+        upload_execute.retry_seed(db_session, job, target)
+    assert missing.value.code == "upload_seed_files_missing"

@@ -245,9 +245,11 @@ export const upload = {
   'upload.result.failed': 'Nothing was published',
   'upload.result.cancelled': 'Cancelled',
   'upload.result.openOnTracker': 'Open on the tracker',
+  'upload.result.retrySeed': "Retry seeding",
+  'upload.result.seedRetried': "Added to the client.",
   'upload.result.warning.seed_failed':
-    'Published, but adding it to the client failed: add the torrent by hand (see the activity below).',
-  'upload.result.warning.no_client': 'Published, but no client is configured for this tracker: add it by hand.',
+    'Published, but adding it to the client failed (see the activity below): retry, or add the torrent by hand.',
+  'upload.result.warning.no_client': 'Published, but no client is configured for this tracker: set one up and retry, or add it by hand.',
 
   'upload.history.activeTab': 'In progress ({count})',
   'upload.history.historyTab': 'History ({count})',
@@ -333,6 +335,7 @@ export const upload = {
     'Some files are not where the client will look for them ({path}): added with a full recheck.',
   'upload.event.no_client': 'No client configured for this tracker.',
   'upload.event.seed_failed': 'Published, but seeding failed: {error}',
+  'upload.event.seed_retried': "Seeding again: added to {client} with a full recheck.",
   'upload.event.reseeded': 'Torrent {torrent} added back to the client on your files.',
   'upload.event.upload_failed': 'Upload failed: {error}',
   'upload.event.reseed_failed': 'Reseed failed: {error}',

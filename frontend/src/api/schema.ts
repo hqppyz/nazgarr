@@ -1517,6 +1517,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/uploads/{upload_id}/targets/{target_id}/retry-seed": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Retry Seed
+         * @description Di nuovo l'aggiunta al client di un upload pubblicato ma non in seed
+         *     (seed_failed, no_client): il .torrent del tracker già salvato, nessun
+         *     nuovo upload.
+         */
+        post: operations["retry_seed_api_uploads__upload_id__targets__target_id__retry_seed_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/uploads/{upload_id}/overrides": {
         parameters: {
             query?: never;
@@ -7516,6 +7538,38 @@ export interface operations {
                 "application/json": components["schemas"]["UploadVerifyRequest"];
             };
         };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadJobDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    retry_seed_api_uploads__upload_id__targets__target_id__retry_seed_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                upload_id: number;
+                target_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {

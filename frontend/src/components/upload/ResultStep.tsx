@@ -1,9 +1,11 @@
-import { CircleAlertIcon, CircleCheckIcon, ExternalLinkIcon, TriangleAlertIcon } from 'lucide-react'
+import { CircleAlertIcon, CircleCheckIcon, ExternalLinkIcon, RotateCcwIcon, TriangleAlertIcon } from 'lucide-react'
+import { toast } from 'sonner'
 
-import type { UploadJob } from '@/api/hooks/uploads'
+import { useRetrySeed, type UploadJob } from '@/api/hooks/uploads'
 import { ExecutionSteps } from '@/components/upload/ExecutionSteps'
 import { ActionBadge } from '@/components/upload/TrackerCheckCard'
 import { UploadStatusBadge } from '@/components/upload/UploadStatusBadge'
+import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { t } from '@/lib/i18n'
 import { eventMessage, executionSteps } from '@/lib/upload'
@@ -11,8 +13,12 @@ import { safeHref } from '@/lib/safeUrl'
 
 // Esito finale, tracker per tracker: cosa è stato fatto, il link al
 // torrent sul tracker e, se qualcosa è andato storto, perché (l'ultimo
-// errore del registro eventi per quel tracker).
+// errore del registro eventi per quel tracker). Pubblicato ma non in seed:
+// "Riprova il seed" rifà solo l'aggiunta al client.
+const SEED_RETRYABLE = ['seed_failed', 'no_client']
+
 export function ResultStep({ job }: { job: UploadJob }) {
+  const retrySeed = useRetrySeed(job.id)
   const lastError = (targetId: number) =>
     [...job.events].reverse().find((event) => event.target_id === targetId && event.level === 'error')
   return (
@@ -55,6 +61,23 @@ export function ResultStep({ job }: { job: UploadJob }) {
                   <TriangleAlertIcon className="mt-0.5 size-3.5 shrink-0" />
                   {t(`upload.result.warning.${target.error_message}`)}
                 </p>
+              )}
+              {target.status === 'done' && target.action === 'upload' && SEED_RETRYABLE.includes(target.error_message ?? '') && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-fit"
+                  disabled={retrySeed.isPending}
+                  onClick={() =>
+                    retrySeed.mutate(target.id, {
+                      onSuccess: () => toast.success(t('upload.result.seedRetried')),
+                      onError: (e) => toast.error(e.message),
+                    })
+                  }
+                >
+                  <RotateCcwIcon className="size-4" />
+                  {t('upload.result.retrySeed')}
+                </Button>
               )}
               {target.status === 'failed' && (
                 <p className="flex items-start gap-1.5 text-xs text-red-600 dark:text-red-400">
