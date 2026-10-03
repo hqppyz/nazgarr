@@ -19,7 +19,7 @@ BASE_VERSION + "-dev": a colpo d'occhio non si confonde con una release."""
 
 import os
 
-BASE_VERSION = "0.7.0"
+BASE_VERSION = "0.8.0"
 
 # Il pacchetto Python (pipx, scripts/build_package.sh) porta con sé la sua
 # versione in nazgarr/_build_info.py, scritto al momento della build.
