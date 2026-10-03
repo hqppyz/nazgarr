@@ -22,6 +22,7 @@ vi.mock('@/api/hooks/metadata', () => ({
             tmdb_id: 95396, content_type: 'tv', title: 'Severance', year: 2022, poster_path: null, genres: ['Drama'],
             runtime: 50, imdb_id: 'tt11280740', tvdb_id: 371980, cast: ['Adam Scott'], original_language: 'en',
             seasons: [
+              { season_number: 0, name: 'Specials', episode_count: 3, air_date: null },
               { season_number: 1, name: 'Season 1', episode_count: 9, air_date: null },
               { season_number: 2, name: 'Season 2', episode_count: 10, air_date: null },
             ],
@@ -62,6 +63,16 @@ describe('MatchStep', () => {
       { content_type: 'tv', tmdb_id: 95396, kind: 'season_pack', seasons: [2], episode: null },
       expect.anything(),
     )
+  })
+
+  it('offers the specials (season 0) last, even when the source does not say so', () => {
+    render(<MatchStep job={job} />)
+
+    const seasons = screen.getAllByRole('radio').filter((s) => /Specials|Season \d/.test(s.textContent ?? ''))
+    expect(seasons.map((s) => s.textContent?.match(/Specials|Season \d/)?.[0])).toEqual(['Season 1', 'Season 2', 'Specials'])
+    fireEvent.click(seasons[2])
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm match' }))
+    expect(confirm.mock.calls.at(-1)?.[0]).toMatchObject({ kind: 'season_pack', seasons: [0] })
   })
 
   it('switches to a movie candidate and sends it as a movie', () => {

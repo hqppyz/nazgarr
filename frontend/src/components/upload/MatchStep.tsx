@@ -291,10 +291,12 @@ function SeasonPicker({
   // conosce (numerazione diversa): si vedono comunque, con l'avviso.
   const tmdbSeasons = details?.seasons ?? []
   const known = new Set(tmdbSeasons.map((s) => s.season_number))
+  // La stagione 0 (Specials) c'è sempre, in fondo: anche quando la sorgente
+  // non la dichiara (episodi speciali senza S00 nel nome).
   const rows = [
-    ...tmdbSeasons.filter((s) => s.season_number > 0 || detected.has(0)),
+    ...tmdbSeasons,
     ...[...detected].filter((n) => !known.has(n)).map((n) => ({ season_number: n, name: null, episode_count: 0, air_date: null })),
-  ].sort((a, b) => a.season_number - b.season_number)
+  ].sort((a, b) => Number(a.season_number === 0) - Number(b.season_number === 0) || a.season_number - b.season_number)
   const unknownDetected = details ? [...detected].filter((n) => !known.has(n)) : []
   const multiple = kind === 'complete_pack'
 
@@ -345,7 +347,7 @@ function SeasonPicker({
               >
                 {active && <CheckIcon className="size-2.5" />}
               </span>
-              <span className="font-medium">{t('upload.match.seasonN', { n })}</span>
+              <span className="font-medium">{n === 0 ? t('upload.match.specials') : t('upload.match.seasonN', { n })}</span>
               {detected.has(n) && <Badge variant="secondary" className="h-4 px-1 text-[10px]">{t('upload.match.detected')}</Badge>}
               <span className="ml-auto text-muted-foreground tabular-nums">
                 {season.episode_count

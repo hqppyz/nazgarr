@@ -86,3 +86,23 @@ def test_a_movie_folder_reads_the_file_name_first_and_the_folder_for_what_is_mis
     write_video(tmp_path / "Other Movie (2019)" / "Other.Movie.1080p.BluRay.x264-GRP.mkv")
     layout = scan_source(str(tmp_path / "Other Movie (2019)"))
     assert (layout.title, layout.year) == ("Other Movie", 2019)
+
+
+def test_specials_are_season_zero(tmp_path):
+    # S00 nel nome dei file.
+    folder = tmp_path / "Show.Name.S00.1080p.WEB-DL-GRP"
+    for ep in (1, 2):
+        write_video(folder / f"Show.Name.S00E0{ep}.1080p.WEB-DL-GRP.mkv")
+    layout = scan_source(str(folder))
+    assert (layout.kind, layout.seasons, layout.episodes_by_season) == ("season_pack", [0], {0: [1, 2]})
+
+    # La cartella Specials di Plex/Sonarr, con episodi senza stagione nel nome.
+    show = tmp_path / "Show Name (2019)"
+    write_video(show / "Specials" / "Show Name - 01 - Behind the Scenes.mkv")
+    write_video(show / "Season 01" / "Show Name - 01 - Pilot.mkv")
+    layout = scan_source(str(show))
+    assert layout.kind == "complete_pack" and layout.episodes_by_season == {0: [1], 1: [1]}
+
+    # La cartella Specials scelta da sola.
+    layout = scan_source(str(show / "Specials"))
+    assert (layout.content_type, layout.seasons) == ("tv", [0])

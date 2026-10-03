@@ -54,6 +54,17 @@ def _seasons(guess: dict) -> list[int]:
     return [s for s in _as_list(guess.get("season")) if isinstance(s, int) and 0 <= s < _MAX_PLAUSIBLE_SEASON]
 
 
+# La cartella degli speciali di Plex, Jellyfin e Sonarr ("Show/Specials"):
+# è la stagione 0, ma guessit nel nome non trova una stagione.
+_SPECIALS_FOLDERS = {"specials", "special", "speciali"}
+
+
+def _folder_seasons(name: str) -> list[int]:
+    if name.strip().lower() in _SPECIALS_FOLDERS:
+        return [0]
+    return _seasons(guess_name(name))
+
+
 def _is_sample(name: str, size: int) -> bool:
     return "sample" in name.lower() and size < SAMPLE_MAX_BYTES
 
@@ -113,11 +124,12 @@ def scan_source(
 
     # Un episodio senza stagione nel nome del file la prende dalla cartella
     # (".../Season 2/03.mkv"), e in ultima istanza dal nome della sorgente.
-    folder_seasons = _seasons(name_guess)
+    folder_seasons = _seasons(name_guess) or (
+        _folder_seasons(os.path.basename(source_path.rstrip(os.sep))) if os.path.isdir(source_path) else [])
     for video in videos:
         if video.season is None and video.episodes:
             parent = os.path.basename(os.path.dirname(video.relative_path))
-            parent_seasons = _seasons(guess_name(parent)) if parent else []
+            parent_seasons = _folder_seasons(parent) if parent else []
             fallback = parent_seasons or (folder_seasons if len(folder_seasons) == 1 else [])
             video.season = fallback[0] if fallback else None
 

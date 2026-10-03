@@ -110,6 +110,7 @@ export const upload = {
   'upload.match.seasonLabel': 'Season',
   'upload.match.seasonsLabel': 'Seasons',
   'upload.match.seasonN': 'Season {n}',
+  'upload.match.specials': "Specials (season 0)",
   'upload.match.detected': 'from the name',
   'upload.match.episodesFound': '{found}/{expected} episodes',
   'upload.match.episodesFoundNoTotal': '{found} episodes',
