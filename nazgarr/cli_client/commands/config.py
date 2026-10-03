@@ -273,6 +273,8 @@ def _plan_trackers(plan: Planner, wanted: list[dict], client_ids: dict) -> None:
             def create(spec=spec, token=token, announce=announce, fields=fields, holder=holder, client_id=client_id):
                 body = {"label": spec["label"], "adapter_type": spec.get("type", "unit3d"), "base_url": spec["url"],
                         "api_token": token, "announce_url": announce, "torrent_client_id": client_id(),
+                        # Il profilo del file lo crea il passo dopo, come è scritto lì.
+                        "upload_profile": "none" if spec.get("upload_profile") else None,
                         **{k: v for k, v in fields.items() if k not in ("base_url", "enabled")}}
                 holder.update(client.post("/api/trackers", {k: v for k, v in body.items() if v is not None}))
                 if spec.get("enabled") is False:

@@ -81,4 +81,8 @@ export const trackers = {
   'trackers.seedRequirement.any': 'Either one',
   'trackers.seedRequirement.all': 'Both',
   'trackers.sectionDescription': 'Your private trackers: where reseeds are searched and uploads published.',
+  'trackers.restoreProfile': "Restore",
+  'trackers.restoreHelpCustom': "Custom profile. You can replace it with one of the bundled ones, for example after changing it too much.",
+  'trackers.restoreConfirm': "Replace this profile with the bundled \"{profile}\"? Category, type and resolution ids, naming rules, description and defaults go back to the bundled ones: your changes are lost.",
+  'trackers.restored': "Profile \"{profile}\" restored.",
 } as const

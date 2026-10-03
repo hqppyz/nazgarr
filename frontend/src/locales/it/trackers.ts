@@ -81,4 +81,8 @@ export const trackers = {
   'trackers.seedRequirement.any': 'Uno dei due',
   'trackers.seedRequirement.all': 'Entrambi',
   'trackers.sectionDescription': 'I tuoi tracker privati: dove si cercano i reseed e si pubblicano gli upload.',
+  'trackers.restoreProfile': "Ripristina",
+  'trackers.restoreHelpCustom': "Profilo personalizzato. Puoi sostituirlo con uno di quelli inclusi, ad esempio dopo averlo modificato troppo.",
+  'trackers.restoreConfirm': "Sostituire questo profilo con \"{profile}\" incluso? Id di categoria, tipo e risoluzione, regole di naming, descrizione e default tornano quelli inclusi: le tue modifiche si perdono.",
+  'trackers.restored': "Profilo \"{profile}\" ripristinato.",
 } as const

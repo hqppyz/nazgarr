@@ -129,3 +129,53 @@ def test_naming_preview_uses_an_example_without_uploads(client):
     # Ogni esempio col suo pattern: il remux quello per i REMUX appena cambiato.
     assert names["uhd_remux"] == preview["names"]["REMUX"]
     assert " 1080p FullHD BluRay " in names["fhd_encode"]
+
+
+def test_a_tracker_at_a_bundled_address_gets_its_upload_profile(client):
+    body = {"label": "ITT", "adapter_type": "unit3d", "api_token": "x"}
+    itt = client.post("/api/trackers", json={**body, "base_url": "https://www.itatorrents.xyz/"}).json()
+    assert itt["upload_profile"]["source_profile_key"] == "itt"
+    assert itt["language"] == "it"
+
+    other = client.post("/api/trackers", json={**body, "label": "Other", "base_url": "https://other.example"}).json()
+    assert other["upload_profile"] is None
+
+    none = client.post("/api/trackers", json={**body, "label": "ITT 2", "base_url": "https://itatorrents.xyz",
+                                              "upload_profile": "none"}).json()
+    assert none["upload_profile"] is None
+
+    chosen = client.post("/api/trackers", json={**body, "label": "Mirror", "base_url": "https://mirror.example",
+                                                "upload_profile": "itt"}).json()
+    assert chosen["upload_profile"]["source_profile_key"] == "itt"
+
+    before = len(client.get("/api/trackers").json())
+    bad = client.post("/api/trackers", json={**body, "label": "Bad", "base_url": "https://bad.example",
+                                             "upload_profile": "nope"})
+    assert bad.status_code == 400 and bad.json()["detail"]["code"] == "bundled_profile_not_found"
+    assert len(client.get("/api/trackers").json()) == before  # niente tracker a metà
+
+
+def test_an_upload_profile_can_be_restored_from_the_bundled_one(client):
+    tracker_id = client.post("/api/trackers", json={
+        "label": "ITT", "adapter_type": "unit3d", "base_url": "https://itatorrents.xyz", "api_token": "x",
+    }).json()["id"]
+    original = client.get(f"/api/trackers/{tracker_id}/upload-profile").json()
+    client.patch(f"/api/trackers/{tracker_id}/upload-profile", json={
+        "type_id_map": {"REMUX": 999}, "description_template": "mine", "default_anonymous": True,
+        "naming_rules": {**original["naming_rules"], "sdr_label": "STD"},
+    })
+
+    restored = client.post(f"/api/trackers/{tracker_id}/upload-profile/restore", json={}).json()
+    for key in ("type_id_map", "description_template", "default_anonymous", "naming_rules"):
+        assert restored[key] == original[key], key
+    assert restored["naming_customized"] is False
+
+    # Un profilo custom vuoto diventa quello scelto.
+    other = client.post("/api/trackers", json={
+        "label": "Other", "adapter_type": "unit3d", "base_url": "https://other.example", "api_token": "x",
+    }).json()["id"]
+    client.post(f"/api/trackers/{other}/upload-profile", json={"profile_key": None})
+    missing = client.post(f"/api/trackers/{other}/upload-profile/restore", json={})
+    assert missing.status_code == 400
+    chosen = client.post(f"/api/trackers/{other}/upload-profile/restore", json={"profile_key": "itt"}).json()
+    assert chosen["source_profile_key"] == "itt" and chosen["type_id_map"] == original["type_id_map"]

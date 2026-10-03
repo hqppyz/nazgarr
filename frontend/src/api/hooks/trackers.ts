@@ -88,6 +88,22 @@ export function useDeleteUploadProfile(trackerId: number) {
   })
 }
 
+// Il profilo incluso (quello d'origine, o quello scelto) al posto di quello
+// che c'è, modifiche comprese. Anche la scheda del tracker cambia.
+export function useRestoreUploadProfile(trackerId: number) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (profileKey: string | null) =>
+      unwrap(
+        api.POST('/api/trackers/{tracker_id}/upload-profile/restore', {
+          params: { path: { tracker_id: trackerId } },
+          body: { profile_key: profileKey },
+        }),
+      ),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['trackers'] }),
+  })
+}
+
 export function useUpdateNamingFromBundled(trackerId: number) {
   const queryClient = useQueryClient()
   return useMutation({

@@ -194,6 +194,9 @@ function AddTrackerDialog() {
         api_token: apiToken,
         announce_url: announceUrl || undefined,
         rss_key: rssKey || undefined,
+        // Il preset scelto porta il suo profilo di upload; senza, il server
+        // usa quello dell'indirizzo se lo conosce (es. ITT).
+        upload_profile: presetKey || 'auto',
         ...(pluginSpec ? { config: configPayload(pluginSpec.config_fields, config) } : {}),
       },
       {
@@ -569,6 +572,7 @@ export function TrackersSection() {
         <UploadProfileDialog
           trackerId={profileTrackerId}
           trackerLabel={trackers?.find((t) => t.id === profileTrackerId)?.label ?? ''}
+          trackerBaseUrl={trackers?.find((t) => t.id === profileTrackerId)?.base_url ?? ''}
           open
           onOpenChange={(open) => !open && setProfileTrackerId(null)}
         />
