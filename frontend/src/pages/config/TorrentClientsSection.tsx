@@ -1,4 +1,4 @@
-import { HardDriveIcon, PencilIcon, PlusIcon, TrashIcon, ZapIcon } from 'lucide-react'
+import { FolderOpenIcon, HardDriveIcon, PencilIcon, PlusIcon, TrashIcon, ZapIcon } from 'lucide-react'
 import { Fragment, useState } from 'react'
 import { toast } from 'sonner'
 
@@ -393,9 +393,11 @@ function DiskAssociationRow({
   const nazgarrSide = `${disk.root_path.replace(/\/$/, '')}${localRel ? `/${localRel}` : ''}`
 
   return (
-    <div className="grid gap-2 rounded border px-3 py-2">
-      <div className="flex items-center justify-between">
-        <span className="text-sm">{disk.label}</span>
+    <div className="grid gap-3 rounded-md border px-3 py-2.5">
+      <div className="flex items-center justify-between gap-2">
+        <span className="font-medium">{disk.label}</span>
+        <span className="truncate font-mono text-xs text-muted-foreground">{disk.root_path}</span>
+        <span className="flex-1" />
         <Switch
           checked={enabled}
           onCheckedChange={(checked) => {
@@ -407,24 +409,36 @@ function DiskAssociationRow({
       </div>
       {enabled && (
         <div className="grid gap-2">
-          <div className="grid gap-1 sm:grid-cols-2 sm:gap-2">
+          {/* Una riga: cartella del disco = la stessa vista dal client. */}
+          <div className="grid items-end gap-2 sm:grid-cols-[1fr_auto_1fr]">
             <div className="grid gap-1">
-              <Label className="text-xs">{t('torrentClients.mappingNazgarrFolder')}</Label>
+              <Label className="text-xs text-muted-foreground">{t('torrentClients.mappingNazgarrFolder')}</Label>
               <div className="flex gap-1">
                 <Input className="h-8 font-mono text-xs" value={localRel} onChange={(e) => setLocalRel(e.target.value)}
                        placeholder={t('torrentClients.mappingDiskRoot')} />
-                <Button variant="outline" size="sm" className="h-8" onClick={() => setBrowserOpen(true)}>…</Button>
+                <Button variant="outline" size="sm" className="h-8 px-2" title={t('torrentClients.mappingBrowse')}
+                        onClick={() => setBrowserOpen(true)}>
+                  <FolderOpenIcon className="size-4" />
+                </Button>
               </div>
             </div>
+            <span className="hidden pb-1.5 text-muted-foreground sm:block">=</span>
             <div className="grid gap-1">
-              <Label className="text-xs">{t('torrentClients.mappingClientFolder')}</Label>
+              <Label className="text-xs text-muted-foreground">{t('torrentClients.mappingClientFolder')}</Label>
               <Input className="h-8 font-mono text-xs" value={clientRoot} onChange={(e) => setClientRoot(e.target.value)}
-                     placeholder={t('torrentClients.mappingSamePath')} />
+                     placeholder="/download" />
             </div>
           </div>
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="font-mono text-[11px] text-muted-foreground">
-              {clientRoot ? `${nazgarrSide} = ${clientRoot}` : t('torrentClients.mappingSameExplained')}
+            <p className="text-xs text-muted-foreground">
+              {clientRoot ? (
+                <>
+                  {t('torrentClients.mappingPreview')} <code className="font-mono">{nazgarrSide}</code> →{' '}
+                  <code className="font-mono">{clientRoot}</code>
+                </>
+              ) : (
+                t('torrentClients.mappingSameExplained')
+              )}
             </p>
             <Button variant="outline" size="sm" disabled={associate.isPending} onClick={() => save()}>
               {t('common.save')}
@@ -457,7 +471,7 @@ function DisksDialog({ torrentClientId, disks: associations }: { torrentClientId
           </Button>
         }
       />
-      <DialogContent data-tour="clients.disks-dialog">
+      <DialogContent data-tour="clients.disks-dialog" className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>{t('torrentClients.enabledDisksForClient')}</DialogTitle>
           <DialogDescription>{t('torrentClients.rootPathOverrideHelp')}</DialogDescription>
