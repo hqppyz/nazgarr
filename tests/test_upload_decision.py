@@ -65,6 +65,18 @@ def test_propose_names_ids_and_flags_per_tracker(decision_job):
     assert json.loads(decision_job.analysis_json)["detected"]["service"] == "ATVP"
 
 
+def test_the_profile_can_make_internal_the_default(db_session, decision_job):
+    from nazgarr.models import TrackerUploadProfile
+    itt = decision_job.targets[0]
+    db_session.get(TrackerUploadProfile, itt.tracker_id).default_internal = True
+    itt.flags_json = None
+    db_session.commit()
+
+    upload_decision.propose(db_session, decision_job)
+
+    assert json.loads(itt.flags_json)["internal"] is True
+
+
 def test_overrides_recompute_names_and_ids(db_session, decision_job):
     upload_decision.update_overrides(db_session, decision_job, {"group": "ME", "type": "WEBRIP", "resolution": "",
                                                                 "screenshot_count": "6"})

@@ -30,13 +30,13 @@ import unicodedata
 from collections import defaultdict
 from datetime import UTC, datetime
 
-import guessit
 from sqlalchemy.orm import Session
 
 from nazgarr.db_utils import bulk_insert
 from nazgarr.duplicates import compute_fast_hash
 from nazgarr.exclusions import load_exclusions
 from nazgarr.file_types import is_video
+from nazgarr.guess import guess as guess_name
 from nazgarr.hardlinks import media_links
 from nazgarr.models import (
     ClientTorrent,
@@ -98,7 +98,7 @@ class _Library:
 
 def _by_name(library: _Library, name: str) -> tuple | None:
     """Il contenuto in libreria con lo stesso titolo (e anno) o serie+episodio."""
-    guess = guessit.guessit(os.path.basename(name))
+    guess = guess_name(os.path.basename(name))
     title = guess.get("title")
     if not title:
         return None

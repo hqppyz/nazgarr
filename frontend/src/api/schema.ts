@@ -4169,6 +4169,11 @@ export interface components {
             default_anonymous: boolean;
             /** Default Personal Release */
             default_personal_release: boolean;
+            /**
+             * Default Internal
+             * @default false
+             */
+            default_internal: boolean;
             /** Freeleech Options */
             freeleech_options: number[];
             /** Default Freeleech */
@@ -4202,6 +4207,8 @@ export interface components {
             default_anonymous?: boolean | null;
             /** Default Personal Release */
             default_personal_release?: boolean | null;
+            /** Default Internal */
+            default_internal?: boolean | null;
             /** Freeleech Options */
             freeleech_options?: number[] | null;
             /** Default Freeleech */

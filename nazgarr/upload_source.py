@@ -9,9 +9,8 @@ proposta, che l'utente conferma (o corregge) al primo punto di approvazione.
 import os
 from dataclasses import dataclass, field
 
-import guessit
-
 from nazgarr.file_types import is_video
+from nazgarr.guess import guess as guess_name
 
 # Sotto questa dimensione un video con "sample" nel nome è un campione, non
 # un episodio: non conta per il tipo né per gli episodi trovati.
@@ -92,20 +91,20 @@ def scan_source(
                 other_files += 1
         if not walked:
             raise ValueError("no_video_files")
-        name_guess = guessit.guessit(name or "")
+        name_guess = guess_name(name or "")
     elif is_dir:
         walked, other_files = _walk(source_path)
         if not walked:
             raise ValueError("no_video_files")
-        name_guess = guessit.guessit(os.path.basename(source_path.rstrip(os.sep)))
+        name_guess = guess_name(os.path.basename(source_path.rstrip(os.sep)))
     else:
         walked, other_files = [("", os.path.getsize(source_path))], 0
-        name_guess = guessit.guessit(os.path.basename(source_path))
+        name_guess = guess_name(os.path.basename(source_path))
 
     videos: list[SourceVideo] = []
     any_episode = name_guess.get("type") == "episode"
     for relative, size in walked:
-        guess = guessit.guessit(os.path.basename(relative)) if relative else name_guess
+        guess = guess_name(os.path.basename(relative)) if relative else name_guess
         seasons = _seasons(guess)
         episodes = [e for e in _as_list(guess.get("episode")) if isinstance(e, int)]
         if guess.get("type") == "episode":
@@ -118,7 +117,7 @@ def scan_source(
     for video in videos:
         if video.season is None and video.episodes:
             parent = os.path.basename(os.path.dirname(video.relative_path))
-            parent_seasons = _seasons(guessit.guessit(parent)) if parent else []
+            parent_seasons = _seasons(guess_name(parent)) if parent else []
             fallback = parent_seasons or (folder_seasons if len(folder_seasons) == 1 else [])
             video.season = fallback[0] if fallback else None
 
@@ -149,7 +148,7 @@ def scan_source(
     # cartella: il nome di un file dice solo il suo episodio.
     primary = name_guess
     if is_dir and kind in ("movie", "episode"):
-        primary = guessit.guessit(os.path.basename(main.relative_path))
+        primary = guess_name(os.path.basename(main.relative_path))
 
     def pick(key):
         value = primary.get(key)

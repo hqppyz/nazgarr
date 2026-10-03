@@ -78,6 +78,7 @@ def create_upload_profile(session: Session, tracker: Tracker, profile_key: str |
             description_template=upload.get("description_template"),
             default_anonymous=bool(flags.get("anonymous", False)),
             default_personal_release=bool(flags.get("personal_release", False)),
+            default_internal=bool(flags.get("internal", False)),
             freeleech_options_json=json.dumps((upload.get("freeleech") or {}).get("options") or []),
             default_freeleech=(upload.get("freeleech") or {}).get("default") or None,
             source_profile_key=profile_key,

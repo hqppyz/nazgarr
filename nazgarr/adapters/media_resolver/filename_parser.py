@@ -4,10 +4,10 @@ Sempre disponibile, nessuna dipendenza esterna oltre l'API TMDB
 (docs/SPEC.md sezione 6, ereditato da ratio-guardian).
 """
 
-import guessit
 
 from nazgarr.adapters.media_resolver.base import MediaResolverAdapter, ResolvedMedia
 from nazgarr.content_type_guess import guess_content_type_from_guessit
+from nazgarr.guess import guess as guess_name
 from nazgarr.tmdb_client import TMDBSearchClient, year_of
 
 
@@ -49,7 +49,7 @@ class FilenameParserResolver(MediaResolverAdapter):
         self._tmdb = tmdb_client
 
     def resolve(self, file_path: str) -> ResolvedMedia | None:
-        guess = guessit.guessit(file_path)
+        guess = guess_name(file_path)
         title = guess.get("title")
         if not title:
             return None

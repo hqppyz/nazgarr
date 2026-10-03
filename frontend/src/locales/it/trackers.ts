@@ -66,6 +66,7 @@ export const trackers = {
   'trackers.namingRulesHelp':
     'Le variabili sono le stesse per ogni tracker; qui scegli solo ordine e forma. Se cambi le regole, Nazgarr smette di aggiornarle in automatico: una versione più recente ti viene solo proposta.',
   'trackers.defaultAnonymous': 'Anonimo di default',
+  'trackers.defaultInternal': 'Internal di default',
   'trackers.defaultPersonalRelease': 'Release personale di default',
   'trackers.deleteProfile': 'Elimina profilo',
   'trackers.seedRequirement.column': 'Seed min.',

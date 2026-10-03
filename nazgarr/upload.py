@@ -6,13 +6,13 @@ non tocca mai media_item/candidate/match_review/seed_job."""
 
 import logging
 
-import guessit
 from jinja2 import TemplateError
 from jinja2.sandbox import ImmutableSandboxedEnvironment
 from sqlalchemy.orm import Session
 
 from nazgarr import settings_repo
 from nazgarr.api_errors import CodedError
+from nazgarr.guess import guess as guess_name
 from nazgarr.models import TrackerUploadProfile
 from nazgarr.version import __version__
 
@@ -35,7 +35,7 @@ class UploadPreparationError(CodedError):
 
 
 def guess_release_type_key(source_path: str, type_map: dict) -> str | None:
-    guess = guessit.guessit(source_path)
+    guess = guess_name(source_path)
     other = guess.get("other")
     others = {other} if isinstance(other, str) else set(other or [])
     source = str(guess.get("source") or "").lower()

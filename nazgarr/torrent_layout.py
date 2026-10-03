@@ -29,11 +29,11 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from functools import lru_cache
 
-import guessit
 from sqlalchemy.orm import Session, selectinload
 
 from nazgarr.arr import ArrIndex, path_key
 from nazgarr.file_types import is_video
+from nazgarr.guess import guess as guess_name
 from nazgarr.models import MediaFile, SeedFile
 from nazgarr.torrent_file import TorrentInfo
 from nazgarr.torrent_pieces import verify_file_pieces
@@ -174,7 +174,7 @@ def _episode_numbers(filename: str) -> tuple[int, int] | None:
     """Memoizzata: lo stesso pack (es. un'altra stagione della serie) viene
     riesaminato per ogni episodio orfano cercato per tmdb_id, e guessit
     costa millisecondi a nome file."""
-    guess = guessit.guessit(filename)
+    guess = guess_name(filename)
     season, episode = guess.get("season"), guess.get("episode")
     if isinstance(season, list):
         season = season[0] if season else None

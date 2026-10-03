@@ -22,12 +22,13 @@ import json
 import os
 import re
 
-import guessit
 from sqlalchemy.orm import Session
 
 from nazgarr import dovi_probe, mediainfo_util, upload_jobs
 from nazgarr.file_types import is_video
 from nazgarr.fs_scope import resolve_scoped
+from nazgarr.guess import clean_name
+from nazgarr.guess import guess as guess_name
 from nazgarr.models import Disk, UploadJob
 from nazgarr.upload_jobs import UploadJobError
 from nazgarr.upload_naming import hdr_full
@@ -93,6 +94,7 @@ def season_name(source: str, seasons: list[int]) -> str:
     """Il nome di un episodio ("Show.S01E01.1080p.WEB-DL-GRP") come nome del
     pack: l'episodio diventa la stagione ("Show.S01.1080p.WEB-DL-GRP"), o
     l'intervallo per un complete pack ("S01-S03")."""
+    source = clean_name(source)  # niente "_t00" di MakeMKV nel nome del pack
     stem = os.path.splitext(source)[0] if is_video(source) else source
     if not seasons:
         return stem
@@ -104,7 +106,7 @@ def season_name(source: str, seasons: list[int]) -> str:
 def _seasons(names: list[str]) -> list[int]:
     seasons = set()
     for file_name in names:
-        season = guessit.guessit(file_name).get("season")
+        season = guess_name(file_name).get("season")
         for value in season if isinstance(season, list) else [season]:
             if isinstance(value, int) and 0 <= value < 100:
                 seasons.add(value)
@@ -171,7 +173,7 @@ def _resolution(video: dict) -> str | None:
 
 def signature(path: str, summary: dict | None) -> dict:
     """Quello che deve essere uguale in tutti gli episodi di un pack."""
-    guess = guessit.guessit(os.path.basename(path))
+    guess = guess_name(os.path.basename(path))
     video = (summary or {}).get("video") or {}
     audio = (summary or {}).get("audio") or []
     return {

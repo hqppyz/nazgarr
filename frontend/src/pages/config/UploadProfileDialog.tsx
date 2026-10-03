@@ -213,6 +213,15 @@ export function UploadProfileDialog({
                   />
                   {t('trackers.defaultPersonalRelease')}
                 </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <Switch
+                    checked={profile.default_internal}
+                    onCheckedChange={(v) =>
+                      updateProfile.mutate({ default_internal: v }, autosaveFeedback(t('trackers.defaultInternal')))
+                    }
+                  />
+                  {t('trackers.defaultInternal')}
+                </label>
               </div>
               <FreeleechField
                 options={profile.freeleech_options}

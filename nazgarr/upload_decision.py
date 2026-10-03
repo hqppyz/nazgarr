@@ -181,7 +181,7 @@ def propose(session: Session, job: UploadJob) -> None:
         target.flags_json = json.dumps({
             "anonymous": bool(profile and profile.default_anonymous),
             "personal_release": bool(profile and profile.default_personal_release),
-            "internal": False,
+            "internal": bool(profile and profile.default_internal),
             "stream": False,
             "freeleech": (profile.default_freeleech or 0) if profile else 0,
             **existing,

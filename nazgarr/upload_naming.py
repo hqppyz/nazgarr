@@ -20,9 +20,8 @@ fine con group_separator. Il nome resta una proposta, sempre modificabile.
 import json
 import re
 
-import guessit
-
 from nazgarr import streaming_services
+from nazgarr.guess import guess as guess_name
 from nazgarr.upload_dupes import traits_of
 
 # Le variabili dei template, uguali per tutti i tracker, con un esempio:
@@ -199,7 +198,7 @@ def _name_audio(guess: dict) -> str | None:
 
 def detect(source_name: str) -> dict:
     """I valori che si leggono dal nome della release."""
-    guess = guessit.guessit(source_name)
+    guess = guess_name(source_name)
     traits = traits_of(source_name)
     release = release_type(guess, source_name)
     service = guess.get("streaming_service")

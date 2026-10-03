@@ -14,13 +14,13 @@ from collections import defaultdict
 from datetime import UTC
 from urllib.parse import urlsplit
 
-import guessit
 from sqlalchemy.orm import Session
 
 from nazgarr.adapters.torrent_client.base import is_stopped_state
 from nazgarr.duplicates import find_duplicate_media_files
 from nazgarr.exclusions import load_exclusions
 from nazgarr.file_types import is_video
+from nazgarr.guess import guess as guess_name
 from nazgarr.hardlinks import media_links
 from nazgarr.matching import _as_utc, get_rematch_interval
 from nazgarr.models import (
@@ -53,7 +53,7 @@ def _host(url: str | None) -> str | None:
 def _quality(filename: str) -> str | None:
     """"1080p · BluRay · H.265" dal nome del file (guessit), nessuna lettura
     del file e nessuna chiamata esterna."""
-    guess = guessit.guessit(filename)
+    guess = guess_name(filename)
     parts = [guess.get("screen_size"), guess.get("source"), guess.get("video_codec")]
     other = guess.get("other")
     if isinstance(other, list):

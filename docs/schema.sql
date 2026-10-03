@@ -647,6 +647,7 @@ CREATE TABLE IF NOT EXISTS tracker_upload_profile (
     description_template    TEXT,           -- Jinja2
     default_anonymous       BOOLEAN NOT NULL DEFAULT 0,
     default_personal_release BOOLEAN NOT NULL DEFAULT 0,
+    default_internal        BOOLEAN,                -- the "internal" flag on by default (null = off)
     freeleech_options_json  TEXT,           -- freeleech percentages this tracker lets the user set, e.g. [25, 50, 100];
                                             -- empty/null = no freeleech choice
     default_freeleech       INTEGER,        -- preselected percentage (null/0 = none)
