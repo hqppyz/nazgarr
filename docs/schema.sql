@@ -195,6 +195,18 @@ CREATE TABLE IF NOT EXISTS api_key (
     revoked_at      TIMESTAMP
 );
 
+-- Other Nazgarr instances seen from this one (nazgarr/instances.py, user decision
+-- 2026-10-03): the web UI can switch to them, through this instance as a proxy
+-- (/api/remote/{id}/...), with one of their API keys. The browser never gets
+-- the key. A public address is accepted only over HTTPS.
+CREATE TABLE IF NOT EXISTS remote_instance (
+    id              INTEGER PRIMARY KEY,
+    label           TEXT NOT NULL,
+    base_url        TEXT NOT NULL,
+    api_key         TEXT NOT NULL,          -- encrypted at rest (EncryptedString)
+    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Webhooks (docs/ROADMAP.md Phase 10): POST JSON signed with HMAC-SHA256
 -- (nazgarr/webhooks.py) for the events they subscribe to.
 CREATE TABLE IF NOT EXISTS webhook (

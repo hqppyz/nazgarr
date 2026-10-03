@@ -31,6 +31,26 @@ class AppInfoResponse(BaseModel):
     started_at: datetime
 
 
+class WhoAmIResponse(BaseModel):
+    kind: str  # user | api_key
+    name: str | None
+    level: str  # write | read
+
+
+@router.get("/whoami", response_model=WhoAmIResponse)
+def whoami(request: Request, session: Session = Depends(get_session)):
+    """Chi sta chiamando: il login o una API key, e cosa può fare. Serve a
+    un'altra istanza che usa una nostra chiave (nazgarr/instances.py) per
+    sapere se è di lettura o di scrittura."""
+    from nazgarr.models import ApiKey
+
+    key_id = getattr(request.state, "api_key_id", None)
+    if key_id is None:
+        return WhoAmIResponse(kind="user", name=None, level="write")
+    key = session.get(ApiKey, key_id)
+    return WhoAmIResponse(kind="api_key", name=key.name if key else None, level=key.level if key else "read")
+
+
 @router.get("/info", response_model=AppInfoResponse)
 def app_info(request: Request):
     return AppInfoResponse(
