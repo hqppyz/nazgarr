@@ -7,11 +7,13 @@ fanno entrypoint e supervisord:
     nazgarr install-service           il servizio systemd (Linux) o launchd (macOS)
     nazgarr version
 
+e tutti i comandi client, che parlano con un'istanza in esecuzione
+(nazgarr/cli_client, docs/CLI.md).
+
 Senza Docker non c'è nessuna mappatura dei volumi: Nazgarr vede il
 filesystem vero, e disk_scan_root è la cartella sotto cui stanno i dischi
 (il confine oltre il quale non registra e non sfoglia niente)."""
 
-import argparse
 import os
 import platform
 import shutil
@@ -216,29 +218,10 @@ def cmd_version(_args) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="nazgarr", description="Nazgarr without Docker.")
-    sub = parser.add_subparsers(dest="command", required=True)
+    """Tutti i comandi, del server e client (nazgarr/cli_client/app.py, docs/CLI.md)."""
+    from nazgarr.cli_client.app import run
 
-    init = sub.add_parser("init", help="write the configuration and the secret key, check the tools")
-    init.add_argument("--scan-root", required=True, help="the folder your disks are under (e.g. /mnt)")
-    init.add_argument("--data-dir", help="where to keep the database and caches")
-    init.add_argument("--config", help="path of config.yaml")
-    init.add_argument("--force", action="store_true", help="rewrite config.yaml if it exists")
-    init.set_defaults(func=cmd_init)
-
-    for name, func, help_text in (("serve", cmd_serve, "start the server"),
-                                  ("install-service", cmd_install_service, "write the service file")):
-        command = sub.add_parser(name, help=help_text)
-        command.add_argument("--config", help="path of config.yaml")
-        command.add_argument("--host", default="0.0.0.0")
-        command.add_argument("--port", type=int, default=8080)
-        if name == "install-service":
-            command.add_argument("--print", action="store_true", help="print the file instead of writing it")
-        command.set_defaults(func=func)
-
-    sub.add_parser("version", help="the installed version").set_defaults(func=cmd_version)
-    args = parser.parse_args(argv)
-    return args.func(args)
+    return run(sys.argv[1:] if argv is None else argv)
 
 
 if __name__ == "__main__":

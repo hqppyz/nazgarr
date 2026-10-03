@@ -20,3 +20,4 @@ cryptography
 pyjwt
 supervisor
 packaging>=24
+typer

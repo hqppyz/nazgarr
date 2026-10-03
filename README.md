@@ -181,6 +181,10 @@ Every subfolder of `disk_scan_root` shows up in Configuration › Storage, ready
    A checklist on the dashboard follows what you have configured.
 3. **Run the first scan.** It only reads: nothing is linked, added or moved. Then the tour shows you around the views. From there, scans run on the schedule you set.
 
+## Command line
+
+Besides running the server, the `nazgarr` command talks to a running instance: log in once with `nazgarr login --url http://HOST:8080`, then check the status, start scans, approve reviews and more from the terminal or a script (`--json`, `--yes`). Inside the container: `docker exec -it nazgarr nazgarr status`. Full guide: [docs/CLI.md](docs/CLI.md).
+
 ## API and automation
 
 Everything the UI does goes through a JSON API under `/api`. The interactive reference is at `http://<host>:8080/docs`. Scripts authenticate with an API key created in Configuration › API keys. See [docs/SDK.md](docs/SDK.md) for plugins, webhooks and API keys, and [examples/nazgarr-ntfy](examples/nazgarr-ntfy) for a complete plugin.

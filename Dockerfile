@@ -44,7 +44,14 @@ COPY docs docs
 COPY docker docker
 COPY config.example.yaml .
 COPY --from=frontend-build /frontend/dist frontend/dist
-RUN chmod +x docker/entrypoint.sh
+# `nazgarr` anche dentro il container (docs/CLI.md): docker exec -it nazgarr nazgarr status
+RUN chmod +x docker/entrypoint.sh \
+    && printf '#!/bin/sh\nexec python -m nazgarr.cli "$@"\n' > /usr/local/bin/nazgarr \
+    && chmod +x /usr/local/bin/nazgarr
+# Il CLI dentro il container parla con il server dello stesso container, e
+# ricorda la sua API key nella cartella di configurazione (persistente).
+ENV NAZGARR_URL=http://127.0.0.1:8080 \
+    NAZGARR_CLI_CONFIG=/app/config/cli.toml
 
 # /app/config va montato come cartella (mai un file), vedi docker/entrypoint.sh:
 # se manca config.yaml al suo interno viene seminato da config.example.yaml.
