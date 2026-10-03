@@ -245,6 +245,53 @@ nazgarr review retry 7             # retry one (asks first)
 
 With the full check on (the default), an approval first reads every piece of the torrent against your files. The hardlinks and the torrent follow only if the check passes.
 
+### Uploads
+
+```bash
+nazgarr upload new main torrents/The.Matrix.1999.1080p.mkv
+nazgarr upload new main releases/Show.S01 --tracker itt --tmdb tv/1399
+nazgarr upload new main --pack torrents/E01/e01.mkv torrents/E02/e02.mkv   # a season pack of single episodes
+nazgarr upload ls                    # in progress (--history for the finished ones)
+nazgarr upload show 12               # source, match, trackers, events
+nazgarr upload continue 12           # pick it up where it waits for you
+nazgarr upload cancel 12
+nazgarr upload rm 12                 # remove it from the history
+```
+
+`upload new` walks the upload through the same two approvals as the web UI:
+
+1. **The match.** It shows the TMDB candidates with their confidence and asks which one, or takes the one given with `--tmdb`.
+2. **The decision.** For each tracker it shows the suggested action (upload, reseed or skip), the release name, the IDs, the flags and what the tracker already has. It asks the action and the name, and any missing IDs. Before a reseed it runs the full hash check, if not done yet.
+3. **The summary.** It sums up what will happen and asks to approve. Then it follows the upload until it is done (`--no-wait` to stop following).
+
+With `--yes` the proposed values are accepted without asking. It still stops on anything that needs you:
+
+- an ambiguous match (pass `--tmdb`);
+- missing IDs;
+- a reseed that is not verified;
+- a mixed pack (pass `--confirm-mixed` if that is really what you want).
+
+An upload from the watched folder waits at the decision too: `nazgarr upload ls` shows it, and `nazgarr upload continue` takes it from there.
+
+### Library and triage
+
+```bash
+nazgarr library ls --type tv --orphans          # items with files that seed nowhere
+nazgarr library show tv/1399                    # files, states, trackers
+nazgarr library search tv/1399                  # search the trackers now (proposals go to review)
+nazgarr library exclude media/movies/Extras --folder   # leave it out (it stays on disk)
+nazgarr triage ls --safe                        # torrents you can remove safely
+nazgarr triage ls --category superseded
+nazgarr triage refresh
+```
+
+### Logs
+
+```bash
+nazgarr logs -n 100 --level WARNING
+nazgarr logs -f                                  # keep printing new lines
+```
+
 ### Any other endpoint
 
 The raw API covers everything that has no command of its own yet. It works like `gh api`:
@@ -269,12 +316,3 @@ The full list of endpoints, with the exact request and answer of each, is at `ht
 | 4 | Not logged in, wrong key, or a read-only key used for a change |
 
 Error messages are the same as in the web UI, in English.
-
-## Coming next
-
-These command groups follow the same pattern and are planned next. Until they arrive, `nazgarr api` reaches the same endpoints.
-
-| Group | What it will do |
-| --- | --- |
-| `upload` | The upload flow in the terminal, with match, decision and confirmation, including packs |
-| `library`, `triage`, `logs` | Browse the library, the triage and the logs |

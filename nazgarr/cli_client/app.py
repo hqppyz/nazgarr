@@ -7,7 +7,20 @@ from types import SimpleNamespace
 import click
 import typer
 
-from nazgarr.cli_client.commands import auth, clients, config, disks, raw, reviews, runs, settings, status, trackers
+from nazgarr.cli_client.commands import (
+    auth,
+    browse,
+    clients,
+    config,
+    disks,
+    raw,
+    reviews,
+    runs,
+    settings,
+    status,
+    trackers,
+    uploads,
+)
 from nazgarr.cli_client.http import ApiError
 from nazgarr.cli_client.output import EXIT_DECLINED, EXIT_ERROR, EXIT_UNAUTHORIZED, EXIT_USAGE, State, err_console
 
@@ -91,6 +104,10 @@ def build() -> typer.Typer:
     app.command(rich_help_panel="Reseeding")(runs.scan)
     app.add_typer(runs.app, name="runs", rich_help_panel="Reseeding")
     app.add_typer(reviews.app, name="review", rich_help_panel="Reseeding")
+    app.add_typer(uploads.app, name="upload", rich_help_panel="Uploads")
+    app.add_typer(browse.library_app, name="library", rich_help_panel="Library")
+    app.add_typer(browse.triage_app, name="triage", rich_help_panel="Library")
+    app.command("logs", rich_help_panel="Advanced")(browse.logs)
     app.command("api", rich_help_panel="Advanced")(raw.raw)
     return app
 
@@ -105,7 +122,7 @@ def run(argv: list[str] | None) -> int:
         return EXIT_UNAUTHORIZED if exc.status in (401, 403) else EXIT_ERROR
     except click.exceptions.Exit as exc:
         return exc.exit_code
-    except click.exceptions.Abort:
+    except (click.exceptions.Abort, typer.Abort):
         err_console.print("Aborted.")
         return EXIT_DECLINED
     except click.ClickException as exc:

@@ -227,3 +227,63 @@ def test_config_export_and_import(cli_env, client, capsys, monkeypatch):
     file.write_text(yaml.safe_dump(exported))
     run(capsys, "config", "import", str(file), "--yes")
     assert len(json.loads(run(capsys, "--json", "client", "ls")[1])) == 1
+
+
+# --- fase 3: upload, libreria, triage, log ------------------------------------------
+
+
+class _NoDupes:
+    def search_by_tmdb(self, tmdb_id):
+        return []
+
+
+def test_an_upload_walks_to_the_decision_and_stops_on_a_problem(cli_env, client, capsys, monkeypatch):
+    from nazgarr import upload_analysis
+
+    monkeypatch.setattr(upload_analysis.adapter_factory, "build_tracker_adapter", lambda tracker: _NoDupes())
+    _login(capsys)
+    root = client.scan_root / "data"
+    _configure(capsys, root)
+    code, _out, err = run(capsys, "tracker", "edit", "itt", "--announce", stdin="")
+    assert code == 3 and "Aborted" in err  # niente terminale: il segreto non si può chiedere
+    client.patch("/api/trackers/1", json={"announce_url": "https://itatorrents.xyz/announce/KEY"})
+    (root / "torrents" / "The.Matrix.1999.mkv").write_bytes(b"x" * 4096)
+
+    code, out, err = run(capsys, "upload", "new", "main", "torrents/The.Matrix.1999.mkv", "--tmdb", "movie/603",
+                         "--yes", "--no-wait")
+
+    # Match fatto, analisi fatta: alla decisione manca la risoluzione (il file finto non ne ha una).
+    assert code == 2 and "resolution_id" in err, (out, err)
+    job = json.loads(run(capsys, "--json", "upload", "ls")[1])[0]
+    assert (job["status"], job["tmdb_id"]) == ("awaiting_decision", 603)
+    code, out, _err = run(capsys, "upload", "show", str(job["id"]))
+    assert code == 0 and "ITT" in out
+    code, _out, _err = run(capsys, "upload", "rm", str(job["id"]), "--yes")
+    assert code == 0 and json.loads(run(capsys, "--json", "upload", "ls")[1]) == []
+
+
+def test_library_triage_and_logs(cli_env, client, capsys):
+    _login(capsys)
+    code, out, _err = run(capsys, "--json", "library", "ls")
+    assert code == 0 and json.loads(out) == []
+    code, out, _err = run(capsys, "triage", "ls")
+    assert code == 0 and "Not computed yet" in out
+    code, out, _err = run(capsys, "--json", "logs", "-n", "5")
+    assert code == 0 and isinstance(json.loads(out), list)
+    code, _out, err = run(capsys, "library", "show", "nonsense")
+    assert code == 2 and "movie/TMDB_ID" in err
+
+
+def test_every_command_has_its_help(capsys):
+    from typer.main import get_command
+
+    from nazgarr.cli_client.app import build
+
+    def walk(command, path):
+        yield path
+        for name, sub in getattr(command, "commands", {}).items():
+            yield from walk(sub, [*path, name])
+
+    for path in walk(get_command(build()), []):
+        code, out, _err = run(capsys, *path, "--help")
+        assert code == 0 and "Usage" in out, path

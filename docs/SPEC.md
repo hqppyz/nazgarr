@@ -355,6 +355,22 @@ Frontend stack: **React SPA + shadcn/ui** (a decision already made in ratio-guar
 
 Without Docker there is no volume mapping: `disk_scan_root` is the real folder the disks are under. The package's dependencies are the ones in `requirements.in`, minus `supervisor`, and a test keeps them equal. Windows is not tested yet.
 
+### Command line (user decisions, 2026-10-03)
+
+The `nazgarr` command is also a thin **client of the JSON API**, beside the server commands (`init`, `serve`, `install-service`, `version`). The server gets no new logic: every command calls the same endpoints, with the same checks, as the web UI. Full guide: `docs/CLI.md`.
+
+- **Stack:** Typer (Click and Rich come with it) in `nazgarr/cli_client/`. The output is English only.
+- **Access:**
+  - `nazgarr login` uses the password once, to create a dedicated API key (`cli-HOSTNAME`, write access unless `--read-only`). Only that key is kept, in `cli.toml` with mode 600, one profile per instance.
+  - `nazgarr setup` creates the account of a fresh install with the one-time code.
+  - Passwords and secrets are always asked on screen or read from stdin, never passed as arguments.
+  - Secret settings and safety settings, which an API key may not change, ask for the password and log in for that single change.
+  - In the container, the command is installed with `NAZGARR_URL=http://127.0.0.1:8080` and `NAZGARR_CLI_CONFIG=/app/config/cli.toml`.
+- **Commands:** `status`, `scan`/`runs`, `review`, `disk`, `client`, `tracker` with `tracker profile`, `arr`, `settings`, `schedule`, `config export/import`, `upload`, `library`, `triage`, `logs`, and the raw `api`.
+- **Approvals:** everything that touches files or clients asks for confirmation, with `--yes` for scripts and exit code 3 when declined. The upload flow goes through the same two approvals as the web UI. `--yes` accepts the proposed values but still stops on problems: an ambiguous match, missing IDs, a reseed that is not verified, or a mixed pack without `--confirm-mixed`.
+- **`config import`** only adds and updates, never removes. It shows its plan first. Secrets are `${NAZGARR_…}` placeholders, resolved from the environment or asked when needed to create something.
+- **Error messages** are the web UI's English texts (`nazgarr/cli_client/messages_en.json`, exported from `frontend/src/locales/en/errors.ts` by `scripts/export_cli_messages.py`; a test keeps them in sync).
+
 ## 11. Tech stack
 
 Inherits ratio-guardian (CLAUDE.md), with additions for multi-client and posters:
