@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import click
 import typer
 
-from nazgarr.cli_client.commands import auth, raw, reviews, runs, status
+from nazgarr.cli_client.commands import auth, clients, config, disks, raw, reviews, runs, settings, status, trackers
 from nazgarr.cli_client.http import ApiError
 from nazgarr.cli_client.output import EXIT_DECLINED, EXIT_ERROR, EXIT_UNAUTHORIZED, EXIT_USAGE, State, err_console
 
@@ -81,6 +81,13 @@ def build() -> typer.Typer:
     app.command(rich_help_panel="Connection")(auth.logout)
     app.add_typer(auth.app, name="profile", rich_help_panel="Connection")
     app.command(rich_help_panel="Overview")(status.status)
+    app.add_typer(disks.app, name="disk", rich_help_panel="Configuration")
+    app.add_typer(clients.app, name="client", rich_help_panel="Configuration")
+    app.add_typer(trackers.app, name="tracker", rich_help_panel="Configuration")
+    app.add_typer(settings.arr_app, name="arr", rich_help_panel="Configuration")
+    app.add_typer(settings.app, name="settings", rich_help_panel="Configuration")
+    app.add_typer(settings.schedule_app, name="schedule", rich_help_panel="Configuration")
+    app.add_typer(config.app, name="config", rich_help_panel="Configuration")
     app.command(rich_help_panel="Reseeding")(runs.scan)
     app.add_typer(runs.app, name="runs", rich_help_panel="Reseeding")
     app.add_typer(reviews.app, name="review", rich_help_panel="Reseeding")

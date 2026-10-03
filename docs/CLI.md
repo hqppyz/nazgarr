@@ -121,6 +121,103 @@ Shows, at a glance:
 - the last scan;
 - the uploads in progress.
 
+### Disks
+
+```bash
+nazgarr disk mounts                                  # folders under disk_scan_root not added yet
+nazgarr disk add main /data                          # a disk
+nazgarr disk folder add main seeding torrents        # its seeding folders (one or more)
+nazgarr disk folder add main media media/movies      # its media folders (optional, one or more)
+nazgarr disk folder add main media media/tv
+nazgarr disk set main --uploads torrents/uploads --watch releases
+nazgarr disk ls                                      # every disk with all its folders
+nazgarr disk browse main media                       # list a folder, to find the paths
+nazgarr disk mkdir main torrents/uploads             # create a folder
+nazgarr disk test main                               # folders + a test hardlink between them
+nazgarr disk folder rm main media media/tv           # nothing changes on disk
+```
+
+Disks, clients and trackers can be named by name or by ID. Names are not case sensitive.
+
+### Torrent clients
+
+```bash
+nazgarr client add qbit --url http://qbittorrent:8080 -u admin     # the password is asked
+nazgarr client add box --type qui --url http://qui:7476 --qui-instance 1   # the API token is asked
+nazgarr client test qbit
+nazgarr client link qbit main --client-root /downloads    # only if it sees the disk elsewhere
+nazgarr client edit qbit --category-movie radarr --tags-upload release
+nazgarr client edit qbit --password                      # ask a new password
+nazgarr client categories qbit
+nazgarr client ls
+```
+
+### Trackers and upload profiles
+
+```bash
+nazgarr tracker presets                                   # known trackers
+nazgarr tracker add --preset itt --client qbit --announce # token (and announce URL) asked
+nazgarr tracker add Mine --url https://tracker.example --min-seed-time 7d --min-ratio 1
+nazgarr tracker edit itt --language it --seed-rule all
+nazgarr tracker profile show itt
+nazgarr tracker profile set itt --internal --no-anonymous --freeleech 25 --category movie=1
+nazgarr tracker profile template itt --edit               # the description template in $EDITOR
+nazgarr tracker profile template itt --set description.j2
+nazgarr tracker profile naming itt --preview              # names the rules give, on examples
+nazgarr tracker profile naming itt --set rules.json
+nazgarr tracker profile naming itt --update               # newer rules of the preset
+```
+
+A tracker can also be named by the preset key of its profile, as in `itt` above. The description template is BBCode with Jinja blocks (`{% if %}`, `{% for %}`, `{{ }}`), run in a sandbox.
+
+### Radarr and Sonarr
+
+```bash
+nazgarr arr add radarr radarr --url http://radarr:7878    # the API key is asked
+nazgarr arr add sonarr sonarr --url http://sonarr:8989
+nazgarr arr test radarr radarr
+nazgarr arr ls
+```
+
+### Settings and schedule
+
+```bash
+nazgarr settings ls                               # every setting with its value and meaning
+nazgarr settings get upload_screenshot_count
+nazgarr settings set upload_screenshot_count 6
+nazgarr settings set upload_description_signature --file signature.txt
+nazgarr settings set tmdb_api_key                 # secrets are asked, never passed as arguments
+nazgarr schedule set "0 */6 * * *"                # scans every 6 hours
+nazgarr schedule set off
+```
+
+Two kinds of settings ask for your password, because an API key is not allowed to change them:
+
+- **secrets**, such as `tmdb_api_key`;
+- **safety settings**, marked `[safety]` in `settings ls`: the full check before executing, the automatic execution, the thresholds and the client recheck.
+
+The CLI then logs in for that single change and does not keep the token. Safety settings also ask for confirmation.
+
+### The whole configuration in a file
+
+```bash
+nazgarr config export -o nazgarr.yaml      # disks, clients, trackers, profiles, *arr, settings, schedule
+nazgarr config import nazgarr.yaml --dry-run
+nazgarr config import nazgarr.yaml
+```
+
+This is useful to rebuild an installation, to copy the setup to another machine, or to keep it under version control.
+
+- **Import adds and updates, and never removes.** A disk, a folder, a client or a tracker that the file does not mention stays as it is.
+- **Import shows its plan first**, then asks to apply it. `--dry-run` only shows the plan, and `--yes` applies it without asking.
+- **Secrets never go in the file.** Export writes placeholders in their place, such as `${NAZGARR_CLIENT_QBIT_PASSWORD}`.
+- **On import, placeholders come from the environment.** A placeholder without a variable is asked on screen when it is needed to create something. When it would only update something, it is skipped, and the value on the server stays.
+
+```bash
+export NAZGARR_CLIENT_QBIT_PASSWORD=… NAZGARR_TRACKER_ITT_ITATORRENTS_TOKEN=…
+nazgarr config import nazgarr.yaml --yes
+```
+
 ### Scans
 
 ```bash
@@ -179,11 +276,5 @@ These command groups follow the same pattern and are planned next. Until they ar
 
 | Group | What it will do |
 | --- | --- |
-| `disk` | Add disks and their media and seeding folders, test them |
-| `client` | Add torrent clients, test them, link them to disks, set default labels |
-| `tracker` | Add trackers (with presets), and edit their upload profile: flags, IDs, naming, description template |
-| `arr` | Add Radarr and Sonarr instances |
-| `settings`, `schedule` | Every setting of the web UI, and the scan schedule |
-| `config export` / `config import` | The whole configuration as a YAML file, applied back after showing the differences. It only adds and updates, and secrets stay out of the file. |
 | `upload` | The upload flow in the terminal, with match, decision and confirmation, including packs |
 | `library`, `triage`, `logs` | Browse the library, the triage and the logs |

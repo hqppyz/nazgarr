@@ -121,3 +121,109 @@ def test_the_cli_messages_match_the_web_ui():
     from scripts.export_cli_messages import messages
 
     assert json.loads((http.resources.files("nazgarr.cli_client") / "messages_en.json").read_text()) == messages()
+
+
+# --- fase 2: configurazione -----------------------------------------------------
+
+
+def _login(capsys):
+    code, _out, err = run(capsys, "login", "--url", URL, "-u", "admin", "--password-stdin", stdin="supersecret1\n")
+    assert code == 0, err
+
+
+def _configure(capsys, root):
+    for folder in ("torrents", "media/movies", "media/tv"):
+        (root / folder).mkdir(parents=True, exist_ok=True)
+    steps = [
+        (("disk", "add", "main", str(root)), ""),
+        (("disk", "folder", "add", "main", "seeding", "torrents"), ""),
+        (("disk", "folder", "add", "main", "media", "media/movies"), ""),
+        (("client", "add", "qbit", "--url", "http://qbit.test:8080", "-u", "admin", "--password-stdin",
+          "--no-test"), "qbitpass\n"),
+        (("client", "link", "qbit", "main"), ""),
+        (("client", "edit", "qbit", "--tags-upload", "release"), ""),
+        (("tracker", "add", "--preset", "itt", "--token-stdin", "--client", "qbit", "--min-seed-time", "7d"),
+         "tracker-token\n"),
+        (("tracker", "profile", "set", "itt", "--internal", "--category", "movie=9"), ""),
+        (("settings", "set", "upload_screenshot_count", "6"), ""),
+        (("schedule", "set", "0 */6 * * *"), ""),
+    ]
+    for argv, stdin in steps:
+        code, _out, err = run(capsys, *argv, stdin=stdin)
+        assert code == 0, (argv, err)
+
+
+def test_the_whole_setup_from_the_command_line(cli_env, client, capsys):
+    _login(capsys)
+    root = client.scan_root / "data"
+    _configure(capsys, root)
+
+    disk = json.loads(run(capsys, "--json", "disk", "ls")[1])[0]
+    assert (disk["seeding_folders"], disk["media_folders"]) == (["torrents"], ["media/movies"])
+    qbit = json.loads(run(capsys, "--json", "client", "ls")[1])[0]
+    assert qbit["disks"][0]["disk_id"] == disk["id"] and qbit["tags_upload"] == "release"
+    tracker = json.loads(run(capsys, "--json", "tracker", "ls")[1])[0]
+    assert (tracker["label"], tracker["torrent_client_id"], tracker["min_seed_time_seconds"]) == (
+        "ITT (ItaTorrents)", qbit["id"], 7 * 86400)
+    profile = json.loads(run(capsys, "--json", "tracker", "profile", "show", "ITT (ItaTorrents)")[1])
+    assert profile["default_internal"] is True and profile["category_id_map"]["movie"] == 9
+    assert run(capsys, "settings", "get", "upload_screenshot_count")[1].strip() == "6"
+
+    # Un nome sbagliato: elenca quelli che ci sono.
+    code, _out, err = run(capsys, "disk", "test", "nope")
+    assert code == 2 and "main" in err
+    # Una cartella che si sovrappone: il motivo del server.
+    code, _out, err = run(capsys, "disk", "folder", "add", "main", "media", "torrents")
+    assert code == 1 and "overlaps" in err
+
+
+def test_safety_settings_ask_before_changing(cli_env, client, capsys):
+    _login(capsys)
+    code, _out, err = run(capsys, "settings", "set", "verify_before_execute", "false")
+    assert code == 3 and "--yes" in err
+    code, _out, err = run(capsys, "settings", "set", "tmdb_api_key", "abc")
+    assert code == 2 and "never passed as arguments" in err
+
+
+def test_config_export_and_import(cli_env, client, capsys, monkeypatch):
+    import yaml
+
+    _login(capsys)
+    root = client.scan_root / "data"
+    _configure(capsys, root)
+
+    code, out, _err = run(capsys, "config", "export")
+    assert code == 0
+    exported = yaml.safe_load(out)
+    assert exported["torrent_clients"][0]["password"] == "${NAZGARR_CLIENT_QBIT_PASSWORD}"
+    assert "tracker-token" not in out and "qbitpass" not in out
+    assert exported["settings"]["upload_screenshot_count"] == "6" and exported["schedule"] == "0 */6 * * *"
+
+    file = cli_env / "nazgarr.yaml"
+    file.write_text(out)
+    code, out, _err = run(capsys, "config", "import", str(file))
+    assert code == 0 and "Nothing to change" in out
+
+    # Una cartella in più, un tag cambiato, un tracker nuovo con il token dall'ambiente.
+    exported["disks"][0]["media_folders"].append("media/tv")
+    exported["torrent_clients"][0]["tags"]["upload"] = "mine"
+    exported["trackers"].append({"label": "Other", "type": "unit3d", "url": "https://other.example",
+                                 "api_token": "${OTHER_TOKEN}", "client": "qbit"})
+    file.write_text(yaml.safe_dump(exported))
+    monkeypatch.setenv("OTHER_TOKEN", "secret-token")
+
+    code, out, _err = run(capsys, "config", "import", str(file), "--dry-run")
+    assert code == 0 and "+ media folder main:media/tv" in out and "+ tracker Other" in out
+    assert json.loads(run(capsys, "--json", "disk", "ls")[1])[0]["media_folders"] == ["media/movies"]  # dry run
+
+    code, out, err = run(capsys, "config", "import", str(file), "--yes")
+    assert code == 0, err
+    assert json.loads(run(capsys, "--json", "disk", "ls")[1])[0]["media_folders"] == ["media/movies", "media/tv"]
+    assert json.loads(run(capsys, "--json", "client", "ls")[1])[0]["tags_upload"] == "mine"
+    assert [t["label"] for t in json.loads(run(capsys, "--json", "tracker", "ls")[1])] == [
+        "ITT (ItaTorrents)", "Other"]
+    # Mai togliere: un client che il file non nomina resta.
+    exported["torrent_clients"] = []
+    file.write_text(yaml.safe_dump(exported))
+    run(capsys, "config", "import", str(file), "--yes")
+    assert len(json.loads(run(capsys, "--json", "client", "ls")[1])) == 1
