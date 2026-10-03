@@ -287,3 +287,32 @@ def test_every_command_has_its_help(capsys):
     for path in walk(get_command(build()), []):
         code, out, _err = run(capsys, *path, "--help")
         assert code == 0 and "Usage" in out, path
+
+
+def test_a_client_mounted_on_a_subfolder_from_the_command_line(cli_env, client, capsys):
+    import yaml
+
+    _login(capsys)
+    root = client.scan_root / "data"
+    _configure(capsys, root)
+    (root / "qbittorrent").mkdir()
+
+    code, out, err = run(capsys, "client", "link", "qbit", "main", "--folder", "qbittorrent", "--client-root",
+                         "/download")
+    assert code == 0, err
+    assert "qbittorrent = /download" in out
+    link = json.loads(run(capsys, "--json", "client", "ls")[1])[0]["disks"][0]
+    assert (link["torrent_client_root_path"], link["local_rel_path"]) == ("/download", "qbittorrent")
+    code, _out, err = run(capsys, "client", "link", "qbit", "main", "--folder", "qbittorrent")
+    assert code == 2 and "--client-root" in err
+
+    exported = yaml.safe_load(run(capsys, "config", "export")[1])
+    assert exported["torrent_clients"][0]["disks"] == [{"disk": "main", "client_root": "/download",
+                                                         "folder": "qbittorrent"}]
+    exported["torrent_clients"][0]["disks"][0]["client_root"] = "/downloads"
+    file = cli_env / "c.yaml"
+    file.write_text(yaml.safe_dump(exported))
+    code, out, _err = run(capsys, "config", "import", str(file), "--yes")
+    assert code == 0 and "path mapping" in out
+    link = json.loads(run(capsys, "--json", "client", "ls")[1])[0]["disks"][0]
+    assert link["torrent_client_root_path"] == "/downloads"

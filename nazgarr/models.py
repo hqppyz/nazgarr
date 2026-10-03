@@ -201,6 +201,10 @@ class DiskTorrentClient(Base):
         ForeignKey("torrent_client.id", ondelete="CASCADE"), primary_key=True
     )
     torrent_client_root_path: Mapped[str | None]
+    # Quale cartella del disco è torrent_client_root_path (relativa alla radice;
+    # vuota = la radice): un client montato su una sottocartella
+    # (nazgarr/client_paths.py).
+    local_rel_path: Mapped[str | None]
 
     disk: Mapped["Disk"] = relationship()
     torrent_client: Mapped["TorrentClient"] = relationship()

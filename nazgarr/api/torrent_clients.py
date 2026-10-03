@@ -3,6 +3,7 @@ sezione 5) — un disco può avere più client abilitati contemporaneamente,
 gestito dalla tabella ponte disk_torrent_client.
 """
 
+import os
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -15,6 +16,7 @@ from nazgarr.api.types import HttpUrlStr, require_secrets_for_new_host
 from nazgarr.api_errors import coded_detail, from_coded_error
 from nazgarr.client_labels import split_tags
 from nazgarr.deps import get_session
+from nazgarr.fs_scope import ScopeViolation, resolve_scoped
 from nazgarr.logging_config import safe_error
 from nazgarr.models import ClientTorrent, Disk, DiskTorrentClient, TorrentClient
 from nazgarr.plugins import REGISTRY
@@ -66,6 +68,7 @@ class TorrentClientTestResponse(BaseModel):
 class DiskAssociationResponse(BaseModel):
     disk_id: int
     torrent_client_root_path: str | None
+    local_rel_path: str | None = None  # quale cartella del disco è torrent_client_root_path (None = la radice)
 
 
 class AssociateDiskRequest(BaseModel):
@@ -74,6 +77,11 @@ class AssociateDiskRequest(BaseModel):
     # stesso path. Per (disk, client): client diversi sullo stesso disco
     # possono avere ciascuno il proprio path, non è un campo del disco.
     torrent_client_root_path: str | None = None
+    # Quale cartella del disco il client vede come torrent_client_root_path,
+    # relativa alla radice del disco (vuota = la radice): un client montato
+    # su una sottocartella, es. Nazgarr /data/qbittorrent = client /download
+    # (nazgarr/client_paths.py).
+    local_rel_path: str | None = None
 
 
 class TorrentClientResponse(BaseModel):
@@ -109,7 +117,8 @@ class TorrentClientResponse(BaseModel):
             **{name: getattr(tc, name) for name in LABEL_FIELDS},
             config=plugin_config.public_for_row(tc, "torrent_client"),
             disks=[
-                DiskAssociationResponse(disk_id=link.disk_id, torrent_client_root_path=link.torrent_client_root_path)
+                DiskAssociationResponse(disk_id=link.disk_id, torrent_client_root_path=link.torrent_client_root_path,
+                                        local_rel_path=link.local_rel_path)
                 for link in links
             ],
         )
@@ -263,7 +272,22 @@ def associate_disk(
     if link is None:
         link = DiskTorrentClient(disk_id=disk_id, torrent_client_id=torrent_client_id)
         session.add(link)
+    local_rel = (body.local_rel_path or "").strip().strip("/") or None
+    if local_rel is not None:
+        if not body.torrent_client_root_path:
+            raise HTTPException(status_code=400, detail=coded_detail("client_mapping_needs_client_root"))
+        disk = session.get(Disk, disk_id)
+        try:
+            folder = resolve_scoped(disk.root_path, local_rel)
+        except ScopeViolation as exc:
+            raise HTTPException(status_code=400, detail=coded_detail("path_outside_scope", path=local_rel)) from exc
+        if not os.path.isdir(folder):
+            raise HTTPException(status_code=400, detail=coded_detail("folder_not_found", path=local_rel))
+        local_rel = os.path.relpath(folder, os.path.realpath(disk.root_path))
+        if local_rel == ".":
+            local_rel = None
     link.torrent_client_root_path = body.torrent_client_root_path or None
+    link.local_rel_path = local_rel
     session.commit()
 
 

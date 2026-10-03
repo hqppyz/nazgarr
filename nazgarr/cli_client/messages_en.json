@@ -19,6 +19,8 @@
  "auth_username_required": "Username is required.",
  "auth_wrong_current_password": "Current password is incorrect.",
  "bundled_profile_not_found": "Bundled profile not found: {key}",
+ "client_cannot_see_path": "The client cannot see {path}: it sees only {folder} (as {client_root}). Pick a folder inside it, or change the client mapping.",
+ "client_mapping_needs_client_root": "Also set how the client sees that folder.",
  "cross_site_request": "Request refused: it came from another website",
  "disk_not_found": "Disk {id} not found.",
  "disk_root_path_conflict": "A disk with root_path {path} already exists.",

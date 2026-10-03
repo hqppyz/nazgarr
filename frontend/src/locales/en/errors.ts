@@ -148,4 +148,6 @@ export const errors = {
   'errors.instance_incompatible': '{label} runs {version}, not compatible with this instance ({local}).',
   'errors.instance_unreachable': '{label} is not reachable: {error}',
   'errors.instance_response_too_large': 'The answer from {label} is too large.',
+  'errors.client_cannot_see_path': 'The client cannot see {path}: it sees only {folder} (as {client_root}). Pick a folder inside it, or change the client mapping.',
+  'errors.client_mapping_needs_client_root': 'Also set how the client sees that folder.',
 } as const

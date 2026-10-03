@@ -145,7 +145,9 @@ Disks, clients and trackers can be named by name or by ID. Names are not case se
 nazgarr client add qbit --url http://qbittorrent:8080 -u admin     # the password is asked
 nazgarr client add box --type qui --url http://qui:7476 --qui-instance 1   # the API token is asked
 nazgarr client test qbit
-nazgarr client link qbit main --client-root /downloads    # only if it sees the disk elsewhere
+nazgarr client link qbit main                              # use it for this disk
+nazgarr client link qbit main --client-root /downloads    # it sees the whole disk at /downloads
+nazgarr client link qbit main --folder qbittorrent --client-root /download   # it sees only /data/qbittorrent, as /download
 nazgarr client edit qbit --category-movie radarr --tags-upload release
 nazgarr client edit qbit --password                      # ask a new password
 nazgarr client categories qbit
