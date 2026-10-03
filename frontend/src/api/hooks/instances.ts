@@ -54,6 +54,15 @@ export function useTestInstance() {
   })
 }
 
+// Il nome di questa istanza, al posto di "Questa istanza".
+export function useSetLocalName() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (name: string) => unwrap(api.PUT('/api/instances/local', { body: { name } })),
+    onSuccess: () => invalidate(queryClient),
+  })
+}
+
 // Una chiamata in sola lettura a un'istanza precisa, qualunque sia quella
 // che si sta guardando (la panoramica le guarda tutte insieme). id null =
 // questa istanza.

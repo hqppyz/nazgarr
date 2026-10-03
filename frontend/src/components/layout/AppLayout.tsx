@@ -14,7 +14,7 @@ import { setSizeUnits } from '@/lib/library-filters'
 import { NAV_DASHBOARD, resolveSectionTitle } from '@/lib/nav'
 import { usesTrackerFilter } from '@/lib/trackerFilter'
 import { TourRunner } from '@/onboarding/TourRunner'
-import { RemoteGate } from '@/components/instances/RemoteGate'
+import { RemoteGate, RemotePill } from '@/components/instances/RemoteGate'
 import { isRemote } from '@/lib/instance'
 import { UploadNotices } from '@/components/upload/UploadNotices'
 import { WelcomeDialog } from '@/onboarding/WelcomeDialog'
@@ -31,6 +31,7 @@ function TopHeader() {
         {parent && <span className="text-muted-foreground">/</span>}
         <span className="font-medium">{title}</span>
       </div>
+      <RemotePill />
       {usesTrackerFilter(location.pathname) && <TrackerFilterSelect />}
       {location.pathname === NAV_DASHBOARD.to && <RunNowButton />}
     </header>

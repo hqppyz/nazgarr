@@ -46,4 +46,9 @@ export const instances = {
   'instances.never': 'mai',
   'instances.loading': 'Caricamento…',
   'instances.unavailable': 'Non disponibile',
+  'instances.lockedTitle': '{section} di {label} non si modifica da qui',
+  'instances.lockedHelp':
+    "Il login, la password e le API key di un'istanza si gestiscono solo dalla sua interfaccia: la API key con cui questa istanza la raggiunge non può cambiarli, apposta.",
+  'instances.localName': 'Nome di questa istanza',
+  'instances.localNameHelp': 'Al posto di “Questa istanza” nel selettore e nella panoramica.',
 } as const

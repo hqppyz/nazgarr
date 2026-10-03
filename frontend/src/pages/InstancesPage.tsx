@@ -2,7 +2,7 @@ import { ServerIcon } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
 import { useInstances, useInstanceSnapshot, type Instance } from '@/api/hooks/instances'
-import { instanceDot } from '@/components/instances/InstanceSwitcher'
+import { instanceDot, useLocalName } from '@/components/instances/InstanceSwitcher'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { t } from '@/lib/i18n'
@@ -21,6 +21,7 @@ function InstanceCard({ instance }: { instance: Instance | null }) {
   const reachable = !instance || (status?.status === 'ok' && !status.compatibility.startsWith('block'))
   const { data, isPending, isError } = useInstanceSnapshot(id, reachable)
   const current = activeInstanceId() === id
+  const localName = useLocalName()
   const dash = data?.dashboard
   return (
     <Card className={cn('min-w-0', current && 'ring-2 ring-primary/50')}>
@@ -31,7 +32,7 @@ function InstanceCard({ instance }: { instance: Instance | null }) {
         <div className="grid min-w-0 flex-1 gap-0.5">
           <CardTitle className="flex items-center gap-2 truncate text-base">
             <span className={cn('size-2 shrink-0 rounded-full', instanceDot(instance))} />
-            {instance?.label ?? t('instances.thisInstance')}
+            {instance?.label ?? localName}
           </CardTitle>
           <span className="text-xs text-muted-foreground">
             {data?.version ? t('instances.version', { version: data.version }) : status?.version ?? ''}

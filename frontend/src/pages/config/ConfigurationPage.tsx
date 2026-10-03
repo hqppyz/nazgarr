@@ -7,6 +7,7 @@ import {
   InfoIcon,
   KeyRoundIcon,
   LayoutGridIcon,
+  LockIcon,
   PlugIcon,
   PuzzleIcon,
   RadioTowerIcon,
@@ -26,6 +27,7 @@ import { Masonry } from '@/components/Masonry'
 import { SettingsHeader } from '@/components/SettingsHeader'
 import { t } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
+import { safeHref } from '@/lib/safeUrl'
 import { activeInstanceId, isRemote } from '@/lib/instance'
 import { useInstances } from '@/api/hooks/instances'
 import { ApiKeysSection } from '@/pages/config/ApiKeysSection'
@@ -148,28 +150,35 @@ const GROUPS: { title: string; tabs: Tab[] }[] = [
 ]
 
 // Su un'altra istanza: Sicurezza (il login di questa) e API key (che una API
-// key non gestisce) restano dell'istanza del login, quindi non si mostrano.
+// key non gestisce) restano nel menu, ma al loro posto c'è un avviso.
 const LOCAL_ONLY = ['security', 'api-keys']
-const VISIBLE_GROUPS = isRemote()
-  ? GROUPS.map((group) => ({ ...group, tabs: group.tabs.filter((tab) => !LOCAL_ONLY.includes(tab.value)) }))
-      .filter((group) => group.tabs.length > 0)
-  : GROUPS
+const VISIBLE_GROUPS = GROUPS
 const ALL_TABS = VISIBLE_GROUPS.flatMap((group) => group.tabs)
 // Tab di prima del riordino, per i link già salvati.
 const RENAMED: Record<string, string> = {
   mapping: 'storage', metadata: 'integrations', 'time-language': 'interface', upload: 'images',
 }
 
-// Su un'altra istanza, sopra ogni sezione: cosa si cambia solo dalla sua interfaccia.
-function RemoteSettingsNotice() {
+// Al posto di Sicurezza e API key mentre si guarda un'altra istanza: si
+// cambiano solo dalla sua interfaccia.
+function LockedOnRemote({ title }: { title: string }) {
   const { data } = useInstances(true)
   const id = activeInstanceId()
-  const label = data?.instances.find((i) => i.id === id)?.label
-  if (id === null || !label) return null
+  const instance = data?.instances.find((i) => i.id === id)
   return (
-    <p className="rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-sm">
-      {t('instances.remoteSettingsNotice', { label })}
-    </p>
+    <div className="grid max-w-2xl gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-4 text-sm">
+      <p className="flex items-center gap-2 font-medium">
+        <LockIcon className="size-4" />
+        {t('instances.lockedTitle', { section: title, label: instance?.label ?? '' })}
+      </p>
+      <p className="text-muted-foreground">{t('instances.lockedHelp')}</p>
+      {instance && (
+        <a href={safeHref(instance.base_url)} target="_blank" rel="noreferrer"
+           className="w-fit font-medium text-primary underline-offset-4 hover:underline">
+          {t('instances.openItsUi')}
+        </a>
+      )}
+    </div>
   )
 }
 
@@ -234,13 +243,18 @@ export function ConfigurationPage() {
       </TabsList>
       {ALL_TABS.map((tab) => (
         <TabsContent key={tab.value} value={tab.value} className="grid min-w-0 content-start gap-4">
-          <RemoteSettingsNotice />
           {/* La stessa intestazione per ogni impostazione (components/SettingsHeader.tsx). */}
+          {isRemote() && LOCAL_ONLY.includes(tab.value) ? (
+            <LockedOnRemote title={tab.label} />
+          ) : (
+          <>
           {!tab.ownHeading && <SettingsHeader title={tab.label} description={tab.description} />}
           {tab.layout === 'masonry' ? (
             <Masonry gap={24}>{tab.content}</Masonry>
           ) : (
             <div className="grid min-w-0 content-start gap-6">{tab.content}</div>
+          )}
+          </>
           )}
         </TabsContent>
       ))}

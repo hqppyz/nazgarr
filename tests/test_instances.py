@@ -130,3 +130,9 @@ def test_an_older_instance_without_whoami_is_still_connected(monkeypatch):
     result = instances.probe("http://old.lan", "nzg_x")
 
     assert (result["status"], result["version"], result["level"]) == ("ok", "0.7.5", None)
+
+
+def test_this_instance_can_have_a_name(client):
+    assert client.get("/api/instances").json()["local_name"] is None
+    assert client.put("/api/instances/local", json={"name": "  NAS  "}).json()["local_name"] == "NAS"
+    assert client.get("/api/instances").json()["local_name"] == "NAS"

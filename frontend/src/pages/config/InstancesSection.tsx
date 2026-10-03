@@ -6,6 +6,7 @@ import {
   useCreateInstance,
   useDeleteInstance,
   useInstances,
+  useSetLocalName,
   useTestInstance,
   useUpdateInstance,
   type Instance,
@@ -131,6 +132,30 @@ function StatusLines({ instance }: { instance: Instance }) {
   )
 }
 
+function LocalNameCard({ saved }: { saved: string }) {
+  const [name, setName] = useState(saved)
+  const save = useSetLocalName()
+  return (
+    <Card>
+      <CardContent className="grid gap-2 py-4">
+        <Label htmlFor="instance-local-name">{t('instances.localName')}</Label>
+        <form className="flex max-w-md gap-2"
+              onSubmit={(e) => {
+                e.preventDefault()
+                save.mutate(name, { onSuccess: () => toast.success(t('common.saved')) })
+              }}>
+          <Input id="instance-local-name" value={name} maxLength={60}
+                 placeholder={t('instances.thisInstance')} onChange={(e) => setName(e.target.value)} />
+          <Button type="submit" variant="outline" disabled={save.isPending || name.trim() === saved}>
+            {t('common.save')}
+          </Button>
+        </form>
+        <p className="text-xs text-muted-foreground">{t('instances.localNameHelp')}</p>
+      </CardContent>
+    </Card>
+  )
+}
+
 export function InstancesSection() {
   const { data, isPending } = useInstances(true)
   const remove = useDeleteInstance()
@@ -141,6 +166,7 @@ export function InstancesSection() {
     <div className="grid content-start gap-4">
       <SettingsHeader title={t('instances.title')} description={t('instances.description')} action={<InstanceDialog />} />
       {isPending && <p className="text-sm text-muted-foreground">{t('common.loading')}</p>}
+      {data && <LocalNameCard key={data.local_name ?? ''} saved={data.local_name ?? ''} />}
       {data?.instances.length === 0 && (
         <Card>
           <CardContent className="py-6 text-center text-sm text-muted-foreground">{t('instances.none')}</CardContent>

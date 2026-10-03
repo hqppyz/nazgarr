@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from nazgarr import instances
+from nazgarr import instances, settings_repo
 from nazgarr.api_errors import coded_detail, from_coded_error
 from nazgarr.deps import get_session
 from nazgarr.models import RemoteInstance
@@ -54,7 +54,15 @@ class InstanceResponse(BaseModel):
 
 class InstancesResponse(BaseModel):
     local_version: str
+    local_name: str | None = None  # il nome di questa istanza (al posto di "Questa istanza")
     instances: list[InstanceResponse]
+
+
+class LocalNameRequest(BaseModel):
+    name: str
+
+
+LOCAL_NAME_SETTING = "instance_name"
 
 
 def _get(session: Session, instance_id: int) -> RemoteInstance:
@@ -86,7 +94,17 @@ def list_instances(probe: bool = False, session: Session = Depends(get_session))
             futures = {pool.submit(instances.cached_probe, r.id, r.base_url, r.api_key): r.id for r in rows}
             statuses = {futures[f]: f.result() for f in futures}
     return InstancesResponse(local_version=__version__,
+                             local_name=settings_repo.get_setting(session, LOCAL_NAME_SETTING) or None,
                              instances=[_response(r, statuses.get(r.id)) for r in rows])
+
+
+@router.put("/local", response_model=InstancesResponse)
+def set_local_name(body: LocalNameRequest, session: Session = Depends(get_session)):
+    """Il nome di questa istanza, mostrato nel selettore e nella panoramica.
+    Qui e non in /api/settings: mentre si guarda un'altra istanza, quelle
+    chiamate vanno a lei."""
+    settings_repo.set_setting(session, LOCAL_NAME_SETTING, body.name.strip()[:60])
+    return list_instances(False, session)
 
 
 @router.post("", response_model=InstanceResponse, status_code=201)

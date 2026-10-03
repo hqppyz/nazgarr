@@ -46,4 +46,9 @@ export const instances = {
   'instances.never': 'never',
   'instances.loading': 'Loading…',
   'instances.unavailable': 'Not available',
+  'instances.lockedTitle': '{section} of {label} cannot be changed from here',
+  'instances.lockedHelp':
+    'The login, password and API keys of an instance are managed only from its own interface: the API key this instance uses to reach it cannot change them, on purpose.',
+  'instances.localName': 'Name of this instance',
+  'instances.localNameHelp': 'Shown instead of “This instance” in the switcher and the overview.',
 } as const

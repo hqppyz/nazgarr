@@ -1913,6 +1913,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/instances/local": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set Local Name
+         * @description Il nome di questa istanza, mostrato nel selettore e nella panoramica.
+         *     Qui e non in /api/settings: mentre si guarda un'altra istanza, quelle
+         *     chiamate vanno a lei.
+         */
+        put: operations["set_local_name_api_instances_local_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/instances/{instance_id}": {
         parameters: {
             query?: never;
@@ -2862,6 +2884,8 @@ export interface components {
         InstancesResponse: {
             /** Local Version */
             local_version: string;
+            /** Local Name */
+            local_name?: string | null;
             /** Instances */
             instances: components["schemas"]["InstanceResponse"][];
         };
@@ -2961,6 +2985,11 @@ export interface components {
             extras_missing_bytes: number;
             /** Files */
             files: components["schemas"]["CandidateFileResponse"][];
+        };
+        /** LocalNameRequest */
+        LocalNameRequest: {
+            /** Name */
+            name: string;
         };
         /** LogEntry */
         LogEntry: {
@@ -8218,6 +8247,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["InstanceResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_local_name_api_instances_local_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LocalNameRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InstancesResponse"];
                 };
             };
             /** @description Validation Error */
