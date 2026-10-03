@@ -22,6 +22,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { type ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart'
 import { ToggleGroupItem, ToggleGroupSingle } from '@/components/ui/toggle-group'
+import { RingLoader } from '@/components/RingLoader'
 import { t } from '@/lib/i18n'
 import { formatBytes } from '@/lib/library-filters'
 import { dailyHealth, healthLabel } from '@/lib/health'
@@ -315,7 +316,7 @@ export function DashboardPage() {
   const tracker = useTrackerFilter()
 
   if (isPending || !data) {
-    return <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
+    return <RingLoader />
   }
 
   return (

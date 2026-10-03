@@ -2,6 +2,7 @@ import { useSeedFiles } from '@/api/hooks/library'
 import { FileBrowser } from '@/components/FileBrowser'
 import { TorrentViewSwitch } from '@/components/LibraryViewSwitch'
 import { useTreeMenu } from '@/components/useTreeMenu'
+import { RingLoader } from '@/components/RingLoader'
 import { t } from '@/lib/i18n'
 import type { StatusOption } from '@/lib/library-filters'
 
@@ -19,7 +20,7 @@ export function TorrentFolderView() {
   const { data, isPending } = useSeedFiles()
   const menu = useTreeMenu('orphan_torrent')
 
-  if (isPending) return <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
+  if (isPending) return <RingLoader />
 
   return (
     <>
