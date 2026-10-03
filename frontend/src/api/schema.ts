@@ -1595,6 +1595,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/system/whoami": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Whoami
+         * @description Chi sta chiamando: il login o una API key, e cosa può fare. Serve a
+         *     un'altra istanza che usa una nostra chiave (nazgarr/instances.py) per
+         *     sapere se è di lettura o di scrittura.
+         */
+        get: operations["whoami_api_system_whoami_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/system/info": {
         parameters: {
             query?: never;
@@ -1864,6 +1886,62 @@ export interface paths {
         put?: never;
         /** Revoke Api Key */
         post: operations["revoke_api_key_api_api_keys__key_id__revoke_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/instances": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Instances
+         * @description Le istanze registrate; con probe=true anche il loro stato (in parallelo).
+         */
+        get: operations["list_instances_api_instances_get"];
+        put?: never;
+        /** Create Instance */
+        post: operations["create_instance_api_instances_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/instances/{instance_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Instance */
+        delete: operations["delete_instance_api_instances__instance_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Instance */
+        patch: operations["update_instance_api_instances__instance_id__patch"];
+        trace?: never;
+    };
+    "/api/instances/{instance_id}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Test Instance */
+        post: operations["test_instance_api_instances__instance_id__test_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2731,6 +2809,57 @@ export interface components {
             with_api_key: string[];
             /** Usable */
             usable: string[];
+        };
+        /** InstanceCreateRequest */
+        InstanceCreateRequest: {
+            /** Label */
+            label: string;
+            /** Base Url */
+            base_url: string;
+            /** Api Key */
+            api_key: string;
+        };
+        /** InstanceResponse */
+        InstanceResponse: {
+            /** Id */
+            id: number;
+            /** Label */
+            label: string;
+            /** Base Url */
+            base_url: string;
+            status?: components["schemas"]["InstanceStatus"] | null;
+        };
+        /** InstanceStatus */
+        InstanceStatus: {
+            /** Status */
+            status: string;
+            /** Error */
+            error?: string | null;
+            /** Version */
+            version?: string | null;
+            /** Level */
+            level?: string | null;
+            /**
+             * Compatibility
+             * @default unknown
+             */
+            compatibility: string;
+        };
+        /** InstanceUpdateRequest */
+        InstanceUpdateRequest: {
+            /** Label */
+            label?: string | null;
+            /** Base Url */
+            base_url?: string | null;
+            /** Api Key */
+            api_key?: string | null;
+        };
+        /** InstancesResponse */
+        InstancesResponse: {
+            /** Local Version */
+            local_version: string;
+            /** Instances */
+            instances: components["schemas"]["InstanceResponse"][];
         };
         /** ItemDetailResponse */
         ItemDetailResponse: {
@@ -4395,6 +4524,15 @@ export interface components {
             last_delivery_at?: string | null;
             /** Secret */
             secret: string;
+        };
+        /** WhoAmIResponse */
+        WhoAmIResponse: {
+            /** Kind */
+            kind: string;
+            /** Name */
+            name: string | null;
+            /** Level */
+            level: string;
         };
     };
     responses: never;
@@ -7481,6 +7619,26 @@ export interface operations {
             };
         };
     };
+    whoami_api_system_whoami_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WhoAmIResponse"];
+                };
+            };
+        };
+    };
     app_info_api_system_info_get: {
         parameters: {
             query?: never;
@@ -7992,6 +8150,165 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ApiKeyResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_instances_api_instances_get: {
+        parameters: {
+            query?: {
+                probe?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InstancesResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_instance_api_instances_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InstanceCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InstanceResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_instance_api_instances__instance_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                instance_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_instance_api_instances__instance_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                instance_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InstanceUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InstanceResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    test_instance_api_instances__instance_id__test_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                instance_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InstanceResponse"];
                 };
             };
             /** @description Validation Error */

@@ -139,4 +139,13 @@ export const errors = {
   'errors.folder_other_filesystem': "'{path}' sta su un altro filesystem: da questo disco gli hardlink non ci arrivano. Aggiungila come disco a sé.",
   'errors.folder_already_added': "'{path}' è già una cartella di questo disco.",
   'errors.folder_overlaps': "'{path}' si sovrappone a '{other}' ({kind}): una cartella non può contenerne un'altra né starci dentro.",
+  'errors.instance_not_found': 'Istanza #{id} non trovata.',
+  'errors.instance_url_invalid': 'Indirizzo non valido: {url}',
+  'errors.instance_url_forbidden': '{url} non è una destinazione che Nazgarr chiama.',
+  'errors.instance_needs_https': "{url} è un indirizzo pubblico: usa https://, così la API key non viaggia in chiaro su internet.",
+  'errors.instance_fields_required': 'Nome, indirizzo e API key sono obbligatori.',
+  'errors.instance_path_not_allowed': "Non raggiungibile attraverso un'altra istanza: {path}",
+  'errors.instance_incompatible': '{label} ha la {version}, non compatibile con questa istanza ({local}).',
+  'errors.instance_unreachable': '{label} non è raggiungibile: {error}',
+  'errors.instance_response_too_large': 'La risposta di {label} è troppo grande.',
 } as const

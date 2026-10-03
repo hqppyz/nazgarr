@@ -139,4 +139,13 @@ export const errors = {
   'errors.folder_other_filesystem': "'{path}' is on another filesystem: hardlinks can't reach it from this disk. Add it as a disk of its own.",
   'errors.folder_already_added': "'{path}' is already one of this disk's folders.",
   'errors.folder_overlaps': "'{path}' overlaps '{other}' ({kind}): a folder can't contain another one or sit inside it.",
+  'errors.instance_not_found': 'Instance #{id} not found.',
+  'errors.instance_url_invalid': 'Not a valid address: {url}',
+  'errors.instance_url_forbidden': '{url} is not a destination Nazgarr calls.',
+  'errors.instance_needs_https': '{url} is a public address: use https://, so the API key does not travel in clear over the internet.',
+  'errors.instance_fields_required': 'Name, address and API key are required.',
+  'errors.instance_path_not_allowed': 'Not reachable through another instance: {path}',
+  'errors.instance_incompatible': '{label} runs {version}, not compatible with this instance ({local}).',
+  'errors.instance_unreachable': '{label} is not reachable: {error}',
+  'errors.instance_response_too_large': 'The answer from {label} is too large.',
 } as const

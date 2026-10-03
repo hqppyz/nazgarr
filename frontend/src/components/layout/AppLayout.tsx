@@ -14,6 +14,8 @@ import { setSizeUnits } from '@/lib/library-filters'
 import { NAV_DASHBOARD, resolveSectionTitle } from '@/lib/nav'
 import { usesTrackerFilter } from '@/lib/trackerFilter'
 import { TourRunner } from '@/onboarding/TourRunner'
+import { RemoteGate } from '@/components/instances/RemoteGate'
+import { isRemote } from '@/lib/instance'
 import { UploadNotices } from '@/components/upload/UploadNotices'
 import { WelcomeDialog } from '@/onboarding/WelcomeDialog'
 
@@ -50,13 +52,16 @@ export function AppLayout() {
     <FloatingSlotContext.Provider value={floatingSlot}>
       <SidebarProvider className="h-svh">
         <AppSidebar />
-        <WelcomeDialog />
-        <TourRunner />
+        {/* Il tour è dell'istanza su cui si è fatto il login, non di quella che si guarda. */}
+        {!isRemote() && <WelcomeDialog />}
+        {!isRemote() && <TourRunner />}
         <UploadNotices />
         <SidebarInset className="h-svh overflow-hidden">
           <TopHeader />
           <div className="flex-1 overflow-auto p-4 md:p-6">
-            <Outlet />
+            <RemoteGate>
+              <Outlet />
+            </RemoteGate>
           </div>
         </SidebarInset>
         {/* In basso a destra, impilati: feedback delle azioni sopra, run sotto. */}

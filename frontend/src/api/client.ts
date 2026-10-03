@@ -3,6 +3,7 @@ import type { FetchResponse } from 'openapi-fetch'
 import type { MediaType } from 'openapi-typescript-helpers'
 
 import { clearToken, getToken } from '@/lib/authToken'
+import { instancePath } from '@/lib/instance'
 import { t } from '@/lib/i18n'
 
 import type { components, paths } from './schema'
@@ -25,6 +26,13 @@ api.use({
   onRequest({ request }) {
     const token = getToken()
     if (token) request.headers.set('Authorization', `Bearer ${token}`)
+    // Un'altra istanza: la stessa chiamata, attraverso il proxy di questa.
+    const url = new URL(request.url)
+    const path = instancePath(url.pathname)
+    if (path !== url.pathname) {
+      url.pathname = path
+      return new Request(url, request)
+    }
     return request
   },
   onResponse({ response }) {

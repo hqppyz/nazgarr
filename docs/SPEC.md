@@ -355,6 +355,24 @@ Frontend stack: **React SPA + shadcn/ui** (a decision already made in ratio-guar
 
 Without Docker there is no volume mapping: `disk_scan_root` is the real folder the disks are under. The package's dependencies are the ones in `requirements.in`, minus `supervisor`, and a test keeps them equal. Windows is not tested yet.
 
+### More instances in one web UI (user decisions, 2026-10-03)
+
+One Nazgarr can open others: Configuration › Instances lists them (name, address, one of their API keys, encrypted at rest; `remote_instance`, `nazgarr/instances.py`).
+
+- **Switching.** A switcher at the top of the sidebar changes the instance every view shows, and a banner always says which one it is. The choice lives in the browser and reloads the page, so caches, queries and the tour start clean. Each instance has its own browser cache.
+- **The proxy.** The browser never talks to the other instance and never sees its key. Every call goes to this instance, which forwards it with the key (`/api/remote/{id}/…`), so no CORS is needed.
+  - It forwards only `/api/…`, never login, API keys, instances or the proxy itself.
+  - It has timeouts and a size limit.
+  - It needs this instance's login: an API key of this instance cannot use the keys of the others.
+- **Reaching an instance.** LAN or VPN addresses (private, CGNAT/Tailscale) are allowed over `http://`. A public address only over `https://`, so the key never travels in clear. To open a home instance from a VPS, use a VPN such as Tailscale or WireGuard.
+- **Versions.** The UI speaks the API of its own version, so it compares major.minor with each instance:
+  - the other instance is older by a minor: a warning;
+  - a different major, or the other instance is newer: blocked, both in the UI and in the proxy, until they match.
+- **What the key decides.** A read-only key only looks. Secrets, safety settings and API keys stay with that instance's own interface: an API key cannot change them. Security and API keys are hidden while on a remote, and every settings page says so.
+- **Overview.** `/instances` shows every instance with its library health, reviews waiting, uploads in progress and last scan.
+- **Command line.** `nazgarr instance ls/add/test/rm` manages the list, and asks for the password.
+- **Key level.** The test of an instance reads its version and, through `GET /api/system/whoami` (added for this), whether the key is read or write.
+
 ### Command line (user decisions, 2026-10-03)
 
 The `nazgarr` command is also a thin **client of the JSON API**, beside the server commands (`init`, `serve`, `install-service`, `version`). The server gets no new logic: every command calls the same endpoints, with the same checks, as the web UI. Full guide: `docs/CLI.md`.

@@ -5,6 +5,7 @@ import { Link, useLocation } from 'react-router-dom'
 import { useDashboard } from '@/api/hooks/dashboard'
 import { useHealth } from '@/api/hooks/health'
 import { RingLogo } from '@/components/RingLogo'
+import { InstanceSwitcher } from '@/components/instances/InstanceSwitcher'
 import type { RingHandle } from '@/components/ring/types'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { useAuth } from '@/contexts/AuthContext'
@@ -133,6 +134,7 @@ export function AppSidebar() {
           </span>
         </span>
       </SidebarHeader>
+      <InstanceSwitcher />
       <SidebarContent>
         <SidebarGroup className="px-2 py-0.5">
           <SidebarGroupContent>

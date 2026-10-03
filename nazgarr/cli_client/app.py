@@ -13,6 +13,7 @@ from nazgarr.cli_client.commands import (
     clients,
     config,
     disks,
+    instances,
     raw,
     reviews,
     runs,
@@ -101,6 +102,7 @@ def build() -> typer.Typer:
     app.add_typer(settings.app, name="settings", rich_help_panel="Configuration")
     app.add_typer(settings.schedule_app, name="schedule", rich_help_panel="Configuration")
     app.add_typer(config.app, name="config", rich_help_panel="Configuration")
+    app.add_typer(instances.app, name="instance", rich_help_panel="Configuration")
     app.command(rich_help_panel="Reseeding")(runs.scan)
     app.add_typer(runs.app, name="runs", rich_help_panel="Reseeding")
     app.add_typer(reviews.app, name="review", rich_help_panel="Reseeding")

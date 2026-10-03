@@ -14,6 +14,7 @@ import { TorrentFolderView } from '@/pages/torrent/TorrentFolderView'
 import { NewUploadPage } from '@/pages/upload/NewUploadPage'
 import { UploadJobPage } from '@/pages/upload/UploadJobPage'
 import { UploadQueuePage } from '@/pages/upload/UploadQueuePage'
+import { InstancesPage } from '@/pages/InstancesPage'
 import { NAV_DASHBOARD, NAV_GROUPS } from '@/lib/nav'
 
 // Ogni voce di navigazione (NAV_DASHBOARD + NAV_GROUPS) diventa una route:
@@ -57,6 +58,7 @@ function App() {
         {ALL_ITEMS.map((item) => (
           <Route key={item.to} path={item.to} element={overrides[item.to] ?? <ComingSoon title={item.title} />} />
         ))}
+        <Route path="/instances" element={<InstancesPage />} />
         <Route path="/upload/new" element={<NewUploadPage />} />
         <Route path="/upload/:uploadId" element={<UploadJobPage />} />
       </Route>

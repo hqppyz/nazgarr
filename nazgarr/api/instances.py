@@ -134,7 +134,8 @@ async def _body(request: Request) -> bytes:
     return await request.body()
 
 
-@remote_router.api_route("/{instance_id}/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
+@remote_router.api_route("/{instance_id}/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
+                         include_in_schema=False)
 def proxy(instance_id: int, path: str, request: Request, body: bytes = Depends(_body),
           session: Session = Depends(get_session)):
     """Inoltra una chiamata alle API dell'istanza, con la sua API key. Solo
