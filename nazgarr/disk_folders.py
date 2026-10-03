@@ -15,6 +15,7 @@ libreria alla scansione successiva.
 """
 
 import os
+import secrets
 
 from sqlalchemy.orm import Session
 
@@ -115,3 +116,88 @@ def absolute(disk: Disk, kind: str) -> list[str]:
         except ScopeViolation:
             continue
     return out
+
+
+# --- prova del disco ----------------------------------------------------------
+
+TEST_PREFIX = ".nazgarr-link-test-"
+
+
+def _check(code: str, level: str = "ok", **params) -> dict:
+    return {"code": code, "level": level, "params": params}
+
+
+def _link_test(anchor_relative: str, anchor: str, targets: list[tuple[str, str]]) -> list[dict]:
+    """Un file vuoto nella prima cartella e un hardlink verso ogni altra:
+    la prova che gli hardlink funzionano davvero fra quelle cartelle (su uno
+    share FUSE come /mnt/user di Unraid falliscono fra dischi fisici diversi,
+    anche con lo stesso st_dev). File nascosti, tolti subito."""
+    name = TEST_PREFIX + secrets.token_hex(4)
+    source = os.path.join(anchor, name)
+    checks = []
+    try:
+        with open(source, "x"):
+            pass
+    except OSError as exc:
+        return [_check("link_test_write_failed", "error", folder=anchor_relative, error=exc.strerror or str(exc))]
+    try:
+        for relative, folder in targets:
+            target = os.path.join(folder, name if folder != anchor else name + "-link")
+            try:
+                os.link(source, target, follow_symlinks=False)
+                same = os.stat(target).st_ino == os.stat(source).st_ino
+                checks.append(_check("hardlink_ok" if same else "hardlink_failed", "ok" if same else "error",
+                                     source=anchor_relative, folder=relative,
+                                     error=None if same else "not the same file"))
+            except OSError as exc:
+                checks.append(_check("hardlink_failed", "error", source=anchor_relative, folder=relative,
+                                     error=exc.strerror or str(exc)))
+            finally:
+                if os.path.lexists(target):
+                    os.unlink(target)
+    finally:
+        os.unlink(source)
+    return checks
+
+
+def test_disk(session: Session, disk: Disk) -> dict:
+    """La prova del disco, chiesta dall'utente (Configurazione › Storage):
+    - il disco è raggiungibile;
+    - ogni cartella esiste e sta sul filesystem del disco;
+    - un hardlink di prova dalla prima cartella di seeding (o media) verso
+      ogni altra cartella, o dentro la stessa se è l'unica, funziona;
+    - st_dev rispetto a quello registrato: su FUSE cambia a ogni rimontaggio,
+      quindi da solo è solo un avviso; se gli hardlink funzionano, il valore
+      registrato si aggiorna.
+    Scrive solo file vuoti nascosti, tolti subito."""
+    root = os.path.realpath(disk.root_path)
+    if not os.path.isdir(root):
+        return {"ok": False, "checks": [_check("disk_unreachable", "error", path=disk.root_path)]}
+    root_dev = os.stat(root).st_dev
+    checks: list[dict] = []
+    usable: list[tuple[str, str]] = []
+    for kind, folders in (("seeding", disk.seeding_folders), ("media", disk.media_folders)):
+        for relative in folders:
+            path = os.path.join(root, relative)
+            if not os.path.isdir(path):
+                checks.append(_check("folder_missing", "error", folder=relative, kind=kind))
+            elif os.stat(path).st_dev != root_dev:
+                checks.append(_check("folder_other_filesystem", "error", folder=relative, kind=kind))
+            else:
+                usable.append((relative, path))
+    if usable:
+        anchor_relative, anchor = usable[0]
+        targets = usable[1:] or [usable[0]]
+        checks.extend(_link_test(anchor_relative, anchor, targets))
+    else:
+        checks.append(_check("no_folders", "warning"))
+    links_ok = usable and all(c["level"] != "error" for c in checks)
+    if disk.st_dev is None:
+        disk.st_dev = root_dev
+    elif disk.st_dev != root_dev:
+        updated = bool(links_ok)
+        checks.append(_check("st_dev_changed", "warning", old=disk.st_dev, new=root_dev, updated=updated))
+        if updated:
+            disk.st_dev = root_dev
+    session.commit()
+    return {"ok": all(c["level"] != "error" for c in checks), "checks": checks}

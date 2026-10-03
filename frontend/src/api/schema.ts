@@ -2430,6 +2430,20 @@ export interface components {
             /** Torrent Client Root Path */
             torrent_client_root_path: string | null;
         };
+        /** DiskCheck */
+        DiskCheck: {
+            /** Code */
+            code: string;
+            /** Level */
+            level: string;
+            /**
+             * Params
+             * @default {}
+             */
+            params: {
+                [key: string]: unknown;
+            };
+        };
         /** DiskCreateRequest */
         DiskCreateRequest: {
             /** Label */
@@ -4312,6 +4326,11 @@ export interface components {
             consistent: boolean;
             /** Warning */
             warning?: string | null;
+            /**
+             * Checks
+             * @default []
+             */
+            checks: components["schemas"]["DiskCheck"][];
         };
         /** WebhookRequest */
         WebhookRequest: {

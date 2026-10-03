@@ -48,9 +48,16 @@ class MkdirResponse(BaseModel):
     created: bool
 
 
+class DiskCheck(BaseModel):
+    code: str
+    level: str  # ok | warning | error
+    params: dict = {}
+
+
 class VerifyResponse(BaseModel):
     consistent: bool
-    warning: str | None = None
+    warning: str | None = None  # deprecato: le prove sono in checks
+    checks: list[DiskCheck] = []
 
 
 class DiskCreateRequest(BaseModel):
@@ -170,30 +177,18 @@ def create_disk(session: Session, label: str, root_path: str, scan_root: str) ->
 
 
 def verify_disk(session: Session, disk: Disk) -> VerifyResponse:
-    if not os.path.isdir(disk.root_path):
+    """La prova del disco (nazgarr/disk_folders.py test_disk): cartelle,
+    filesystem e un hardlink di prova fra le cartelle. st_dev da solo non
+    basta: su FUSE cambia a ogni rimontaggio."""
+    result = disk_folders.test_disk(session, disk)
+    if result["checks"] and result["checks"][0]["code"] == "disk_unreachable":
         raise HTTPException(status_code=404, detail=coded_detail("disk_root_path_unreachable", path=disk.root_path))
-
-    current_st_dev = os.stat(disk.root_path).st_dev
-
-    if disk.st_dev is None:
-        # Prima verifica: non c'è nulla con cui confrontare, stabiliamo la baseline.
-        disk.st_dev = current_st_dev
-        session.commit()
-        return VerifyResponse(consistent=True)
-
-    if current_st_dev != disk.st_dev:
-        # Non sovrascriviamo mai silenziosamente: st_dev cambiato = possibile
-        # rimonto/sostituzione del disco (vedi docs/SPEC.md sezione 4).
-        return VerifyResponse(
-            consistent=False,
-            warning=(
-                f"st_dev changed for disk '{disk.label}' "
-                f"({disk.st_dev} -> {current_st_dev}): the disk may have been remounted "
-                "or replaced. Verify before proceeding with hardlinks."
-            ),
-        )
-
-    return VerifyResponse(consistent=True)
+    problems = [c for c in result["checks"] if c["level"] != "ok"]
+    return VerifyResponse(
+        consistent=result["ok"],
+        warning=", ".join(c["code"] for c in problems) or None,
+        checks=[DiskCheck(**c) for c in result["checks"]],
+    )
 
 
 def _relative_to_root(root_path: str, candidate: str) -> str:

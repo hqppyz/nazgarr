@@ -133,3 +133,52 @@ def test_api_adds_and_removes_folders(client):
     body = client.delete(f"/api/disks/{disk_id}/folders/{tv['id']}").json()
     assert body["media_folders"] == ["movies"]
     assert client.delete(f"/api/disks/{disk_id}/folders/999").status_code == 404
+
+
+def _codes(result):
+    return [(c["code"], c["level"]) for c in result["checks"]]
+
+
+def test_the_disk_test_links_a_file_between_every_folder_and_leaves_nothing(db_session, disk):
+    for kind, path in (("seeding", "torrents"), ("seeding", "cross-seed"), ("media", "movies")):
+        disk_folders.add(db_session, disk, kind, path)
+
+    result = disk_folders.test_disk(db_session, disk)
+
+    assert result["ok"] is True
+    assert _codes(result) == [("hardlink_ok", "ok"), ("hardlink_ok", "ok")]
+    assert [c["params"]["folder"] for c in result["checks"]] == ["cross-seed", "movies"]
+    leftovers = [n for _d, _s, names in os.walk(disk.root_path) for n in names if n.startswith(".nazgarr-link-test")]
+    assert leftovers == []
+
+
+def test_the_disk_test_says_what_is_wrong(db_session, disk, monkeypatch):
+    disk_folders.add(db_session, disk, "seeding", "torrents")
+    disk_folders.add(db_session, disk, "media", "movies")
+    os.rmdir(os.path.join(disk.root_path, "movies"))
+
+    def no_links(*args, **kwargs):
+        raise OSError(18, "Invalid cross-device link")
+
+    result = disk_folders.test_disk(db_session, disk)
+    assert ("folder_missing", "error") in _codes(result) and result["ok"] is False
+
+    os.mkdir(os.path.join(disk.root_path, "movies"))
+    monkeypatch.setattr(disk_folders.os, "link", no_links)
+    result = disk_folders.test_disk(db_session, disk)
+    failed = next(c for c in result["checks"] if c["code"] == "hardlink_failed")
+    assert failed["params"] == {"source": "torrents", "folder": "movies", "error": "Invalid cross-device link"}
+
+
+def test_a_changed_st_dev_alone_is_only_a_warning_and_is_updated_when_links_work(db_session, disk):
+    disk_folders.add(db_session, disk, "seeding", "torrents")
+    disk.st_dev = 12345  # come dopo un rimontaggio FUSE
+    db_session.commit()
+
+    result = disk_folders.test_disk(db_session, disk)
+
+    assert result["ok"] is True
+    changed = next(c for c in result["checks"] if c["code"] == "st_dev_changed")
+    assert changed["level"] == "warning" and changed["params"]["updated"] is True
+    assert disk.st_dev == os.stat(disk.root_path).st_dev
+    assert ("hardlink_ok", "ok") in _codes(result)  # l'unica cartella: un link dentro la stessa

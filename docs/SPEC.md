@@ -100,6 +100,11 @@ A disk has **any number of media folders and seeding folders** (`disk_folder`, `
 - **Removing a folder** touches nothing on disk. Its files leave the library at the next scan.
 - **The scan** reads every folder. A folder that cannot be read (an unmounted share) keeps its files current: their `last_scan_id` is carried forward. Without this, files would disappear with the share. A file gone from a readable folder still disappears as before.
 - **Defaults:** new hardlinks and uploads go to their own folder if set, otherwise to the first seeding folder. The "already seeding" search covers every seeding folder.
+- **Disk test** (user report, 2026-10-03): "Test disk" on the card (`POST /api/disks/{id}/verify`, `nazgarr/disk_folders.py::test_disk`) runs these checks:
+  - every folder exists and is on the disk's filesystem;
+  - a test hardlink goes from the first seeding folder to every other folder. The test file is empty, hidden and removed right away. If the disk has a single folder, the link stays inside that folder.
+
+  A changed `st_dev` alone is only a warning: on FUSE (Unraid `/mnt/user`) it changes at every remount, and it never proved hardlinks work. The stored value is updated when the link test passes.
 - **API:** `GET /api/disks` lists `folders`, `media_folders` and `seeding_folders`. `POST /api/disks/{id}/folders` and `DELETE /api/disks/{id}/folders/{folder_id}` manage them. `media_rel_path`/`torrents_rel_path` remain as deprecated fields: the first folder in responses, and a single-folder replacement in a PATCH.
 - **UI:** Configuration › Storage has one card per disk, like torrent clients and trackers. Each card lists its seeding and media folders, each with add and remove, and then the folders for new hardlinks, uploads and releases.
 

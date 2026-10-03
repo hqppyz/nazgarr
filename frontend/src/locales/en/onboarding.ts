@@ -82,9 +82,10 @@ export const onboarding = {
   'onboarding.tour.storage.upload.title': 'Uploads (optional)',
   'onboarding.tour.storage.upload.body':
     'The same for your uploads: where their files are linked and seeded. Empty means the first torrent folder.',
-  'onboarding.tour.storage.verify.title': 'A quick check',
+  'onboarding.tour.storage.verify.title':
+    'Test the disk',
   'onboarding.tour.storage.verify.body':
-    'This checks that the disk is still the filesystem it was when you added it, so hardlinks keep working. Keep watch like a tower: run it again whenever you remount or move a disk.',
+    'Checks that the folders exist and that a hardlink really goes from the torrent folder to every other one, with an empty test file removed right away. Keep watch like a tower: run it again whenever you remount or move a disk.',
 
   'onboarding.tour.clients.add.title': 'Add your torrent client',
   'onboarding.tour.clients.add.body': 'Click "Add client". Nazgarr only reads from it, until you approve a reseed or an upload.',

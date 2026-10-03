@@ -1,4 +1,4 @@
-import { CheckCircle2Icon, FolderIcon, HardDriveIcon, PencilIcon, PlusIcon, TrashIcon, XCircleIcon, XIcon } from 'lucide-react'
+import { FolderIcon, HardDriveIcon, PencilIcon, PlusIcon, TrashIcon, XIcon, ZapIcon } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 
@@ -112,29 +112,42 @@ function AddDiskDialog() {
   )
 }
 
-function VerifyButton({ diskId }: { diskId: number }) {
+// La prova del disco (nazgarr/disk_folders.py test_disk): cartelle, filesystem e
+// un hardlink di prova fra le cartelle, come "Prova connessione" dei client.
+// st_dev cambiato da solo è un avviso: su FUSE cambia a ogni rimontaggio.
+function DiskTestButton({ diskId }: { diskId: number }) {
   const verify = useVerifyDisk()
   return (
     <Button
-      variant="ghost"
-      size="icon-sm"
+      variant="outline"
+      size="sm"
       data-tour="storage.verify"
-      title={t('disks.verifyHardlink')}
+      title={t('disks.testHelp')}
+      disabled={verify.isPending}
       onClick={() =>
         verify.mutate(diskId, {
           onSuccess: (result) => {
-            if (result.consistent) toast.success(t('disks.diskConsistent'))
-            else toast.warning(result.warning ?? t('disks.diskInconsistent'))
+            const checks = result.checks ?? []
+            const links = checks.filter((c) => c.code === 'hardlink_ok').length
+            // st_dev cambiato: aggiornato se gli hardlink funzionano, se no lasciato com'era.
+            const key = (c: (typeof checks)[number]) =>
+              c.code === 'st_dev_changed' && !(c.params as { updated?: boolean }).updated ? 'st_dev_changed_kept' : c.code
+            const notes = checks
+              .filter((c) => c.level !== 'ok')
+              .map((c) => t(`disks.check.${key(c)}`, c.params as Record<string, string | number>))
+            const description = notes.length ? (
+              <ul className="grid gap-1">{notes.map((note) => <li key={note}>{note}</li>)}</ul>
+            ) : undefined
+            if (!result.consistent) toast.error(t('disks.testFailed'), { description, duration: 15000 })
+            else if (notes.length) toast.warning(t('disks.testPassedWithNotes', { count: links }), { description, duration: 10000 })
+            else toast.success(t('disks.testPassed', { count: links }))
           },
           onError: (error) => toast.error(t('disks.verificationFailed', { message: error.message })),
         })
       }
     >
-      {verify.data?.consistent === false ? (
-        <XCircleIcon className="size-4 text-destructive" />
-      ) : (
-        <CheckCircle2Icon className="size-4" />
-      )}
+      <ZapIcon className="size-4" />
+      {t('disks.test')}
     </Button>
   )
 }
@@ -403,7 +416,7 @@ export function DisksSection() {
                 />
               </div>
               <div className="flex items-center gap-1 border-t pt-3">
-                <VerifyButton diskId={disk.id} />
+                <DiskTestButton diskId={disk.id} />
                 <span className="flex-1" />
                 <EditDiskDialog disk={disk} />
                 <Button variant="ghost" size="icon-sm" title={t('common.delete')} onClick={() => deleteDisk.mutate(disk.id)}>

@@ -82,9 +82,10 @@ export const onboarding = {
   'onboarding.tour.storage.upload.title': 'Upload (facoltativo)',
   'onboarding.tour.storage.upload.body':
     'Lo stesso per i tuoi upload: dove i loro file vengono collegati e messi in seed. Vuoto significa la prima cartella dei torrent.',
-  'onboarding.tour.storage.verify.title': 'Un controllo veloce',
+  'onboarding.tour.storage.verify.title':
+    'Prova il disco',
   'onboarding.tour.storage.verify.body':
-    'Controlla che il disco sia ancora lo stesso filesystem di quando l’hai aggiunto, così gli hardlink continuano a funzionare. Fai la guardia come una torre: rilancialo ogni volta che rimonti o sposti un disco.',
+    'Controlla che le cartelle esistano e che un hardlink passi davvero dalla cartella dei torrent a ogni altra, con un file di prova vuoto tolto subito. Fai la guardia come una torre: rilancialo ogni volta che rimonti o sposti un disco.',
 
   'onboarding.tour.clients.add.title': 'Aggiungi il tuo client torrent',
   'onboarding.tour.clients.add.body': 'Clicca "Aggiungi client". Nazgarr si limita a leggerlo, finché non approvi un reseed o un upload.',
