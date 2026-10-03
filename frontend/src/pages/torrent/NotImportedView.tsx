@@ -14,6 +14,7 @@ import { Input } from '@/components/ui/input'
 import { Popover, PopoverContent, PopoverHeader, PopoverTitle, PopoverTrigger } from '@/components/ui/popover'
 import { Toggle } from '@/components/ui/toggle'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { RingLoader } from '@/components/RingLoader'
 import { t } from '@/lib/i18n'
 import { formatBytes, type StateSummary, type StatusOption } from '@/lib/library-filters'
 import { NOT_IMPORTED_STYLES } from '@/lib/status-styles'
@@ -199,7 +200,7 @@ export function NotImportedView() {
     (tor) => (showExcluded || !tor.excluded) && safeToRemove(tor),
   ).length
 
-  if (isPending) return <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
+  if (isPending) return <RingLoader />
 
   return (
     <div className="grid gap-4">

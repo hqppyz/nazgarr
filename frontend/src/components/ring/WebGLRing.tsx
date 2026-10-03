@@ -205,6 +205,8 @@ interface Props {
   className?: string
   handleRef?: Ref<RingHandle>
   hoverable?: boolean
+  // Durata di un giro: lento come logo, veloce come indicatore di caricamento.
+  spinSeconds?: number
   // Esportazione dell'immagine statica (scripts/render-ring.mjs): il canvas
   // conserva il fotogramma e viene passato qui dopo il primo disegno, fermo.
   onRendered?: (canvas: HTMLCanvasElement) => void
@@ -219,7 +221,7 @@ type RingApi = {
   drop: () => void
 }
 
-export function WebGLRing({ size = 120, className, handleRef, hoverable = true, onRendered, onReady }: Props) {
+export function WebGLRing({ size = 120, className, handleRef, hoverable = true, spinSeconds = 60, onRendered, onReady }: Props) {
   const mountRef = useRef<HTMLDivElement>(null)
   const api = useRef<RingApi | null>(null)
 
@@ -327,7 +329,7 @@ export function WebGLRing({ size = 120, className, handleRef, hoverable = true, 
       })
     }
 
-    const idle = exporting ? null : gsap.to(state, { spin: `-=${Math.PI * 2}`, duration: 60, ease: 'none', repeat: -1 })
+    const idle = exporting ? null : gsap.to(state, { spin: `-=${Math.PI * 2}`, duration: spinSeconds, ease: 'none', repeat: -1 })
     api.current = {
       hover: (on, x = 0, y = 0, instant = false) => {
         gsap.to(state, {
@@ -373,7 +375,7 @@ export function WebGLRing({ size = 120, className, handleRef, hoverable = true, 
     }
     // onRendered/onReady servono solo al primo fotogramma
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [size])
+  }, [size, spinSeconds])
 
   useImperativeHandle(handleRef, () => ({
     flash: () => api.current?.flash(),

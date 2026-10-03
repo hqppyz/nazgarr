@@ -13,6 +13,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { RingLoader } from '@/components/RingLoader'
 import { t } from '@/lib/i18n'
 import { sourceLabel } from '@/lib/upload'
 import { parseApiDate } from '@/lib/time'
@@ -245,7 +246,7 @@ export function UploadQueuePage() {
   return (
     <div className="grid gap-4">
       {isPending ? (
-        <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
+        <RingLoader />
       ) : (
         <Tabs defaultValue={params.get('tab') ?? (active.length > 0 || history.length === 0 ? 'active' : 'history')}>
           <div className="flex flex-wrap items-center justify-between gap-3">

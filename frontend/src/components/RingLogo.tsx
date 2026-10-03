@@ -32,11 +32,13 @@ export function RingLogo({
   className,
   handleRef,
   hoverable = true,
+  spinSeconds,
 }: {
   size?: number
   className?: string
   handleRef?: Ref<RingHandle>
   hoverable?: boolean
+  spinSeconds?: number
 }) {
   animated ??= canAnimate()
   const [ready, setReady] = useState(false)
@@ -61,7 +63,7 @@ export function RingLogo({
     <span className={cn('relative inline-block shrink-0', className)} style={{ width: size, height: size }}>
       {!ready && still}
       <Suspense fallback={null}>
-        <WebGLRing size={size} handleRef={handleRef} hoverable={hoverable} onReady={() => setReady(true)} />
+        <WebGLRing size={size} handleRef={handleRef} hoverable={hoverable} spinSeconds={spinSeconds} onReady={() => setReady(true)} />
       </Suspense>
     </span>
   )

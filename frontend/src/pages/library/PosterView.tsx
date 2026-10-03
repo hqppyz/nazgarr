@@ -8,6 +8,7 @@ import { LibrarySummaryCards } from '@/components/LibrarySummaryCards'
 import { LibraryViewSwitch } from '@/components/LibraryViewSwitch'
 import { Input } from '@/components/ui/input'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { RingLoader } from '@/components/RingLoader'
 import { t } from '@/lib/i18n'
 import { DUPLICATES_STATUS, type StateSummary, type StatusOption } from '@/lib/library-filters'
 import { STATUS_STYLES } from '@/lib/status-styles'
@@ -192,7 +193,7 @@ export function PosterView() {
     return () => observer.disconnect()
   }, [visibleCount, cards.length])
 
-  if (isPending) return <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
+  if (isPending) return <RingLoader />
 
   return (
     <div className="grid gap-4">
