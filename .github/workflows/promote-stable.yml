@@ -52,7 +52,7 @@ jobs:
           set -euo pipefail
           version="${INPUT#v}"
           if [[ -z "$version" ]]; then
-            version=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n1 | sed 's/^v//')
+            version=$(git tag -l 'v[0-9]*' --sort=-v:refname | { grep -Ex -m1 'v[0-9]+\.[0-9]+\.[0-9]+' || true; } | sed 's/^v//')
           fi
           if ! git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
             echo "Tag v$version not found: publish it first (push to main)" >&2
