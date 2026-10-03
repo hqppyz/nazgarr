@@ -94,7 +94,7 @@ function NotificationControls({ adapter, events, lastDelivery }: {
   )
 }
 
-function GlobalAdapterCard({ adapter }: { adapter: Adapter }) {
+export function GlobalAdapterCard({ adapter }: { adapter: Adapter }) {
   const { data } = useAdapterConfig(adapter.kind, adapter.adapter_type)
   const save = useSaveAdapterConfig(adapter.kind, adapter.adapter_type)
   const [values, setValues] = useState<ConfigValues | null>(null)
@@ -110,7 +110,7 @@ function GlobalAdapterCard({ adapter }: { adapter: Adapter }) {
         <div className="grid gap-1">
           <CardTitle className="text-base">{adapter.label}</CardTitle>
           <CardDescription>
-            {t(`plugins.kind.${adapter.kind}`)} · {adapter.plugin}
+            {t(`plugins.kind.${adapter.kind}`)} · {adapter.plugin ?? t('plugins.builtin')}
             {adapter.description ? ` — ${adapter.description}` : ''}
           </CardDescription>
         </div>
@@ -226,7 +226,8 @@ export function PluginsSection() {
       </Card>
 
       {data.adapters
-        .filter((a) => a.plugin && GLOBAL_KINDS.includes(a.kind))
+        // I servizi di notifica stanno in Impostazioni › Notifiche, integrati e dei plugin.
+        .filter((a) => a.plugin && GLOBAL_KINDS.includes(a.kind) && a.kind !== 'notification')
         .map((adapter) => (
           <GlobalAdapterCard key={`${adapter.kind}:${adapter.adapter_type}`} adapter={adapter} />
         ))}

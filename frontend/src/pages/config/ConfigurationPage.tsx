@@ -1,4 +1,5 @@
 import {
+  BellIcon,
   FilterXIcon,
   GaugeIcon,
   HardDriveDownloadIcon,
@@ -40,6 +41,7 @@ import { InterfaceSection } from '@/pages/config/InterfaceSection'
 import { LogsSection } from '@/pages/config/LogsSection'
 import { InstancesSection } from '@/pages/config/InstancesSection'
 import { MetadataSection } from '@/pages/config/MetadataSection'
+import { NotificationsSection } from '@/pages/config/NotificationsSection'
 import { PluginsSection } from '@/pages/config/PluginsSection'
 import { SecuritySection } from '@/pages/config/SecuritySection'
 import { TorrentClientsSection } from '@/pages/config/TorrentClientsSection'
@@ -135,6 +137,8 @@ const GROUPS: { title: string; tabs: Tab[] }[] = [
         ownHeading: true },
       { value: 'plugins', label: t('config.tabPlugins'), icon: PuzzleIcon, layout: STACK, content: <PluginsSection />,
         description: t('config.descPlugins') },
+      { value: 'notifications', label: t('config.tabNotifications'), icon: BellIcon, layout: STACK,
+        content: <NotificationsSection />, ownHeading: true },
       { value: 'webhooks', label: t('config.tabWebhooks'), icon: WebhookIcon, layout: STACK, content: <WebhooksSection />,
         ownHeading: true },
     ],

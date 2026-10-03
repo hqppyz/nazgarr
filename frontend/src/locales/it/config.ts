@@ -18,6 +18,9 @@ export const config = {
   'config.tabLogs': 'Log',
   'config.tabPlugins': 'Plugin',
   'config.tabWebhooks': 'Webhook',
+  'config.tabNotifications': 'Notifiche',
+  'config.descNotifications':
+    "Un messaggio su Discord o Telegram quando succede qualcosa: un upload da decidere o finito, un reseed, una scansione. Scegli gli eventi per ogni servizio e prova l'invio.",
   'config.tabApiKeys': 'API key',
   'config.tabImages': 'Immagini',
   'config.tabReleases': 'Release',

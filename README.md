@@ -45,7 +45,7 @@ It isn't tied to Unraid or to the \*arr stack. Separate disks without FUSE or RA
 - Several torrent clients at once ([qBittorrent](https://www.qbittorrent.org/), [qui](https://github.com/autobrr/qui)), [UNIT3D](https://github.com/HDInnovations/UNIT3D) trackers, optional [Radarr](https://radarr.video/) and [Sonarr](https://sonarr.tv/).
 - Works without a media folder too, just for your torrents and uploads.
 - More instances in one web UI: add another Nazgarr (say a seedbox) with one of its API keys and switch between them, or see them all in one overview.
-- Plugins, signed webhooks and API keys to extend it ([docs/SDK.md](docs/SDK.md)).
+- Notifications on Discord and Telegram, plus plugins, signed webhooks and API keys to extend it ([docs/SDK.md](docs/SDK.md)).
 - English and Italian interface, and a guided tour that sets everything up at the first access.
 
 ## Who it is for

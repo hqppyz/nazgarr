@@ -35,7 +35,7 @@ Each line is a package (a name, `name==version`, or a `git+https://…` URL). Li
 
 - the plugins that were loaded, with their version and the adapters they add;
 - the plugins that failed to install or load, or that need another SDK version, with the error. They stay off and the rest of Nazgarr works as usual;
-- a form for the adapters that have no row of their own (image hosts, media resolvers, notifications): their fields, an on/off switch and, for notifications, the events to send and a test.
+- a form for the adapters that have no row of their own (image hosts and media resolvers under Plugins, notification services under Notifications, next to the built-in Discord and Telegram): their fields, an on/off switch and, for notifications, the events to send and a test.
 
 Tracker and torrent client adapters from plugins appear as new types in the "Add tracker" and "Add client" dialogs, with their own fields.
 
@@ -122,7 +122,7 @@ An adapter whose required fields are not all filled in is skipped, like a built-
 | `torrent_client` | on the client, in Settings > Clients | indexing torrents, reseeding, uploads |
 | `media_resolver` | Settings > Extensions > Plugins | recognizing files: plugin resolvers are tried **before** Radarr/Sonarr and TMDB, and the first that recognizes a file wins; they also work without a TMDB key |
 | `image_host` | Settings > Extensions > Plugins | upload screenshots: plugin hosts go at the end of the image host priority |
-| `notification` | Settings > Extensions > Plugins, with the events to send | the events below, as readable messages |
+| `notification` | Settings > Extensions > Notifications, with the events to send | the events below, as readable messages |
 
 ---
 

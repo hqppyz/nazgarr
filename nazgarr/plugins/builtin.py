@@ -13,6 +13,8 @@ from nazgarr.adapters.image_host.ptpimg import PtpimgAdapter
 from nazgarr.adapters.image_host.ptscreens import PtscreensAdapter
 from nazgarr.adapters.image_host.seedpool_cdn import SeedpoolCdnAdapter
 from nazgarr.adapters.image_host.utppm import UtppmAdapter
+from nazgarr.adapters.notification.discord import DiscordNotificationAdapter
+from nazgarr.adapters.notification.telegram import TelegramNotificationAdapter
 from nazgarr.adapters.torrent_client.qbittorrent import QBittorrentAdapter
 from nazgarr.adapters.torrent_client.qui import QuiTorrentClientAdapter
 from nazgarr.adapters.tracker.base import Unit3dTrackerAdapter
@@ -61,3 +63,28 @@ for adapter_type, label, cls in (
 # Upload anonimi: nessuna chiave.
 register(AdapterSpec("image_host", "imgbox", "Imgbox", lambda ctx: ImgboxAdapter()))
 register(AdapterSpec("image_host", "pixhost", "Pixhost", lambda ctx: PixhostAdapter()))
+
+# Notifiche: la configurazione sta in adapter_config (cifrata), come per i plugin.
+register(AdapterSpec(
+    "notification", "discord", "Discord",
+    lambda ctx: DiscordNotificationAdapter(ctx.config["webhook_url"], ctx.config.get("username")),
+    config_fields=(
+        ConfigField("webhook_url", "Webhook URL", type="secret", required=True,
+                    help="Channel settings › Integrations › Webhooks › Copy webhook URL."),
+        ConfigField("username", "Name shown in the channel", default="Nazgarr"),
+    ),
+))
+register(AdapterSpec(
+    "notification", "telegram", "Telegram",
+    lambda ctx: TelegramNotificationAdapter(
+        ctx.config["bot_token"], ctx.config["chat_id"], ctx.config.get("thread_id"),
+    ),
+    config_fields=(
+        ConfigField("bot_token", "Bot token", type="secret", required=True,
+                    help="From @BotFather. Add the bot to the chat, group or channel first."),
+        ConfigField("chat_id", "Chat id", required=True,
+                    help="A user, group or channel id (groups and channels start with -100)."),
+        ConfigField("thread_id", "Topic id", type="number", help="Only for a group with topics."),
+    ),
+))
+

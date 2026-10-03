@@ -18,6 +18,9 @@ export const config = {
   'config.tabLogs': 'Logs',
   'config.tabPlugins': 'Plugins',
   'config.tabWebhooks': 'Webhooks',
+  'config.tabNotifications': 'Notifications',
+  'config.descNotifications':
+    'A message on Discord or Telegram when something happens: an upload waiting for you or finished, a reseed, a scan. Pick the events for each service and send a test.',
   'config.tabApiKeys': 'API keys',
   'config.tabImages': 'Images',
   'config.tabReleases': 'Releases',
