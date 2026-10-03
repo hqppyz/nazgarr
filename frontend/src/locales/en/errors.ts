@@ -159,4 +159,6 @@ export const errors = {
   'errors.removal_blocked': "It cannot be removed now: {reason}.",
   'errors.removal_client_unavailable': "The client of this torrent is not configured or is turned off.",
   'errors.removal_failed': "The client did not remove the torrent: {error}",
+  'errors.upload_source_missing': "The source is no longer there: {path}",
+  'errors.upload_resume_nothing_left': "Nothing to resume: the remaining trackers are already done.",
 } as const

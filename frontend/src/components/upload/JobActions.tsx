@@ -1,17 +1,19 @@
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 
-import { useCancelUpload, WORKER_STATES, type UploadJob } from '@/api/hooks/uploads'
+import { useCancelUpload, useResumeUpload, WORKER_STATES, type UploadJob } from '@/api/hooks/uploads'
 import { DeleteUploadButton } from '@/components/upload/DeleteUploadButton'
 import { Button } from '@/components/ui/button'
 import { t } from '@/lib/i18n'
 
 const FINAL_STATES = ['done', 'partial', 'failed', 'cancelled']
 
-// Annulla (torna allo storico) ed elimina (con conferma, torna alla coda).
+// Annulla (torna allo storico), riprendi un annullato (da dove si era
+// fermato) ed elimina (con conferma, torna alla coda).
 export function JobActions({ job }: { job: UploadJob }) {
   const navigate = useNavigate()
   const cancel = useCancelUpload()
+  const resume = useResumeUpload()
   const final = FINAL_STATES.includes(job.status)
   const working = WORKER_STATES.includes(job.status)
   return (
@@ -28,6 +30,19 @@ export function JobActions({ job }: { job: UploadJob }) {
           }
         >
           {t('upload.cancelJob')}
+        </Button>
+      )}
+      {job.status === 'cancelled' && (
+        <Button
+          disabled={resume.isPending}
+          onClick={() =>
+            resume
+              .mutateAsync(job.id)
+              .then(() => toast.success(t('upload.resumed')))
+              .catch((error: Error) => toast.error(error.message))
+          }
+        >
+          {t('upload.resumeJob')}
         </Button>
       )}
       {!working && <DeleteUploadButton uploadId={job.id} onDeleted={() => navigate('/upload')} />}

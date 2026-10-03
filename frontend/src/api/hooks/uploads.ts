@@ -58,6 +58,19 @@ export function useCancelUpload() {
   })
 }
 
+// Un upload annullato riparte da dove si era fermato.
+export function useResumeUpload() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (uploadId: number) =>
+      unwrap(api.POST('/api/uploads/{upload_id}/resume', { params: { path: { upload_id: uploadId } } })),
+    onSuccess: (job) => {
+      queryClient.setQueryData(['uploads', job.id], job)
+      queryClient.invalidateQueries({ queryKey: ['uploads'] })
+    },
+  })
+}
+
 export function useDeleteUpload() {
   const queryClient = useQueryClient()
   return useMutation({

@@ -27,7 +27,7 @@ from nazgarr.cli_client.output import (
     table,
 )
 
-app = typer.Typer(help="Uploads: start one, follow it, list, cancel.", no_args_is_help=True)
+app = typer.Typer(help="Uploads: start one, follow it, list, cancel, resume.", no_args_is_help=True)
 
 POLL_SECONDS = 1.0
 FINAL = ("done", "partial", "failed", "cancelled")
@@ -339,6 +339,13 @@ def cancel_upload(ctx: typer.Context, job_id: int = typer.Argument(..., help="Th
     """Cancel an upload (one already sending to a tracker finishes that tracker first)."""
     confirm(f"Cancel upload #{job_id}?", yes)
     job = api(ctx).post(f"/api/uploads/{job_id}/cancel")
+    emit(state(ctx), job, lambda j: console.print(f"Upload #{j['id']}: {j['status']}."))
+
+
+@app.command("resume")
+def resume_upload(ctx: typer.Context, job_id: int = typer.Argument(..., help="The upload ID.")):
+    """Resume a cancelled upload where it stopped (a tracker already done is never uploaded again)."""
+    job = api(ctx).post(f"/api/uploads/{job_id}/resume")
     emit(state(ctx), job, lambda j: console.print(f"Upload #{j['id']}: {j['status']}."))
 
 

@@ -325,3 +325,60 @@ def test_no_going_back_while_a_full_check_runs_or_from_another_state(db_session,
     db_session.commit()
     with pytest.raises(UploadJobError, match="upload_verify_in_progress"):
         upload_jobs.back_to_match(db_session, job)
+
+
+def test_a_cancelled_upload_resumes_where_it_stopped(db_session, tmp_path):
+    make_tracker(db_session)
+    make_tracker(db_session, "other")
+    job = _job(db_session, tmp_path)  # identifying
+
+    with pytest.raises(UploadJobError):
+        upload_jobs.resume_job(db_session, job)  # non annullato
+    upload_jobs.cancel_job(db_session, job)
+    assert upload_jobs.resume_job(db_session, job) == "identifying" and job.finished_at is None
+
+    # A un punto di approvazione ci torna, con le scelte fatte.
+    upload_jobs.transition(db_session, job, "identifying", "awaiting_decision", tmdb_id=603, analysis_json="{}")
+    for target in job.targets:
+        target.status = "awaiting_decision"
+    db_session.commit()
+    upload_jobs.cancel_job(db_session, job)
+    assert upload_jobs.resume_job(db_session, job) == "awaiting_decision"
+
+    # Annullato durante l'esecuzione: in coda solo i tracker non ancora fatti.
+    upload_jobs.transition(db_session, job, "awaiting_decision", "running")
+    done, left = job.targets
+    done.status, left.status = "done", "approved"
+    db_session.commit()
+    upload_jobs.cancel_job(db_session, job)
+    assert upload_jobs.resume_job(db_session, job) == "queued"
+    assert job.queue_position is not None and (done.status, left.status) == ("done", "approved")
+
+    # Senza più nulla da fare, non riparte (mai un secondo upload).
+    upload_jobs.transition(db_session, job, "queued", "running")
+    left.status = "failed"
+    db_session.commit()
+    upload_jobs.cancel_job(db_session, job)
+    with pytest.raises(UploadJobError, match="upload_resume_nothing_left"):
+        upload_jobs.resume_job(db_session, job)
+
+
+def test_an_old_cancelled_upload_is_resumed_from_what_it_has(db_session, tmp_path):
+    make_tracker(db_session)
+    job = _job(db_session, tmp_path)
+    upload_jobs.transition(db_session, job, "identifying", "cancelled", tmdb_id=603)
+    upload_jobs.log_event(db_session, job, "job_cancelled")  # senza lo stato di prima
+    db_session.commit()
+
+    assert upload_jobs.resume_job(db_session, job) == "analyzing"
+
+
+def test_a_cancelled_upload_whose_source_is_gone_does_not_resume(db_session, tmp_path):
+    import os
+
+    make_tracker(db_session)
+    job = _job(db_session, tmp_path)
+    upload_jobs.cancel_job(db_session, job)
+    os.unlink(job.source_path)
+    with pytest.raises(UploadJobError, match="upload_source_missing"):
+        upload_jobs.resume_job(db_session, job)

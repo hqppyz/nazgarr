@@ -1,10 +1,10 @@
-import { ArrowDownIcon, ArrowUpIcon, CircleXIcon, PlusIcon, Trash2Icon } from 'lucide-react'
+import { ArrowDownIcon, ArrowUpIcon, CircleXIcon, PlusIcon, RotateCcwIcon, Trash2Icon } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 
 import { posterUrl } from '@/api/hooks/metadata'
-import { useCancelUpload, useDeleteUpload, useReorderQueue, useUploads, type UploadJobSummary } from '@/api/hooks/uploads'
+import { useCancelUpload, useDeleteUpload, useReorderQueue, useResumeUpload, useUploads, type UploadJobSummary } from '@/api/hooks/uploads'
 import { AuthedPoster } from '@/components/AuthedPoster'
 import { ActionBadge } from '@/components/upload/TrackerCheckCard'
 import { UploadDetailSheet } from '@/components/upload/UploadDetailSheet'
@@ -205,6 +205,29 @@ function QuickDelete({ job }: { job: UploadJobSummary }) {
   )
 }
 
+// Riprende un upload annullato dallo storico, senza aprirlo.
+function QuickResume({ job }: { job: UploadJobSummary }) {
+  const resume = useResumeUpload()
+  return (
+    <Button
+      variant="ghost"
+      size="icon-sm"
+      className="shrink-0"
+      disabled={resume.isPending}
+      title={t('upload.resumeJob')}
+      aria-label={t('upload.resumeJob')}
+      onClick={() =>
+        resume
+          .mutateAsync(job.id)
+          .then(() => toast.success(t('upload.history.resumed', { title: title(job) })))
+          .catch((error: Error) => toast.error(error.message))
+      }
+    >
+      <RotateCcwIcon />
+    </Button>
+  )
+}
+
 function HistoryList({ jobs, onOpen }: { jobs: UploadJobSummary[]; onOpen: (id: number) => void }) {
   if (jobs.length === 0) return <p className="py-10 text-center text-sm text-muted-foreground">{t('upload.noUploadsYet')}</p>
   return (
@@ -218,6 +241,7 @@ function HistoryList({ jobs, onOpen }: { jobs: UploadJobSummary[]; onOpen: (id: 
             {job.finished_at && parseApiDate(job.finished_at).toLocaleString()}
           </span>
           <div className="ml-auto flex shrink-0" onClick={(e) => e.stopPropagation()}>
+            {job.status === 'cancelled' && <QuickResume job={job} />}
             <QuickDelete job={job} />
           </div>
         </li>

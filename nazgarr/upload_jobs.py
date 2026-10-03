@@ -210,10 +210,55 @@ def cancel_job(session: Session, job: UploadJob) -> None:
     (vedi nazgarr/upload_worker.py)."""
     if job.status in FINAL_STATES:
         raise UploadJobError("upload_job_wrong_status", status=job.status)
+    previous = job.status
     if not transition(session, job, job.status, "cancelled", queue_position=None):
         raise UploadJobError("upload_job_wrong_status", status=job.status)
-    log_event(session, job, "job_cancelled")
+    # Da dove riprenderlo (resume_job).
+    log_event(session, job, "job_cancelled", previous=previous)
     session.commit()
+
+
+def _cancelled_from(job: UploadJob) -> str:
+    """Lo stato in cui il job è stato annullato: scritto nell'evento, o (per
+    i job annullati prima) ricavato da quello che il job ha già."""
+    for event in sorted(job.events, key=lambda e: e.id, reverse=True):
+        if event.code == "job_cancelled":
+            previous = json.loads(event.params_json or "{}").get("previous")
+            if previous:
+                return previous
+            break
+    if any(t.status in ("approved", "done") for t in job.targets):
+        return "queued"
+    if job.analysis_json and job.targets and all(t.status == "awaiting_decision" for t in job.targets):
+        return "awaiting_decision"
+    return "analyzing" if job.tmdb_id else "identifying"
+
+
+def resume_job(session: Session, job: UploadJob) -> str:
+    """Riprende un job annullato da dove si era fermato: a un punto di
+    approvazione ci torna con le scelte fatte, un passo del worker riparte,
+    l'esecuzione torna in coda con i soli tracker non ancora fatti (uno già
+    pubblicato non si ricarica mai). Restituisce il nuovo stato."""
+    if job.status != "cancelled":
+        raise UploadJobError("upload_job_wrong_status", status=job.status)
+    if not os.path.exists(job.source_path):
+        raise UploadJobError("upload_source_missing", path=job.relative_path)
+    previous = _cancelled_from(job)
+    if previous == "running":
+        previous = "queued"
+    if previous == "queued" and not any(t.status == "approved" for t in job.targets):
+        # Nessun tracker rimasto da fare: si torna alla decisione per quelli non pubblicati.
+        previous = "analyzing"
+    if previous == "analyzing" and any(t.status == "done" for t in job.targets):
+        raise UploadJobError("upload_resume_nothing_left")
+    values: dict = {"finished_at": None, "stage": None}
+    if previous == "queued":
+        values["queue_position"] = next_queue_position(session)
+    if not transition(session, job, "cancelled", previous, **values):
+        raise UploadJobError("upload_job_wrong_status", status=job.status)
+    log_event(session, job, "job_resumed_by_user", state=previous)
+    session.commit()
+    return previous
 
 
 def delete_job(session: Session, job: UploadJob) -> None:

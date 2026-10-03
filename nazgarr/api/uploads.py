@@ -431,6 +431,19 @@ def cancel_upload(upload_id: int, session: Session = Depends(get_session)):
     return UploadJobDetail.from_model(job)
 
 
+@router.post("/{upload_id}/resume", response_model=UploadJobDetail)
+def resume_upload(upload_id: int, request: Request, session: Session = Depends(get_session)):
+    """Un upload annullato riparte da dove si era fermato (upload_jobs.resume_job)."""
+    job = _get_job_or_404(session, upload_id)
+    try:
+        upload_jobs.resume_job(session, job)
+    except UploadJobError as exc:
+        raise HTTPException(status_code=400, detail=from_coded_error(exc)) from exc
+    if job.status in upload_jobs.WORKER_STATES:
+        _worker(request).kick(job.id, job.status)
+    return UploadJobDetail.from_model(job)
+
+
 @router.delete("/{upload_id}", status_code=204)
 def delete_upload(upload_id: int, session: Session = Depends(get_session)):
     job = _get_job_or_404(session, upload_id)
