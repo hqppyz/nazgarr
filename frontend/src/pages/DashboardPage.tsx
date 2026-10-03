@@ -23,7 +23,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { type ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart'
 import { ToggleGroupItem, ToggleGroupSingle } from '@/components/ui/toggle-group'
-import { RingLoader } from '@/components/RingLoader'
+import { useRingLoader } from '@/components/RingLoader'
 import { t } from '@/lib/i18n'
 import { formatBytes } from '@/lib/library-filters'
 import { dailyHealth, healthLabel } from '@/lib/health'
@@ -310,15 +310,16 @@ function MetricCards({ data }: { data: Dashboard }) {
 // rispetto alla scansione precedente e un link alla vista filtrata. Sotto,
 // i cambiamenti per file e la cronologia delle scansioni.
 export function DashboardPage() {
-  const { data, isPending } = useDashboard()
+  const query = useDashboard()
+  const { data } = query
+  const loader = useRingLoader(query)
   const [period, setPeriod] = useState<string>('30')
   const days = WINDOWS.find((w) => w.value === period)?.days ?? null
   const { data: history } = useDashboardHistory(days)
   const tracker = useTrackerFilter()
 
-  if (isPending || !data) {
-    return <RingLoader />
-  }
+  if (loader) return loader
+  if (!data) return null
 
   return (
     <div className="grid gap-6">

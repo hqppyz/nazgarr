@@ -13,7 +13,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { RingLoader } from '@/components/RingLoader'
+import { useRingLoader } from '@/components/RingLoader'
 import { t } from '@/lib/i18n'
 import { sourceLabel } from '@/lib/upload'
 import { parseApiDate } from '@/lib/time'
@@ -227,7 +227,9 @@ function HistoryList({ jobs, onOpen }: { jobs: UploadJobSummary[]; onOpen: (id: 
 }
 
 export function UploadQueuePage() {
-  const { data, isPending } = useUploads()
+  const query = useUploads()
+  const { data } = query
+  const loader = useRingLoader(query)
   const navigate = useNavigate()
   const [openId, setOpenId] = useState<number | null>(null)
   const [params] = useSearchParams()
@@ -245,8 +247,8 @@ export function UploadQueuePage() {
 
   return (
     <div className="grid gap-4">
-      {isPending ? (
-        <RingLoader />
+      {loader ? (
+        loader
       ) : (
         <Tabs defaultValue={params.get('tab') ?? (active.length > 0 || history.length === 0 ? 'active' : 'history')}>
           <div className="flex flex-wrap items-center justify-between gap-3">

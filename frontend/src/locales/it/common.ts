@@ -10,6 +10,8 @@ export const common = {
   'common.edit': 'Modifica',
   'common.cancel': 'Annulla',
   'common.loading': 'Caricamento…',
+  'common.loadFailed': 'Non si è riusciti a caricare questa pagina.',
+  'common.retry': 'Riprova',
   'common.loadingLine0': "Un mezz'uomo attraversa la palude con il tuo indice…",
   'common.loadingLine1': 'Lo stregone grigio arriva esattamente quando serve…',
   'common.loadingLine2': 'Si accendono i fuochi di segnalazione sulle montagne…',

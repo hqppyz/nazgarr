@@ -10,6 +10,8 @@ export const common = {
   'common.edit': 'Edit',
   'common.cancel': 'Cancel',
   'common.loading': 'Loading…',
+  'common.loadFailed': 'This page could not be loaded.',
+  'common.retry': 'Retry',
   'common.loadingLine0': 'A halfling is crossing the marshes with your index…',
   'common.loadingLine1': 'The grey wizard arrives exactly when needed…',
   'common.loadingLine2': 'The beacons are being lit along the mountains…',

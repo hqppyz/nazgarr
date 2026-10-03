@@ -4,7 +4,7 @@ import { useLibraryDuplicates, useMediaFiles } from '@/api/hooks/library'
 import { FileBrowser } from '@/components/FileBrowser'
 import { LibraryViewSwitch } from '@/components/LibraryViewSwitch'
 import { useTreeMenu } from '@/components/useTreeMenu'
-import { RingLoader } from '@/components/RingLoader'
+import { useRingLoader } from '@/components/RingLoader'
 import { t } from '@/lib/i18n'
 import { DUPLICATES_STATUS, fileKey, type StatusOption } from '@/lib/library-filters'
 
@@ -16,7 +16,9 @@ const STATUS_OPTIONS: StatusOption[] = [
 ]
 
 export function FolderView() {
-  const { data, isPending } = useMediaFiles()
+  const query = useMediaFiles()
+  const { data } = query
+  const loader = useRingLoader(query)
   const { data: duplicates } = useLibraryDuplicates()
   const menu = useTreeMenu('orphan_media')
 
@@ -25,7 +27,7 @@ export function FolderView() {
     [duplicates],
   )
 
-  if (isPending) return <RingLoader />
+  if (loader) return loader
 
   return (
     <>

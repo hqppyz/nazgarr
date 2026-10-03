@@ -205,8 +205,12 @@ interface Props {
   className?: string
   handleRef?: Ref<RingHandle>
   hoverable?: boolean
-  // Durata di un giro: lento come logo, veloce come indicatore di caricamento.
+  // Durata di un giro, da logo.
   spinSeconds?: number
+  // "loader": invece di girare ricade sul tavolo a ripetizione (la caduta
+  // del click), fino a settle() o fall() dall'handle.
+  mode?: 'logo' | 'loader'
+
   // Esportazione dell'immagine statica (scripts/render-ring.mjs): il canvas
   // conserva il fotogramma e viene passato qui dopo il primo disegno, fermo.
   onRendered?: (canvas: HTMLCanvasElement) => void
@@ -219,9 +223,11 @@ type RingApi = {
   flash: () => void
   collapse: (collapsed: boolean) => void
   drop: () => void
+  settle: () => Promise<void>
+  fall: () => void
 }
 
-export function WebGLRing({ size = 120, className, handleRef, hoverable = true, spinSeconds = 60, onRendered, onReady }: Props) {
+export function WebGLRing({ size = 120, className, handleRef, hoverable = true, spinSeconds = 60, mode = 'logo', onRendered, onReady }: Props) {
   const mountRef = useRef<HTMLDivElement>(null)
   const api = useRef<RingApi | null>(null)
 
@@ -306,13 +312,15 @@ export function WebGLRing({ size = 120, className, handleRef, hoverable = true, 
     // colpo all'urto e si smorza mentre il bordo gira sempre più in fretta,
     // poi si posa. Nessun cambio di dimensione né di posizione.
     const wobble = { p: 1 }
-    const drop = () => {
+    const drop = ({ duration = 1.9, repeat = 0 } = {}) => {
       wobble.p = 0
-      gsap.to(wobble, {
+      return gsap.to(wobble, {
         p: 1,
-        duration: 1.9,
+        duration,
         ease: 'none',
         overwrite: true,
+        repeat,
+        repeatDelay: repeat ? 0.25 : 0,
         onUpdate: () => {
           const p = wobble.p
           const tilt = 0.6 * Math.min(1, p / 0.07) * (1 - p) ** 2.2
@@ -329,7 +337,14 @@ export function WebGLRing({ size = 120, className, handleRef, hoverable = true, 
       })
     }
 
-    const idle = exporting ? null : gsap.to(state, { spin: `-=${Math.PI * 2}`, duration: spinSeconds, ease: 'none', repeat: -1 })
+    const loader = mode === 'loader'
+    // Da caricamento: ricade a ripetizione, con un bagliore appena acceso.
+    const idle = exporting
+      ? null
+      : loader
+        ? drop({ duration: 1.6, repeat: -1 })
+        : gsap.to(state, { spin: `-=${Math.PI * 2}`, duration: spinSeconds, ease: 'none', repeat: -1 })
+    if (loader && !exporting) state.glow = 0.6
     api.current = {
       hover: (on, x = 0, y = 0, instant = false) => {
         gsap.to(state, {
@@ -358,6 +373,22 @@ export function WebGLRing({ size = 120, className, handleRef, hoverable = true, 
         pulse()
         drop()
       },
+      // Pronto: smette di cadere e si gira verso chi guarda, una O accesa.
+      settle: () =>
+        new Promise<void>((resolve) => {
+          idle?.kill()
+          gsap.killTweensOf(wobble)
+          gsap.to(state, {
+            wobbleX: 0, wobbleZ: 0, tiltX: Math.PI / 2, tiltZ: 0, spin: 0, glow: HOVER_GLOW,
+            duration: 0.55, ease: 'back.out(1.6)', overwrite: true, onComplete: () => resolve(),
+          })
+        }),
+      // Errore: un'ultima caduta, più breve, e si spegne disteso sul tavolo.
+      fall: () => {
+        idle?.kill()
+        drop({ duration: 1.2 })
+        gsap.to(state, { tiltX: 0.18, tiltZ: -0.1, glow: 0, duration: 1.2, ease: 'power2.out', overwrite: 'auto' })
+      },
     }
 
     return () => {
@@ -375,12 +406,14 @@ export function WebGLRing({ size = 120, className, handleRef, hoverable = true, 
     }
     // onRendered/onReady servono solo al primo fotogramma
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [size, spinSeconds])
+  }, [size, spinSeconds, mode])
 
   useImperativeHandle(handleRef, () => ({
     flash: () => api.current?.flash(),
     collapse: (collapsed) => api.current?.collapse(collapsed),
     glow: (on, instant) => api.current?.hover(on, 0, 0, instant),
+    settle: () => api.current?.settle() ?? Promise.resolve(),
+    fall: () => api.current?.fall(),
   }))
 
   // Posizione del cursore rispetto al centro, in [-1, 1]: verso dove inclinarsi.

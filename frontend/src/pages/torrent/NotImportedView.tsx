@@ -14,7 +14,7 @@ import { Input } from '@/components/ui/input'
 import { Popover, PopoverContent, PopoverHeader, PopoverTitle, PopoverTrigger } from '@/components/ui/popover'
 import { Toggle } from '@/components/ui/toggle'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { RingLoader } from '@/components/RingLoader'
+import { useRingLoader } from '@/components/RingLoader'
 import { t } from '@/lib/i18n'
 import { formatBytes, type StateSummary, type StatusOption } from '@/lib/library-filters'
 import { NOT_IMPORTED_STYLES } from '@/lib/status-styles'
@@ -168,7 +168,9 @@ function CategoryBadge({ category }: { category: string }) {
 // togliere quelli senza rischi, sempre dalla coda di approvazione.
 export function NotImportedView() {
   const navigate = useNavigate()
-  const { data, isPending } = useNotImported()
+  const query = useNotImported()
+  const { data } = query
+  const loader = useRingLoader(query)
   const refresh = useRefreshNotImported()
   const [category, setCategory] = useState('all')
   const [showExcluded, setShowExcluded] = useState(false)
@@ -200,7 +202,7 @@ export function NotImportedView() {
     (tor) => (showExcluded || !tor.excluded) && safeToRemove(tor),
   ).length
 
-  if (isPending) return <RingLoader />
+  if (loader) return loader
 
   return (
     <div className="grid gap-4">

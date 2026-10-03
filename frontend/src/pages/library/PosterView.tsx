@@ -8,7 +8,7 @@ import { LibrarySummaryCards } from '@/components/LibrarySummaryCards'
 import { LibraryViewSwitch } from '@/components/LibraryViewSwitch'
 import { Input } from '@/components/ui/input'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { RingLoader } from '@/components/RingLoader'
+import { useRingLoader } from '@/components/RingLoader'
 import { t } from '@/lib/i18n'
 import { DUPLICATES_STATUS, type StateSummary, type StatusOption } from '@/lib/library-filters'
 import { STATUS_STYLES } from '@/lib/status-styles'
@@ -156,7 +156,9 @@ function GridCard({ card, onOpen }: { card: PosterCard; onOpen: () => void }) {
 }
 
 export function PosterView() {
-  const { data, isPending } = useLibraryItems()
+  const query = useLibraryItems()
+  const { data } = query
+  const loader = useRingLoader(query)
   const [openItem, setOpenItem] = useState<OpenItem | null>(null)
   const [contentType, setContentType] = useState<'movie' | 'tv'>('movie')
   const [status, setStatus] = useState('all')
@@ -193,7 +195,7 @@ export function PosterView() {
     return () => observer.disconnect()
   }, [visibleCount, cards.length])
 
-  if (isPending) return <RingLoader />
+  if (loader) return loader
 
   return (
     <div className="grid gap-4">
