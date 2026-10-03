@@ -58,4 +58,10 @@ export const notImported = {
   'notImported.removable.unknownTrackerHelp': 'The tracker of this torrent is not configured in Nazgarr.',
   'notImported.removable.filter': 'Safe to remove',
   'notImported.removable.filterHelp': "Only the torrents that already met their tracker's seeding requirement and have no other problem",
+  'notImported.remove.menu': "Remove from the client…",
+  'notImported.remove.title': "Remove the torrent and its files?",
+  'notImported.remove.explain': "The torrent will be removed from {client} and its files deleted from the disk, freeing {size}. The client stops seeding it.",
+  'notImported.remove.irreversible': "This cannot be undone. The library is not touched: this torrent has no hardlink there.",
+  'notImported.remove.confirm': "Remove and delete the files",
+  'notImported.remove.done': "{name} removed from the client, files deleted.",
 } as const

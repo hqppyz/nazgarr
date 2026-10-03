@@ -1,5 +1,8 @@
 """Vista "Not imported" (nazgarr/not_imported.py): torrent in seed senza hardlink
-in libreria, per torrent, con il perché. Sola lettura."""
+in libreria, per torrent, con il perché. L'unica azione che tocca qualcosa è
+la rimozione di un torrent dal client con i suoi file (decisione dell'utente,
+2026-10-03): solo su conferma esplicita, solo se il requisito di seed è
+soddisfatto e nessun altro torrent usa quei file."""
 
 import logging
 import os
@@ -10,7 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from nazgarr import arr, not_imported, seed_requirements
+from nazgarr import adapter_factory, arr, not_imported, seed_requirements
 from nazgarr.adapters.torrent_client.base import CHECKING_STATES, ERROR_STATES, is_stopped_state
 from nazgarr.api_errors import coded_detail
 from nazgarr.deps import get_session
@@ -22,6 +25,7 @@ from nazgarr.models import (
     NotImportedTorrent,
     RunLog,
     SeedFile,
+    SeedJob,
     TorrentClient,
 )
 from nazgarr.tracker_scope import torrent_host
@@ -229,3 +233,58 @@ def refresh_not_imported(session: Session = Depends(get_session)):
         arr_index = None
     not_imported.classify_not_imported(session, arr_index if arr_index is not None and len(arr_index) else None)
     return list_not_imported(session=session)
+
+
+# Avvisi che impediscono la rimozione: i file servono ad altri torrent, o il
+# client non è in uno stato stabile. "Ultimo seeder" no: si toglie lo stesso,
+# ma la conferma lo dice chiaramente.
+BLOCKING_WARNINGS = ("shared_files", "client_error", "checking", "downloading")
+
+
+class RemoveRequest(BaseModel):
+    # Va mandato a true: la conferma che i file saranno cancellati.
+    delete_files: bool
+
+
+@router.post("/not-imported/{client_torrent_id}/remove", response_model=NotImportedResponse)
+def remove_not_imported(client_torrent_id: int, body: RemoveRequest, session: Session = Depends(get_session)):
+    """Toglie il torrent dal suo client e ne cancella i file (lo fa il client).
+    Tutti i controlli della vista si rifanno qui: requisito di seed
+    soddisfatto, nessun avviso bloccante, client acceso."""
+    if not body.delete_files:
+        raise HTTPException(status_code=400, detail=coded_detail("removal_not_confirmed"))
+    row = session.query(NotImportedTorrent).filter_by(client_torrent_id=client_torrent_id).one_or_none()
+    if row is None:
+        raise HTTPException(status_code=404, detail=coded_detail("removal_not_in_not_imported", id=client_torrent_id))
+    ct = row.client_torrent
+    requirement = seed_requirements.evaluate(
+        seed_requirements.by_host(session).get(torrent_host(ct.tracker_url)), ct.ratio, ct.seeding_time_seconds,
+    )
+    if requirement["status"] != "met":
+        raise HTTPException(status_code=400, detail=coded_detail("removal_requirement_not_met",
+                                                                 status=requirement["status"]))
+    blocking = [w for w in removal_warnings(ct.state, _shared_with(session).get(ct.id, []))
+                if w.code in BLOCKING_WARNINGS]
+    if blocking:
+        raise HTTPException(status_code=400, detail=coded_detail("removal_blocked", reason=blocking[0].code))
+    client_row = session.get(TorrentClient, ct.torrent_client_id)
+    if client_row is None or not client_row.enabled:
+        raise HTTPException(status_code=400, detail=coded_detail("removal_client_unavailable"))
+    try:
+        adapter_factory.build_torrent_client_adapter(client_row).remove_torrent(ct.info_hash, delete_files=True)
+    except Exception as exc:
+        logger.warning("Rimozione di %s da %s fallita", ct.name, client_row.label, exc_info=True)
+        raise HTTPException(status_code=502, detail=coded_detail("removal_failed", error=str(exc)[:300])) from exc
+    logger.info("Torrent %s (%s) rimosso da %s con i suoi file, su richiesta dell'utente",
+                ct.name, ct.info_hash, client_row.label)
+    # Come per un torrent sparito dal client (nazgarr/torrent_indexer.py):
+    # fuori dal DB subito, senza aspettare la prossima scansione.
+    session.query(SeedJob).filter(SeedJob.result_client_torrent_id == ct.id).update(
+        {SeedJob.result_client_torrent_id: None}, synchronize_session=False)
+    session.delete(row)
+    session.query(ClientTorrentFile).filter(ClientTorrentFile.client_torrent_id == ct.id).delete(
+        synchronize_session=False)
+    session.delete(ct)
+    session.commit()
+    return list_not_imported(session=session)
+

@@ -1,7 +1,7 @@
 """Torrent in seed senza alcun hardlink in libreria ("not imported", lo stato
-"ignored" per file) e PERCHÉ sono lì. Sola lettura: nessun file e nessun
-torrent viene toccato; le azioni (es. rimuovere dal client i vecchi upgrade)
-sono un passo futuro, da far passare dalla coda di approvazione.
+"ignored" per file) e PERCHÉ sono lì. Qui solo la classificazione: l'unica
+azione, togliere un torrent dal client con i suoi file su conferma esplicita,
+sta in nazgarr/api/torrents.py.
 
 Si ragiona per torrent, non per file: i file extra (nfo, sample) seguono il
 loro torrent. La categoria viene dal video principale (il più grande):

@@ -115,6 +115,26 @@ export function useNotImported() {
   })
 }
 
+// Toglie il torrent dal client e ne cancella i file: solo dopo la conferma
+// nella finestra (RemoveTorrentDialog), il server ricontrolla tutto.
+export function useRemoveNotImported() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (clientTorrentId: number) =>
+      unwrap(
+        api.POST('/api/torrents/not-imported/{client_torrent_id}/remove', {
+          params: { path: { client_torrent_id: clientTorrentId } },
+          body: { delete_files: true },
+        }),
+      ),
+    onSuccess: (data) => {
+      queryClient.setQueryData(['library', 'not-imported'], data)
+      queryClient.invalidateQueries({ queryKey: ['library'] })
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+    },
+  })
+}
+
 export function useRefreshNotImported() {
   const queryClient = useQueryClient()
   return useMutation({

@@ -153,4 +153,10 @@ export const errors = {
   'errors.instance_response_too_large': 'The answer from {label} is too large.',
   'errors.client_cannot_see_path': 'The client cannot see {path}: it sees only {folder} (as {client_root}). Pick a folder inside it, or change the client mapping.',
   'errors.client_mapping_needs_client_root': 'Also set how the client sees that folder.',
+  'errors.removal_not_confirmed': "Confirm that the files will be deleted.",
+  'errors.removal_not_in_not_imported': "Torrent #{id} is not among the not imported ones: it cannot be removed from here.",
+  'errors.removal_requirement_not_met': "The tracker's seeding requirement is not met ({status}).",
+  'errors.removal_blocked': "It cannot be removed now: {reason}.",
+  'errors.removal_client_unavailable': "The client of this torrent is not configured or is turned off.",
+  'errors.removal_failed': "The client did not remove the torrent: {error}",
 } as const

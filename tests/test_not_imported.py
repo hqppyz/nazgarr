@@ -194,3 +194,85 @@ def test_api_warns_about_what_seed_time_and_ratio_do_not_say(db_session, tmp_pat
     assert body["h-name"] == []
     assert [w.code for w in removal_warnings("downloading", [])] == ["downloading"]
     assert removal_warnings("stalledUP", []) == [] and removal_warnings("pausedDL", []) == []
+
+
+def _met(db_session, index, *hashes):
+    """I torrent dati sul tracker T, con il requisito soddisfatto."""
+    from nazgarr.models import Tracker
+
+    db_session.add(Tracker(label="T", adapter_type="unit3d", base_url="https://t.example", api_token="x",
+                           min_seed_time_seconds=86400))
+    rows = {t.info_hash: t for t in db_session.query(ClientTorrent).all()}
+    for h in hashes:
+        rows[h].tracker_url, rows[h].seeding_time_seconds = "https://t.example", 2 * 86400
+    db_session.commit()
+    not_imported.classify_not_imported(db_session, index)
+    return rows
+
+
+def test_a_not_imported_torrent_can_be_removed_with_its_files_once_it_is_safe(db_session, tmp_path, monkeypatch):
+    import pytest
+    from fastapi import HTTPException
+
+    from nazgarr.api import torrents as api
+    from nazgarr.api.torrents import RemoveRequest, remove_not_imported
+
+    index = _setup(db_session, tmp_path)
+    rows = _met(db_session, index, "h-old")
+    removed = []
+
+    class Client:
+        def remove_torrent(self, info_hash, delete_files):
+            removed.append((info_hash, delete_files))
+
+    monkeypatch.setattr(api.adapter_factory, "build_torrent_client_adapter", lambda row: Client())
+
+    def refused(client_torrent_id, delete_files=True):
+        with pytest.raises(HTTPException) as error:
+            remove_not_imported(client_torrent_id, RemoveRequest(delete_files=delete_files), session=db_session)
+        return error.value.detail["code"]
+
+    assert refused(rows["h-old"].id, delete_files=False) == "removal_not_confirmed"
+    assert refused(rows["h-name"].id) == "removal_requirement_not_met"  # tracker non configurato
+    assert refused(rows["h-linked"].id) == "removal_not_in_not_imported"  # in libreria: mai da qui
+    rows["h-old"].state = "checkingUP"
+    db_session.commit()
+    assert refused(rows["h-old"].id) == "removal_blocked"
+    rows["h-old"].state = "uploading"
+    db_session.commit()
+    assert removed == []
+
+    old_id = rows["h-old"].id
+    left = remove_not_imported(old_id, RemoveRequest(delete_files=True), session=db_session)
+
+    assert removed == [("h-old", True)]
+    assert "h-old" not in {t.info_hash for t in left.torrents}
+    assert db_session.get(ClientTorrent, old_id) is None
+
+
+def test_files_shared_with_another_torrent_are_never_deleted(db_session, tmp_path, monkeypatch):
+    import pytest
+    from fastapi import HTTPException
+
+    from nazgarr.api import torrents as api
+    from nazgarr.api.torrents import RemoveRequest, remove_not_imported
+    from nazgarr.models import ClientTorrentFile
+
+    index = _setup(db_session, tmp_path)
+    rows = _met(db_session, index, "h-old")
+    twin = ClientTorrent(torrent_client_id=rows["h-old"].torrent_client_id, info_hash="h-twin", name="Old.Twin",
+                         save_path=rows["h-old"].save_path, state="uploading",
+                         last_polled_at=rows["h-old"].last_polled_at)
+    db_session.add(twin)
+    db_session.flush()
+    for f in db_session.query(ClientTorrentFile).filter_by(client_torrent_id=rows["h-old"].id).all():
+        db_session.add(ClientTorrentFile(client_torrent_id=twin.id, path_in_torrent=f.path_in_torrent,
+                                         size_bytes=f.size_bytes, seed_file_id=f.seed_file_id,
+                                         last_scan_id=f.last_scan_id))
+    db_session.commit()
+    monkeypatch.setattr(api.adapter_factory, "build_torrent_client_adapter",
+                        lambda row: pytest.fail("the client must not be called"))
+
+    with pytest.raises(HTTPException) as error:
+        remove_not_imported(rows["h-old"].id, RemoveRequest(delete_files=True), session=db_session)
+    assert error.value.detail == {"code": "removal_blocked", "params": {"reason": "shared_files"}}

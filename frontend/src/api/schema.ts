@@ -1179,6 +1179,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/torrents/not-imported/{client_torrent_id}/remove": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Remove Not Imported
+         * @description Toglie il torrent dal suo client e ne cancella i file (lo fa il client).
+         *     Tutti i controlli della vista si rifanno qui: requisito di seed
+         *     soddisfatto, nessun avviso bloccante, client acceso.
+         */
+        post: operations["remove_not_imported_api_torrents_not_imported__client_torrent_id__remove_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/schedule": {
         parameters: {
             query?: never;
@@ -3421,6 +3443,11 @@ export interface components {
             params: {
                 [key: string]: unknown;
             };
+        };
+        /** RemoveRequest */
+        RemoveRequest: {
+            /** Delete Files */
+            delete_files: boolean;
         };
         /** ReplacedBy */
         ReplacedBy: {
@@ -6929,6 +6956,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["NotImportedResponse"];
+                };
+            };
+        };
+    };
+    remove_not_imported_api_torrents_not_imported__client_torrent_id__remove_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                client_torrent_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RemoveRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotImportedResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

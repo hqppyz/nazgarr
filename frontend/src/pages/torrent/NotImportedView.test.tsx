@@ -4,6 +4,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { NotImportedView } from '@/pages/torrent/NotImportedView'
 
+const remove = vi.fn()
+
 const torrent = (id: number, category: string, name: string, extra = {}) => ({
   client_torrent_id: id, name, info_hash: `h${id}`, client: 'qbit', tracker: 'tracker.example', category,
   detail: 'why', matched_by: 'arr', content_type: null, tmdb_id: null, title: null, year: null,
@@ -16,6 +18,7 @@ const torrent = (id: number, category: string, name: string, extra = {}) => ({
 
 vi.mock('@/api/hooks/library', () => ({
   useRefreshNotImported: () => ({ mutate: vi.fn(), isPending: false }),
+  useRemoveNotImported: () => ({ mutate: remove, isPending: false }),
   useNotImported: () => ({
     isPending: false,
     data: {
@@ -75,5 +78,18 @@ describe('NotImportedView', () => {
     expect(screen.queryByText('Random.Download.mkv')).toBeNull()
     expect(screen.queryByText('Shared.Files.mkv')).toBeNull()
     expect(screen.getByText('Old.Movie.1080p.mkv')).toBeTruthy()
+  })
+
+  it('offers removal only where the requirement is met and nothing blocks it, after a confirmation', () => {
+    render(<MemoryRouter><NotImportedView /></MemoryRouter>)
+
+    // Old.Movie sì; Shared.Files no (i file servono a un altro torrent); gli altri non hanno l'OK.
+    const buttons = screen.getAllByRole('button', { name: 'Remove from the client…' })
+    expect(buttons).toHaveLength(1)
+    fireEvent.click(buttons[0])
+    expect(screen.getByText('Remove the torrent and its files?')).toBeTruthy()
+    expect(remove).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Remove and delete the files' }))
+    expect(remove).toHaveBeenCalledWith(1, expect.anything())
   })
 })

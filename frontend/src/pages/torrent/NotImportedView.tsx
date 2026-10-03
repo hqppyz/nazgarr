@@ -1,4 +1,4 @@
-import { ArrowRightIcon, CircleCheckIcon, EyeOffIcon, Loader2Icon, RefreshCwIcon, SearchIcon, TriangleAlertIcon, UploadIcon } from 'lucide-react'
+import { ArrowRightIcon, CircleCheckIcon, EyeOffIcon, Loader2Icon, RefreshCwIcon, SearchIcon, Trash2Icon, TriangleAlertIcon, UploadIcon } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
@@ -22,6 +22,7 @@ import { parseApiDate, relativeFromNow } from '@/lib/time'
 import { newUploadLink } from '@/lib/upload'
 import { cn } from '@/lib/utils'
 import { ItemDetailSheet, type OpenItem } from '@/pages/library/ItemDetailSheet'
+import { canRemove, RemoveTorrentDialog } from '@/pages/torrent/RemoveTorrentDialog'
 
 type Torrent = Schemas['NotImportedItem']
 
@@ -175,6 +176,7 @@ export function NotImportedView() {
   const [category, setCategory] = useState('all')
   const [showExcluded, setShowExcluded] = useState(false)
   const [onlyRemovable, setOnlyRemovable] = useState(false)
+  const [removing, setRemoving] = useState<Torrent | null>(null)
   const [search, setSearch] = useState('')
   const [openItem, setOpenItem] = useState<OpenItem | null>(null)
 
@@ -276,7 +278,7 @@ export function NotImportedView() {
                   <TableHead className="w-24 text-right">{t('notImported.size')}</TableHead>
                   <TableHead className="w-16 text-right">{t('notImported.ratio')}</TableHead>
                   <TableHead className="w-24 text-right">{t('notImported.seeding')}</TableHead>
-                  <TableHead className="w-28 text-right" title={t('notImported.removable.columnHelp')}>
+                  <TableHead className="w-32 text-right" title={t('notImported.removable.columnHelp')}>
                     {t('notImported.removable.column')}
                   </TableHead>
                 </TableRow>
@@ -298,6 +300,9 @@ export function NotImportedView() {
                           )),
                       }]
                     : []
+                  if (canRemove(tor)) {
+                    items.push({ label: t('notImported.remove.menu'), icon: <Trash2Icon />, onSelect: () => setRemoving(tor) })
+                  }
                   return (
                     <RowContextMenu key={tor.client_torrent_id} title={tor.name} items={items}>
                     <TableRow
@@ -345,7 +350,24 @@ export function NotImportedView() {
                         {formatSeedTime(tor.seeding_time_seconds)}
                       </TableCell>
                       <TableCell className="text-right">
-                        <SeedRequirementCell requirement={tor.seed_requirement} warnings={tor.removal_warnings} />
+                        <span className="inline-flex items-center justify-end gap-1">
+                          <SeedRequirementCell requirement={tor.seed_requirement} warnings={tor.removal_warnings} />
+                          {canRemove(tor) && (
+                            <Button
+                              variant="ghost"
+                              size="icon-xs"
+                              title={t('notImported.remove.menu')}
+                              aria-label={t('notImported.remove.menu')}
+                              className="text-muted-foreground hover:text-red-600"
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                setRemoving(tor)
+                              }}
+                            >
+                              <Trash2Icon className="size-3.5" />
+                            </Button>
+                          )}
+                        </span>
                       </TableCell>
                     </TableRow>
                     </RowContextMenu>
@@ -357,6 +379,7 @@ export function NotImportedView() {
         </CardContent>
       </Card>
       <ItemDetailSheet item={openItem} onClose={() => setOpenItem(null)} />
+      <RemoveTorrentDialog torrent={removing} onClose={() => setRemoving(null)} />
     </div>
   )
 }
