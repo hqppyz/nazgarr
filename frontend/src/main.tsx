@@ -1,4 +1,6 @@
 import { MutationCache, QueryClient } from '@tanstack/react-query'
+import { polyfillCountryFlagEmojis } from 'country-flag-emoji-polyfill'
+import flagsFont from 'country-flag-emoji-polyfill/dist/TwemojiCountryFlags.woff2?url'
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client'
 import { ThemeProvider } from 'next-themes'
 import { StrictMode } from 'react'
@@ -11,6 +13,11 @@ import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { CACHE_BUSTER, CACHE_MAX_AGE_MS, queryPersister, shouldPersistQuery } from '@/lib/queryPersistence'
 import './index.css'
+
+// Windows non ha le bandiere fra le emoji (le lingue nell'anteprima MediaInfo):
+// un font con le sole bandiere, servito da qui perché la CSP non carica font
+// da altri siti. Non fa niente dove le bandiere ci sono già.
+polyfillCountryFlagEmojis('Twemoji Country Flags', flagsFont)
 
 // gcTime almeno quanto la cache persistita: una query ripristinata da
 // IndexedDB non deve essere scartata dopo i 5 minuti di default.
