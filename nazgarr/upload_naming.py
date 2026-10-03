@@ -314,6 +314,10 @@ def _mi_hdr_full(video: dict) -> str | None:
     return ".".join(tags) or None
 
 
+# Per chi confronta l'HDR di più file (nazgarr/upload_pack.py).
+hdr_full = _mi_hdr_full
+
+
 _HYBRID = re.compile(r"(?:^|[ ._\-\[(])HYBRID(?:$|[ ._\-\])])", re.IGNORECASE)
 
 # Le sorgenti da disco: un video da lì senza un encoder è un remux.

@@ -25,11 +25,12 @@ import re
 import guessit
 from sqlalchemy.orm import Session
 
-from nazgarr import mediainfo_util, upload_jobs
+from nazgarr import dovi_probe, mediainfo_util, upload_jobs
 from nazgarr.file_types import is_video
 from nazgarr.fs_scope import resolve_scoped
 from nazgarr.models import Disk, UploadJob
 from nazgarr.upload_jobs import UploadJobError
+from nazgarr.upload_naming import hdr_full
 
 ORIGIN = "pack"
 MAX_FILES = 500
@@ -176,7 +177,9 @@ def signature(path: str, summary: dict | None) -> dict:
     return {
         "resolution": _resolution(video),
         "video_codec": video.get("format"),
-        "hdr": video.get("hdr_format") or None,
+        # Normalizzato come nei nomi ("DV.P8.HDR10"): lo stesso HDR scritto in
+        # modo diverso (es. il DV letto dal flusso) non fa un pack misto.
+        "hdr": hdr_full(video) if video else None,
         "audio_codec": (audio[0].get("commercial_name") or audio[0].get("format")) if audio else None,
         "audio_languages": ", ".join(sorted({a.get("language") or "?" for a in audio})) or None,
         "source": str(guess.get("source")) if guess.get("source") else None,
@@ -192,7 +195,9 @@ def mixed(job: UploadJob) -> dict[str, list[str]]:
     for path, _name in entries(job):
         if not is_video(path):
             continue
-        for field, value in signature(path, mediainfo_util.extract_summary(path)).items():
+        summary = mediainfo_util.extract_summary(path)
+        dovi_probe.complete(summary, path)  # un episodio senza dvcC non è un pack misto
+        for field, value in signature(path, summary).items():
             if value is not None:
                 values.setdefault(field, set()).add(str(value))
     return {field: sorted(found) for field, found in values.items() if len(found) > 1}

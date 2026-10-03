@@ -20,7 +20,7 @@ import time
 
 from sqlalchemy.orm import Session
 
-from nazgarr import adapter_factory, arr, events, mediainfo_util, upload_decision, upload_jobs, upload_pack
+from nazgarr import adapter_factory, arr, dovi_probe, events, mediainfo_util, upload_decision, upload_jobs, upload_pack
 from nazgarr.file_types import is_video
 from nazgarr.models import (
     ClientTorrent,
@@ -32,6 +32,7 @@ from nazgarr.models import (
     UploadJob,
 )
 from nazgarr.upload_dupes import SourceSummary, check
+from nazgarr.upload_naming import dv_profile
 
 logger = logging.getLogger(__name__)
 
@@ -292,6 +293,11 @@ def handle(session: Session, job: UploadJob, worker) -> None:
         upload_jobs.log_event(session, job, "mediainfo_failed", level="warning")
     # Riepilogo strutturato: anteprima MediaInfo e segnaposto del nome.
     mediainfo_summary = mediainfo_util.extract_summary(main_video)
+    # Il Dolby Vision che il contenitore non dichiara, letto dal flusso
+    # (nazgarr/dovi_probe.py): solo se MediaInfo non l'ha visto.
+    if dovi_probe.complete(mediainfo_summary, main_video):
+        upload_jobs.log_event(session, job, "dolby_vision_from_stream", level="warning",
+                              profile=dv_profile(mediainfo_summary["video"]) or "?")
 
     job.stage = "local"
     session.commit()

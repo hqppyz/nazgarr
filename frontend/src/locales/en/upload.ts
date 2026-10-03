@@ -296,6 +296,7 @@ export const upload = {
   'upload.event.analysis_done': 'Analysis done: waiting for your decision.',
   'upload.event.mediainfo_failed': 'Could not read the mediainfo of the main video.',
   'upload.event.already_on_client': 'Found on {count} torrent(s) already in a client.',
+  'upload.event.dolby_vision_from_stream': 'MediaInfo did not see Dolby Vision (the container does not declare it): found in the video stream, profile {profile}. Check the HDR field.',
   'upload.event.pack_mixed': 'The episodes of the pack differ in: {fields}.',
   'upload.event.grabbed_from_tracker': 'Radarr/Sonarr downloaded this from {trackers}.',
   'upload.event.dupe_check_done':
