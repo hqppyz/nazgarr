@@ -206,6 +206,14 @@ Checks, the same as CI: `ruff check .` and `pytest -q` for the backend, `npm run
 
 Design decisions live in [`docs/SPEC.md`](docs/SPEC.md), the plan in [`docs/ROADMAP.md`](docs/ROADMAP.md), the schema in [`docs/schema.sql`](docs/schema.sql), and the frontend notes in [`frontend/README.md`](frontend/README.md). Issues and pull requests are welcome. If something in the spec looks wrong, open an issue before working around it.
 
+## Credits
+
+- **Metadata:** this product uses the TMDB API but is not endorsed or certified by TMDB.
+- **Fonts and images:** [Geist](https://vercel.com/font) (SIL Open Font License 1.1). Country flags on systems without them come from [Twemoji](https://github.com/jdecked/twemoji) graphics (CC-BY 4.0, by Twitter, Inc. and other contributors), through [country-flag-emoji-polyfill](https://github.com/talkjs/country-flag-emoji-polyfill) (MIT).
+- **Backend:** FastAPI, SQLAlchemy, APScheduler, httpx, qbittorrent-api, pymediainfo and MediaInfo, guessit, torf, FFmpeg.
+- **Frontend:** React, TanStack Query, Base UI and shadcn/ui, Tailwind CSS, three.js, GSAP, Recharts, driver.js, Lucide icons.
+- **Domain reference:** [Upload-Assistant](https://github.com/Audionut/Upload-Assistant), for tracker conventions in the upload flow. No code is reused from it.
+
 ## License
 
 [GPL-3.0](LICENSE)
