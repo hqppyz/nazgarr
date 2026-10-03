@@ -58,7 +58,7 @@ export const onboarding = {
 
   'onboarding.tour.storage.intro.title': 'Your disks',
   'onboarding.tour.storage.intro.body':
-    'A disk is one filesystem as this container sees it. Hardlinks only work inside a single filesystem, so each disk holds both its media library and its torrent folder.\nWith one shared mount (e.g. /data with media/ and torrents/ inside) you need a single disk.',
+    'A disk is a filesystem as this container sees it. Hardlinks only work inside one filesystem, so each disk holds both its media folders and its torrent folders.\nWith a single shared mount (e.g. /data with media/ and torrents/ inside) one disk is enough.',
   'onboarding.tour.storage.add.title': 'Add a disk',
   'onboarding.tour.storage.add.body': 'Click "Add disk" to register the first one.',
   'onboarding.tour.storage.label.title': 'A name',
@@ -68,17 +68,20 @@ export const onboarding = {
     'The path inside this container, not on your host. It starts from disk_scan_root (e.g. /data): keep it with a single mount, or pick the subfolder of one physical disk (e.g. /data/disk1) if you mount several.',
   'onboarding.tour.storage.create.title': 'Create it',
   'onboarding.tour.storage.create.body': 'Nazgarr checks that the path exists and remembers which filesystem it is on.',
-  'onboarding.tour.storage.media.title': 'The media folder',
+  'onboarding.tour.storage.media.title':
+    'The media folders',
   'onboarding.tour.storage.media.body':
-    'Click it and pick the folder with your library (movies and series), the one Plex, Jellyfin or Radarr/Sonarr use. Every file in it is matched with what you seed. Optional: without it, Nazgarr works on your torrents and uploads only.',
-  'onboarding.tour.storage.seeding.title': 'The seeding folder',
+    'Now your library, the one Plex, Jellyfin or Radarr/Sonarr use: "Add" for each folder (e.g. movies/ and tv/, even separate ones). Every file in them is matched with what you seed. Optional: without them, Nazgarr works on your torrents and uploads only. A folder on another filesystem goes in as a disk of its own.',
+  'onboarding.tour.storage.seeding.title':
+    'The torrent folders',
   'onboarding.tour.storage.seeding.body':
-    'Now the folder where your torrent client downloads and seeds (e.g. torrents/). Files seeding here without a hardlink in the library show up as "not imported"; library files with no torrent as "orphaned".',
+    'Click "Add" and pick the folder where your torrent client downloads and seeds (e.g. torrents/). If you use more than one (e.g. one for cross-seed), add them all. Seeding files without a hardlink in the library end up in Triage; library files without a torrent are "orphaned".',
   'onboarding.tour.storage.new.title': 'New hardlinks (optional)',
   'onboarding.tour.storage.new.body':
-    'Where a reseed creates its hardlinks, and where the client is told to seed them. Empty means the seeding folder itself, which is fine for most setups.',
+    'Where a reseed creates its hardlinks, and where the client is told to seed them. Empty means the first torrent folder, which is fine in most cases.',
   'onboarding.tour.storage.upload.title': 'Uploads (optional)',
-  'onboarding.tour.storage.upload.body': 'The same for your own uploads: where their files are linked and seeded. Empty means the seeding folder.',
+  'onboarding.tour.storage.upload.body':
+    'The same for your uploads: where their files are linked and seeded. Empty means the first torrent folder.',
   'onboarding.tour.storage.verify.title': 'A quick check',
   'onboarding.tour.storage.verify.body':
     'This checks that the disk is still the filesystem it was when you added it, so hardlinks keep working. Keep watch like a tower: run it again whenever you remount or move a disk.',

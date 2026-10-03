@@ -58,7 +58,7 @@ export const onboarding = {
 
   'onboarding.tour.storage.intro.title': 'I tuoi dischi',
   'onboarding.tour.storage.intro.body':
-    'Un disco è un filesystem così come lo vede questo container. Gli hardlink funzionano solo dentro un singolo filesystem, quindi ogni disco contiene sia la sua libreria media sia la sua cartella dei torrent.\nCon un solo mount condiviso (es. /data con dentro media/ e torrents/) ti basta un disco.',
+    'Un disco è un filesystem così come lo vede questo container. Gli hardlink funzionano solo dentro un singolo filesystem, quindi ogni disco contiene sia le sue cartelle media sia quelle dei torrent.\nCon un solo mount condiviso (es. /data con dentro media/ e torrents/) ti basta un disco.',
   'onboarding.tour.storage.add.title': 'Aggiungi un disco',
   'onboarding.tour.storage.add.body': 'Clicca "Aggiungi disco" per registrare il primo.',
   'onboarding.tour.storage.label.title': 'Un nome',
@@ -68,17 +68,20 @@ export const onboarding = {
     'Il percorso dentro questo container, non sul tuo host. Parte da disk_scan_root (es. /data): lascialo così con un solo mount, oppure scegli la sottocartella di un disco fisico (es. /data/disk1) se ne monti diversi.',
   'onboarding.tour.storage.create.title': 'Crealo',
   'onboarding.tour.storage.create.body': 'Nazgarr controlla che il percorso esista e ricorda su quale filesystem si trova.',
-  'onboarding.tour.storage.media.title': 'La cartella media',
+  'onboarding.tour.storage.media.title':
+    'Le cartelle media',
   'onboarding.tour.storage.media.body':
-    'Cliccala e scegli la cartella con la tua libreria (film e serie), quella usata da Plex, Jellyfin o Radarr/Sonarr. Ogni file al suo interno viene abbinato a ciò che hai in seed. Facoltativa: senza, Nazgarr lavora solo sui tuoi torrent e sugli upload.',
-  'onboarding.tour.storage.seeding.title': 'La cartella dei torrent',
+    'Ora la tua libreria, quella usata da Plex, Jellyfin o Radarr/Sonarr: "Aggiungi" per ogni cartella (es. movies/ e tv/, anche separate). Ogni file al loro interno viene abbinato a ciò che hai in seed. Facoltative: senza, Nazgarr lavora solo sui tuoi torrent e sugli upload. Una cartella su un altro filesystem va aggiunta come disco a sé.',
+  'onboarding.tour.storage.seeding.title':
+    'Le cartelle dei torrent',
   'onboarding.tour.storage.seeding.body':
-    'Ora la cartella dove il tuo client torrent scarica e fa seed (es. torrents/). I file in seed qui senza un hardlink nella libreria compaiono come "non importati"; i file della libreria senza torrent come "orfani".',
+    'Clicca "Aggiungi" e scegli la cartella dove il tuo client torrent scarica e fa seed (es. torrents/). Se ne usi più di una (es. una per il cross-seed), aggiungile tutte. I file in seed senza un hardlink nella libreria finiscono nel Triage; i file della libreria senza torrent sono "orfani".',
   'onboarding.tour.storage.new.title': 'Nuovi hardlink (facoltativo)',
   'onboarding.tour.storage.new.body':
-    'Dove un reseed crea i suoi hardlink, e dove si dice al client di metterli in seed. Vuoto significa la cartella dei torrent stessa, che va bene nella maggior parte dei casi.',
+    'Dove un reseed crea i suoi hardlink, e dove si dice al client di metterli in seed. Vuoto significa la prima cartella dei torrent, che va bene nella maggior parte dei casi.',
   'onboarding.tour.storage.upload.title': 'Upload (facoltativo)',
-  'onboarding.tour.storage.upload.body': 'Lo stesso per i tuoi upload: dove i loro file vengono collegati e messi in seed. Vuoto significa la cartella dei torrent.',
+  'onboarding.tour.storage.upload.body':
+    'Lo stesso per i tuoi upload: dove i loro file vengono collegati e messi in seed. Vuoto significa la prima cartella dei torrent.',
   'onboarding.tour.storage.verify.title': 'Un controllo veloce',
   'onboarding.tour.storage.verify.body':
     'Controlla che il disco sia ancora lo stesso filesystem di quando l’hai aggiunto, così gli hardlink continuano a funzionare. Fai la guardia come una torre: rilancialo ogni volta che rimonti o sposti un disco.',

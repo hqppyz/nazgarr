@@ -21,15 +21,17 @@ import logging
 import os
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from nazgarr.db_utils import bulk_upsert
 from nazgarr.duplicates import compute_fast_hash
 from nazgarr.file_types import VIDEO_EXTENSIONS, is_video  # noqa: F401  (riesportati)
 from nazgarr.models import Disk, MediaFile, RunLog, SeedFile
+from nazgarr.scan_state import latest_scan_by_disk
 
 logger = logging.getLogger(__name__)
 
@@ -89,15 +91,48 @@ def _stat_files(paths: list[str], on_progress: Callable[[int], None] | None, wit
 class DiskFiles:
     media: list[str]
     seeds: list[str]
+    # Le cartelle (relative al disco) che non si sono potute leggere, per
+    # tipo: i loro file restano com'erano, mai "spariti" (vedi scan_disk).
+    unreachable: dict[str, list[str]] = field(default_factory=lambda: {"media": [], "seeding": []})
+    # Quante cartelle per tipo sono state lette davvero.
+    read: dict[str, int] = field(default_factory=lambda: {"media": 0, "seeding": 0})
 
     def __len__(self) -> int:
         return len(self.media) + len(self.seeds)
 
 
 def list_disk_files(disk: Disk) -> DiskFiles:
-    media = _list_files(os.path.join(disk.root_path, disk.media_rel_path)) if disk.media_rel_path else []
-    seeds = _list_files(os.path.join(disk.root_path, disk.torrents_rel_path)) if disk.torrents_rel_path else []
-    return DiskFiles(media=media, seeds=seeds)
+    """I file di tutte le cartelle media e di seeding del disco
+    (disk_folder: più di una per tipo, nazgarr/disk_folders.py)."""
+    files = DiskFiles(media=[], seeds=[])
+    for kind, folders, out in (("media", disk.media_folders, files.media),
+                               ("seeding", disk.seeding_folders, files.seeds)):
+        for relative in folders:
+            abs_root = os.path.join(disk.root_path, relative)
+            if not os.path.isdir(abs_root):
+                logger.warning("Cartella %s non raggiungibile, i suoi file restano com'erano: %s", kind, abs_root)
+                files.unreachable[kind].append(relative)
+                continue
+            files.read[kind] += 1
+            out.extend(_list_files(abs_root))
+    return files
+
+
+def _keep_current(session: Session, model, disk: Disk, folders: list[str], previous: int | None, run_id: int) -> None:
+    """Le righe ancora attuali di una cartella che questo scan non ha potuto
+    leggere (una share non montata) restano attuali: senza, sparirebbero
+    dalla libreria insieme alla cartella. Solo quelle attuali fino a ora,
+    mai un file già sparito prima."""
+    if previous is None:
+        return
+    for relative in folders:
+        prefix = relative.rstrip("/") + "/"
+        (
+            session.query(model)
+            .filter(model.disk_id == disk.id, model.last_scan_id == previous,
+                    func.substr(model.relative_path, 1, len(prefix)) == prefix)
+            .update({"last_scan_id": run_id}, synchronize_session=False)
+        )
 
 
 def scan_disk(
@@ -114,6 +149,8 @@ def scan_disk(
     (nazgarr/exclusions.py), mai dello scanner."""
     now = datetime.now(UTC)
     files = files if files is not None else list_disk_files(disk)
+    previous_media = latest_scan_by_disk(session, MediaFile).get(disk.id)
+    previous_seed = latest_scan_by_disk(session, SeedFile).get(disk.id)
     media_rows: list[dict] = []
     if files.media:
         for full_path, st, content_hash in _stat_files(files.media, on_progress, with_hash=True):
@@ -140,6 +177,7 @@ def scan_disk(
             "last_scan_id", "last_seen_at",
         ],
     )
+    _keep_current(session, MediaFile, disk, files.unreachable["media"], previous_media, run.id)
     session.commit()
 
     # (st_dev, inode) -> media_file.id per QUESTO disco, per risolvere seed_file.media_file_id
@@ -178,12 +216,14 @@ def scan_disk(
         conflict_cols=["disk_id", "relative_path"],
         update_cols=["size_bytes", "st_dev", "inode", "media_file_id", "last_scan_id", "last_seen_at"],
     )
-    # Il lato letto davvero (cartella presente), anche se vuoto: da qui in poi i
-    # suoi file non rivisti sono spariti (nazgarr/scan_state.py). Una cartella
-    # irraggiungibile non aggiorna niente, nel dubbio i file restano attuali.
-    if disk.media_rel_path and os.path.isdir(os.path.join(disk.root_path, disk.media_rel_path)):
+    _keep_current(session, SeedFile, disk, files.unreachable["seeding"], previous_seed, run.id)
+    # Il lato letto davvero (almeno una cartella presente), anche se vuoto: da
+    # qui in poi i suoi file non rivisti sono spariti (nazgarr/scan_state.py).
+    # Una cartella irraggiungibile tiene attuali i suoi (_keep_current); se
+    # nessuna si è potuta leggere, niente cambia, nel dubbio restano attuali.
+    if files.read["media"]:
         disk.media_scan_id = run.id
-    if disk.torrents_rel_path and os.path.isdir(os.path.join(disk.root_path, disk.torrents_rel_path)):
+    if files.read["seeding"]:
         disk.seed_scan_id = run.id
     session.commit()
 

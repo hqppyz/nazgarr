@@ -133,4 +133,10 @@ export const errors = {
     "'{path}' can't be watched: it is the disk itself, or the media, torrent or upload folder (or contains one), so every import or download would start as a release. Use a dedicated subfolder, e.g. torrents/watch.",
   'errors.watch_folder_used_by_client':
     "'{path}' can't be watched: a torrent client downloads or seeds there, so every download would start as a release. Use a dedicated folder.",
+  'errors.folder_kind_invalid': 'Unknown folder type: {kind}.',
+  'errors.folder_is_disk_root': 'Choose a folder inside the disk, not the whole disk.',
+  'errors.folder_not_found': "The folder '{path}' does not exist on this disk.",
+  'errors.folder_other_filesystem': "'{path}' is on another filesystem: hardlinks can't reach it from this disk. Add it as a disk of its own.",
+  'errors.folder_already_added': "'{path}' is already one of this disk's folders.",
+  'errors.folder_overlaps': "'{path}' overlaps '{other}' ({kind}): a folder can't contain another one or sit inside it.",
 } as const

@@ -13,11 +13,11 @@ CREATE TABLE IF NOT EXISTS disk (
     label                       TEXT NOT NULL,
     root_path                   TEXT NOT NULL UNIQUE,   -- must match/be inside a config.yaml mount
     st_dev                      INTEGER,                -- cached from the last verification
-    media_rel_path              TEXT,                   -- relative to root_path, nullable — where the scan
+    media_rel_path              TEXT,                   -- LEGACY, moved to disk_folder at startup. Was: relative to root_path, nullable — where the scan
                                                          -- looks for video files. One media library per disk;
                                                          -- movie vs tv is detected by the resolver (filename/
                                                          -- path heuristics), never chosen here.
-    torrents_rel_path           TEXT,                   -- relative to root_path, nullable
+    torrents_rel_path           TEXT,                   -- LEGACY, moved to disk_folder at startup (kind 'seeding')
     new_torrent_rel_path        TEXT,                   -- optional, relative to root_path (same convention as
                                                          -- torrents_rel_path): ONLY where to create a NEW
                                                          -- hardlink and which save_path to hand the client.
@@ -37,6 +37,19 @@ CREATE TABLE IF NOT EXISTS disk (
                                                          -- folder in it starts an upload on its own, up to the
                                                          -- decision; never the seeding or the media folder.
     created_at                  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- The media and seeding folders of a disk (user decision, 2026-10-03): more than
+-- one of each, all on the disk's filesystem, never one inside another
+-- (nazgarr/disk_folders.py). Supersedes disk.media_rel_path / torrents_rel_path,
+-- moved here at startup (nazgarr/db.py migrate_disk_folders).
+CREATE TABLE IF NOT EXISTS disk_folder (
+    id              INTEGER PRIMARY KEY,
+    disk_id         INTEGER NOT NULL REFERENCES disk(id) ON DELETE CASCADE,
+    kind            TEXT NOT NULL CHECK (kind IN ('media','seeding')),
+    relative_path   TEXT NOT NULL,          -- relative to disk.root_path, never the root itself
+    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (disk_id, kind, relative_path)
 );
 
 CREATE TABLE IF NOT EXISTS tracker (

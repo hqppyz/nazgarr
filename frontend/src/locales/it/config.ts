@@ -24,7 +24,8 @@ export const config = {
   'config.descApplication': 'La versione in uso, gli aggiornamenti e il tour introduttivo.',
   'config.descInterface': 'L’aspetto di Nazgarr e come mostra date, dimensioni e lingue.',
   'config.descSecurity': 'Il tuo account e le sessioni aperte con esso.',
-  'config.descStorage': 'I tuoi dischi: la cartella torrent di ognuno, la libreria media se ne hai una, e dove vanno i nuovi hardlink, upload e release.',
+  'config.descStorage':
+    'I tuoi dischi: per ognuno le cartelle di seeding (una o più), le cartelle media se hai una libreria, e dove vanno i nuovi hardlink, gli upload e le release.',
   'config.descExclusions': 'File esclusi da ogni stato, conteggio e ricerca. Restano sul disco.',
   'config.descIntegrations': 'Da dove Nazgarr scopre cos’è ogni file: TMDB e, se vuoi, Radarr e Sonarr.',
   'config.descMatching': 'Come le scansioni cercano i reseed, quanto deve essere sicuro un match e cosa succede prima di fare qualunque cosa.',

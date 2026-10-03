@@ -186,8 +186,8 @@ def _execute_layout_media_to_torrent(
     _require_known_structure(candidate)
     _require_every_video(candidate)
     disk = anchor.disk
-    if not disk.torrents_rel_path:
-        raise ExecutionError(f"Disk '{disk.label}' has no torrents_rel_path configured")
+    if not disk.seeding_folders:
+        raise ExecutionError(f"Disk '{disk.label}' has no seeding folder configured")
     try:
         target_root = resolve_scoped(disk.root_path, disk.effective_new_torrent_rel_path)
     except ScopeViolation as exc:
@@ -329,14 +329,8 @@ def _execute_media_to_torrent(
         raise ExecutionError(f"MatchReview {review.id} (media_to_torrent) has no linked media_file")
     disk = media_file.disk
 
-    if not disk.torrents_rel_path:
-        raise ExecutionError(f"Disk '{disk.label}' has no torrents_rel_path configured")
-    try:
-        scan_root = resolve_scoped(disk.root_path, disk.torrents_rel_path)
-    except ScopeViolation as exc:
-        raise ExecutionError(f"Path outside the allowed scope: {exc.candidate}") from exc
-    if not os.path.isdir(scan_root):
-        raise ExecutionError(f"torrents_rel_path does not exist on disk: {scan_root}")
+    if not disk.seeding_folders:
+        raise ExecutionError(f"Disk '{disk.label}' has no seeding folder configured")
 
     target_rel_path = disk.effective_new_torrent_rel_path
     try:

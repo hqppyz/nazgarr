@@ -58,6 +58,7 @@ async def lifespan(app: FastAPI):
     db.migrate_legacy_upload_job(engine)
     db.apply_schema(engine)
     db.migrate_schema(engine)
+    db.migrate_disk_folders(engine)
     db.encrypt_plaintext_secrets(engine)
     session_factory = db.make_session_factory(engine)
     with session_factory() as session:

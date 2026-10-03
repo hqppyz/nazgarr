@@ -15,7 +15,7 @@ Poi per ogni tracker, in ordine, la sua azione:
   aspetta, e l'aggiunta al client con recheck forzato.
 
 Dove seedano: hardlink nella cartella per gli upload del disco
-(disk.effective_upload_rel_path: upload_rel_path, o torrents_rel_path),
+(disk.effective_upload_rel_path: upload_rel_path, o la prima cartella di seeding),
 decisione dell'utente del 2026-09-30. Se la sorgente è già lì dentro con lo
 stesso layout del torrent, si fa seed sul posto. Stesso filesystem o errore
 esplicito, come nel reseeding. Un tracker che fallisce non ferma gli altri.
@@ -35,6 +35,7 @@ from sqlalchemy.orm import Session
 from nazgarr import (
     adapter_factory,
     client_labels,
+    disk_folders,
     mediainfo_util,
     screenshots,
     settings_repo,
@@ -82,20 +83,18 @@ def seed_root(job: UploadJob) -> str:
     return root
 
 
-def seeding_area(job: UploadJob) -> str | None:
-    """La cartella di seeding del disco (torrents_rel_path), se configurata."""
-    disk = job.disk
-    if disk is None or not disk.torrents_rel_path:
-        return None
-    try:
-        return resolve_scoped(disk.root_path, disk.torrents_rel_path)
-    except ScopeViolation:
-        return None
+def seeding_area(job: UploadJob) -> list[str]:
+    """Le cartelle di seeding del disco (nazgarr/disk_folders.py)."""
+    if job.disk is None:
+        return []
+    return disk_folders.absolute(job.disk, "seeding")
 
 
-def _inside(path: str, folder: str | None) -> bool:
+def _inside(path: str, folder: str | list[str] | None) -> bool:
     if folder is None:
         return False
+    if isinstance(folder, list):
+        return any(_inside(path, one) for one in folder)
     real, base = os.path.realpath(path), os.path.realpath(folder)
     return real.startswith(base + os.sep)
 

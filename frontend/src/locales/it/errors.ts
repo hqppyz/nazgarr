@@ -133,4 +133,10 @@ export const errors = {
     "'{path}' non può essere osservata: è il disco stesso, o la cartella media, dei torrent o degli upload (o ne contiene una), quindi ogni importazione o download partirebbe come release. Usa una sottocartella dedicata, es. torrents/watch.",
   'errors.watch_folder_used_by_client':
     "'{path}' non può essere osservata: un client torrent ci scarica o fa seed, quindi ogni download partirebbe come release. Usa una cartella dedicata.",
+  'errors.folder_kind_invalid': 'Tipo di cartella sconosciuto: {kind}.',
+  'errors.folder_is_disk_root': 'Scegli una cartella dentro il disco, non il disco intero.',
+  'errors.folder_not_found': "La cartella '{path}' non esiste su questo disco.",
+  'errors.folder_other_filesystem': "'{path}' sta su un altro filesystem: da questo disco gli hardlink non ci arrivano. Aggiungila come disco a sé.",
+  'errors.folder_already_added': "'{path}' è già una cartella di questo disco.",
+  'errors.folder_overlaps': "'{path}' si sovrappone a '{other}' ({kind}): una cartella non può contenerne un'altra né starci dentro.",
 } as const

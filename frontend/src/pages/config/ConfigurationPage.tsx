@@ -76,7 +76,7 @@ const GROUPS: { title: string; tabs: Tab[] }[] = [
   {
     title: t('config.groupLibrary'),
     tabs: [
-      { value: 'storage', label: t('config.tabStorage'), icon: HardDriveIcon, layout: STACK, content: <DisksSection />, description: t('config.descStorage') },
+      { value: 'storage', label: t('config.tabStorage'), icon: HardDriveIcon, layout: STACK, content: <DisksSection />, ownHeading: true },
       { value: 'exclusions', label: t('config.tabExclusions'), icon: FilterXIcon, layout: PAIRS, content: <ExclusionsSection />, description: t('config.descExclusions') },
       {
         value: 'integrations',

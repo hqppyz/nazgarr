@@ -448,6 +448,31 @@ def migrate_schema(engine: Engine) -> None:
                 conn.execute(text(f'ALTER TABLE "{table.name}" ADD COLUMN "{column.name}" {col_type}'))
 
 
+def migrate_disk_folders(engine: Engine) -> int:
+    """La cartella media e quella di seeding di un disco (disk.media_rel_path,
+    disk.torrents_rel_path) diventano righe di disk_folder, che ne ammette
+    più di una (decisione dell'utente, 2026-10-03), e le colonne vecchie
+    vengono azzerate: così togliere tutte le cartelle dalla UI non le fa
+    ricomparire al riavvio. Idempotente. Restituisce le cartelle spostate."""
+    moved = 0
+    with engine.begin() as conn:
+        rows = conn.execute(text(
+            "SELECT id, media_rel_path, torrents_rel_path FROM disk "
+            "WHERE media_rel_path IS NOT NULL OR torrents_rel_path IS NOT NULL"
+        )).all()
+        for disk_id, media, seeding in rows:
+            for kind, path in (("media", media), ("seeding", seeding)):
+                if not path:
+                    continue
+                conn.execute(text(
+                    "INSERT OR IGNORE INTO disk_folder (disk_id, kind, relative_path) VALUES (:d, :k, :p)"
+                ), {"d": disk_id, "k": kind, "p": path})
+                moved += 1
+            conn.execute(text("UPDATE disk SET media_rel_path = NULL, torrents_rel_path = NULL WHERE id = :d"),
+                         {"d": disk_id})
+    return moved
+
+
 # Colonne diventate cifrate (EncryptedString) dopo che c'erano già dati.
 _NOW_ENCRYPTED = (("tracker", "announce_url"), ("tracker", "history_session_cookie"))
 

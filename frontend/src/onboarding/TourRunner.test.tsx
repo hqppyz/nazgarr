@@ -96,7 +96,7 @@ describe('TourRunner', () => {
 
   it('skips what is already configured', () => {
     setup()
-    page('<button data-tour="storage.add"></button><table><tr data-tour="storage.row"><td><button data-tour="storage.media-folder"></button></td></tr></table>')
+    page('<button data-tour="storage.add"></button><div data-tour="storage.row"><button data-tour="storage.seeding-folder"></button></div>')
     act(() => {
       tourStore.start('storage')
       tourStore.goTo(1)
@@ -104,28 +104,28 @@ describe('TourRunner', () => {
     tick()
     tick()
 
-    expect(last().element?.getAttribute('data-tour')).toBe('storage.media-folder')
+    expect(last().element?.getAttribute('data-tour')).toBe('storage.seeding-folder')
   })
 
   it('steps aside while another dialog or list is open, and comes back after', () => {
     setup()
-    page('<table><tr data-tour="storage.row"><td><button data-tour="storage.media-folder"></button></td></tr></table>')
+    page('<div data-tour="storage.row"><button data-tour="storage.seeding-folder"></button></div>')
     act(() => {
       tourStore.start('storage')
-      tourStore.goTo(5) // la cartella dei media
+      tourStore.goTo(5) // le cartelle di seeding
     })
     tick()
     const before = highlights.length
-    page('<table><tr data-tour="storage.row"><td><button data-tour="storage.media-folder"></button></td></tr></table><div data-slot="dialog-content">folder browser</div>')
+    page('<div data-tour="storage.row"><button data-tour="storage.seeding-folder"></button></div><div data-slot="dialog-content">folder browser</div>')
     destroy.mockClear()
     tick()
     expect(destroy).toHaveBeenCalled()
 
-    page('<table><tr data-tour="storage.row"><td><button data-tour="storage.media-folder" data-tour-filled="true"></button></td></tr></table><button data-tour="storage.seeding-folder"></button>')
+    page('<div data-tour="storage.row"><button data-tour="storage.seeding-folder" data-tour-filled="true"></button></div><button data-tour="storage.media-folder"></button>')
     tick()
     tick()
     expect(highlights.length).toBeGreaterThan(before)
-    expect(last().element?.getAttribute('data-tour')).toBe('storage.seeding-folder') // cartella scelta: avanti
+    expect(last().element?.getAttribute('data-tour')).toBe('storage.media-folder') // cartella scelta: avanti
   })
 
   it('goes to the screen of each step in the tour of the views', () => {

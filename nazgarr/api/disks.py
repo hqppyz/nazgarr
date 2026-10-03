@@ -1,9 +1,9 @@
 """File Browser API scoped-per-disco.
 
 Vedi docs/SPEC.md sezione 4 (ereditata da ratio-guardian). Usata sia per
-selezionare disk.media_rel_path che per creare/selezionare
-torrents_rel_path — un solo meccanismo di scoping condiviso
-(nazgarr/fs_scope.py), mai duplicato.
+scegliere le cartelle media e di seeding di un disco (disk_folder,
+nazgarr/disk_folders.py) che le altre sue cartelle — un solo meccanismo di
+scoping condiviso (nazgarr/fs_scope.py), mai duplicato.
 
 Nazgarr è un'API JSON pura fin dall'inizio (a differenza di
 ratio-guardian, che ha ancora una Web UI Jinja2): anche l'elenco dei mount
@@ -18,6 +18,7 @@ from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from nazgarr import disk_folders
 from nazgarr.api_errors import CodedError, coded_detail, from_coded_error
 from nazgarr.deps import get_session
 from nazgarr.fs_scope import ScopeViolation, resolve_scoped
@@ -59,6 +60,8 @@ class DiskCreateRequest(BaseModel):
 
 class DiskUpdateRequest(BaseModel):
     label: str | None = None
+    # Deprecati: una sola cartella al posto di tutte quelle di quel tipo ("" le
+    # toglie). Le cartelle si gestiscono con /api/disks/{id}/folders.
     media_rel_path: str | None = None
     torrents_rel_path: str | None = None
     new_torrent_rel_path: str | None = None
@@ -66,10 +69,25 @@ class DiskUpdateRequest(BaseModel):
     watch_rel_path: str | None = None  # "" la toglie
 
 
+class DiskFolderResponse(BaseModel):
+    id: int | None  # None: un disco non ancora migrato (nazgarr/db.py migrate_disk_folders)
+    kind: str  # media | seeding
+    relative_path: str
+
+
+class DiskFolderRequest(BaseModel):
+    kind: str
+    relative_path: str
+
+
 class DiskResponse(BaseModel):
     id: int
     label: str
     root_path: str
+    folders: list[DiskFolderResponse] = []
+    media_folders: list[str] = []
+    seeding_folders: list[str] = []
+    # Deprecati: la prima cartella di quel tipo (media_folders, seeding_folders).
     media_rel_path: str | None
     torrents_rel_path: str | None
     new_torrent_rel_path: str | None
@@ -81,8 +99,12 @@ class DiskResponse(BaseModel):
     def from_model(cls, disk: Disk) -> "DiskResponse":
         return cls(
             id=disk.id, label=disk.label, root_path=disk.root_path,
-            media_rel_path=disk.media_rel_path,
-            torrents_rel_path=disk.torrents_rel_path,
+            folders=[DiskFolderResponse(id=f.id, kind=f.kind, relative_path=f.relative_path) for f in disk.folders]
+            or [DiskFolderResponse(id=None, kind=kind, relative_path=path)
+                for kind, path in (("media", disk.media_rel_path), ("seeding", disk.torrents_rel_path)) if path],
+            media_folders=disk.media_folders, seeding_folders=disk.seeding_folders,
+            media_rel_path=next(iter(disk.media_folders), None),
+            torrents_rel_path=next(iter(disk.seeding_folders), None),
             new_torrent_rel_path=disk.new_torrent_rel_path, upload_rel_path=disk.upload_rel_path,
             watch_rel_path=disk.watch_rel_path,
             st_dev=disk.st_dev,
@@ -259,10 +281,13 @@ def update_disk(disk_id: int, body: DiskUpdateRequest, session: Session = Depend
     disk = _get_disk_or_404(session, disk_id)
     if body.label is not None:
         disk.label = body.label
-    if body.media_rel_path is not None:
-        disk.media_rel_path = body.media_rel_path or None
-    if body.torrents_rel_path is not None:
-        disk.torrents_rel_path = body.torrents_rel_path or None
+    try:
+        if body.media_rel_path is not None:
+            disk_folders.replace(session, disk, "media", body.media_rel_path or None)
+        if body.torrents_rel_path is not None:
+            disk_folders.replace(session, disk, "seeding", body.torrents_rel_path or None)
+    except disk_folders.FolderError as exc:
+        raise HTTPException(status_code=400, detail=from_coded_error(exc)) from exc
     if body.new_torrent_rel_path is not None:
         disk.new_torrent_rel_path = body.new_torrent_rel_path or None
     if body.upload_rel_path is not None:
@@ -290,7 +315,7 @@ def _watch_folder(session: Session, disk: Disk, relative: str | None) -> str | N
     root = os.path.realpath(disk.root_path)
     if path == root:
         raise HTTPException(status_code=400, detail=coded_detail("watch_folder_overlaps", path=relative))
-    for other in (disk.media_rel_path, disk.torrents_rel_path, disk.effective_upload_rel_path):
+    for other in (*disk.media_folders, *disk.seeding_folders, disk.effective_upload_rel_path):
         if not other:
             continue
         other_path = os.path.realpath(os.path.join(disk.root_path, other))
@@ -306,6 +331,28 @@ def _watch_folder(session: Session, disk: Disk, relative: str | None) -> str | N
     if any(seed_path.startswith(relative_path + "/") for (seed_path,) in tracked):
         raise HTTPException(status_code=400, detail=coded_detail("watch_folder_used_by_client", path=relative))
     return relative_path
+
+
+@router.post("/{disk_id}/folders", response_model=DiskResponse, status_code=201)
+def add_folder(disk_id: int, body: DiskFolderRequest, session: Session = Depends(get_session)):
+    """Una cartella media o di seeding in più (nazgarr/disk_folders.py)."""
+    disk = _get_disk_or_404(session, disk_id)
+    try:
+        disk_folders.add(session, disk, body.kind, body.relative_path)
+    except disk_folders.FolderError as exc:
+        raise HTTPException(status_code=400, detail=from_coded_error(exc)) from exc
+    session.refresh(disk)
+    return DiskResponse.from_model(disk)
+
+
+@router.delete("/{disk_id}/folders/{folder_id}", response_model=DiskResponse)
+def remove_folder(disk_id: int, folder_id: int, session: Session = Depends(get_session)):
+    """Toglie la cartella dal disco; sul disco non cambia niente."""
+    disk = _get_disk_or_404(session, disk_id)
+    if not disk_folders.remove(session, disk, folder_id):
+        raise HTTPException(status_code=404, detail=coded_detail("folder_not_found", path=str(folder_id)))
+    session.refresh(disk)
+    return DiskResponse.from_model(disk)
 
 
 @router.delete("/{disk_id}", status_code=204)

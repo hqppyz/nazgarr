@@ -219,6 +219,46 @@ export interface paths {
         patch: operations["update_disk_api_disks__disk_id__patch"];
         trace?: never;
     };
+    "/api/disks/{disk_id}/folders": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add Folder
+         * @description Una cartella media o di seeding in più (nazgarr/disk_folders.py).
+         */
+        post: operations["add_folder_api_disks__disk_id__folders_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/disks/{disk_id}/folders/{folder_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove Folder
+         * @description Toglie la cartella dal disco; sul disco non cambia niente.
+         */
+        delete: operations["remove_folder_api_disks__disk_id__folders__folder_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/runs": {
         parameters: {
             query?: never;
@@ -2397,6 +2437,22 @@ export interface components {
             /** Root Path */
             root_path: string;
         };
+        /** DiskFolderRequest */
+        DiskFolderRequest: {
+            /** Kind */
+            kind: string;
+            /** Relative Path */
+            relative_path: string;
+        };
+        /** DiskFolderResponse */
+        DiskFolderResponse: {
+            /** Id */
+            id: number | null;
+            /** Kind */
+            kind: string;
+            /** Relative Path */
+            relative_path: string;
+        };
         /** DiskResponse */
         DiskResponse: {
             /** Id */
@@ -2405,6 +2461,21 @@ export interface components {
             label: string;
             /** Root Path */
             root_path: string;
+            /**
+             * Folders
+             * @default []
+             */
+            folders: components["schemas"]["DiskFolderResponse"][];
+            /**
+             * Media Folders
+             * @default []
+             */
+            media_folders: string[];
+            /**
+             * Seeding Folders
+             * @default []
+             */
+            seeding_folders: string[];
             /** Media Rel Path */
             media_rel_path: string | null;
             /** Torrents Rel Path */
@@ -4678,6 +4749,73 @@ export interface operations {
                 "application/json": components["schemas"]["DiskUpdateRequest"];
             };
         };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiskResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_folder_api_disks__disk_id__folders_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                disk_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DiskFolderRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiskResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    remove_folder_api_disks__disk_id__folders__folder_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                disk_id: number;
+                folder_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {

@@ -85,7 +85,23 @@ A media file counts as seeding only through a torrent a client tracks. A hardlin
 
 ## 4. Data architecture (inherits ratio-guardian §3-4, §13 — extended here)
 
-Disk/library model unchanged from ratio-guardian: a **Disk** entity (physical root, cached `st_dev` to detect remounts), **MediaPath** (one or more per disk, typed `movie`/`tv`), paths always relative to the disk (never absolute), two-level validation (scoped file browser in the UI + `st_dev` comparison at runtime before every hardlink). See ratio-guardian SPEC.md §3 for the full reasoning — not repeated here. Full table-by-table DB schema: `docs/schema.sql`.
+Disk/library model from ratio-guardian: a **Disk** entity (physical root, cached `st_dev` to detect remounts), its **folders** (`disk_folder`, user decision 2026-10-03), paths always relative to the disk (never absolute), two-level validation (scoped file browser in the UI + `st_dev` comparison at runtime before every hardlink). See ratio-guardian SPEC.md §3 for the full reasoning — not repeated here. Full table-by-table DB schema: `docs/schema.sql`.
+
+### Media and seeding folders (user decision, 2026-10-03)
+
+A disk has **any number of media folders and seeding folders** (`disk_folder`, `nazgarr/disk_folders.py`). Examples: `movies/` and `tv/` side by side with no common parent, or `torrents/` plus a cross-seed folder. They replace the single `disk.media_rel_path`/`torrents_rel_path`, which are moved into `disk_folder` at startup and cleared (`nazgarr/db.py::migrate_disk_folders`).
+
+- **No type per folder:** movie or TV is still detected per file. This matches the earlier decision that removed the typed `media_path`.
+- **Rules for a folder:**
+  - it is inside the disk, exists, and is not the disk root;
+  - it is on the disk's filesystem, because hardlinks cannot cross filesystems. A folder mounted from another filesystem is refused with a hint to add it as a disk of its own;
+  - it is never equal to, inside, or containing another folder of the disk, of either kind;
+  - it never contains the watched folder.
+- **Removing a folder** touches nothing on disk. Its files leave the library at the next scan.
+- **The scan** reads every folder. A folder that cannot be read (an unmounted share) keeps its files current: their `last_scan_id` is carried forward. Without this, files would disappear with the share. A file gone from a readable folder still disappears as before.
+- **Defaults:** new hardlinks and uploads go to their own folder if set, otherwise to the first seeding folder. The "already seeding" search covers every seeding folder.
+- **API:** `GET /api/disks` lists `folders`, `media_folders` and `seeding_folders`. `POST /api/disks/{id}/folders` and `DELETE /api/disks/{id}/folders/{folder_id}` manage them. `media_rel_path`/`torrents_rel_path` remain as deprecated fields: the first folder in responses, and a single-folder replacement in a PATCH.
+- **UI:** Configuration › Storage has one card per disk, like torrent clients and trackers. Each card lists its seeding and media folders, each with add and remove, and then the folders for new hardlinks, uploads and releases.
 
 ### Two supported layouts: per-disk mounts or a single TrashGuide-style mount
 

@@ -38,6 +38,30 @@ export function useUpdateDisk() {
   })
 }
 
+// Una cartella media o di seeding in più, o in meno (nazgarr/disk_folders.py).
+export function useAddDiskFolder() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ diskId, kind, path }: { diskId: number; kind: 'media' | 'seeding'; path: string }) =>
+      unwrap(api.POST('/api/disks/{disk_id}/folders', {
+        params: { path: { disk_id: diskId } },
+        body: { kind, relative_path: path },
+      })),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['disks'] }),
+  })
+}
+
+export function useRemoveDiskFolder() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ diskId, folderId }: { diskId: number; folderId: number }) =>
+      unwrap(api.DELETE('/api/disks/{disk_id}/folders/{folder_id}', {
+        params: { path: { disk_id: diskId, folder_id: folderId } },
+      })),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['disks'] }),
+  })
+}
+
 export function useDeleteDisk() {
   const queryClient = useQueryClient()
   return useMutation({

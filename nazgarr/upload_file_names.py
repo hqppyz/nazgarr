@@ -261,10 +261,11 @@ def available_modes(session: Session, job: UploadJob) -> list[str]:
 
 def _in_media_library(job: UploadJob) -> bool:
     disk = getattr(job, "disk", None)
-    if disk is None or not disk.media_rel_path:
+    if disk is None:
         return False
-    media = os.path.realpath(os.path.join(disk.root_path, disk.media_rel_path))
-    return os.path.realpath(job.source_path).startswith(media + os.sep)
+    source = os.path.realpath(job.source_path)
+    return any(source.startswith(os.path.realpath(os.path.join(disk.root_path, media)) + os.sep)
+               for media in disk.media_folders)
 
 
 AUTO_RENAME_SETTING = "upload_auto_rename"

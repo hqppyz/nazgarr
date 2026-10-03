@@ -64,7 +64,7 @@ def test_update_disk_label(client):
 
 
 def test_update_disk_media_rel_path_and_new_torrent_rel_path(client):
-    (client.scan_root / "disk1").mkdir()
+    (client.scan_root / "disk1" / "media").mkdir(parents=True)
     created = client.post("/api/disks", json={"label": "Disk 1", "root_path": str(client.scan_root / "disk1")}).json()
     assert created["media_rel_path"] is None
     assert created["new_torrent_rel_path"] is None

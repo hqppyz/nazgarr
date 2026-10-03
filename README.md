@@ -142,7 +142,7 @@ disk_scan_root: /data      # where the disks are, inside the container
 data_dir: /app/config/data # database and cache
 ```
 
-**Disks and paths.** Each disk is a folder under `disk_scan_root` that holds the torrents and the media of one filesystem. Hardlinks only work inside one filesystem, so a disk's folders must all be on the same one. With the TRaSH Guides layout there is a single disk:
+**Disks and paths.** Each disk is a folder under `disk_scan_root` that holds the torrents and the media of one filesystem. Hardlinks only work inside one filesystem, so a disk's folders must all be on the same one. A disk can have several seeding folders and several media folders (say `movies/` and `tv/` side by side, or a separate cross-seed folder). With the TRaSH Guides layout there is a single disk:
 
 ```
 /data
