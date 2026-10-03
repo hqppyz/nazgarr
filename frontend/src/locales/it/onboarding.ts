@@ -205,7 +205,7 @@ export const onboarding = {
     'Se pubblichi i tuoi encode: ciò che metti in questa cartella avvia un upload da solo, fino alla decisione, dove aspetta la tua approvazione. Quando è in seed, viene spostato nella cartella degli upload.',
   'onboarding.tour.upload.releases.title': 'Le tue release',
   'onboarding.tour.upload.releases.body':
-    'Il tuo nome da releaser, usato come gruppo degli upload dalla cartella osservata, e quanto deve essere sicuro un match TMDB per essere confermato da solo, per ogni upload.',
+    'Il tuo nome da releaser, usato come gruppo degli upload dalla cartella osservata e di ogni upload il cui nome non ha un gruppo, e quanto deve essere sicuro un match TMDB per essere confermato da solo, per ogni upload.',
   'onboarding.tour.views.pack.title':
     'Componi un pack',
   'onboarding.tour.views.pack.body':

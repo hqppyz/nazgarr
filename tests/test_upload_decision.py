@@ -55,7 +55,7 @@ def decision_job(db_session, tmp_path):
 def test_propose_names_ids_and_flags_per_tracker(decision_job):
     itt, custom = decision_job.targets
     # Regole ITT: pattern per le serie (senza anno), servizio, tipo WEB-DL.
-    assert itt.proposed_name == "Severance S02 1080p FullHD ATVP WEB-DL DD+ 5.1 H.264-NTb"
+    assert itt.proposed_name == "Severance S02 1080p FullHD ATVP WEB-DL DD+ 5.1 SDR H.264-NTb"
     assert (itt.category_id, itt.type_id, itt.resolution_id) == (2, 4, 3)
     assert json.loads(itt.flags_json) == {"anonymous": False, "personal_release": False, "internal": False,
                                           "stream": False, "freeleech": 0}
@@ -202,10 +202,10 @@ def test_the_decision_offers_the_file_names_of_each_mode(db_session, decision_jo
     assert json.loads(decision_job.overrides_json)["file_naming"] == "original"
 
 
-def test_the_release_details_come_from_the_file_then_the_folder():
+def test_the_release_details_come_from_the_file_then_the_folder(db_session):
     from types import SimpleNamespace
 
-    from nazgarr.upload_decision import name_detected
+    from nazgarr.upload_file_names import name_detected
 
     job = SimpleNamespace(
         analysis_json=json.dumps({"name_source": {
@@ -214,10 +214,25 @@ def test_the_release_details_come_from_the_file_then_the_folder():
         source_path="/data/watch/Movie Name 2024 1080p WEB-DL",
     )
 
-    detected = name_detected(job)
+    detected = name_detected(db_session, job)
 
     assert (detected["group"], detected["source"]) == ("GRP", "WEB-DL")  # dal file
     assert detected["resolution"] == "1080p"  # il file non la dice: dalla cartella
+
+
+def test_without_a_group_in_the_name_the_releaser_name_is_used(db_session):
+    from types import SimpleNamespace
+
+    from nazgarr import settings_repo
+    from nazgarr.upload_file_names import name_detected
+
+    def job(name):
+        return SimpleNamespace(analysis_json=json.dumps({"name_source": {"name": name}}), source_path=f"/data/{name}")
+
+    assert name_detected(db_session, job("Movie Name (2024).mkv"))["group"] is None
+    settings_repo.set_setting(db_session, "upload_releaser_name", " NZG ")
+    assert name_detected(db_session, job("Movie Name (2024).mkv"))["group"] == "NZG"
+    assert name_detected(db_session, job("Movie.Name.2024.1080p.WEB-DL.H.264-GRP.mkv"))["group"] == "GRP"
 
 
 def test_the_detected_details_suggest_what_the_trackers_accept(db_session, tmp_path):

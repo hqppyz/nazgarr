@@ -13,7 +13,7 @@ import logging
 
 from sqlalchemy.orm import Session, object_session
 
-from nazgarr import client_labels, streaming_services, upload_file_names, upload_jobs, upload_pack
+from nazgarr import client_labels, streaming_services, upload_file_names, upload_jobs
 from nazgarr.adapter_factory import TmdbApiKeyMissingError
 from nazgarr.models import TrackerUploadProfile, UploadJob, UploadTarget
 from nazgarr.upload_jobs import UploadJobError
@@ -25,7 +25,6 @@ from nazgarr.upload_naming import (
     audio_language_check,
     build_name,
     detect,
-    detect_with_fallback,
     release_values,
     rules_from_convention,
     with_tracker_language,
@@ -94,15 +93,6 @@ def field_options(session: Session, job: UploadJob) -> dict[str, list[str]]:
     }
 
 
-def name_detected(job: UploadJob) -> dict:
-    """Dal nome scelto dall'analisi (torrent in hardlink, nome originale di
-    Radarr/Sonarr, o il nome della sorgente: nazgarr/upload_analysis.py)."""
-    name_source = json.loads(job.analysis_json or "{}").get("name_source") or {}
-    # Quello che il nome del file non dice, dal nome della cartella (fallback).
-    return detect_with_fallback(name_source.get("name") or upload_pack.name(job),
-                                name_source.get("fallback"))
-
-
 def profile_rules(profile: TrackerUploadProfile | None) -> dict | None:
     if profile is None:
         return None
@@ -157,7 +147,7 @@ def propose(session: Session, job: UploadJob) -> None:
     """Nome, id del profilo e flag proposti per ogni tracker, dai valori
     rilevati e dagli override. Rifatto a ogni cambio di override; non tocca
     mai quello che l'utente ha già approvato."""
-    from_name = name_detected(job)
+    from_name = upload_file_names.name_detected(session, job)
     overrides = json.loads(job.overrides_json or "{}")
     analysis = json.loads(job.analysis_json or "{}")
     mediainfo = analysis.get("mediainfo")
@@ -374,8 +364,8 @@ def preview_names(session: Session, rules: dict, tracker_language: str | None = 
         language = rules.get("title_language")
         local_title = (analysis.get("titles") or {}).get(language) if language else None
         values = release_values(
-            job, name_detected(job), analysis.get("mediainfo"), json.loads(job.overrides_json or "{}"), rules,
-            local_title,
+            job, upload_file_names.name_detected(session, job), analysis.get("mediainfo"),
+            json.loads(job.overrides_json or "{}"), rules, local_title,
         )
         sample = {"kind": "job", "label": job.title or job.relative_path}
         results.insert(0, {"kind": "job", "key": f"job-{job.id}", "label": sample["label"],

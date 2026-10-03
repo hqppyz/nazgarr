@@ -205,7 +205,7 @@ export const onboarding = {
     'If you release your own encodes: what you put in this folder starts an upload on its own, up to the decision, where it waits for your approval. Once it seeds, it moves to the uploads folder.',
   'onboarding.tour.upload.releases.title': 'Your releases',
   'onboarding.tour.upload.releases.body':
-    'Your releaser name, used as the group of the uploads from the watched folder, and how sure a TMDB match must be to be confirmed on its own, for every upload.',
+    'Your releaser name, used as the group of the uploads from the watched folder and of every upload whose name has no group, and how sure a TMDB match must be to be confirmed on its own, for every upload.',
   'onboarding.tour.views.pack.title':
     'Compose a pack',
   'onboarding.tour.views.pack.body':

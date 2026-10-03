@@ -187,7 +187,7 @@ def name_source(job: UploadJob, files: list[tuple[str, int]], client_matches: li
         return found
     source_name = os.path.basename(job.source_path.rstrip(os.sep))
     # Una cartella con un solo contenuto: prima il nome del suo video, la
-    # cartella per quello che manca (nazgarr/upload_decision.py name_detected).
+    # cartella per quello che manca (nazgarr/upload_file_names.py name_detected).
     layout = json.loads(job.layout_json or "{}")
     main = layout.get("main_video")
     if job.is_dir and job.kind in ("movie", "episode") and main:

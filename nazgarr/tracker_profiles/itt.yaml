@@ -57,7 +57,7 @@ upload:
   # Upload-Assistant (src/trackers/ITT.py, riferimento di dominio): da
   # verificare contro il regolamento del tracker prima del primo upload.
   naming:
-    version: 10
+    version: 11
     force: false
     title: local
     audio_languages:
@@ -67,6 +67,9 @@ upload:
       style: primary_first
       multi_from: 3
     group_separator: "-"
+    # Senza HDR nel MediaInfo (o nel nome), SDR al posto di {hdr}
+    # (decisione dell'utente, 2026-10-03).
+    sdr_label: SDR
     # SUB o SUBS, più ITA solo se l'audio non è in italiano e c'è un
     # sottotitolo italiano (decisione dell'utente, 2026-09-30).
     subs_style: tracker_language
