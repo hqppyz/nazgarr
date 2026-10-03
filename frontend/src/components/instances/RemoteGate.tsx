@@ -20,9 +20,10 @@ function useActiveInstance(): { instance: Instance | null; localVersion: string 
   }
 }
 
-// Nella barra in alto, quando si guarda un'altra istanza: chi è, la versione
-// (con l'avviso se è più vecchia), la sua interfaccia e il ritorno a questa.
-export function RemotePill() {
+// Sotto l'intestazione, fuori dallo scorrimento: una sola striscia, la stessa
+// su ogni pagina, finché si guarda un'altra istanza. Chi è, la versione (con
+// l'avviso se è più vecchia o non risponde), la sua interfaccia, il ritorno.
+export function RemoteBar() {
   const { instance, localVersion } = useActiveInstance()
   if (!instance) return null
   const status = instance.status
@@ -33,29 +34,37 @@ export function RemotePill() {
       ? t('instances.warnOlder', { label: instance.label, version: status?.version ?? '?', local: localVersion ?? '?' })
       : null
   return (
-    <span className="flex h-8 items-center gap-1.5 rounded-md border border-sky-500/40 bg-sky-500/10 pr-1 pl-2.5 text-xs">
-      <span className={cn('size-2 shrink-0 rounded-full', instanceDot(instance))} />
-      <span className="max-w-40 truncate font-medium" title={t('instances.viewingHelp', { label: instance.label })}>
-        {instance.label}
+    <div role="status"
+         className="flex min-h-10 shrink-0 items-center gap-2 border-b border-sky-500/40 bg-sky-500/15 px-3 text-sm md:px-6">
+      <span className={cn('size-2.5 shrink-0 rounded-full', instanceDot(instance))} />
+      <span className="min-w-0 truncate" title={t('instances.viewingHelp', { label: instance.label })}>
+        {t('instances.viewing', { label: instance.label })}
       </span>
-      {status?.version && <span className="hidden text-muted-foreground sm:inline">{status.version}</span>}
-      {status?.level === 'read' && <span className="hidden text-muted-foreground sm:inline">· {t('instances.level.read')}</span>}
+      {status?.version && <span className="hidden shrink-0 text-muted-foreground sm:inline">· {status.version}</span>}
+      {status?.level === 'read' && (
+        <span className="hidden shrink-0 text-muted-foreground sm:inline">· {t('instances.level.read')}</span>
+      )}
       {problem && (
         <Tooltip>
-          <TooltipTrigger render={<span className="text-amber-600 dark:text-amber-400" aria-label={problem} />}>
-            <TriangleAlertIcon className="size-3.5" />
+          <TooltipTrigger render={<span className="flex min-w-0 items-center gap-1 text-amber-700 dark:text-amber-400" />}>
+            <TriangleAlertIcon className="size-4 shrink-0" />
+            <span className="hidden truncate lg:inline">{problem}</span>
           </TooltipTrigger>
           <TooltipContent className="max-w-xs">{problem}</TooltipContent>
         </Tooltip>
       )}
-      <Button variant="ghost" size="icon-xs" title={t('instances.openItsUi')}
-              render={<a href={safeHref(instance.base_url)} target="_blank" rel="noreferrer" />}>
-        <ExternalLinkIcon className="size-3.5" />
-      </Button>
-      <Button variant="ghost" size="icon-xs" title={t('instances.backToThis')} onClick={() => switchInstance(null)}>
-        <Undo2Icon className="size-3.5" />
-      </Button>
-    </span>
+      <span className="ml-auto flex shrink-0 items-center gap-1">
+        <Button variant="ghost" size="sm" title={t('instances.openItsUi')}
+                render={<a href={safeHref(instance.base_url)} target="_blank" rel="noreferrer" />}>
+          <ExternalLinkIcon className="size-4" />
+          <span className="hidden md:inline">{t('instances.openItsUi')}</span>
+        </Button>
+        <Button variant="outline" size="sm" title={t('instances.backToThis')} onClick={() => switchInstance(null)}>
+          <Undo2Icon className="size-4" />
+          <span className="hidden sm:inline">{t('instances.backToThis')}</span>
+        </Button>
+      </span>
+    </div>
   )
 }
 

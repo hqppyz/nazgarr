@@ -30,7 +30,7 @@ export const instances = {
   'instances.compat.block_newer': 'Newer than this one: update this instance first',
   'instances.compat.block_major': 'Different major version: update both to the same one',
   'instances.compat.unknown': 'Version unknown',
-  'instances.viewing': 'You are on {label}',
+  'instances.viewing': 'You are viewing {label}',
   'instances.viewingHelp': 'Every view shows {label}, through this instance. Its secrets, safety settings and API keys are managed in its own interface.',
   'instances.backToThis': 'Back to this instance',
   'instances.openItsUi': 'Open its interface',

@@ -30,7 +30,7 @@ export const instances = {
   'instances.compat.block_newer': 'Più nuova di questa: aggiorna prima questa istanza',
   'instances.compat.block_major': 'Major diversa: aggiornale entrambe alla stessa',
   'instances.compat.unknown': 'Versione sconosciuta',
-  'instances.viewing': 'Sei su {label}',
+  'instances.viewing': 'Stai guardando {label}',
   'instances.viewingHelp': "Ogni vista mostra {label}, attraverso questa istanza. I suoi segreti, le impostazioni di sicurezza e le API key si gestiscono dalla sua interfaccia.",
   'instances.backToThis': 'Torna a questa istanza',
   'instances.openItsUi': 'Apri la sua interfaccia',

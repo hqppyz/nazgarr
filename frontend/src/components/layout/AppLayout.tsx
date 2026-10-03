@@ -14,7 +14,7 @@ import { setSizeUnits } from '@/lib/library-filters'
 import { NAV_DASHBOARD, resolveSectionTitle } from '@/lib/nav'
 import { usesTrackerFilter } from '@/lib/trackerFilter'
 import { TourRunner } from '@/onboarding/TourRunner'
-import { RemoteGate, RemotePill } from '@/components/instances/RemoteGate'
+import { RemoteBar, RemoteGate } from '@/components/instances/RemoteGate'
 import { isRemote } from '@/lib/instance'
 import { UploadNotices } from '@/components/upload/UploadNotices'
 import { WelcomeDialog } from '@/onboarding/WelcomeDialog'
@@ -31,7 +31,6 @@ function TopHeader() {
         {parent && <span className="text-muted-foreground">/</span>}
         <span className="font-medium">{title}</span>
       </div>
-      <RemotePill />
       {usesTrackerFilter(location.pathname) && <TrackerFilterSelect />}
       {location.pathname === NAV_DASHBOARD.to && <RunNowButton />}
     </header>
@@ -59,6 +58,7 @@ export function AppLayout() {
         <UploadNotices />
         <SidebarInset className="h-svh overflow-hidden">
           <TopHeader />
+          <RemoteBar />
           <div className="flex-1 overflow-auto p-4 md:p-6">
             <RemoteGate>
               <Outlet />
