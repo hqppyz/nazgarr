@@ -5,7 +5,14 @@ export const torrentClients = {
   'torrentClients.addTorrentClient': 'Add torrent client',
   'torrentClients.label': 'Label',
   'torrentClients.type': 'Type',
-  'torrentClients.plannedAdapters': 'Deluge/Transmission/rutorrent planned, not yet available.',
+  'torrentClients.rtorrentLabel':
+    'rTorrent / ruTorrent',
+  'torrentClients.typeHelp.deluge':
+    'The Web UI address and its password (Deluge has no user). Categories are the labels of its Label plugin, if turned on; Deluge has no tags.',
+  'torrentClients.typeHelp.transmission':
+    'The Web UI address, with the RPC user and password if set. Transmission has no categories: tags become its labels. It always rechecks a torrent it adds.',
+  'torrentClients.typeHelp.rutorrent':
+    'The rTorrent XML-RPC address (e.g. /RPC2) or the ruTorrent address, with the web server login if any. Categories are ruTorrent labels; rTorrent has no tags and always rechecks a torrent it adds.',
   'torrentClients.url': 'URL',
   'torrentClients.apiKey': 'API key',
   'torrentClients.apiKeyPlaceholder': 'Settings → API Keys in qui',
