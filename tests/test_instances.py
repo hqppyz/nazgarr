@@ -113,3 +113,20 @@ def test_an_api_key_of_this_instance_cannot_use_the_others(client, remote):
     other = _NoLifespan(app, headers={"X-Api-Key": key})
     assert other.get("/api/instances").status_code == 403
     assert other.get("/api/remote/1/api/disks").status_code == 403
+
+
+def test_an_older_instance_without_whoami_is_still_connected(monkeypatch):
+    # Una 0.7.x non ha /api/system/whoami: la sua pagina risponde con HTML.
+    import httpx
+
+    def handler(request):
+        if request.url.path == "/api/health":
+            return httpx.Response(200, json={"status": "ok", "version": "0.7.5"})
+        return httpx.Response(200, text="<html>spa</html>", headers={"content-type": "text/html"})
+
+    monkeypatch.setattr(instances, "CLIENT_FACTORY", lambda base_url, key: httpx.Client(
+        base_url=base_url, transport=httpx.MockTransport(handler)))
+
+    result = instances.probe("http://old.lan", "nzg_x")
+
+    assert (result["status"], result["version"], result["level"]) == ("ok", "0.7.5", None)

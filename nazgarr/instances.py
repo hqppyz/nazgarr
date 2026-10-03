@@ -124,7 +124,12 @@ def probe(base_url: str, api_key: str) -> dict:
     if who.status_code in (401, 403):
         return {"status": "bad_key", "error": None, "version": version, "level": None,
                 "compatibility": compatibility(version)}
-    level = who.json().get("level") if who.status_code == 200 else None
+    # Un'istanza di prima di /api/system/whoami (0.7.x) non sa dire il livello
+    # della chiave: connessa lo stesso, livello sconosciuto.
+    try:
+        level = who.json().get("level") if who.status_code == 200 else None
+    except ValueError:
+        level = None
     return {"status": "ok", "error": None, "version": version, "level": level,
             "compatibility": compatibility(version)}
 

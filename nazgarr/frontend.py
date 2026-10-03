@@ -10,7 +10,7 @@ registrata."""
 import os
 
 from fastapi import FastAPI
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from nazgarr.fs_scope import ScopeViolation, resolve_scoped
@@ -37,6 +37,12 @@ def mount_frontend(app: FastAPI, dist_dir: str = FRONTEND_DIST) -> bool:
     # /docs, /redoc, /openapi.json — già tutte registrate prima di questa.
     @app.get("/{full_path:path}")
     def serve_spa(full_path: str):
+        # Un /api/… che non esiste è un 404 in JSON, non la pagina: chi chiama
+        # le API (un'altra istanza, il CLI, uno script) deve capire che manca
+        # (es. un endpoint di una versione più nuova), non ricevere HTML con 200.
+        if full_path == "api" or full_path.startswith("api/"):
+            return JSONResponse(status_code=404, content={"detail": {"code": "not_found",
+                                                                     "params": {"path": f"/{full_path}"}}})
         # Mai fuori da dist: senza, "/%2e%2e/..." leggeva qualunque file del
         # processo (DB, config.yaml) e questa route non passa dal login.
         try:

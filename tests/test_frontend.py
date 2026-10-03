@@ -98,3 +98,18 @@ def test_mount_frontend_never_serves_files_outside_dist(tmp_path):
     for path in ("/%2e%2e/secret.txt", "/..%2fsecret.txt", "/%2e%2e%2fsecret.txt", "/assets/%2e%2e/%2e%2e/secret.txt"):
         response = client.get(path)
         assert "SECRET" not in response.text, path
+
+
+def test_an_unknown_api_path_is_a_json_404_not_the_page(tmp_path):
+    # Un'altra istanza (o il CLI) che chiede un endpoint di una versione più
+    # nuova deve capire che manca, non ricevere l'HTML della pagina con 200.
+    dist = _build_fake_dist(tmp_path)
+    app = FastAPI()
+    mount_frontend(app, str(dist))
+    client = TestClient(app)
+
+    response = client.get("/api/system/whoami")
+
+    assert response.status_code == 404
+    assert response.json()["detail"]["code"] == "not_found"
+    assert client.get("/reseeding").status_code == 200  # le route della pagina restano
