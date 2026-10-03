@@ -300,7 +300,7 @@ def test_a_client_mounted_on_a_subfolder_from_the_command_line(cli_env, client, 
     code, out, err = run(capsys, "client", "link", "qbit", "main", "--folder", "qbittorrent", "--client-root",
                          "/download")
     assert code == 0, err
-    assert "qbittorrent = /download" in out
+    assert "qbittorrent = /download" in out.replace("\n", "")  # Rich va a capo come vuole
     link = json.loads(run(capsys, "--json", "client", "ls")[1])[0]["disks"][0]
     assert (link["torrent_client_root_path"], link["local_rel_path"]) == ("/download", "qbittorrent")
     code, _out, err = run(capsys, "client", "link", "qbit", "main", "--folder", "qbittorrent")
