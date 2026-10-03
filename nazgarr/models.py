@@ -315,6 +315,19 @@ class ApiKey(Base):
     revoked_at: Mapped[datetime | None]
 
 
+class RemoteInstance(Base):
+    """Un'altra istanza di Nazgarr vista da questa (nazgarr/instances.py): il
+    suo indirizzo e una sua API key, cifrata come gli altri segreti."""
+
+    __tablename__ = "remote_instance"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    label: Mapped[str] = mapped_column(nullable=False)
+    base_url: Mapped[str] = mapped_column(nullable=False)
+    api_key: Mapped[str] = mapped_column(EncryptedString, nullable=False)
+    created_at: Mapped[datetime | None] = mapped_column(server_default=text("CURRENT_TIMESTAMP"))
+
+
 class AdapterConfig(Base):
     """Configurazione di un adapter di un plugin senza una riga sua (host
     di immagini, resolver, notifiche): nazgarr/plugins/config.py."""

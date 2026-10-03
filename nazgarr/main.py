@@ -14,6 +14,8 @@ from nazgarr.api.auth import router as auth_router
 from nazgarr.api.dashboard import router as dashboard_router
 from nazgarr.api.disks import router as disks_router
 from nazgarr.api.full_checks import router as full_checks_router
+from nazgarr.api.instances import remote_router
+from nazgarr.api.instances import router as instances_router
 from nazgarr.api.library import router as library_router
 from nazgarr.api.metadata import router as metadata_router
 from nazgarr.api.plugins import router as plugins_router
@@ -128,6 +130,10 @@ app.include_router(plugins_router, dependencies=[_protected])
 app.include_router(webhooks_router, dependencies=[_protected])
 # Le API key si gestiscono solo con il login, mai con un'altra API key.
 app.include_router(api_keys_router, dependencies=[Depends(auth.require_login)])
+# Le altre istanze e il proxy verso di loro: solo con il login, mai con una API
+# key di questa istanza (nazgarr/api/instances.py).
+app.include_router(instances_router, dependencies=[Depends(auth.require_login)])
+app.include_router(remote_router, dependencies=[Depends(auth.require_login)])
 
 
 class HealthResponse(BaseModel):

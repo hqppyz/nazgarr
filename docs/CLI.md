@@ -200,6 +200,19 @@ Two kinds of settings ask for your password, because an API key is not allowed t
 
 The CLI then logs in for that single change and does not keep the token. Safety settings also ask for confirmation.
 
+### Other instances
+
+The web UI of this instance can open other Nazgarr instances (Configuration › Instances). From the terminal:
+
+```bash
+nazgarr instance add seedbox --url https://seedbox.example:8080   # its API key is asked
+nazgarr instance ls                                               # with version, key level, compatibility
+nazgarr instance test seedbox
+nazgarr instance rm seedbox
+```
+
+They ask for your password: the list of instances needs the login, not an API key. To work on another instance from the terminal, use a profile instead (`nazgarr --profile seedbox login --url …`).
+
 ### The whole configuration in a file
 
 ```bash

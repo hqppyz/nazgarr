@@ -2,6 +2,7 @@ import { ImageOffIcon } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 
 import { getToken } from '@/lib/authToken'
+import { instancePath } from '@/lib/instance'
 import { cn } from '@/lib/utils'
 
 // Il poster è protetto dal login come ogni altra API, e un <img src> non
@@ -29,7 +30,7 @@ function useAuthedImage(url: string, enabled: boolean) {
     let objectUrl: string | null = null
     let cancelled = false
     const token = getToken()
-    fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+    fetch(instancePath(url), { headers: token ? { Authorization: `Bearer ${token}` } : {} })
       .then((response) => (response.ok ? response.blob() : Promise.reject(new Error(String(response.status)))))
       .then((blob) => {
         if (cancelled) return

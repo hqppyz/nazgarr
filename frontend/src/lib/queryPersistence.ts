@@ -2,6 +2,8 @@ import { createAsyncStoragePersister } from '@tanstack/query-async-storage-persi
 import type { Query } from '@tanstack/react-query'
 import { del, get, set } from 'idb-keyval'
 
+import { activeInstanceId } from '@/lib/instance'
+
 // Cache delle viste della libreria nel browser (IndexedDB: le liste file
 // pesano diversi MB, troppi per localStorage). All'apertura la vista si
 // disegna subito con i dati dell'ultima visita, poi TanStack Query li
@@ -16,7 +18,8 @@ export const CACHE_BUSTER = 'library-v3' // v3: seed_requirement in Not imported
 
 export const queryPersister = createAsyncStoragePersister({
   storage: { getItem: get, setItem: set, removeItem: del },
-  key: 'nazgarr-query-cache',
+  // Una cache per istanza: i dati di due istanze non si mescolano.
+  key: `nazgarr-query-cache${activeInstanceId() ? `-i${activeInstanceId()}` : ''}`,
   throttleTime: 2000,
 })
 

@@ -97,6 +97,7 @@ export interface SectionTitle {
 // sopra) mostra anche il genitore come breadcrumb ("Library / Poster view").
 export function resolveSectionTitle(pathname: string): SectionTitle {
   if (pathname === NAV_DASHBOARD.to) return { title: NAV_DASHBOARD.title }
+  if (pathname === '/instances') return { title: t('instances.title') }
   for (const group of NAV_GROUPS) {
     for (const item of group.items) {
       if (pathname === item.to || pathname.startsWith(`${item.to}/`)) {

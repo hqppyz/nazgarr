@@ -5,6 +5,7 @@ import { Link, useLocation } from 'react-router-dom'
 import { useDashboard } from '@/api/hooks/dashboard'
 import { useHealth } from '@/api/hooks/health'
 import { RingLogo } from '@/components/RingLogo'
+import { InstanceSwitcher } from '@/components/instances/InstanceSwitcher'
 import type { RingHandle } from '@/components/ring/types'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { useAuth } from '@/contexts/AuthContext'
@@ -128,8 +129,10 @@ export function AppSidebar() {
       <SidebarHeader className="px-2 py-3">
         <span className="flex items-center gap-2">
           <SidebarRing />
-          <span className="truncate text-base font-semibold tracking-tight group-data-[collapsible=icon]:hidden">
-            Nazgarr
+          {/* Con altre istanze, sotto il nome quella che si sta guardando (components/instances). */}
+          <span className="grid min-w-0 gap-0.5 group-data-[collapsible=icon]:hidden">
+            <span className="truncate text-base leading-tight font-semibold tracking-tight">Nazgarr</span>
+            <InstanceSwitcher />
           </span>
         </span>
       </SidebarHeader>

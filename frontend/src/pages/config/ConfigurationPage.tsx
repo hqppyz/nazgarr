@@ -7,10 +7,12 @@ import {
   InfoIcon,
   KeyRoundIcon,
   LayoutGridIcon,
+  LockIcon,
   PlugIcon,
   PuzzleIcon,
   RadioTowerIcon,
   ScrollTextIcon,
+  ServerIcon,
   ShieldIcon,
   UploadCloudIcon,
   WebhookIcon,
@@ -25,6 +27,9 @@ import { Masonry } from '@/components/Masonry'
 import { SettingsHeader } from '@/components/SettingsHeader'
 import { t } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
+import { safeHref } from '@/lib/safeUrl'
+import { activeInstanceId, isRemote } from '@/lib/instance'
+import { useInstances } from '@/api/hooks/instances'
 import { ApiKeysSection } from '@/pages/config/ApiKeysSection'
 import { ApplicationSection } from '@/pages/config/ApplicationSection'
 import { AutoApproveSection } from '@/pages/config/AutoApproveSection'
@@ -33,6 +38,7 @@ import { ExclusionsSection } from '@/pages/config/ExclusionsSection'
 import { IntegrationsSection } from '@/pages/config/IntegrationsSection'
 import { InterfaceSection } from '@/pages/config/InterfaceSection'
 import { LogsSection } from '@/pages/config/LogsSection'
+import { InstancesSection } from '@/pages/config/InstancesSection'
 import { MetadataSection } from '@/pages/config/MetadataSection'
 import { PluginsSection } from '@/pages/config/PluginsSection'
 import { SecuritySection } from '@/pages/config/SecuritySection'
@@ -136,15 +142,44 @@ const GROUPS: { title: string; tabs: Tab[] }[] = [
   {
     title: t('config.groupSystem'),
     tabs: [
+      { value: 'instances', label: t('instances.title'), icon: ServerIcon, layout: STACK, content: <InstancesSection />,
+        ownHeading: true },
       { value: 'logs', label: t('config.tabLogs'), icon: ScrollTextIcon, layout: STACK, content: <LogsSection />, ownHeading: true },
     ],
   },
 ]
 
-const ALL_TABS = GROUPS.flatMap((group) => group.tabs)
+// Su un'altra istanza: Sicurezza (il login di questa) e API key (che una API
+// key non gestisce) restano nel menu, ma al loro posto c'è un avviso.
+const LOCAL_ONLY = ['security', 'api-keys']
+const VISIBLE_GROUPS = GROUPS
+const ALL_TABS = VISIBLE_GROUPS.flatMap((group) => group.tabs)
 // Tab di prima del riordino, per i link già salvati.
 const RENAMED: Record<string, string> = {
   mapping: 'storage', metadata: 'integrations', 'time-language': 'interface', upload: 'images',
+}
+
+// Al posto di Sicurezza e API key mentre si guarda un'altra istanza: si
+// cambiano solo dalla sua interfaccia.
+function LockedOnRemote({ title }: { title: string }) {
+  const { data } = useInstances(true)
+  const id = activeInstanceId()
+  const instance = data?.instances.find((i) => i.id === id)
+  return (
+    <div className="grid max-w-2xl gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-4 text-sm">
+      <p className="flex items-center gap-2 font-medium">
+        <LockIcon className="size-4" />
+        {t('instances.lockedTitle', { section: title, label: instance?.label ?? '' })}
+      </p>
+      <p className="text-muted-foreground">{t('instances.lockedHelp')}</p>
+      {instance && (
+        <a href={safeHref(instance.base_url)} target="_blank" rel="noreferrer"
+           className="w-fit font-medium text-primary underline-offset-4 hover:underline">
+          {t('instances.openItsUi')}
+        </a>
+      )}
+    </div>
+  )
 }
 
 export function ConfigurationPage() {
@@ -177,7 +212,7 @@ export function ConfigurationPage() {
           </SelectValue>
         </SelectTrigger>
         <SelectContent>
-          {GROUPS.map((group) => (
+          {VISIBLE_GROUPS.map((group) => (
             <SelectGroup key={group.title}>
               <SelectLabel>{group.title}</SelectLabel>
               {group.tabs.map((tab) => (
@@ -192,7 +227,7 @@ export function ConfigurationPage() {
       </Select>
       {/* La colonna delle sezioni resta ferma mentre il contenuto scorre. */}
       <TabsList className="sticky top-0 hidden max-h-[calc(100svh-6rem)] w-56 shrink-0 items-stretch gap-0.5 self-start overflow-y-auto bg-transparent p-0 md:flex">
-        {GROUPS.map((group, i) => (
+        {VISIBLE_GROUPS.map((group, i) => (
           <div key={group.title} className={cn('grid gap-0.5', i > 0 && 'mt-3')}>
             <p className="px-3 pb-1 text-[length:var(--text-xxs)] font-medium tracking-wide text-muted-foreground uppercase">
               {group.title}
@@ -209,11 +244,17 @@ export function ConfigurationPage() {
       {ALL_TABS.map((tab) => (
         <TabsContent key={tab.value} value={tab.value} className="grid min-w-0 content-start gap-4">
           {/* La stessa intestazione per ogni impostazione (components/SettingsHeader.tsx). */}
+          {isRemote() && LOCAL_ONLY.includes(tab.value) ? (
+            <LockedOnRemote title={tab.label} />
+          ) : (
+          <>
           {!tab.ownHeading && <SettingsHeader title={tab.label} description={tab.description} />}
           {tab.layout === 'masonry' ? (
             <Masonry gap={24}>{tab.content}</Masonry>
           ) : (
             <div className="grid min-w-0 content-start gap-6">{tab.content}</div>
+          )}
+          </>
           )}
         </TabsContent>
       ))}
