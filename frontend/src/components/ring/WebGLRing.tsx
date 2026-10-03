@@ -292,8 +292,18 @@ export function WebGLRing({ size = 120, className, handleRef, hoverable = true, 
         onReady?.()
       }
     }
-    const tick = () => {
+    // Da caricamento: rotola sul bordo come una moneta che gira sul tavolo,
+    // senza fermarsi. amp = inclinazione, speed = giri al secondo del bordo.
+    const roll = { amp: 0, speed: 1.6, on: false }
+    let rollPhase = 0
+    const tick = (_time: number, deltaMs: number) => {
       if (document.hidden) return
+      if (roll.on) {
+        rollPhase += 2 * Math.PI * roll.speed * Math.min(deltaMs, 50) / 1000
+        state.wobbleX = roll.amp * Math.sin(rollPhase)
+        state.wobbleZ = roll.amp * Math.cos(rollPhase)
+        dirty = true
+      }
       if (dirty || gsap.isTweening(state)) {
         render()
         dirty = false
@@ -312,15 +322,13 @@ export function WebGLRing({ size = 120, className, handleRef, hoverable = true, 
     // colpo all'urto e si smorza mentre il bordo gira sempre più in fretta,
     // poi si posa. Nessun cambio di dimensione né di posizione.
     const wobble = { p: 1 }
-    const drop = ({ duration = 1.9, repeat = 0 } = {}) => {
+    const drop = () => {
       wobble.p = 0
-      return gsap.to(wobble, {
+      gsap.to(wobble, {
         p: 1,
-        duration,
+        duration: 1.9,
         ease: 'none',
         overwrite: true,
-        repeat,
-        repeatDelay: repeat ? 0.25 : 0,
         onUpdate: () => {
           const p = wobble.p
           const tilt = 0.6 * Math.min(1, p / 0.07) * (1 - p) ** 2.2
@@ -337,14 +345,27 @@ export function WebGLRing({ size = 120, className, handleRef, hoverable = true, 
       })
     }
 
-    const loader = mode === 'loader'
-    // Da caricamento: ricade a ripetizione, con un bagliore appena acceso.
-    const idle = exporting
+    const loader = mode === 'loader' && !exporting
+    const idle = exporting || loader
       ? null
-      : loader
-        ? drop({ duration: 1.6, repeat: -1 })
-        : gsap.to(state, { spin: `-=${Math.PI * 2}`, duration: spinSeconds, ease: 'none', repeat: -1 })
-    if (loader && !exporting) state.glow = 0.6
+      : gsap.to(state, { spin: `-=${Math.PI * 2}`, duration: spinSeconds, ease: 'none', repeat: -1 })
+    let breathe: gsap.core.Tween | null = null
+    if (loader) {
+      // L'urto (l'inclinazione sale di colpo), poi un respiro lento attorno
+      // a quella, con un bagliore appena acceso.
+      state.glow = 0.6
+      roll.on = true
+      gsap.to(roll, {
+        amp: 0.34, duration: 0.45, ease: 'power2.out',
+        onComplete: () => {
+          breathe = gsap.to(roll, { amp: 0.24, speed: 2.1, duration: 1.3, ease: 'sine.inOut', yoyo: true, repeat: -1 })
+        },
+      })
+    }
+    const stopRolling = () => {
+      breathe?.kill()
+      gsap.killTweensOf(roll)
+    }
     api.current = {
       hover: (on, x = 0, y = 0, instant = false) => {
         gsap.to(state, {
@@ -374,25 +395,43 @@ export function WebGLRing({ size = 120, className, handleRef, hoverable = true, 
         drop()
       },
       // Pronto: smette di cadere e si gira verso chi guarda, una O accesa.
+      // Il rotolamento si spegne mentre si alza: niente pause in mezzo.
       settle: () =>
         new Promise<void>((resolve) => {
-          idle?.kill()
-          gsap.killTweensOf(wobble)
+          stopRolling()
+          gsap.to(roll, { amp: 0, speed: 0.8, duration: 0.6, ease: 'power2.out' })
           gsap.to(state, {
-            wobbleX: 0, wobbleZ: 0, tiltX: Math.PI / 2, tiltZ: 0, spin: 0, glow: HOVER_GLOW,
-            duration: 0.55, ease: 'back.out(1.6)', overwrite: true, onComplete: () => resolve(),
+            tiltX: Math.PI / 2, tiltZ: 0, glow: HOVER_GLOW,
+            duration: 0.6, ease: 'back.out(1.4)', overwrite: 'auto',
+            onComplete: () => {
+              roll.on = false
+              state.wobbleX = 0
+              state.wobbleZ = 0
+              dirty = true
+              resolve()
+            },
           })
         }),
-      // Errore: un'ultima caduta, più breve, e si spegne disteso sul tavolo.
+      // Errore: come una moneta che finisce di girare, il bordo accelera
+      // mentre si abbassa, poi resta disteso e spento.
       fall: () => {
-        idle?.kill()
-        drop({ duration: 1.2 })
-        gsap.to(state, { tiltX: 0.18, tiltZ: -0.1, glow: 0, duration: 1.2, ease: 'power2.out', overwrite: 'auto' })
+        stopRolling()
+        gsap.to(roll, {
+          amp: 0, speed: 6, duration: 1.3, ease: 'power2.in',
+          onComplete: () => {
+            roll.on = false
+            state.wobbleX = 0
+            state.wobbleZ = 0
+            dirty = true
+          },
+        })
+        gsap.to(state, { tiltX: 0.12, tiltZ: -0.06, glow: 0, duration: 1.3, ease: 'power2.in', overwrite: 'auto' })
       },
     }
 
     return () => {
       idle?.kill()
+      stopRolling()
       gsap.ticker.remove(tick)
       gsap.killTweensOf(state)
       geometry.dispose()
