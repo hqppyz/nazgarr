@@ -5,6 +5,7 @@ import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { t } from '@/lib/i18n'
 import { autosaveFeedback } from '@/lib/autosave'
+import { ScheduleCard } from '@/pages/config/ScheduleCard'
 
 // Spenta di default (nazgarr/review.py auto_execute_enabled): decisione
 // dell'utente, niente che modifichi file o client parte senza la sua
@@ -116,6 +117,7 @@ function SearchCard() {
 export function AutoApproveSection() {
   return (
     <>
+      <ScheduleCard />
       <SearchCard />
       <Card data-tour="reseeding.thresholds">
         <CardHeader>

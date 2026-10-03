@@ -146,6 +146,9 @@ export const onboarding = {
   'onboarding.tour.exclusions.custom.title': 'I tuoi pattern',
   'onboarding.tour.exclusions.custom.body': 'Qualsiasi altra cosa da lasciare fuori, come pattern sul percorso (es. */Extras/*). Puoi anche escludere un file o una cartella con il tasto destro nella Libreria.',
 
+  'onboarding.tour.reseeding.schedule.title': 'Scansioni automatiche',
+  'onboarding.tour.reseeding.schedule.body':
+    'Quando Nazgarr rilegge tutto da solo: ogni 6 ore va bene per la maggior parte delle librerie. Anche così nulla viene collegato o aggiunto senza di te: le proposte aspettano in coda.',
   'onboarding.tour.reseeding.search.title': 'Cosa viene cercato',
   'onboarding.tour.reseeding.search.body':
     'Ogni scansione cerca i file della libreria che non sono in seed. Con il cross-seed attivo, un file in seed su un tracker viene cercato anche sugli altri.',

@@ -146,6 +146,9 @@ export const onboarding = {
   'onboarding.tour.exclusions.custom.title': 'Your own patterns',
   'onboarding.tour.exclusions.custom.body': 'Anything else to leave out, as patterns on the path (e.g. */Extras/*). You can also exclude a file or a folder by right-clicking it in the Library.',
 
+  'onboarding.tour.reseeding.schedule.title': 'Automatic scans',
+  'onboarding.tour.reseeding.schedule.body':
+    'When Nazgarr reads everything again on its own: every 6 hours suits most libraries. Even so nothing is linked or added without you: proposals wait in the queue.',
   'onboarding.tour.reseeding.search.title': 'What gets searched',
   'onboarding.tour.reseeding.search.body':
     'Every scan looks for the library files that do not seed. With cross-seeds on, a file seeding on one tracker is also searched on the others.',

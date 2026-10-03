@@ -10,7 +10,6 @@ import {
   useRetryFailed,
   useReviews,
 } from '@/api/hooks/reviews'
-import { useSchedule, useSetSchedule } from '@/api/hooks/schedule'
 import { ErrorsPopover } from '@/components/ErrorsPopover'
 import { FullCheckButton } from '@/components/FullCheckButton'
 import { StateBadge } from '@/components/StateBadge'
@@ -19,7 +18,6 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
-import { Input } from '@/components/ui/input'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { ToggleGroupItem, ToggleGroupSingle } from '@/components/ui/toggle-group'
 import { t } from '@/lib/i18n'
@@ -318,52 +316,11 @@ function ExecutionsCard() {
   )
 }
 
-function ScheduleCard() {
-  const { data: schedule } = useSchedule()
-  const setSchedule = useSetSchedule()
-  const [draft, setDraft] = useState<string | null>(null)
-  const cron = draft ?? schedule?.cron ?? ''
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{t('misc.schedule')}</CardTitle>
-        <CardDescription>
-          {t('reseeding.cronHintPre')}
-          <code>0 */6 * * *</code>
-          {t('reseeding.cronHintPost')}
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="flex items-center gap-2">
-        <Input value={cron} placeholder="0 */6 * * *" onChange={(e) => setDraft(e.target.value)} className="max-w-xs" />
-        <Button
-          variant="outline"
-          onClick={() =>
-            setSchedule.mutate(cron || null, {
-              onSuccess: () => {
-                toast.success(cron ? t('reseeding.scheduleSet') : t('reseeding.scheduleDisabled'))
-                setDraft(null)
-              },
-              onError: (error) => toast.error(t('common.saveFailed', { message: error.message })),
-            })
-          }
-        >
-          {t('common.save')}
-        </Button>
-        <Badge variant={schedule?.enabled ? 'default' : 'secondary'}>
-          {schedule?.enabled ? t('reseeding.scheduleActive') : t('reseeding.scheduleInactive')}
-        </Badge>
-      </CardContent>
-    </Card>
-  )
-}
-
 export function ReseedingPage() {
   return (
     <div className="grid gap-6">
       <ReviewCard />
       <ExecutionsCard />
-      <ScheduleCard />
     </div>
   )
 }

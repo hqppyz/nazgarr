@@ -119,6 +119,7 @@ export const TOURS: Tour[] = [
     key: 'reseeding',
     route: '/config?tab=matching',
     steps: [
+      { id: 'schedule', anchor: 'reseeding.schedule', side: 'right', next: true },
       { id: 'search', anchor: 'reseeding.search', side: 'right', next: true },
       { id: 'thresholds', anchor: 'reseeding.thresholds', side: 'right', next: true },
       { id: 'execution', anchor: 'reseeding.execution', side: 'left', next: true },

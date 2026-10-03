@@ -54,4 +54,10 @@ export const reseeding = {
   'reseeding.crossSeedLabel': 'Look for cross-seeds',
   'reseeding.crossSeedSettingHelp':
     'A file already seeding on one tracker is searched on the others too. Off: only files that seed nowhere are searched. A hardlink in the torrent folder that no client tracks never counts as seeding.',
+  'reseeding.scheduleDescription': 'When a scan starts on its own: it reads disks and clients and searches the trackers. Proposals still wait in the review queue.',
+  'reseeding.schedulePreset.off': 'Never',
+  'reseeding.schedulePreset.every6h': 'Every 6 hours',
+  'reseeding.schedulePreset.every12h': 'Every 12 hours',
+  'reseeding.schedulePreset.daily': 'Every night (03:00)',
+  'reseeding.schedulePreset.custom': 'Custom',
 } as const
