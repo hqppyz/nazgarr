@@ -375,3 +375,33 @@ def test_itt_writes_sdr_when_there_is_no_hdr():
     values = release_values(job, detect("Dune.2021.WEB-DL-GRP.mkv"), {**mediainfo, "video": hdr}, {}, rules)
     name = build_name(rules, values)
     assert " HDR " in name and "SDR" not in name
+
+
+def test_the_video_codec_follows_the_release_type_with_or_without_mediainfo():
+    from types import SimpleNamespace
+
+    from nazgarr.upload_naming import codec_label, detect, release_values
+
+    job = SimpleNamespace(title="Dune", year=2021, content_type="movie", seasons_json="[]", kind="movie", episode=None)
+
+    def codec(name, video=None, overrides=None, rules=None):
+        mediainfo = {"video": {"width": 1920, "height": 800, **video}} if video else None
+        return release_values(job, detect(name), mediainfo, overrides or {}, rules)["video_codec"]
+
+    avc, x264 = {"format": "AVC"}, {"format": "AVC", "writing_library": "x264 core 164"}
+    # Un DLMux è video web non ricodificato: H.264, col MediaInfo come dal nome.
+    assert codec("Dune.2021.1080p.DLMux.H264-GRP.mkv", avc) == codec("Dune.2021.1080p.DLMux.H264-GRP.mkv") == "H.264"
+    # Un WEB-DL resta H.264 anche se il servizio ha lasciato le impostazioni di x264.
+    assert codec("Dune.2021.1080p.AMZN.WEB-DL.H.264-GRP.mkv", x264) == "H.264"
+    # Un encode è x264 anche senza l'encoder dichiarato (o con un altro encoder).
+    assert codec("Dune.2021.1080p.WEBRip.x264-GRP.mkv", avc) == "x264"
+    assert codec("Dune.2021.1080p.WEBRip.x264-GRP.mkv", {"format": "AVC", "writing_library": "NVENC"}) == "x264"
+    assert codec("Dune.2021.2160p.BluRay.REMUX.HEVC-GRP.mkv", {"format": "HEVC"}) == "HEVC"
+    assert codec("Dune.2021.2160p.BluRay.x265-GRP.mkv", {"format": "HEVC", "writing_library": "x265"}) == "x265"
+    # Il tipo corretto a mano porta con sé il codec; il codec scritto a mano resta.
+    assert codec("Dune.2021.1080p.WEB-DL.H.264-GRP.mkv", avc, {"type": "WEBRIP"}) == "x264"
+    assert codec("Dune.2021.1080p.WEB-DL.H.264-GRP.mkv", avc, {"video_codec": "AVC"}) == "AVC"
+    # Un profilo può scriverlo a modo suo.
+    rules = {"video_codecs": {"H.265": "H265"}}
+    assert codec("Dune.2021.2160p.WEB-DL.H.265-GRP.mkv", {"format": "HEVC"}, rules=rules) == "H265"
+    assert codec_label("VC-1", "REMUX") == "VC-1" and codec_label("MPEG Video", "REMUX") == "MPEG-2"

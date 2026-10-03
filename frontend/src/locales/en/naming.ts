@@ -39,6 +39,9 @@ export const naming = {
   'naming.sdrLabel': 'Label for SDR',
   'naming.audioCodecNames': 'Audio codec names',
   'naming.audioCodecNamesHelp': 'MediaInfo format = name in the title, one per line. Only what differs from the defaults.',
+  'naming.videoCodecNames': 'Video codec names',
+  'naming.videoCodecNamesHelp':
+    'Label = how to write it, one per line. The labels: AVC/HEVC for remuxes and discs, H.264/H.265 for untouched web and TV, x264/x265 for encodes.',
   'naming.mainPattern': 'Release name pattern',
   'naming.patternFor': 'Pattern for {type}',
   'naming.removePattern': 'Remove',

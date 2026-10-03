@@ -354,7 +354,20 @@ export function NamingRulesEditor({
             ))}
           </div>
         </div>
-        <AudioCodecNames value={(value.audio_codecs as Record<string, string> | undefined) ?? {}} onChange={(audio_codecs) => set({ audio_codecs })} />
+        <CodecNames
+          label={t('naming.audioCodecNames')}
+          help={t('naming.audioCodecNamesHelp')}
+          placeholder={'E-AC-3 = DDP\nAC-3 = DD'}
+          value={(value.audio_codecs as Record<string, string> | undefined) ?? {}}
+          onChange={(audio_codecs) => set({ audio_codecs })}
+        />
+        <CodecNames
+          label={t('naming.videoCodecNames')}
+          help={t('naming.videoCodecNamesHelp')}
+          placeholder={'H.265 = H265\nH.264 = H264'}
+          value={(value.video_codecs as Record<string, string> | undefined) ?? {}}
+          onChange={(video_codecs) => set({ video_codecs })}
+        />
       </fieldset>
     </div>
   )
@@ -362,16 +375,23 @@ export function NamingRulesEditor({
 
 // "Formato dei valori": come scrivere i codec audio (formato MediaInfo ->
 // nome nel titolo), es. E-AC-3 -> DDP invece di DD+. Una riga per codec.
-function AudioCodecNames({ value, onChange }: { value: Record<string, string>; onChange: (value: Record<string, string>) => void }) {
+// Una tabella "da = a", una riga per voce: i nomi dei codec audio e video.
+function CodecNames({ label, help, placeholder, value, onChange }: {
+  label: string
+  help: string
+  placeholder: string
+  value: Record<string, string>
+  onChange: (value: Record<string, string>) => void
+}) {
   const [draft, setDraft] = useState(() => Object.entries(value).map(([k, v]) => `${k} = ${v}`).join('\n'))
   return (
     <div className="grid gap-1">
-      <Label className="text-xs">{t('naming.audioCodecNames')}</Label>
-      <p className="text-[11px] text-muted-foreground">{t('naming.audioCodecNamesHelp')}</p>
+      <Label className="text-xs">{label}</Label>
+      <p className="text-[11px] text-muted-foreground">{help}</p>
       <Textarea
         rows={3}
         className="font-mono text-xs"
-        placeholder={'E-AC-3 = DDP\nAC-3 = DD'}
+        placeholder={placeholder}
         value={draft}
         onChange={(e) => {
           setDraft(e.target.value)

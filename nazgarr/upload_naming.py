@@ -168,15 +168,45 @@ def source_full(values: dict) -> str | None:
     return source
 
 
+# Come si scrive il codec, secondo il tipo di release (decisione dell'utente,
+# 2026-10-03): una sola tabella per il MediaInfo e per il nome. Il video di
+# un disco è AVC/HEVC, quello web o tv non ricodificato H.264/H.265, un
+# encode x264/x265. L'encoder letto dal MediaInfo dice solo se un file è un
+# encode (has_encoder, per i remux), mai l'etichetta.
+_UNTOUCHED_DISC = frozenset({"REMUX", "DISC"})
+_UNTOUCHED_STREAM = frozenset({"WEBDL", "WEBMUX", "DLMUX", "HDTV"})
+_CODEC_LABELS = {
+    "AVC": {"disc": "AVC", "stream": "H.264", "encode": "x264"},
+    "HEVC": {"disc": "HEVC", "stream": "H.265", "encode": "x265"},
+}
+# Un'etichetta (dal nome o già scritta) torna al suo formato.
+_CODEC_FAMILY = {
+    "avc": "AVC", "h.264": "AVC", "h264": "AVC", "x264": "AVC",
+    "hevc": "HEVC", "h.265": "HEVC", "h265": "HEVC", "x265": "HEVC",
+    "mpeg video": "MPEG-2", "mpeg-2": "MPEG-2",
+}
+
+
+def codec_label(codec: str | None, release: str | None, rules: dict | None = None) -> str | None:
+    """L'etichetta del codec video per quel tipo di release, poi quella del
+    profilo se la ridefinisce (rules.video_codecs, es. "H.265": "H265")."""
+    if not codec:
+        return None
+    family = _CODEC_FAMILY.get(codec.lower(), codec)
+    labels = _CODEC_LABELS.get(family)
+    if labels is None:
+        label = family
+    elif release in _UNTOUCHED_DISC:
+        label = labels["disc"]
+    elif release in _UNTOUCHED_STREAM:
+        label = labels["stream"]
+    else:  # ENCODE, WEBRIP, BRRIP, DVDRIP, o tipo sconosciuto
+        label = labels["encode"]
+    return ((rules or {}).get("video_codecs") or {}).get(label, label)
+
+
 def _name_video_codec(guess: dict, release: str) -> str | None:
-    codec = str(guess.get("video_codec") or "")
-    # Un encode si scrive x264/x265, una sorgente non ricodificata H.264/H.265
-    # (AVC/HEVC per i remux): la convenzione più diffusa, sempre correggibile.
-    if codec == "H.264":
-        return {"REMUX": "AVC", "ENCODE": "x264", "WEBRIP": "x264"}.get(release, "H.264")
-    if codec == "H.265":
-        return {"REMUX": "HEVC", "ENCODE": "x265", "WEBRIP": "x265"}.get(release, "H.265")
-    return codec or None
+    return codec_label(str(guess.get("video_codec") or "") or None, release)
 
 
 def _name_audio(guess: dict) -> str | None:
@@ -330,20 +360,6 @@ def has_encoder(video: dict) -> bool:
     return bool(video.get("encoding_settings")) or any(
         name in library for name in ("x264", "x265", "nvenc", "qsv", "svt", "aomenc", "rav1e", "xvid", "divx")
     )
-
-
-def _mi_video_codec(video: dict, release: str) -> str | None:
-    fmt = str(video.get("format") or "")
-    library = str(video.get("writing_library") or "").lower()
-    encoded = "x264" in library or "x265" in library or bool(video.get("encoding_settings"))
-    web = release in ("WEBDL", "WEBRIP", "HDTV")
-    if fmt == "AVC":
-        return "x264" if encoded else ("H.264" if web else "AVC")
-    if fmt == "HEVC":
-        return "x265" if encoded else ("H.265" if web else "HEVC")
-    if fmt == "MPEG Video":
-        return "MPEG-2"
-    return fmt or None
 
 
 def _audio_codec_key(track: dict) -> str | None:
@@ -517,7 +533,7 @@ def release_values(
         values["hybrid"] = "HYBRID"
     if video:
         values["resolution"] = _mi_resolution(video) or values["resolution"]
-        values["video_codec"] = _mi_video_codec(video, release) or values["video_codec"]
+        values["video_codec"] = video.get("format") or values["video_codec"]
         values["hdr"] = _mi_hdr(video)
         values["hdr_full"] = _mi_hdr_full(video)
         values["bit_depth"] = f"{video['bit_depth']}bit" if video.get("bit_depth") else None
@@ -550,6 +566,10 @@ def release_values(
             values[key] = overrides[key]
     if overrides.get("hdr") not in (None, ""):
         values["hdr_full"] = overrides["hdr"]  # corretto a mano: vale per tutti e due
+    # Il codec segue il tipo scelto (anche se corretto a mano); scritto a
+    # mano resta com'è.
+    if overrides.get("video_codec") in (None, ""):
+        values["video_codec"] = codec_label(values.get("video_codec"), values.get("type"), rules)
     # Un remux viene da un disco: senza una sorgente nel nome, BluRay (o DVD
     # se è a definizione standard). Decisione dell'utente, 2026-10-02.
     if values.get("type") == "REMUX" and not values.get("source"):

@@ -39,6 +39,9 @@ export const naming = {
   'naming.sdrLabel': 'Etichetta per SDR',
   'naming.audioCodecNames': 'Nomi dei codec audio',
   'naming.audioCodecNamesHelp': 'Formato MediaInfo = nome nel titolo, uno per riga. Solo ciò che differisce dai predefiniti.',
+  'naming.videoCodecNames': 'Nomi dei codec video',
+  'naming.videoCodecNamesHelp':
+    'Etichetta = come scriverla, una per riga. Le etichette: AVC/HEVC per remux e dischi, H.264/H.265 per web e TV non ricodificati, x264/x265 per gli encode.',
   'naming.mainPattern': 'Pattern del nome della release',
   'naming.patternFor': 'Pattern per {type}',
   'naming.removePattern': 'Rimuovi',
