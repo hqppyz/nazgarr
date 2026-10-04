@@ -50,7 +50,9 @@ export function preloadPages(busy: () => boolean): () => void {
   let stopped = false
   const queue = [...preloaders]
   const idle = (run: () => void) =>
-    'requestIdleCallback' in window ? window.requestIdleCallback(run, { timeout: 5000 }) : window.setTimeout(run, 200)
+    typeof window.requestIdleCallback === 'function'
+      ? window.requestIdleCallback(run, { timeout: 5000 })
+      : window.setTimeout(run, 200)
   const next = () => {
     if (stopped || queue.length === 0) return
     if (busy()) {
