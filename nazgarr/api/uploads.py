@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session, object_session
 
 from nazgarr import (
     adapter_factory,
+    episode_orders,
     settings_repo,
     upload_decision,
     upload_execute,
@@ -66,8 +67,50 @@ class UploadMatchRequest(BaseModel):
     content_type: str  # movie | tv
     tmdb_id: int
     kind: str  # movie | episode | season_pack | complete_pack
-    seasons: list[int] = []
+    seasons: list[int] = []  # nella numerazione dell'ordinamento scelto
     episode: int | None = None
+    episode_order: str | None = None  # l'ordinamento degli episodi (nazgarr/episode_orders.py)
+
+
+class OrderEpisodeResponse(BaseModel):
+    number: int
+    titles: list[str]
+    air_date: str | None = None
+    refs: list[list[int]]
+
+
+class OrderSeasonResponse(BaseModel):
+    season_number: int
+    episodes: list[OrderEpisodeResponse]
+
+
+class EpisodeOrderResponse(BaseModel):
+    key: str
+    label: str
+    source: str
+    seasons: list[OrderSeasonResponse]
+
+
+class OrderFit(BaseModel):
+    score: float
+    matched: int
+    files: int
+    complete_seasons: int
+
+
+class OrderWarning(BaseModel):
+    code: str  # files_not_tvdb_aired
+    order: str  # quello scelto, che combacia con i file
+    tvdb: str  # TVDB aired, che invece non combacia
+
+
+class EpisodeOrdersResponse(BaseModel):
+    orders: list[EpisodeOrderResponse]
+    recommended: str | None
+    files_order: str | None
+    fits: dict[str, OrderFit]
+    warning: OrderWarning | None
+    found: dict[str, dict[int, list[int]]]  # gli episodi dei file, tradotti in ogni ordinamento
 
 
 class UploadOverridesRequest(BaseModel):
@@ -229,6 +272,8 @@ class UploadJobDetail(UploadJobSummary):
     screenshot_urls: list[str]
     descriptions: dict[int, str]  # target_id -> descrizione inviata, solo nel dettaglio (è lunga)
     events: list[UploadEventResponse]
+    episode_order: str | None = None  # l'ordinamento degli episodi scelto al match
+    episode_order_label: str | None = None
 
     @classmethod
     def from_model(cls, j: UploadJob) -> "UploadJobDetail":
@@ -243,6 +288,8 @@ class UploadJobDetail(UploadJobSummary):
             screenshot_urls=_loads(j.screenshot_urls_json, []),
             descriptions={t.id: t.description_rendered for t in j.targets if t.description_rendered},
             events=[UploadEventResponse.from_model(e) for e in j.events],
+            episode_order=j.episode_order,
+            episode_order_label=(_loads(j.episode_order_json, {}).get("chosen") or {}).get("label"),
         )
 
 
@@ -468,6 +515,15 @@ def confirm_match(
         details = None  # solo Radarr/Sonarr: niente dettagli TMDB, bastano gli id
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=502, detail=coded_detail("tmdb_error", error=safe_error(exc))) from exc
+    order = None
+    if body.content_type == "tv" and body.episode_order:
+        # La numerazione scelta vale per tutto il resto: nome, file, campi del tracker.
+        try:
+            order = episode_orders.snapshot(
+                episode_orders.for_job(session, job, body.tmdb_id, (details or {}).get("tvdb_id")), body.episode_order)
+        except episode_orders.EpisodeOrderError as exc:
+            raise HTTPException(status_code=400, detail=coded_detail(
+                "upload_episode_order_unknown", order=body.episode_order)) from exc
     try:
         upload_jobs.confirm_match(
             session, job, content_type=body.content_type, tmdb_id=body.tmdb_id, kind=body.kind,
@@ -475,8 +531,21 @@ def confirm_match(
         )
     except UploadJobError as exc:
         raise HTTPException(status_code=400, detail=from_coded_error(exc)) from exc
+    job.episode_order = body.episode_order if order is not None else None
+    job.episode_order_json = json.dumps(order) if order is not None else None
+    if order is not None:
+        episode_orders.remember(session, body.tmdb_id, body.episode_order)
+    session.commit()
     _worker(request).kick(job.id, job.status)
     return UploadJobDetail.from_model(job)
+
+
+@router.get("/{upload_id}/episode-orders", response_model=EpisodeOrdersResponse)
+def get_episode_orders(upload_id: int, tmdb_id: int, session: Session = Depends(get_session)):
+    """Gli ordinamenti degli episodi di una serie candidata, con quanto ci
+    combaciano i file del job, quello proposto e l'eventuale avviso."""
+    job = _get_job_or_404(session, upload_id)
+    return episode_orders.for_job(session, job, tmdb_id)
 
 
 @router.post("/{upload_id}/rematch", response_model=UploadJobDetail)

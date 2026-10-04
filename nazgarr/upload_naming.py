@@ -465,11 +465,18 @@ def _languages_value(tracks: list[dict], config: dict | None) -> str | None:
     return " ".join([*head, *(lang for lang in langs if lang != primary)])
 
 
-def season_token(kind: str, seasons: list[int], episode: int | None) -> str | None:
+def episode_token(episode: int | list[int]) -> str:
+    """E03, o E03E04 per un file con più episodi (un episodio accorpato in un
+    altro ordinamento, nazgarr/episode_orders.py)."""
+    episodes = episode if isinstance(episode, list) else [episode]
+    return "".join(f"E{e:02d}" for e in episodes)
+
+
+def season_token(kind: str, seasons: list[int], episode: int | list[int] | None) -> str | None:
     if not seasons:
         return None
     if kind == "episode" and episode is not None:
-        return f"S{seasons[0]:02d}E{episode:02d}"
+        return f"S{seasons[0]:02d}{episode_token(episode)}"
     if kind == "complete_pack" and len(seasons) > 1:
         return f"S{min(seasons):02d}-S{max(seasons):02d}"
     return f"S{seasons[0]:02d}"
@@ -593,7 +600,7 @@ def release_values(
     values["year"] = overrides.get("year") or job.year
     seasons = json.loads(job.seasons_json or "[]")
     values["season"] = season_token(job.kind or "movie", seasons, job.episode) if job.content_type == "tv" else None
-    values["episode"] = f"E{job.episode:02d}" if job.kind == "episode" and job.episode is not None else None
+    values["episode"] = episode_token(job.episode) if job.kind == "episode" and job.episode is not None else None
     return values
 
 

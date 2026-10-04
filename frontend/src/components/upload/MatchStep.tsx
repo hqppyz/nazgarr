@@ -10,7 +10,7 @@ import {
   type MetadataDetails,
 } from '@/api/hooks/metadata'
 import { useSetting } from '@/api/hooks/settings'
-import { useConfirmMatch, useReidentify, type UploadJob } from '@/api/hooks/uploads'
+import { useConfirmMatch, useEpisodeOrders, useReidentify, type EpisodeOrder, type EpisodeOrders, type UploadJob } from '@/api/hooks/uploads'
 import { AuthedPoster } from '@/components/AuthedPoster'
 import { ChoiceCards } from '@/components/ChoiceCards'
 import { ForcedIdFields } from '@/components/upload/ForcedIdFields'
@@ -21,8 +21,11 @@ import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle }
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { ToggleGroupItem, ToggleGroupSingle } from '@/components/ui/toggle-group'
 import { t } from '@/lib/i18n'
+import { episodeLabel, translateEpisode } from '@/lib/episodeOrders'
 import { fromForcedIds, missingEpisodes, toForcedIds, type UploadKind } from '@/lib/upload'
 import { cn } from '@/lib/utils'
 
@@ -108,27 +111,47 @@ function confidenceExplained(candidate: MetadataCandidate): string {
 
 // Quanto è affidabile il candidato scelto e da cosa viene, contro la soglia
 // del match automatico (Settings › Releases): per capire a che valore metterla.
-function ConfidenceDetail({ candidate }: { candidate: MetadataCandidate }) {
+// L'affidabilità del match in alto a destra, solo la percentuale (verde se
+// supera la soglia del match automatico); passandoci sopra, il perché.
+function ConfidenceBadge({ candidate }: { candidate: MetadataCandidate }) {
   const { data } = useSetting('upload_auto_match_threshold')
   if (candidate.confidence == null) return null
   const raw = data?.value
   const threshold = raw == null || raw === '' ? 0.9 : Number(raw)
   const off = !(threshold > 0 && threshold <= 1)
   const passes = !off && !candidate.ambiguous && candidate.confidence >= threshold
+  const summary = off
+    ? t('upload.match.summaryOff')
+    : candidate.ambiguous
+      ? t('upload.match.summaryAmbiguous')
+      : t(passes ? 'upload.match.summaryAbove' : 'upload.match.summaryBelow', { threshold: percent(threshold) })
   return (
-    <div className="grid gap-1 border-t pt-3 text-xs">
-      <p className="font-medium">
-        {t('upload.match.reliability', { confidence: percent(candidate.confidence) })}
-        <span className={cn('ml-1.5 font-normal', passes ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground')}>
-          {off
-            ? t('upload.match.summaryOff')
-            : candidate.ambiguous
-              ? t('upload.match.summaryAmbiguous')
-              : t(passes ? 'upload.match.summaryAbove' : 'upload.match.summaryBelow', { threshold: percent(threshold) })}
-        </span>
-      </p>
-      <ConfidenceFactors candidate={candidate} />
-    </div>
+    <Popover>
+      <PopoverTrigger
+        openOnHover
+        delay={150}
+        aria-label={t('upload.match.reliability', { confidence: percent(candidate.confidence) })}
+        className={cn(
+          'cursor-help rounded-md px-2 py-0.5 font-mono text-sm font-semibold tabular-nums',
+          passes
+            ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+            : off
+              ? 'bg-muted text-muted-foreground'
+              : 'bg-amber-500/15 text-amber-700 dark:text-amber-300',
+        )}
+      >
+        {percent(candidate.confidence)}
+      </PopoverTrigger>
+      <PopoverContent align="end" className="grid w-96 max-w-[calc(100vw-2rem)] gap-2 text-xs">
+        <p className="font-medium">
+          {t('upload.match.reliability', { confidence: percent(candidate.confidence) })}
+          <span className={cn('ml-1.5 font-normal', passes ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground')}>
+            {summary}
+          </span>
+        </p>
+        <ConfidenceFactors candidate={candidate} />
+      </PopoverContent>
+    </Popover>
   )
 }
 
@@ -240,7 +263,7 @@ function DetailPanel({ candidate, details, isPending }: {
         </div>
       </div>
       {isPending && !details && <p className="text-xs text-muted-foreground">{t('common.loading')}</p>}
-      {info.overview && <p className="line-clamp-6 text-xs leading-relaxed">{info.overview}</p>}
+      {info.overview && <p className="line-clamp-2 text-xs leading-relaxed" title={info.overview}>{info.overview}</p>}
       {details && details.cast.length > 0 && (
         <p className="text-xs text-muted-foreground">
           <span className="font-medium text-foreground">{t('upload.match.cast')}:</span> {details.cast.join(', ')}
@@ -254,7 +277,6 @@ function DetailPanel({ candidate, details, isPending }: {
           tvdb_id: details?.tvdb_id,
         }}
       />
-      <ConfidenceDetail candidate={candidate} />
     </div>
   )
 }
@@ -266,38 +288,44 @@ function defaultKind(job: UploadJob, contentType: string): UploadKind {
   return job.is_dir ? 'season_pack' : 'episode'
 }
 
+interface SeasonRow {
+  season_number: number
+  name: string | null
+  episode_count: number
+  air_date: string | null
+}
+
 function SeasonPicker({
-  job,
-  layout,
-  details,
+  rows: catalogRows,
+  catalog,
+  found,
+  detected,
   kind,
   seasons,
   onSeasonsChange,
   episode,
   onEpisodeChange,
 }: {
-  job: UploadJob
-  layout: Layout | null
-  details: MetadataDetails | undefined
+  rows: SeasonRow[]
+  catalog: boolean // le stagioni vengono da TMDB o da un ordinamento: quelle trovate fuori vanno segnalate
+  found: Record<string, number[]>
+  detected: Set<number>
   kind: UploadKind
   seasons: number[]
   onSeasonsChange: (seasons: number[]) => void
   episode: number | null
   onEpisodeChange: (episode: number | null) => void
 }) {
-  const detected = new Set(job.seasons)
-  const found = layout?.episodes_by_season ?? {}
-  // Le stagioni di TMDB, più quelle trovate nella sorgente che TMDB non
-  // conosce (numerazione diversa): si vedono comunque, con l'avviso.
-  const tmdbSeasons = details?.seasons ?? []
-  const known = new Set(tmdbSeasons.map((s) => s.season_number))
+  // Le stagioni del catalogo, più quelle trovate nella sorgente che il
+  // catalogo non conosce (numerazione diversa): si vedono comunque, con l'avviso.
+  const known = new Set(catalogRows.map((s) => s.season_number))
   // La stagione 0 (Specials) c'è sempre, in fondo: anche quando la sorgente
   // non la dichiara (episodi speciali senza S00 nel nome).
   const rows = [
-    ...tmdbSeasons,
+    ...catalogRows,
     ...[...detected].filter((n) => !known.has(n)).map((n) => ({ season_number: n, name: null, episode_count: 0, air_date: null })),
   ].sort((a, b) => Number(a.season_number === 0) - Number(b.season_number === 0) || a.season_number - b.season_number)
-  const unknownDetected = details ? [...detected].filter((n) => !known.has(n)) : []
+  const unknownDetected = catalog ? [...detected].filter((n) => !known.has(n)) : []
   const multiple = kind === 'complete_pack'
 
   const toggle = (n: number) => {
@@ -379,6 +407,84 @@ function SeasonPicker({
   )
 }
 
+// L'ordinamento degli episodi (nazgarr/episode_orders.py): proposto quello
+// preferito per la serie, poi TVDB aired; se i file ne seguono un altro, un
+// avviso con la scorciatoia per passarci, mai una scelta al posto dell'utente.
+// Sotto, la corrispondenza fra i file e gli episodi dell'ordinamento scelto.
+function EpisodeOrderPicker({ data, active, onChange }: {
+  data: EpisodeOrders
+  active: EpisodeOrder
+  onChange: (key: string) => void
+}) {
+  const filesOrder = data.orders.find((o) => o.key === data.files_order)
+  // L'avviso: i file non seguono TVDB aired (l'ordine di Sonarr); la scorciatoia porta lì.
+  const tvdb = data.warning ? data.orders.find((o) => o.key === data.warning!.tvdb) : undefined
+  const fitting = data.warning ? data.orders.find((o) => o.key === data.warning!.order) : undefined
+  const found = data.found[data.files_order ?? ''] ?? {}
+  const mapping = filesOrder
+    ? Object.entries(found).flatMap(([season, eps]) =>
+        eps.map((e) => ({ from: [Number(season), e] as const, to: translateEpisode(filesOrder, active, Number(season), e) })))
+    : []
+  const fitOf = (key: string) => data.fits[key]
+  return (
+    <div className="grid gap-2">
+      <Label>{t('upload.match.orderLabel')}</Label>
+      <Select value={active.key} onValueChange={(value) => value && onChange(String(value))}>
+        <SelectTrigger className="w-full">
+          <SelectValue>{() => active.label}</SelectValue>
+        </SelectTrigger>
+        <SelectContent>
+          {data.orders.map((order) => {
+            const fit = fitOf(order.key)
+            return (
+              <SelectItem key={order.key} value={order.key}>
+                <span className="flex w-full items-center justify-between gap-3">
+                  <span>{order.label}</span>
+                  {fit && fit.files > 0 && (
+                    <span className="text-xs text-muted-foreground">{t('upload.match.orderFit', { matched: fit.matched, files: fit.files })}</span>
+                  )}
+                </span>
+              </SelectItem>
+            )
+          })}
+        </SelectContent>
+      </Select>
+      {tvdb && fitting && active.key !== tvdb.key && (
+        <div className="flex flex-wrap items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-xs">
+          <TriangleAlertIcon className="mt-0.5 size-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
+          <span className="min-w-0 flex-1">{t('upload.match.orderWarning', { tvdb: tvdb.label, order: fitting.label })}</span>
+          <button type="button" className="shrink-0 font-medium underline" onClick={() => onChange(tvdb.key)}>
+            {t('upload.match.orderUse', { order: tvdb.label })}
+          </button>
+        </div>
+      )}
+      {mapping.length > 0 && filesOrder && filesOrder.key !== active.key && (
+        <Collapsible>
+          <CollapsibleTrigger className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground">
+            {t('upload.match.orderMapping', { count: mapping.length })}
+          </CollapsibleTrigger>
+          <CollapsibleContent className="grid max-h-56 gap-0.5 overflow-auto pt-2 font-mono text-xs">
+            {mapping.map(({ from, to }) => (
+              <span key={`${from[0]}x${from[1]}`} className="flex gap-2">
+                <span className="text-muted-foreground">{episodeLabel(from[0], [from[1]])}</span>
+                <span>→</span>
+                {to.length === 0 ? (
+                  <span className="text-amber-600 dark:text-amber-400">{t('upload.match.orderNoMatch')}</span>
+                ) : (
+                  <span className="min-w-0 truncate">
+                    {episodeLabel(to[0].season, to.filter((m) => m.season === to[0].season).map((m) => m.episode))}{' '}
+                    <span className="font-sans text-muted-foreground">{to.flatMap((m) => m.titles).filter(Boolean).join(' + ')}</span>
+                  </span>
+                )}
+              </span>
+            ))}
+          </CollapsibleContent>
+        </Collapsible>
+      )}
+    </div>
+  )
+}
+
 export function MatchStep({ job }: { job: UploadJob }) {
   const candidates = job.candidates as unknown as MetadataCandidate[]
   const layout = job.layout as unknown as Layout | null
@@ -389,8 +495,22 @@ export function MatchStep({ job }: { job: UploadJob }) {
   const search = useMetadataSearch(searchType, searchQuery, null)
   const details = useMetadataDetails(selected?.content_type ?? null, selected?.tmdb_id ?? null)
   const [kind, setKind] = useState<UploadKind>(() => defaultKind(job, selected?.content_type ?? 'movie'))
-  const [seasons, setSeasons] = useState<number[]>(job.seasons)
-  const [episode, setEpisode] = useState<number | null>(job.episode ?? null)
+  const [seasonsDraft, setSeasons] = useState<number[] | null>(null)
+  const [episodeDraft, setEpisode] = useState<number | null | undefined>(undefined)
+  const [orderDraft, setOrderDraft] = useState<string | null>(null)
+  const orders = useEpisodeOrders(job.id, selected?.content_type === 'tv' ? selected.tmdb_id : null)
+  const activeOrder = orders.data?.orders.find((o) => o.key === (orderDraft ?? orders.data?.recommended)) ?? null
+  // Stagioni ed episodi nella numerazione dell'ordinamento scelto: quelli dei
+  // file tradotti; senza ordinamenti, quelli dei file e le stagioni di TMDB.
+  const found = activeOrder ? orders.data!.found[activeOrder.key] ?? {} : layout?.episodes_by_season ?? {}
+  const detected = new Set(activeOrder ? Object.keys(found).map(Number) : job.seasons)
+  const seasonRows: SeasonRow[] = activeOrder
+    ? activeOrder.seasons.map((s) => ({ season_number: s.season_number, name: null, episode_count: s.episodes.length, air_date: null }))
+    : details.data?.seasons ?? []
+  const detectedSeasons = [...detected].sort((a, b) => a - b)
+  const seasons = seasonsDraft ?? (activeOrder ? detectedSeasons : job.seasons)
+  const firstFound = found[String(seasons[0])]?.[0]
+  const episode = episodeDraft !== undefined ? episodeDraft : activeOrder && kind === 'episode' && firstFound != null ? firstFound : job.episode ?? null
   const [ids, setIds] = useState(() => fromForcedIds(job.forced_ids))
   const confirm = useConfirmMatch(job.id)
   const reidentify = useReidentify(job.id)
@@ -403,6 +523,15 @@ export function MatchStep({ job }: { job: UploadJob }) {
   function select(candidate: MetadataCandidate) {
     setSelected(candidate)
     setKind(defaultKind(job, candidate.content_type))
+    setOrderDraft(null)
+    setSeasons(null)
+    setEpisode(undefined)
+  }
+
+  function changeOrder(key: string) {
+    setOrderDraft(key)
+    setSeasons(null) // le stagioni trovate, nella nuova numerazione
+    setEpisode(undefined)
   }
 
   const isTv = selected?.content_type === 'tv'
@@ -427,6 +556,7 @@ export function MatchStep({ job }: { job: UploadJob }) {
         kind: isTv ? kind : 'movie',
         seasons: isTv ? seasons : [],
         episode: isTv && kind === 'episode' ? episode : null,
+        episode_order: isTv ? activeOrder?.key ?? null : null,
       },
       { onError: (error) => toast.error(t('upload.match.confirmFailed', { message: error.message })) },
     )
@@ -530,6 +660,11 @@ export function MatchStep({ job }: { job: UploadJob }) {
       <Card className="h-fit lg:sticky lg:top-4">
         <CardHeader>
           <CardTitle className="text-base">{t('upload.match.selected')}</CardTitle>
+          {selected && (
+            <CardAction>
+              <ConfidenceBadge candidate={selected} />
+            </CardAction>
+          )}
         </CardHeader>
         <CardContent className="grid gap-4">
           {selected ? (
@@ -541,17 +676,23 @@ export function MatchStep({ job }: { job: UploadJob }) {
             <>
               <ChoiceCards
                 label={t('upload.match.kindLabel')}
+                className={cn('border-t pt-4', kindChoices.length === 2 && 'grid-cols-2')}
+                showBadge={false}
                 choices={kindChoices}
                 value={kind}
                 onSelect={(value) => {
                   setKind(value)
-                  if (value !== 'complete_pack') setSeasons((prev) => prev.slice(0, 1))
+                  if (value !== 'complete_pack') setSeasons(seasons.slice(0, 1))
                 }}
               />
+              {orders.data && activeOrder && orders.data.orders.length > 1 && (
+                <EpisodeOrderPicker data={orders.data} active={activeOrder} onChange={changeOrder} />
+              )}
               <SeasonPicker
-                job={job}
-                layout={layout}
-                details={details.data}
+                rows={seasonRows}
+                catalog={activeOrder != null || details.data != null}
+                found={found}
+                detected={detected}
                 kind={kind}
                 seasons={seasons}
                 onSeasonsChange={setSeasons}

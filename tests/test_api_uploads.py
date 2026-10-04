@@ -432,3 +432,47 @@ def test_metadata_follows_the_interface_language_and_falls_back_to_english(clien
     assert (body["title"], body["overview"]) == ("Matrix", "A hacker learns...")
     assert calls == ["it-IT", "en-US"]
     assert client.get("/api/metadata/movie/603", params={"language": "../x"}).status_code == 422
+
+
+def test_the_episode_ordering_is_offered_and_kept_with_the_match(client, tmp_path, setup, monkeypatch):
+    from nazgarr import episode_orders
+    from nazgarr.models import EpisodeOrderPreference
+    from tests.test_episode_orders import FakeSonarr, FakeTmdb
+
+    files = [f"Lupin.S02/Lupin.S02E0{e}.mkv" for e in range(1, 6)]  # le parti di Netflix: S02 da 5
+    job_id = _awaiting_match(client, tmp_path, setup, "Lupin.S02", files)
+    fake = FakeTMDB(details={("tv", 96677): {**tmdb_result(96677, "Lupin", 2021, "tv"), "tvdb_id": 375921}})
+    monkeypatch.setattr(upload_identify, "tmdb_client", lambda session: fake)
+    monkeypatch.setattr(episode_orders, "TmdbApi", lambda key: FakeTmdb())
+    monkeypatch.setattr("nazgarr.arr.ArrApi", FakeSonarr)
+    episode_orders._cache.clear()
+    session = client.app.state.session_factory()
+    try:
+        from nazgarr.models import SonarrInstance
+
+        settings_repo.set_setting(session, "tmdb_api_key", "k")
+        session.add(SonarrInstance(label="sonarr", base_url="http://s", api_key="k"))
+        session.commit()
+    finally:
+        session.close()
+
+    orders = client.get(f"/api/uploads/{job_id}/episode-orders", params={"tmdb_id": 96677}).json()
+    assert orders["recommended"] == "tmdb:group:g1"
+    assert orders["warning"] == {"code": "files_not_tvdb_aired", "order": "tmdb:group:g1", "tvdb": "sonarr:aired"}
+    assert orders["found"]["sonarr:aired"] == {"1": [6, 7, 8, 9, 10]}
+
+    bad = client.post(f"/api/uploads/{job_id}/match", json={
+        "content_type": "tv", "tmdb_id": 96677, "kind": "season_pack", "seasons": [2], "episode_order": "nope"})
+    assert bad.status_code == 400 and bad.json()["detail"]["code"] == "upload_episode_order_unknown"
+    resp = client.post(f"/api/uploads/{job_id}/match", json={
+        "content_type": "tv", "tmdb_id": 96677, "kind": "season_pack", "seasons": [2],
+        "episode_order": "tmdb:group:g1"})
+    assert resp.status_code == 200, resp.text
+    session = client.app.state.session_factory()
+    try:
+        job = session.get(UploadJob, job_id)
+        assert job.episode_order == "tmdb:group:g1" and job.seasons_json == "[2]"
+        assert session.get(EpisodeOrderPreference, 96677).order_key == "tmdb:group:g1"
+        assert episode_orders.translate_files(job, 2, 3) == [(2, 3)]  # i file seguono già quello scelto
+    finally:
+        session.close()

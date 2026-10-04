@@ -717,9 +717,20 @@ CREATE TABLE IF NOT EXISTS upload_job (
     pack_json               TEXT,            -- a pack of files picked by hand (nazgarr/upload_pack.py):
                                              -- {"name", "files": [paths relative to the disk root]};
                                              -- source_path is then only their common folder
+    episode_order           TEXT,            -- the episode ordering chosen at the first gate (nazgarr/episode_orders.py),
+                                             -- e.g. 'sonarr:aired', 'tmdb:default', 'tmdb:group:<id>', 'tvdb:dvd'
+    episode_order_json      TEXT,            -- that ordering and the files' one, to translate episode numbers
     created_at              TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at              TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     finished_at             TIMESTAMP
+);
+
+-- The episode ordering last chosen for a series (nazgarr/episode_orders.py):
+-- proposed first at the next upload of the same series.
+CREATE TABLE IF NOT EXISTS episode_order_preference (
+    tmdb_id                 INTEGER PRIMARY KEY,
+    order_key               TEXT NOT NULL,
+    updated_at              TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- What the watched folder has already seen (nazgarr/upload_watch.py): one row per

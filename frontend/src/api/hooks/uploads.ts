@@ -100,6 +100,25 @@ export function useImageHostStatus() {
   })
 }
 
+export type EpisodeOrders = Schemas['EpisodeOrdersResponse']
+export type EpisodeOrder = Schemas['EpisodeOrderResponse']
+
+// Gli ordinamenti degli episodi di una serie candidata (nazgarr/episode_orders.py):
+// proposta, quanto ci combaciano i file, avviso, episodi tradotti.
+export function useEpisodeOrders(uploadId: number, tmdbId: number | null) {
+  return useQuery({
+    queryKey: ['uploads', uploadId, 'episode-orders', tmdbId],
+    queryFn: () =>
+      unwrap(
+        api.GET('/api/uploads/{upload_id}/episode-orders', {
+          params: { path: { upload_id: uploadId }, query: { tmdb_id: tmdbId! } },
+        }),
+      ),
+    enabled: tmdbId != null,
+    staleTime: 10 * 60 * 1000,
+  })
+}
+
 export function useConfirmMatch(uploadId: number) {
   const queryClient = useQueryClient()
   return useMutation({

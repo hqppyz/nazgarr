@@ -92,6 +92,25 @@ def _match(client, job: dict, yes: bool, tmdb: str | None) -> dict:
     body = {"content_type": content_type, "tmdb_id": chosen["tmdb_id"], "kind": kind,
             "seasons": job.get("seasons") or sorted(int(s) for s in (layout.get("episodes_by_season") or {})),
             "episode": job.get("episode")}
+    if content_type == "tv":
+        # L'ordinamento degli episodi che combacia meglio con i file, come nella
+        # web UI: stagioni ed episodio nella sua numerazione.
+        orders = client.get(f"/api/uploads/{job['id']}/episode-orders", tmdb_id=chosen["tmdb_id"])
+        order = orders.get("recommended")
+        if order:
+            labels = {o["key"]: o["label"] for o in orders.get("orders") or []}
+            found = (orders.get("found") or {}).get(order) or {}
+            if found:
+                body["seasons"] = sorted(int(s) for s in found)[: None if kind == "complete_pack" else 1]
+                if kind == "episode":
+                    body["episode"] = found[str(body["seasons"][0])][0]
+            body["episode_order"] = order
+            console.print(f"Episode ordering: {labels.get(order, order)}")
+            warning = orders.get("warning")
+            if warning:
+                console.print(f"[yellow]The files do not follow {labels.get(warning['tvdb'])} (Sonarr's order): "
+                              f"{labels.get(warning['order'])} fits them better and is used. "
+                              "Change it in the web UI if needed.[/yellow]")
     console.print(f"Match: {chosen.get('title') or ''} ({content_type}/{chosen['tmdb_id']}), {kind}")
     return client.post(f"/api/uploads/{job['id']}/match", body)
 

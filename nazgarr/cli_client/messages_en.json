@@ -89,6 +89,7 @@
  "upload_disk_missing": "The disk of this upload no longer exists.",
  "upload_dupe_no_download_link": "The tracker didn't give a download link for this torrent.",
  "upload_dupe_not_found": "Torrent {id} is not among the dupe-check results.",
+ "upload_episode_order_unknown": "The episode ordering {order} is not available for this series.",
  "upload_episode_required": "Choose the episode number.",
  "upload_freeleech_not_allowed": "{tracker} does not allow a {value}% freeleech.",
  "upload_ids_required": "{tracker}: choose category, type and resolution.",

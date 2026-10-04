@@ -5,11 +5,14 @@ import type { UploadJob } from '@/api/hooks/uploads'
 import { MatchStep } from '@/components/upload/MatchStep'
 
 const confirm = vi.fn()
+// Gli ordinamenti: nessuno di default (i test di prima), o quelli di Lupin.
+let ordersData: unknown = undefined
 
 vi.mock('@/api/hooks/settings', () => ({ useSetting: () => ({ data: undefined }) }))
 vi.mock('@/api/hooks/uploads', () => ({
   useConfirmMatch: () => ({ mutate: confirm, isPending: false }),
   useReidentify: () => ({ mutate: vi.fn(), isPending: false }),
+  useEpisodeOrders: () => ({ data: ordersData }),
 }))
 vi.mock('@/api/hooks/metadata', () => ({
   posterUrl: () => '/poster.jpg',
@@ -46,6 +49,7 @@ const job = {
 } as unknown as UploadJob
 
 afterEach(() => {
+  ordersData = undefined
   cleanup()
   confirm.mockClear()
 })
@@ -60,7 +64,7 @@ describe('MatchStep', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Confirm match' }))
     expect(confirm).toHaveBeenCalledWith(
-      { content_type: 'tv', tmdb_id: 95396, kind: 'season_pack', seasons: [2], episode: null },
+      { content_type: 'tv', tmdb_id: 95396, kind: 'season_pack', seasons: [2], episode: null, episode_order: null },
       expect.anything(),
     )
   })
@@ -84,7 +88,7 @@ describe('MatchStep', () => {
     expect(confirm.mock.calls[0][0]).toMatchObject({ content_type: 'movie', tmdb_id: 1, kind: 'movie', seasons: [] })
   })
 
-  it('says how sure the best match is against the automatic threshold, and why', () => {
+  it('says how sure the best match is against the automatic threshold, and why', async () => {
     const scored = {
       ...job,
       candidates: [
@@ -96,13 +100,52 @@ describe('MatchStep', () => {
     } as unknown as UploadJob
     render(<MatchStep job={scored} />)
 
-    // Nel dettaglio del candidato scelto, sotto i link: niente riquadro sopra la griglia.
-    expect(screen.getByText(/Reliability 85%\./)).toBeTruthy()
+    // In alto a destra solo la percentuale; il perché nel popover.
+    const badge = screen.getByRole('button', { name: 'Reliability 85%.' })
+    expect(badge.textContent).toBe('85%')
+    fireEvent.click(badge)
+    expect(await screen.findByText(/Reliability 85%\./)).toBeTruthy()
     expect(screen.getByText(/Below the automatic match threshold \(90%\)/)).toBeTruthy()
     // Fattore per fattore, con il motivo, e il prodotto.
     expect(screen.getByText('file 2021, TMDB 2022: one year apart (often release vs. name)')).toBeTruthy()
     expect(screen.getByText('"Severance" from the file, closest TMDB title "Severance"')).toBeTruthy()
     expect(screen.getByText('100% × 85% × 100% = 85%')).toBeTruthy()
     expect(screen.queryByText(/Best match/)).toBeNull()
+  })
+
+  it('picks the ordering that fits the files, warns when it is not TVDB aired, and sends the choice', () => {
+    const episode = (n: number, refs: number[][]) => ({ number: n, titles: [`Capitolo ${n}`], air_date: null, refs })
+    const parts = {
+      key: 'tmdb:group:g1', label: 'TMDB · Parts', source: 'tmdb',
+      seasons: [
+        { season_number: 1, episodes: [1, 2, 3, 4, 5].map((n) => episode(n, [[1, n]])) },
+        { season_number: 2, episodes: [1, 2, 3, 4, 5].map((n) => episode(n, [[1, n + 5]])) },
+      ],
+    }
+    const aired = {
+      key: 'sonarr:aired', label: 'TVDB · Aired (sonarr)', source: 'sonarr',
+      seasons: [{ season_number: 1, episodes: Array.from({ length: 10 }, (_, i) => episode(i + 1, [[1, i + 1]])) }],
+    }
+    ordersData = {
+      orders: [parts, aired], recommended: 'tmdb:group:g1', files_order: 'tmdb:group:g1',
+      fits: { 'tmdb:group:g1': { score: 1, matched: 5, files: 5, complete_seasons: 1 },
+              'sonarr:aired': { score: 0.85, matched: 5, files: 5, complete_seasons: 0 } },
+      warning: { code: 'files_not_tvdb_aired', order: 'tmdb:group:g1', tvdb: 'sonarr:aired' },
+      found: { 'tmdb:group:g1': { '2': [1, 2, 3, 4, 5] }, 'sonarr:aired': { '1': [6, 7, 8, 9, 10] } },
+    }
+    render(<MatchStep job={job} />)
+
+    expect(screen.getByText('Episode ordering')).toBeTruthy()
+    expect(screen.getByText(/do not follow TVDB · Aired \(sonarr\)/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm match' }))
+    expect(confirm.mock.calls.at(-1)?.[0]).toMatchObject({ seasons: [2], episode_order: 'tmdb:group:g1' })
+
+    // Con la scorciatoia si passa a TVDB aired: la stagione dei file diventa la 1,
+    // e la corrispondenza dice che S02E01 dei file è S01E06.
+    fireEvent.click(screen.getByRole('button', { name: 'Use TVDB · Aired (sonarr)' }))
+    fireEvent.click(screen.getByText('How the files map (5 episodes)'))
+    expect(screen.getByText('S01E06')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm match' }))
+    expect(confirm.mock.calls.at(-1)?.[0]).toMatchObject({ seasons: [1], episode_order: 'sonarr:aired' })
   })
 })

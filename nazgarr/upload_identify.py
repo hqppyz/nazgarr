@@ -24,7 +24,15 @@ from dataclasses import asdict
 import httpx
 from sqlalchemy.orm import Session
 
-from nazgarr import adapter_factory, settings_repo, upload_analysis, upload_jobs, upload_match_score, upload_pack
+from nazgarr import (
+    adapter_factory,
+    episode_orders,
+    settings_repo,
+    upload_analysis,
+    upload_jobs,
+    upload_match_score,
+    upload_pack,
+)
 from nazgarr.adapter_factory import TmdbApiKeyMissingError
 from nazgarr.models import UploadJob
 from nazgarr.tmdb_client import TMDBClient
@@ -220,6 +228,17 @@ def _auto_match(session: Session, job: UploadJob, candidates: list[dict]) -> Non
         upload_jobs.log_event(session, job, "auto_match_failed", level="warning")
         session.commit()
         return
+    order = None
+    if best["content_type"] == "tv":
+        # L'ordinamento che combacia meglio con i file, come al match a mano;
+        # se non è TVDB aired lo dice il registro.
+        try:
+            orders = episode_orders.for_job(session, job, best["tmdb_id"], (details or {}).get("tvdb_id"))
+        except Exception:
+            logger.warning("Ordinamenti degli episodi non disponibili per il job %s", job.id, exc_info=True)
+            orders = None
+        if orders and orders["recommended"]:
+            order = (orders["recommended"], episode_orders.snapshot(orders, orders["recommended"]))
     try:
         upload_jobs.confirm_match(
             session, job, content_type=best["content_type"], tmdb_id=best["tmdb_id"], kind=job.kind,
@@ -231,6 +250,11 @@ def _auto_match(session: Session, job: UploadJob, candidates: list[dict]) -> Non
         upload_jobs.log_event(session, job, "auto_match_failed", level="warning", reason=exc.code)
         session.commit()
         return
+    if order is not None:
+        job.episode_order, job.episode_order_json = order[0], json.dumps(order[1])
+        if orders["warning"]:
+            upload_jobs.log_event(session, job, "episode_order_not_tvdb_aired", level="warning",
+                                  order=order[1]["chosen"]["label"])
     upload_jobs.log_event(session, job, "auto_matched", confidence=best["confidence"], title=job.title,
                           year=job.year)
     session.commit()
