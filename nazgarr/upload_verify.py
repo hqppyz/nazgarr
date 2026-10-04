@@ -115,8 +115,9 @@ def execute(session: Session, target_id: int, torrent_id_remote: str) -> None:
     try:
         if dupe is None or not dupe.get("download_link"):
             raise upload_jobs.UploadJobError("upload_dupe_no_download_link")
-        adapter = adapter_factory.build_tracker_adapter(target.tracker)
-        verification = run_check(job, adapter.download_torrent(dupe["download_link"]))
+        with adapter_factory.tracker(target.tracker) as adapter:
+            torrent_bytes = adapter.download_torrent(dupe["download_link"])
+        verification = run_check(job, torrent_bytes)
     except Exception as exc:
         logger.warning("Full hash check di %s su %s fallito", torrent_id_remote, target.tracker.label, exc_info=True)
         verification = {"status": "error", "reason": getattr(exc, "code", None) or str(exc)}

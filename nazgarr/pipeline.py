@@ -306,10 +306,10 @@ def run_bulk_import(session: Session, run: RunLog, data_dir: str) -> RunLog:
                 progress.advance()
 
             try:
-                adapter = adapter_factory.build_torrent_client_adapter(torrent_client)
-                counts = torrent_indexer.index_torrent_client(
-                    session, torrent_client, adapter, run, on_progress=on_torrent
-                )
+                with adapter_factory.torrent_client(torrent_client) as adapter:
+                    counts = torrent_indexer.index_torrent_client(
+                        session, torrent_client, adapter, run, on_progress=on_torrent
+                    )
             except Exception as exc:
                 errors = _record_failure(session, run, errors, f"torrent client {torrent_client.label!r}", exc)
                 indexing_failed = True
@@ -370,6 +370,7 @@ def run_bulk_import(session: Session, run: RunLog, data_dir: str) -> RunLog:
                     else current["detail"]
                 )
 
+            tracker_adapter = None
             try:
                 tracker_adapter = adapter_factory.build_tracker_adapter(tracker_row)
                 if hasattr(tracker_adapter, "on_rate_limit_wait"):
@@ -388,6 +389,9 @@ def run_bulk_import(session: Session, run: RunLog, data_dir: str) -> RunLog:
             except Exception as exc:
                 errors = _record_failure(session, run, errors, f"tracker {tracker_row.label!r}", exc)
                 continue
+            finally:
+                if tracker_adapter is not None:
+                    adapter_factory.close_adapter(tracker_adapter)
             _remember_rss_key(session, tracker_row, tracker_adapter)
             parts = [m2t] + ([t2c] if t2c else [])
             candidates = sum(p["candidates"] for p in parts)

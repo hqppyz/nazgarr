@@ -74,6 +74,18 @@ class QBittorrentAdapter(TorrentClientAdapter):
 
             self._client = qbittorrentapi.Client(host=base_url, username=username, password=password)
 
+    def close(self) -> None:
+        """Logout: ogni login apre una sessione nel client, che resta viva
+        un'ora; con un adapter per operazione si accumulavano."""
+        logout = getattr(self._client, "auth_log_out", None)
+        # Solo se c'è una sessione (il cookie SID): un adapter mai usato non
+        # ha fatto login, e non va interrogato il client per niente.
+        if callable(logout) and getattr(self._client, "_SID", None):
+            try:
+                logout()
+            except Exception:  # client già irraggiungibile: niente da chiudere
+                logger.debug("Logout da qBittorrent fallito", exc_info=True)
+
     def add_torrent(
         self, torrent_file_or_url: str, save_path: str, force_recheck: bool = True,
         expected_info_hash: str | None = None, skip_check_verified: bool = False,

@@ -321,10 +321,10 @@ def search_item_now(content_type: str, tmdb_id: int, session: Session = Depends(
         raise HTTPException(status_code=404, detail=coded_detail("media_item_not_found"))
     totals = {"files": 0, "candidates": 0, "rate_limited": False}
     for tracker_row in session.query(Tracker).filter_by(enabled=True).all():
-        result = matching.run_media_to_torrent_matching(
-            session, tracker_row, adapter_factory.build_tracker_adapter(tracker_row),
-            only_media_file_ids=mf_ids, force=True,
-        )
+        with adapter_factory.tracker(tracker_row) as adapter:
+            result = matching.run_media_to_torrent_matching(
+                session, tracker_row, adapter, only_media_file_ids=mf_ids, force=True,
+            )
         totals["files"] += result["files"]
         totals["candidates"] += result["candidates"]
         totals["rate_limited"] = totals["rate_limited"] or result["rate_limited"]

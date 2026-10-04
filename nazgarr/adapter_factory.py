@@ -7,6 +7,8 @@ da UI senza restart.
 """
 
 import logging
+from collections.abc import Iterator
+from contextlib import contextmanager
 
 from sqlalchemy.orm import Session
 
@@ -48,6 +50,35 @@ def build_torrent_client_adapter(torrent_client: TorrentClient) -> TorrentClient
             f"(disponibili: {', '.join(sorted(REGISTRY.types('torrent_client')))})"
         )
     return spec.build(AdapterContext(row=torrent_client, config=_row_config(spec, torrent_client)))
+
+
+def close_adapter(adapter) -> None:
+    """Chiude un adapter dopo l'uso (le sue connessioni, il logout dal
+    client). Tollerante: un adapter di un plugin o un finto dei test può non
+    avere close()."""
+    close = getattr(adapter, "close", None)
+    if callable(close):
+        close()
+
+
+@contextmanager
+def torrent_client(torrent_client: TorrentClient) -> Iterator[TorrentClientAdapter]:
+    """L'adapter del client per una sola operazione, chiuso alla fine."""
+    adapter = build_torrent_client_adapter(torrent_client)
+    try:
+        yield adapter
+    finally:
+        close_adapter(adapter)
+
+
+@contextmanager
+def tracker(tracker_row: Tracker) -> Iterator[TrackerAdapter]:
+    """L'adapter del tracker per una sola operazione, chiuso alla fine."""
+    adapter = build_tracker_adapter(tracker_row)
+    try:
+        yield adapter
+    finally:
+        close_adapter(adapter)
 
 
 class TmdbApiKeyMissingError(CodedError):

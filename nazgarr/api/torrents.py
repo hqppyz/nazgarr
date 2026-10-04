@@ -288,7 +288,8 @@ def remove_not_imported(client_torrent_id: int, body: RemoveRequest, session: Se
     if client_row is None or not client_row.enabled:
         raise HTTPException(status_code=400, detail=coded_detail("removal_client_unavailable"))
     try:
-        adapter_factory.build_torrent_client_adapter(client_row).remove_torrent(ct.info_hash, delete_files=True)
+        with adapter_factory.torrent_client(client_row) as adapter:
+            adapter.remove_torrent(ct.info_hash, delete_files=True)
     except Exception as exc:
         logger.warning("Rimozione di %s da %s fallita", ct.name, client_row.label, exc_info=True)
         raise HTTPException(status_code=502, detail=coded_detail("removal_failed", error=str(exc)[:300])) from exc

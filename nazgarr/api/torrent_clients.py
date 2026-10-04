@@ -187,8 +187,8 @@ def test_torrent_client(torrent_client_id: int, session: Session = Depends(get_s
     un client (docs/SPEC.md sezione 5)."""
     tc = _get_torrent_client_or_404(session, torrent_client_id)
     try:
-        adapter = adapter_factory.build_torrent_client_adapter(tc)
-        torrents = adapter.list_torrents()
+        with adapter_factory.torrent_client(tc) as adapter:
+            torrents = adapter.list_torrents()
     except Exception as exc:
         return TorrentClientTestResponse(status="error", error=safe_error(exc))
     return TorrentClientTestResponse(status="ok", torrents_found=len(torrents))
@@ -241,7 +241,8 @@ def torrent_client_categories(torrent_client_id: int, session: Session = Depends
     fra queste (nessuna scritta a mano), in impostazioni e nel job."""
     tc = _get_torrent_client_or_404(session, torrent_client_id)
     try:
-        categories = adapter_factory.build_torrent_client_adapter(tc).list_categories()
+        with adapter_factory.torrent_client(tc) as adapter:
+            categories = adapter.list_categories()
     except Exception as exc:
         return TorrentClientCategoriesResponse(status="error", error=safe_error(exc))
     return TorrentClientCategoriesResponse(status="ok", categories=categories)

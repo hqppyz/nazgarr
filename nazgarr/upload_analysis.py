@@ -245,8 +245,9 @@ def _check_trackers(
         target.status = "checking"
         session.commit()
         try:
-            adapter = adapter_factory.build_tracker_adapter(target.tracker)
-            results, suggested = check(adapter.search_by_tmdb(job.tmdb_id), summary)
+            with adapter_factory.tracker(target.tracker) as adapter:
+                found = adapter.search_by_tmdb(job.tmdb_id)
+            results, suggested = check(found, summary)
         except Exception as exc:
             # L'utente decide lo stesso: senza dupe check, ma lo sa.
             logger.warning("Dupe check fallito su %s", target.tracker.label, exc_info=True)

@@ -175,6 +175,15 @@ class ArrApi:
             auth=auth,
         )
 
+    def close(self) -> None:
+        self._client.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_exc) -> None:
+        self.close()
+
     def get(self, path: str, **params) -> object:
         response = self._client.get(path, params=params or None)
         response.raise_for_status()
@@ -338,9 +347,20 @@ def build_arr_index(session: Session, api_factory: Callable[..., ArrApi] = ArrAp
     instances.sort(key=lambda pair: -(pair[0].priority or 0))
 
     for instance, indexer in instances:
+        api = None
         try:
-            indexer(api_factory(instance), index)
+            api = api_factory(instance)
+            indexer(api, index)
         except (httpx.HTTPError, ValueError, KeyError, TypeError, AttributeError):
             logger.warning("Istanza %r (%s) non indicizzata", instance.label, instance.base_url, exc_info=True)
+        finally:
+            close_api(api)
     return index
+
+
+def close_api(api) -> None:
+    """Chiude un ArrApi (o un finto dei test, che può non avere close)."""
+    close = getattr(api, "close", None)
+    if callable(close):
+        close()
 

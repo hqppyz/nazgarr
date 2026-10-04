@@ -300,11 +300,17 @@ def upload_fields(job: UploadJob, target: UploadTarget, description: str, resolu
     )
 
 
-def _client(session: Session, target: UploadTarget):
+def _client_row(session: Session, target: UploadTarget) -> TorrentClient | None:
     if target.torrent_client_id is None:
-        return None, None
+        return None
     row = session.get(TorrentClient, target.torrent_client_id)
-    if row is None or not row.enabled:
+    return row if row is not None and row.enabled else None
+
+
+def _client(session: Session, target: UploadTarget):
+    """(adapter, id del client) da chiudere dopo l'uso, o (None, None)."""
+    row = _client_row(session, target)
+    if row is None:
         return None, None
     return adapter_factory.build_torrent_client_adapter(row), row.id
 
@@ -338,31 +344,34 @@ def _add_to_client(
         target.error_message = "no_client"
         upload_jobs.log_event(session, job, "no_client", level="warning", target=target)
         return None
-    visible = client_visible_path(session, job.disk, client_id, save_path)
-    # Transmission e rTorrent non sanno aggiungere un torrent senza
-    # ricontrollarlo: lì il recheck c'è sempre.
-    can_skip = getattr(adapter, "can_skip_recheck", True)
-    skip = torrent is not None and can_skip and files_in_place(torrent, save_path)
-    info_hash = adapter.add_torrent(
-        torrent_file, save_path=visible, force_recheck=True, skip_check_verified=skip,
-        **client_labels.add_kwargs(target.client_category, target.client_tags),
-    )
-    client = target.torrent_client.label
-    if skip:
-        info = adapter.get_torrent_info(info_hash)
-        seen = os.path.normpath(info.save_path) if info is not None and info.save_path else None
-        if seen != os.path.normpath(visible):
-            adapter.recheck(info_hash)
-            upload_jobs.log_event(session, job, "recheck_after_path_mismatch", level="warning", target=target,
-                                  client=client, expected=visible, seen=seen)
-            skip = False
-    elif torrent is not None and can_skip:
-        upload_jobs.log_event(session, job, "recheck_files_not_in_place", level="warning", target=target,
-                              path=save_path)
-    # Due codici, due messaggi: con il recheck del client o senza.
-    upload_jobs.log_event(session, job, "added_to_client_verified" if skip else "added_to_client", target=target,
-                          client=client)
-    return info_hash
+    try:
+        visible = client_visible_path(session, job.disk, client_id, save_path)
+        # Transmission e rTorrent non sanno aggiungere un torrent senza
+        # ricontrollarlo: lì il recheck c'è sempre.
+        can_skip = getattr(adapter, "can_skip_recheck", True)
+        skip = torrent is not None and can_skip and files_in_place(torrent, save_path)
+        info_hash = adapter.add_torrent(
+            torrent_file, save_path=visible, force_recheck=True, skip_check_verified=skip,
+            **client_labels.add_kwargs(target.client_category, target.client_tags),
+        )
+        client = target.torrent_client.label
+        if skip:
+            info = adapter.get_torrent_info(info_hash)
+            seen = os.path.normpath(info.save_path) if info is not None and info.save_path else None
+            if seen != os.path.normpath(visible):
+                adapter.recheck(info_hash)
+                upload_jobs.log_event(session, job, "recheck_after_path_mismatch", level="warning", target=target,
+                                      client=client, expected=visible, seen=seen)
+                skip = False
+        elif torrent is not None and can_skip:
+            upload_jobs.log_event(session, job, "recheck_files_not_in_place", level="warning", target=target,
+                                  path=save_path)
+        # Due codici, due messaggi: con il recheck del client o senza.
+        upload_jobs.log_event(session, job, "added_to_client_verified" if skip else "added_to_client", target=target,
+                              client=client)
+        return info_hash
+    finally:
+        adapter_factory.close_adapter(adapter)
 
 
 # Gli errori di un upload pubblicato ma non in seed, da cui si può riprovare.
@@ -392,7 +401,7 @@ def retry_seed(session: Session, job: UploadJob, target: UploadTarget) -> None:
         raise UploadJobError("upload_seed_retry_unavailable")
     if not target.torrent_path or not os.path.isfile(target.torrent_path):
         raise UploadJobError("upload_tracker_torrent_unavailable")
-    if _client(session, target)[0] is None:
+    if _client_row(session, target) is None:
         # Senza client all'upload (no_client) o con quello di allora tolto:
         # quello che il tracker userebbe oggi.
         target.torrent_client_id = upload_jobs.default_client_id(session, target.tracker)
@@ -477,40 +486,40 @@ def run_upload(session: Session, job: UploadJob, target: UploadTarget, ctx: dict
 
     target.status = "uploading"
     session.commit()
-    adapter = adapter_factory.build_tracker_adapter(tracker)
-    fields = upload_fields(job, target, description, resolution_key)
-    uploaded = adapter.upload_torrent(fields, torrent_path)
-    target.torrent_id_remote = uploaded.torrent_id_remote
-    upload_jobs.log_event(session, job, "uploaded", target=target, torrent=target.torrent_id_remote)
-    session.commit()
-
-    if overrides.get("no_seed"):
-        upload_jobs.log_event(session, job, "not_seeded", target=target)
-        return
-    target.status = "seeding"
-    session.commit()
-    try:
-        root = ctx["seed_root"]()
-        if ctx.get("save_path"):  # già in seed con i nomi del torrent (prepare_content)
-            save_path = ctx["save_path"]
-        else:
-            pairs = _upload_pairs(job, torrent, root)
-            link_files(pairs, root)
-            save_path = root if pairs else os.path.dirname(job.source_path.rstrip(os.sep))
-        seed_path, same_content = _tracker_copy(adapter, uploaded, torrent, ctx["dir"], tracker.id)
-        target.torrent_path = seed_path
-        target.info_hash = torf.Torrent.read(seed_path).infohash
+    with adapter_factory.tracker(tracker) as adapter:
+        fields = upload_fields(job, target, description, resolution_key)
+        uploaded = adapter.upload_torrent(fields, torrent_path)
+        target.torrent_id_remote = uploaded.torrent_id_remote
+        upload_jobs.log_event(session, job, "uploaded", target=target, torrent=target.torrent_id_remote)
         session.commit()
-        # Gli stessi piece di quelli appena calcolati: niente recheck (vedi
-        # _add_to_client); se il tracker ha cambiato il contenuto, recheck.
-        _add_to_client(session, job, target, seed_path, save_path, torrent if same_content else None)
-    except Exception as exc:
-        # L'upload è andato: mai ripeterlo per un problema del client.
-        logger.warning("Upload %s su %s riuscito ma il seed no", job.id, tracker.label, exc_info=True)
-        target.error_message = "seed_failed"
-        upload_jobs.log_event(
-            session, job, "seed_failed", level="error", target=target, error=getattr(exc, "code", None) or str(exc)
-        )
+
+        if overrides.get("no_seed"):
+            upload_jobs.log_event(session, job, "not_seeded", target=target)
+            return
+        target.status = "seeding"
+        session.commit()
+        try:
+            root = ctx["seed_root"]()
+            if ctx.get("save_path"):  # già in seed con i nomi del torrent (prepare_content)
+                save_path = ctx["save_path"]
+            else:
+                pairs = _upload_pairs(job, torrent, root)
+                link_files(pairs, root)
+                save_path = root if pairs else os.path.dirname(job.source_path.rstrip(os.sep))
+            seed_path, same_content = _tracker_copy(adapter, uploaded, torrent, ctx["dir"], tracker.id)
+            target.torrent_path = seed_path
+            target.info_hash = torf.Torrent.read(seed_path).infohash
+            session.commit()
+            # Gli stessi piece di quelli appena calcolati: niente recheck (vedi
+            # _add_to_client); se il tracker ha cambiato il contenuto, recheck.
+            _add_to_client(session, job, target, seed_path, save_path, torrent if same_content else None)
+        except Exception as exc:
+            # L'upload è andato: mai ripeterlo per un problema del client.
+            logger.warning("Upload %s su %s riuscito ma il seed no", job.id, tracker.label, exc_info=True)
+            target.error_message = "seed_failed"
+            upload_jobs.log_event(
+                session, job, "seed_failed", level="error", target=target, error=getattr(exc, "code", None) or str(exc)
+            )
 
 
 def run_reseed(session: Session, job: UploadJob, target: UploadTarget, ctx: dict) -> None:
@@ -520,8 +529,8 @@ def run_reseed(session: Session, job: UploadJob, target: UploadTarget, ctx: dict
         raise UploadJobError("upload_dupe_no_download_link")
     target.status = "preparing"
     session.commit()
-    adapter = adapter_factory.build_tracker_adapter(target.tracker)
-    content = adapter.download_torrent(dupe["download_link"])
+    with adapter_factory.tracker(target.tracker) as adapter:
+        content = adapter.download_torrent(dupe["download_link"])
     # Il controllo completo vale per il .torrent che ha letto: quello che si
     # aggiunge al client dev'essere lo stesso, non uno riscaricato e cambiato
     # nel frattempo sul tracker.

@@ -250,11 +250,12 @@ class TmdbApi:
 
 def sonarr_order(session: Session, tmdb_id: int, tvdb_id: int | None, api_factory=None) -> EpisodeOrder | None:
     """L'ordine "aired" di TVDB come lo usa Sonarr, se la serie è lì."""
-    from nazgarr.arr import ArrApi
+    from nazgarr.arr import ArrApi, close_api
     from nazgarr.models import SonarrInstance
 
     factory = api_factory or ArrApi
     for instance in session.query(SonarrInstance).filter_by(enabled=True).order_by(SonarrInstance.priority):
+        api = None
         try:
             api = factory(instance)
             series = next(
@@ -275,6 +276,8 @@ def sonarr_order(session: Session, tmdb_id: int, tvdb_id: int | None, api_factor
             return order
         except Exception:
             logger.warning("Episodi da %s non disponibili", instance.label, exc_info=True)
+        finally:
+            close_api(api)
     return None
 
 

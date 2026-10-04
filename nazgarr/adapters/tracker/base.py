@@ -115,6 +115,21 @@ class TorrentRecord:
 class TrackerAdapter(ABC):
     """Un'istanza per ogni tracker configurato (vedi tabella `tracker`)."""
 
+    def close(self) -> None:
+        """Chiude le connessioni dell'adapter. Chi lo costruisce lo chiude
+        dopo l'uso (`with adapter_factory.build_...(...) as adapter:`): ogni
+        operazione ha il suo adapter, e senza le connessioni restavano aperte
+        fino al garbage collector."""
+        close = getattr(getattr(self, "_client", None), "close", None)
+        if callable(close):
+            close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_exc) -> None:
+        self.close()
+
     @abstractmethod
     def search_by_tmdb(self, tmdb_id: int) -> list[TorrentCandidate]:
         """Ricerca sul catalogo pubblico del tracker. Sempre richiesto:

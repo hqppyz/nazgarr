@@ -311,9 +311,9 @@ def unreadable_pieces(parsed: TorrentInfo, files: list[FileCheck]) -> set[int]:
 def _download_torrent(candidate: Candidate) -> bytes:
     if not candidate.download_link:
         raise FullCheckError("This candidate has no download link for its .torrent")
-    adapter = adapter_factory.build_tracker_adapter(candidate.tracker)
     try:
-        return adapter.download_torrent(candidate.download_link)
+        with adapter_factory.tracker(candidate.tracker) as adapter:
+            return adapter.download_torrent(candidate.download_link)
     except Exception as exc:
         raise FullCheckError(f"Could not download the .torrent from {candidate.tracker.label}: {exc}") from exc
 

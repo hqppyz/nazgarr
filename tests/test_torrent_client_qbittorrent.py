@@ -187,3 +187,42 @@ def test_remove_torrent_deletes_files_only_on_request(delete_files):
     _adapter(client).remove_torrent("h1", delete_files=delete_files)
 
     assert client.deleted == ("h1", delete_files)
+
+
+def test_close_logs_out_only_when_there_is_a_session():
+    """Ogni login apre una sessione nel client (un'ora): chiudendo l'adapter
+    si esce, ma uno mai usato non interroga il client."""
+    from nazgarr.adapters.torrent_client.qbittorrent import QBittorrentAdapter
+
+    class Client:
+        def __init__(self, sid):
+            self._SID = sid
+            self.logouts = 0
+
+        def auth_log_out(self):
+            self.logouts += 1
+
+    used, unused = Client("abc"), Client(None)
+    with QBittorrentAdapter("http://qb", "u", "p", client=used):
+        pass
+    QBittorrentAdapter("http://qb", "u", "p", client=unused).close()
+    assert used.logouts == 1 and unused.logouts == 0
+
+
+def test_the_factory_closes_the_adapter_even_when_the_operation_fails(monkeypatch):
+    import pytest
+
+    from nazgarr import adapter_factory
+
+    closed = []
+
+    class Fake:
+        def close(self):
+            closed.append(True)
+
+    monkeypatch.setattr(adapter_factory, "build_torrent_client_adapter", lambda row: Fake())
+    with pytest.raises(RuntimeError), adapter_factory.torrent_client(object()):
+        raise RuntimeError("client irraggiungibile")
+    with adapter_factory.torrent_client(object()):
+        pass
+    assert closed == [True, True]

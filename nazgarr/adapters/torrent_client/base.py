@@ -93,6 +93,21 @@ class TorrentClientAdapter(ABC):
     # recheck c'è sempre, e i chiamanti non registrano un recheck "saltato".
     can_skip_recheck: bool = True
 
+    def close(self) -> None:
+        """Chiude le connessioni dell'adapter. Chi lo costruisce lo chiude
+        dopo l'uso (`with adapter_factory.build_...(...) as adapter:`): ogni
+        operazione ha il suo adapter, e senza le connessioni restavano aperte
+        fino al garbage collector."""
+        close = getattr(getattr(self, "_client", None), "close", None)
+        if callable(close):
+            close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_exc) -> None:
+        self.close()
+
     @abstractmethod
     def add_torrent(
         self, torrent_file_or_url: str, save_path: str, force_recheck: bool = True,

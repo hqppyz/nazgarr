@@ -24,7 +24,7 @@ from sqlalchemy import exists
 from sqlalchemy.orm import Session
 
 from nazgarr import full_check
-from nazgarr.adapter_factory import build_torrent_client_adapter
+from nazgarr.adapter_factory import build_torrent_client_adapter, close_adapter
 from nazgarr.exclusions import load_exclusions
 from nazgarr.executor import ExecutionError, execute_review, reconcile_seed_job, retry_seed_job
 from nazgarr.models import (
@@ -263,6 +263,8 @@ def _try_execute(session: Session, review: MatchReview, skip_recheck: bool = Fal
         )
     except Exception:
         logger.exception("Errore inatteso nell'esecuzione immediata per review %s", review.id)
+    finally:
+        close_adapter(adapter)
 
 
 VERIFY_SETTING = "verify_before_execute"
@@ -558,7 +560,10 @@ def retry_failed(session: Session, seed_job: SeedJob) -> SeedJob:
     )
     if adapter is None:
         raise ExecutionError("Nessun client torrent configurato")
-    return retry_seed_job(session, seed_job, adapter, torrent_client_id)
+    try:
+        return retry_seed_job(session, seed_job, adapter, torrent_client_id)
+    finally:
+        close_adapter(adapter)
 
 
 def retry_all_failed(session: Session) -> dict[str, int]:
@@ -600,32 +605,38 @@ def reconcile_pending_seed_jobs(session: Session, progress=NULL_PROGRESS) -> dic
     # client registrato: quello del tracker, o il primo abilitato). Un adapter
     # per client, non uno per job.
     adapters: dict[int | None, tuple] = {}
-    for seed_job in pending:
-        progress.advance()
-        key = seed_job.torrent_client_id if seed_job.torrent_client_id is not None else -seed_job.candidate.tracker_id
-        if key not in adapters:
-            adapters[key] = (
-                _client_for(session, seed_job.torrent_client_id)
-                if seed_job.torrent_client_id is not None
-                else _client_for_candidate(session, seed_job.candidate)
-            )
-        adapter, torrent_client_id = adapters[key]
-        if adapter is None:
-            continue
-        try:
-            reconcile_seed_job(session, seed_job, adapter)
-            reconciled += 1
-        except Exception:
-            logger.exception("Reconcile fallito per seed_job %s", seed_job.id)
-            errors += 1
-            continue
-        if seed_job.final_status == "seeding":
+    try:
+        for seed_job in pending:
+            progress.advance()
+            key = (seed_job.torrent_client_id if seed_job.torrent_client_id is not None
+                   else -seed_job.candidate.tracker_id)
+            if key not in adapters:
+                adapters[key] = (
+                    _client_for(session, seed_job.torrent_client_id)
+                    if seed_job.torrent_client_id is not None
+                    else _client_for_candidate(session, seed_job.candidate)
+                )
+            adapter, torrent_client_id = adapters[key]
+            if adapter is None:
+                continue
             try:
-                refresh_seeded_torrent(session, seed_job, adapter, torrent_client_id)
+                reconcile_seed_job(session, seed_job, adapter)
+                reconciled += 1
             except Exception:
-                # Solo la visibilità immediata: la run successiva registra comunque tutto.
-                logger.exception("Aggiornamento mirato fallito per seed_job %s", seed_job.id)
-                session.rollback()
+                logger.exception("Reconcile fallito per seed_job %s", seed_job.id)
+                errors += 1
+                continue
+            if seed_job.final_status == "seeding":
+                try:
+                    refresh_seeded_torrent(session, seed_job, adapter, torrent_client_id)
+                except Exception:
+                    # Solo la visibilità immediata: la run successiva registra comunque tutto.
+                    logger.exception("Aggiornamento mirato fallito per seed_job %s", seed_job.id)
+                    session.rollback()
+    finally:
+        for adapter, _id in adapters.values():
+            if adapter is not None:
+                close_adapter(adapter)
     return {"reconciled": reconciled, "errors": errors}
 
 
