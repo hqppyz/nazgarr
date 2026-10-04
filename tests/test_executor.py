@@ -352,6 +352,25 @@ def test_another_file_at_the_destination_is_never_overwritten(db_session, tmp_pa
     assert (root / "torrents" / "Movie.2024.mkv").read_bytes() == b"something else"
 
 
+@pytest.mark.parametrize("target", ["outside", "inside"])
+def test_a_library_file_replaced_by_a_symlink_is_never_linked(db_session, tmp_path, target):
+    # Fra la scansione e l'esecuzione il file in libreria è diventato un
+    # link simbolico (fuori dal disco o anche dentro): niente hardlink, e
+    # niente torrent nel client.
+    root, disk, tracker, item, run = _base_setup(db_session, tmp_path)
+    media_file_path, match_review = _single_file_review(db_session, root, disk, tracker, item, run)
+    elsewhere = (tmp_path / "secret.mkv") if target == "outside" else (root / "media" / "other.mkv")
+    elsewhere.write_bytes(b"content")
+    media_file_path.unlink()
+    media_file_path.symlink_to(elsewhere)
+
+    adapter = FakeAdapter()
+    with pytest.raises(executor.ExecutionError, match="scope|symbolic link"):
+        executor.execute_review(db_session, match_review, adapter)
+    assert not os.path.lexists(root / "torrents" / "Movie.2024.mkv")
+    assert adapter.add_torrent_calls == []
+
+
 @pytest.mark.parametrize("can_skip", [True, False])
 def test_the_recheck_is_skipped_only_by_a_client_that_can(can_skip):
     from types import SimpleNamespace

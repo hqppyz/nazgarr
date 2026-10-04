@@ -155,6 +155,21 @@ def _require_every_video(candidate) -> None:
             )
 
 
+def _source_path(disk: Disk, relative_path: str) -> str:
+    """Il file in libreria da cui nasce l'hardlink: dentro il disco
+    (fs_scope) e un file vero, non un link simbolico. Lo scanner salta i
+    symlink, ma fra la scansione e l'esecuzione il file può cambiare."""
+    try:
+        path = resolve_scoped(disk.root_path, relative_path)
+    except ScopeViolation as exc:
+        raise ExecutionError(f"Path outside the allowed scope: {exc.candidate}") from exc
+    if os.path.islink(os.path.join(disk.root_path, relative_path)) or os.path.islink(path):
+        raise ExecutionError(f"Local file is a symbolic link: {path}")
+    if not os.path.isfile(path):
+        raise ExecutionError(f"Local file not found: {path}")
+    return path
+
+
 def _reusable_link(source_path: str, target_path: str) -> bool:
     """True se la destinazione esiste già ed è lo stesso file della sorgente
     (stesso inode, mai un link simbolico): un cross-seed della stessa release
@@ -197,9 +212,7 @@ def _execute_layout_media_to_torrent(
             continue  # extra senza file locale: lo scarica il client
         if f.media_file.disk_id != disk.id:
             raise ExecutionError(f"'{f.media_file.relative_path}' is on another disk: a hardlink cannot cross disks")
-        source_path = os.path.join(disk.root_path, f.media_file.relative_path)
-        if not os.path.isfile(source_path):
-            raise ExecutionError(f"Local file not found: {source_path}")
+        source_path = _source_path(disk, f.media_file.relative_path)
         try:
             target_path = resolve_scoped(target_root, _torrent_rel_path(candidate, f.torrent_path))
         except ScopeViolation as exc:
@@ -223,7 +236,7 @@ def _execute_layout_media_to_torrent(
     try:
         for source_path, target_path in links:
             os.makedirs(os.path.dirname(target_path), exist_ok=True)
-            os.link(source_path, target_path)
+            os.link(source_path, target_path, follow_symlinks=False)
             created.append(target_path)
         seed_job.hardlink_created_at = datetime.now(UTC)
         session.commit()
@@ -336,9 +349,7 @@ def _execute_media_to_torrent(
     if not os.path.isdir(target_root):
         raise ExecutionError(f"Destination folder for new hardlinks not found: {target_root}")
 
-    source_path = os.path.join(disk.root_path, media_file.relative_path)
-    if not os.path.isfile(source_path):
-        raise ExecutionError(f"Local file not found: {source_path}")
+    source_path = _source_path(disk, media_file.relative_path)
 
     file_list = json.loads(candidate.file_list_json) if candidate.file_list_json else []
     expected_filename = file_list[0] if file_list else os.path.basename(source_path)
@@ -388,7 +399,7 @@ def _create_hardlink_then_seed(
 
     try:
         if not reuse:  # già lì con lo stesso inode (_reusable_link): un cross-seed
-            os.link(source_path, target_path)
+            os.link(source_path, target_path, follow_symlinks=False)
         seed_job.hardlink_created_at = datetime.now(UTC)
         session.commit()
         logger.info("Hardlink %s per candidate %s: %s", "riusato" if reuse else "creato", candidate.id, target_path)
