@@ -50,6 +50,11 @@ export function MatchSummaryCard({ job }: { job: UploadJob }) {
                 {job.episode != null && `E${String(job.episode).padStart(2, '0')}`}
               </Badge>
             )}
+            {job.episode_order_label && (
+              <Badge variant="outline" title={t('upload.match.orderLabel')}>
+                {job.episode_order_label}
+              </Badge>
+            )}
             <UploadStatusBadge status={job.status} />
             {job.origin === 'watch' && (
               <Badge variant="outline" className="gap-1">

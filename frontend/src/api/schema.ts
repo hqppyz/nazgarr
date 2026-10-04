@@ -1500,6 +1500,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/uploads/{upload_id}/episode-orders": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Episode Orders
+         * @description Gli ordinamenti degli episodi di una serie candidata, con quanto ci
+         *     combaciano i file del job, quello proposto e l'eventuale avviso.
+         */
+        get: operations["get_episode_orders_api_uploads__upload_id__episode_orders_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/uploads/{upload_id}/rematch": {
         parameters: {
             query?: never;
@@ -2730,6 +2751,37 @@ export interface components {
             /** Files */
             files: components["schemas"]["DuplicateFile"][];
         };
+        /** EpisodeOrderResponse */
+        EpisodeOrderResponse: {
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /** Source */
+            source: string;
+            /** Seasons */
+            seasons: components["schemas"]["OrderSeasonResponse"][];
+        };
+        /** EpisodeOrdersResponse */
+        EpisodeOrdersResponse: {
+            /** Orders */
+            orders: components["schemas"]["EpisodeOrderResponse"][];
+            /** Recommended */
+            recommended: string | null;
+            /** Files Order */
+            files_order: string | null;
+            /** Fits */
+            fits: {
+                [key: string]: components["schemas"]["OrderFit"];
+            };
+            warning: components["schemas"]["OrderWarning"] | null;
+            /** Found */
+            found: {
+                [key: string]: {
+                    [key: string]: number[];
+                };
+            };
+        };
         /** EventInfo */
         EventInfo: {
             /** Name */
@@ -3292,6 +3344,42 @@ export interface components {
             excluded_count: number;
             /** Torrents */
             torrents: components["schemas"]["NotImportedItem"][];
+        };
+        /** OrderEpisodeResponse */
+        OrderEpisodeResponse: {
+            /** Number */
+            number: number;
+            /** Titles */
+            titles: string[];
+            /** Air Date */
+            air_date?: string | null;
+            /** Refs */
+            refs: number[][];
+        };
+        /** OrderFit */
+        OrderFit: {
+            /** Score */
+            score: number;
+            /** Matched */
+            matched: number;
+            /** Files */
+            files: number;
+            /** Complete Seasons */
+            complete_seasons: number;
+        };
+        /** OrderSeasonResponse */
+        OrderSeasonResponse: {
+            /** Season Number */
+            season_number: number;
+            /** Episodes */
+            episodes: components["schemas"]["OrderEpisodeResponse"][];
+        };
+        /** OrderWarning */
+        OrderWarning: {
+            /** Code */
+            code: string;
+            /** Order */
+            order: string;
         };
         /**
          * PhaseProgressResponse
@@ -4294,6 +4382,10 @@ export interface components {
             };
             /** Events */
             events: components["schemas"]["UploadEventResponse"][];
+            /** Episode Order */
+            episode_order?: string | null;
+            /** Episode Order Label */
+            episode_order_label?: string | null;
         };
         /** UploadJobSummary */
         UploadJobSummary: {
@@ -4359,6 +4451,8 @@ export interface components {
             seasons: number[];
             /** Episode */
             episode?: number | null;
+            /** Episode Order */
+            episode_order?: string | null;
         };
         /** UploadNotice */
         UploadNotice: {
@@ -7559,6 +7653,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UploadJobDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_episode_orders_api_uploads__upload_id__episode_orders_get: {
+        parameters: {
+            query: {
+                tmdb_id: number;
+            };
+            header?: never;
+            path: {
+                upload_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EpisodeOrdersResponse"];
                 };
             };
             /** @description Validation Error */

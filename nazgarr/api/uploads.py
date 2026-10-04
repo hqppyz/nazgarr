@@ -271,6 +271,8 @@ class UploadJobDetail(UploadJobSummary):
     screenshot_urls: list[str]
     descriptions: dict[int, str]  # target_id -> descrizione inviata, solo nel dettaglio (è lunga)
     events: list[UploadEventResponse]
+    episode_order: str | None = None  # l'ordinamento degli episodi scelto al match
+    episode_order_label: str | None = None
 
     @classmethod
     def from_model(cls, j: UploadJob) -> "UploadJobDetail":
@@ -285,6 +287,8 @@ class UploadJobDetail(UploadJobSummary):
             screenshot_urls=_loads(j.screenshot_urls_json, []),
             descriptions={t.id: t.description_rendered for t in j.targets if t.description_rendered},
             events=[UploadEventResponse.from_model(e) for e in j.events],
+            episode_order=j.episode_order,
+            episode_order_label=(_loads(j.episode_order_json, {}).get("chosen") or {}).get("label"),
         )
 
 
