@@ -30,7 +30,7 @@ from dataclasses import dataclass
 from sqlalchemy import tuple_
 from sqlalchemy.orm import Session
 
-from nazgarr import episode_orders, settings_repo, upload_inventory, upload_pack
+from nazgarr import episode_orders, settings_registry, settings_repo, upload_inventory, upload_pack
 from nazgarr.file_types import is_video
 from nazgarr.models import ClientTorrent, ClientTorrentFile, SeedFile, UploadJob
 from nazgarr.upload_naming import build_name, detect_with_fallback, release_values
@@ -290,7 +290,7 @@ def auto_rename(session: Session) -> bool:
     """Rinominare in automatico (Settings › Releases), acceso di default:
     spento, ogni upload parte con i nomi originali, e gli altri restano da
     scegliere a mano."""
-    return (settings_repo.get_setting(session, AUTO_RENAME_SETTING) or "true").lower() != "false"
+    return settings_registry.get_bool(session, AUTO_RENAME_SETTING)
 
 
 def default_mode(session: Session, job: UploadJob, inputs: NameInputs | None = None) -> str:
@@ -311,16 +311,14 @@ def default_mode(session: Session, job: UploadJob, inputs: NameInputs | None = N
 
 SINGLE_FILE_SETTING = "upload_single_file"
 SINGLE_FILE_FOLDER_SETTING = "upload_single_file_folder"
-FOLDER_CHOICES = ("keep", "remove")
 
 
 def single_file_folder(session: Session) -> str | None:
     """Con l'impostazione accesa (Settings › Releases, spenta di default),
     "keep" o "remove": cosa fare della cartella che conteneva il file."""
-    if (settings_repo.get_setting(session, SINGLE_FILE_SETTING) or "").lower() != "true":
+    if not settings_registry.get_bool(session, SINGLE_FILE_SETTING):
         return None
-    choice = (settings_repo.get_setting(session, SINGLE_FILE_FOLDER_SETTING) or "keep").lower()
-    return choice if choice in FOLDER_CHOICES else "keep"
+    return settings_registry.get_choice(session, SINGLE_FILE_FOLDER_SETTING)
 
 
 def _as_single_file(found: FilePlan, folder_choice: str | None) -> FilePlan:

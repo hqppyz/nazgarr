@@ -42,6 +42,7 @@ export const errors = {
   'errors.secret_required_for_new_host':
     'L’indirizzo punta a un altro host: inserisci di nuovo {fields}, così non vengono mai inviati per errore a un nuovo server',
   'errors.setting_safety_for_api_key': 'Le API key non possono cambiare le impostazioni di sicurezza: accedi per cambiarle',
+  'errors.setting_invalid_value': '{key}: valore non valido per questa impostazione.',
   'errors.setting_protected': 'Questa impostazione si gestisce dalla sua pagina',
   'errors.setting_secret_for_api_key': 'Le API key non possono leggere o cambiare le impostazioni segrete',
   'errors.webhook_event_unknown': 'Evento sconosciuto: {event}',

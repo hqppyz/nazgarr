@@ -9,17 +9,17 @@ tracker: un file in seed su A si cerca anche su B."""
 
 from sqlalchemy.orm import Session
 
+from nazgarr import settings_registry
 from nazgarr.hardlinks import media_links
 from nazgarr.library import _tracking
 from nazgarr.models import ClientTorrent, ClientTorrentFile, Tracker
-from nazgarr.settings_repo import get_setting
 from nazgarr.tracker_scope import torrent_host, tracker_torrent_ids
 
 CROSS_SEED_SETTING = "cross_seed_search"
 
 
 def cross_seed_enabled(session: Session) -> bool:
-    return (get_setting(session, CROSS_SEED_SETTING) or "true").lower() != "false"
+    return settings_registry.get_bool(session, CROSS_SEED_SETTING)
 
 
 def seeding_media_file_ids(session: Session, tracker: Tracker | None = None) -> set[int]:

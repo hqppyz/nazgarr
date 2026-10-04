@@ -20,7 +20,7 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.orm import Session, selectinload
 
-from nazgarr import settings_repo
+from nazgarr import settings_registry
 from nazgarr.adapters.tracker.base import (
     NotSupportedError,
     TrackerAdapter,
@@ -65,8 +65,8 @@ logger = logging.getLogger(__name__)
 
 # Ogni quanto un file orfano già cercato su un tracker viene ricercato
 # comunque, anche se nulla è cambiato (nuovi upload sul tracker). Setting
-# app_settings "rematch_interval_days", 0 = ricerca a ogni run come prima.
-DEFAULT_REMATCH_INTERVAL_DAYS = 7
+# app_settings "rematch_interval_days" (7 giorni di default,
+# nazgarr/settings_registry.py), 0 = ricerca a ogni run come prima.
 
 # Motivi per cui un torrent non riguarda proprio il file cercato (es. il
 # pack di un'altra stagione, trovato cercando per tmdb_id della serie):
@@ -381,12 +381,7 @@ def orphan_seed_files_with_identity(
 
 
 def get_rematch_interval(session: Session) -> timedelta:
-    raw = settings_repo.get_setting(session, "rematch_interval_days")
-    try:
-        days = float(raw) if raw is not None else DEFAULT_REMATCH_INTERVAL_DAYS
-    except ValueError:
-        days = DEFAULT_REMATCH_INTERVAL_DAYS
-    return timedelta(days=max(days, 0))
+    return timedelta(days=max(settings_registry.get_float(session, "rematch_interval_days"), 0))
 
 
 def _as_utc(value: datetime) -> datetime:

@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from nazgarr import settings_repo
+from nazgarr import settings_registry, settings_repo
 from nazgarr.api_errors import coded_detail
 from nazgarr.deps import get_session
 from nazgarr.exclusions import DEFAULT_ENABLED_PRESETS, PRESETS
@@ -50,12 +50,6 @@ _AUTH = re.compile(r"^auth_")
 _SECRET = settings_repo.SECRET_KEY
 
 
-# Le protezioni: la verifica prima di eseguire, il recheck del client,
-# l'esecuzione automatica e le sue soglie. Una API key le legge ma non le
-# cambia: spegnerle vorrebbe dire hardlink e torrent aggiunti senza controlli.
-_SAFETY = re.compile(
-    r"^(verify_before_execute|skip_client_recheck_when_verified|auto_execute_above_threshold|confidence_threshold_auto_.+)$"
-)
 
 
 def _check_access(request: Request, key: str) -> None:
@@ -64,7 +58,10 @@ def _check_access(request: Request, key: str) -> None:
     by_api_key = getattr(request.state, "api_key_id", None) is not None
     if by_api_key and _SECRET.search(key):
         raise HTTPException(status_code=403, detail=coded_detail("setting_secret_for_api_key", key=key))
-    if by_api_key and request.method != "GET" and _SAFETY.match(key):
+    # Le protezioni (la verifica prima di eseguire, il recheck del client,
+    # l'esecuzione automatica e le sue soglie): una API key le legge ma non
+    # le cambia, spegnerle vorrebbe dire hardlink e torrent senza controlli.
+    if by_api_key and request.method != "GET" and key in settings_registry.SAFETY_KEYS:
         raise HTTPException(status_code=403, detail=coded_detail("setting_safety_for_api_key", key=key))
 
 
@@ -77,5 +74,9 @@ def get_setting(key: str, request: Request, session: Session = Depends(get_sessi
 @router.put("/{key}", response_model=SettingResponse)
 def set_setting(key: str, body: SettingUpdateRequest, request: Request, session: Session = Depends(get_session)):
     _check_access(request, key)
-    settings_repo.set_setting(session, key, body.value)
-    return SettingResponse(key=key, value=body.value)
+    try:
+        value = settings_registry.validate(key, body.value)
+    except settings_registry.SettingValueError as exc:
+        raise HTTPException(status_code=400, detail=coded_detail("setting_invalid_value", key=key)) from exc
+    settings_repo.set_setting(session, key, value)
+    return SettingResponse(key=key, value=value)

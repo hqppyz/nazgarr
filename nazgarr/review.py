@@ -23,7 +23,7 @@ from datetime import UTC, datetime
 from sqlalchemy import exists
 from sqlalchemy.orm import Session
 
-from nazgarr import full_check
+from nazgarr import full_check, settings_registry
 from nazgarr.adapter_factory import build_torrent_client_adapter, close_adapter
 from nazgarr.exclusions import load_exclusions
 from nazgarr.executor import ExecutionError, execute_review, reconcile_seed_job, retry_seed_job
@@ -42,25 +42,15 @@ from nazgarr.run_progress import NULL_PROGRESS
 from nazgarr.scan_state import is_current, latest_scan_by_disk
 from nazgarr.seed_refresh import refresh_seeded_torrent
 from nazgarr.seeding import seeding_media_file_ids
-from nazgarr.settings_repo import get_setting
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_CONFIDENCE_THRESHOLD_MEDIA_TO_TORRENT = 0.95
-DEFAULT_CONFIDENCE_THRESHOLD_TORRENT_TO_CLIENT = 0.98
 
 READY_FOR_DECISION_STATUSES = ("pending", "auto_approved")
 
 
 def get_confidence_threshold(session: Session, direction: str) -> float:
-    key = f"confidence_threshold_auto_{direction}"
-    default = (
-        DEFAULT_CONFIDENCE_THRESHOLD_MEDIA_TO_TORRENT
-        if direction == "media_to_torrent"
-        else DEFAULT_CONFIDENCE_THRESHOLD_TORRENT_TO_CLIENT
-    )
-    raw = get_setting(session, key)
-    return float(raw) if raw is not None else default
+    return settings_registry.get_float(session, f"confidence_threshold_auto_{direction}")
 
 
 def _supersede_active_reviews(
@@ -279,7 +269,7 @@ def skip_recheck_enabled(session: Session) -> bool:
     senza il suo recheck (unica eccezione alla regola "sempre un recheck
     reale", decisione dell'utente del 2026-09-29, vedi CLAUDE.md)."""
     return (
-        (get_setting(session, SKIP_RECHECK_SETTING) or "").lower() == "true"
+        settings_registry.get_bool(session, SKIP_RECHECK_SETTING)
         and verify_before_execute_enabled(session)
     )
 
@@ -300,7 +290,7 @@ def verify_before_execute_enabled(session: Session) -> bool:
     aggiungere un torrent, il controllo completo dei piece (nazgarr/full_check.py)
     deve dire che il recheck del client riuscirà. Si spegne da
     Configuration > Matching & approval per chi preferisce la velocità."""
-    return (get_setting(session, VERIFY_SETTING) or "true").lower() != "false"
+    return settings_registry.get_bool(session, VERIFY_SETTING)
 
 
 class AlreadyVerifyingError(Exception):
@@ -481,7 +471,7 @@ def auto_execute_enabled(session: Session) -> bool:
     che modifichi file o client (hardlink, torrent aggiunti) parte senza
     una sua approvazione. Sopra soglia una review è solo "consigliata"
     (status auto_approved) e aspetta in coda come le altre."""
-    return (get_setting(session, AUTO_EXECUTE_SETTING) or "").lower() == "true"
+    return settings_registry.get_bool(session, AUTO_EXECUTE_SETTING)
 
 
 def execute_auto_approved(session: Session, progress=NULL_PROGRESS) -> dict[str, int]:

@@ -27,6 +27,7 @@ from sqlalchemy.orm import Session
 from nazgarr import (
     adapter_factory,
     episode_orders,
+    settings_registry,
     settings_repo,
     upload_analysis,
     upload_jobs,
@@ -185,19 +186,12 @@ def find_candidates(
 
 
 AUTO_MATCH_SETTING = "upload_auto_match_threshold"
-DEFAULT_AUTO_MATCH_THRESHOLD = 0.9
 
 
 def auto_match_threshold(session: Session) -> float | None:
     """La confidence oltre la quale un upload conferma da solo il match
     (Settings > Upload). Mai salvata = 0.9; 0 = spento."""
-    raw = settings_repo.get_setting(session, AUTO_MATCH_SETTING)
-    if raw in (None, ""):
-        return DEFAULT_AUTO_MATCH_THRESHOLD
-    try:
-        value = float(raw)
-    except ValueError:
-        return DEFAULT_AUTO_MATCH_THRESHOLD
+    value = settings_registry.get_float(session, AUTO_MATCH_SETTING)
     return value if 0 < value <= 1 else None
 
 

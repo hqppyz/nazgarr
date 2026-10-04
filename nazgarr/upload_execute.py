@@ -39,7 +39,7 @@ from nazgarr import (
     hardlinks,
     mediainfo_util,
     screenshots,
-    settings_repo,
+    settings_registry,
     upload_file_names,
     upload_inventory,
     upload_jobs,
@@ -239,7 +239,7 @@ def take_screenshots(session: Session, job: UploadJob, worker, count: int) -> li
         return []
     layout = json.loads(job.layout_json or "{}")
     main_video = layout.get("main_video") or job.source_path
-    tonemap = (settings_repo.get_setting(session, "upload_tonemap_hdr") or "").lower() == "true"
+    tonemap = settings_registry.get_bool(session, "upload_tonemap_hdr")
     _progress(session, job, "screenshots", 0, count)
     try:
         chain = adapter_factory.build_image_host_chain(session)
@@ -684,7 +684,7 @@ def handle(session: Session, job: UploadJob, worker) -> None:
             session.commit()
             count = overrides.get("screenshot_count")
             if count is None:
-                count = int(settings_repo.get_setting(session, "upload_screenshot_count") or "4")
+                count = settings_registry.get_int(session, "upload_screenshot_count")
             ctx["screenshots"] = take_screenshots(session, job, worker, count)
             job.screenshot_urls_json = json.dumps(ctx["screenshots"])
             upload_jobs.log_event(session, job, "screenshots_done", count=len(ctx["screenshots"]))

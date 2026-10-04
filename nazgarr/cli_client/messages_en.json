@@ -67,6 +67,7 @@
  "run_not_found": "Scan {id} not found.",
  "secret_required_for_new_host": "The address points to another host: enter {fields} again, so they are never sent to a new server by mistake",
  "seed_job_not_found": "SeedJob {id} not found.",
+ "setting_invalid_value": "{key}: value not valid for this setting.",
  "setting_protected": "This setting is managed from its own page",
  "setting_safety_for_api_key": "API keys cannot change the safety settings: log in to change them",
  "setting_secret_for_api_key": "API keys cannot read or change secret settings",
