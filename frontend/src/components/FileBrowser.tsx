@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useDeferredValue, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
 import { FileFilterBar } from '@/components/FileFilterBar'
@@ -48,7 +48,11 @@ export function FileBrowser({
 
   const summary = useMemo(() => summarizeByState(files, duplicateKeys), [files, duplicateKeys])
   const excludedCount = useMemo(() => files.filter((f) => f.excluded).length, [files])
-  const filtered = useMemo(() => filterFiles(files, filters, duplicateKeys), [files, filters, duplicateKeys])
+  // La casella di ricerca resta reattiva: filtro e albero seguono a ruota,
+  // con priorità bassa, invece di ricalcolarsi dentro ogni tasto premuto.
+  const deferredFilters = useDeferredValue(filters)
+  const filtered = useMemo(
+    () => filterFiles(files, deferredFilters, duplicateKeys), [files, deferredFilters, duplicateKeys])
 
   return (
     <div className="grid gap-4">
@@ -72,7 +76,7 @@ export function FileBrowser({
             non sepolto in una cartella chiusa. */}
         <FileTree
           files={filtered}
-          expandAll={hasActiveSearchFilters(filters)}
+          expandAll={hasActiveSearchFilters(deferredFilters)}
           duplicateKeys={duplicateKeys}
           actions={actions}
           selection={selection}

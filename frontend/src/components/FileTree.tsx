@@ -1,6 +1,8 @@
 import { ChevronRightIcon, FileIcon, FileVideoIcon, FolderIcon, FolderOpenIcon } from "lucide-react";
 import { useMemo, useState } from "react";
 
+import { useIncrementalCount } from "@/hooks/use-incremental";
+
 import { HardlinkInfo } from "@/components/HardlinkInfo";
 import { RowContextMenu, type RowMenuItem } from "@/components/RowContextMenu";
 import { StateBadge, StatusBadge, StoppedBadge } from "@/components/StateBadge";
@@ -132,6 +134,8 @@ function PackCheckbox({ checked, indeterminate = false, label, onPick }: { check
   );
 }
 
+const ROWS_PAGE = 300;
+
 export function FileTree({ files, expandAll = false, duplicateKeys, onOpenFile, actions, selection }: { files: TreeFileEntry[]; expandAll?: boolean; duplicateKeys?: Set<string>; onOpenFile?: (file: TreeFileEntry) => void; actions?: TreeRowActions; selection?: PackSelection }) {
   const picking = selection?.active ?? false;
   // Cartelle il cui stato aperto/chiuso differisce dal default (aperte al
@@ -152,6 +156,12 @@ export function FileTree({ files, expandAll = false, duplicateKeys, onOpenFile, 
     walk(tree, 0);
     return out;
   }, [tree, toggled, expandAll]);
+
+  // Solo un blocco di righe alla volta, altre scorrendo: con una ricerca
+  // tutto l'albero si apre, e le righe potevano essere decine di migliaia.
+  // Si riparte dal primo blocco quando cambiano i file (filtri, ricerca), non
+  // quando si apre o chiude una cartella.
+  const { visible, hasMore, sentinelRef } = useIncrementalCount<HTMLTableRowElement>(rows.length, ROWS_PAGE, files);
 
   // I video sceglibili nell'ordine mostrato, per SHIFT+clic.
   const orderedPackable = useMemo(
@@ -182,7 +192,7 @@ export function FileTree({ files, expandAll = false, duplicateKeys, onOpenFile, 
       </TableHeader>
       {/* Mono per tutto il corpo: nomi di cartelle e file allineati, come in un terminale. */}
       <TableBody className="font-mono">
-        {rows.map(({ node, depth, open }) => {
+        {rows.slice(0, visible).map(({ node, depth, open }) => {
           const indent = { paddingLeft: `${depth * 1.25 + 0.5}rem` };
           if (!node.file) {
             return (
@@ -286,6 +296,11 @@ export function FileTree({ files, expandAll = false, duplicateKeys, onOpenFile, 
             </RowContextMenu>
           );
         })}
+        {hasMore && (
+          <TableRow ref={sentinelRef} aria-hidden>
+            <TableCell colSpan={3} className="h-px p-0" />
+          </TableRow>
+        )}
       </TableBody>
     </Table>
   );
