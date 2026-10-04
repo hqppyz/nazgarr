@@ -437,6 +437,17 @@ class MediaItem(Base):
     created_at: Mapped[datetime | None] = mapped_column(server_default=text("CURRENT_TIMESTAMP"))
 
 
+class EpisodeOrderPreference(Base):
+    """L'ordinamento degli episodi scelto l'ultima volta per una serie
+    (nazgarr/episode_orders.py): proposto per primo al prossimo upload."""
+
+    __tablename__ = "episode_order_preference"
+
+    tmdb_id: Mapped[int] = mapped_column(primary_key=True)
+    order_key: Mapped[str] = mapped_column(nullable=False)
+    updated_at: Mapped[datetime | None] = mapped_column(server_default=text("CURRENT_TIMESTAMP"))
+
+
 class TmdbSearchCache(Base):
     """Vedi docs/schema.sql: cache persistente delle ricerche TMDB, chiave =
     ciò che il resolver cerca (titolo/anno guessit), non il file — molti
@@ -686,6 +697,9 @@ class UploadJob(Base):
     error_message: Mapped[str | None]
     origin: Mapped[str | None]  # "watch": dalla cartella osservata (nazgarr/upload_watch.py)
     pack_json: Mapped[str | None]  # un pack di file scelti a mano (nazgarr/upload_pack.py)
+    # L'ordinamento degli episodi scelto al match, e i dati per tradurre i numeri (nazgarr/episode_orders.py).
+    episode_order: Mapped[str | None]
+    episode_order_json: Mapped[str | None]
     created_at: Mapped[datetime | None] = mapped_column(server_default=text("CURRENT_TIMESTAMP"))
     updated_at: Mapped[datetime | None] = mapped_column(
         server_default=text("CURRENT_TIMESTAMP"), onupdate=text("CURRENT_TIMESTAMP")
