@@ -1,6 +1,6 @@
 import { uiLocale } from '@/lib/i18n'
 
-// Formattazione del riepilogo MediaInfo (nazgarr/mediainfo_util.py summarize)
+// Formattazione del riepilogo MediaInfo (nazgarr/library/mediainfo.py summarize)
 // come l'anteprima di un tracker UNIT3D.
 
 export interface MediaInfoSummary {

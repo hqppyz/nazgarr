@@ -92,7 +92,7 @@ function ExternalLinks({ detail }: { detail: Detail }) {
   )
 }
 
-// Un episodio che può entrare in un pack (nazgarr/upload_pack.py), anche se già in seed.
+// Un episodio che può entrare in un pack (nazgarr/upload/pack.py), anche se già in seed.
 const packable = (f: DetailFile) => f.is_video && !f.excluded
 const packFile = (f: DetailFile) => ({ diskId: f.disk_id, path: f.relative_path })
 
@@ -546,7 +546,7 @@ export function ItemDetailSheet({ item, onClose }: { item: OpenItem | null; onCl
       videos: videos.length,
     }
   }, [detail])
-  // Episodi scelti per un pack (nazgarr/upload_pack.py): si azzera chiudendo.
+  // Episodi scelti per un pack (nazgarr/upload/pack.py): si azzera chiudendo.
   const selection = usePackSelection()
 
   return (

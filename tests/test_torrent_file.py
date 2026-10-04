@@ -1,12 +1,12 @@
 """Nessuna dipendenza esterna per costruire un .torrent di test: un
 encoder bencode minimale, solo per i test (l'app non ha mai bisogno di
-codificare, solo di decodificare — vedi nazgarr/torrent_file.py)."""
+codificare, solo di decodificare — vedi nazgarr/torrents/metainfo.py)."""
 
 import hashlib
 
 import pytest
 
-from nazgarr.torrent_file import (
+from nazgarr.torrents.metainfo import (
     TorrentMetainfoError,
     compute_info_hash,
     decode,

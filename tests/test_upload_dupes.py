@@ -1,7 +1,7 @@
 import pytest
 
 from nazgarr.adapters.tracker.base import TorrentCandidate
-from nazgarr.upload_dupes import SourceSummary, check, classify
+from nazgarr.upload.dupes import SourceSummary, check, classify
 
 GB = 1024**3
 
@@ -104,7 +104,7 @@ def test_a_library_name_without_resolution_uses_the_mediainfo_one():
 def test_summary_of_reads_the_release_name_and_the_mediainfo_resolution(tmp_path):
     from types import SimpleNamespace
 
-    from nazgarr.upload_analysis import summary_of
+    from nazgarr.upload.analysis import summary_of
 
     job = SimpleNamespace(kind="movie", seasons_json="[]", episode=None, source_path=str(tmp_path / "Dune (2024)"),
                           is_dir=True, pack_json=None)

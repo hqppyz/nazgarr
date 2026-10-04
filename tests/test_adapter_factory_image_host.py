@@ -1,11 +1,12 @@
 import pytest
 
-from nazgarr import adapter_factory, settings_repo
 from nazgarr.adapters.image_host.imgbb import ImgbbAdapter
 from nazgarr.adapters.image_host.imgbox import ImgboxAdapter
 from nazgarr.adapters.image_host.pixhost import PixhostAdapter
 from nazgarr.adapters.image_host.ptpimg import PtpimgAdapter
-from nazgarr.models import AppSetting
+from nazgarr.core import settings_repo
+from nazgarr.core.models import AppSetting
+from nazgarr.integrations import adapter_factory
 
 
 def test_default_priority_includes_anonymous_hosts_even_without_keys(db_session):

@@ -27,7 +27,7 @@ export const STATUS_STYLES: Record<StatusKey, { dot: string; badge: string; grad
   },
 }
 
-// Tipi di cambiamento per file fra due scansioni (Dashboard, nazgarr/file_changes.py):
+// Tipi di cambiamento per file fra due scansioni (Dashboard, nazgarr/library/file_changes.py):
 // i cambi di stato riusano il colore dello stato di arrivo.
 export const CHANGE_STYLES: Record<string, { dot: string; badge: string }> = {
   new_media: { dot: 'bg-cyan-500', badge: 'border-cyan-500/40 bg-cyan-500/15 text-cyan-700 dark:text-cyan-300' },
@@ -44,7 +44,7 @@ export const CHANGE_STYLES: Record<string, { dot: string; badge: string }> = {
   state_changed: STATUS_STYLES.unmatched,
 }
 
-// Categorie della vista Not imported (nazgarr/not_imported.py): perché un torrent
+// Categorie della vista Not imported (nazgarr/library/not_imported.py): perché un torrent
 // in seed non ha hardlink in libreria.
 export const NOT_IMPORTED_STYLES: Record<string, { dot: string; badge: string; gradient: string }> = {
   superseded: STATUS_STYLES.review,
@@ -54,7 +54,7 @@ export const NOT_IMPORTED_STYLES: Record<string, { dot: string; badge: string; g
   extras_only: STATUS_STYLES.unmatched,
 }
 
-// Stati del backend (nazgarr/library.py, seed job) -> stile.
+// Stati del backend (nazgarr/library/states.py, seed job) -> stile.
 export function statusKeyOf(state: string): StatusKey | null {
   switch (state) {
     case 'seeding':

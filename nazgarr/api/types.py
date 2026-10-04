@@ -5,7 +5,7 @@ from urllib.parse import urlsplit
 
 from pydantic import AfterValidator
 
-from nazgarr import net_guard
+from nazgarr.core import net_guard
 
 
 def _http_url(value: str) -> str:
@@ -39,7 +39,7 @@ def require_secrets_for_new_host(old_url: str | None, new_url: str | None, missi
     richiesta."""
     from fastapi import HTTPException
 
-    from nazgarr.api_errors import coded_detail
+    from nazgarr.core.errors import coded_detail
 
     if not host_changed(old_url, new_url) or not missing:
         return

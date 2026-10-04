@@ -1,4 +1,4 @@
-"""Vista "Not imported" (nazgarr/not_imported.py): torrent in seed senza hardlink
+"""Vista "Not imported" (nazgarr/library/not_imported.py): torrent in seed senza hardlink
 in libreria, per torrent, con il perché. L'unica azione che tocca qualcosa è
 la rimozione di un torrent dal client con i suoi file (decisione dell'utente,
 2026-10-03): solo su conferma esplicita, solo se il requisito di seed è
@@ -13,12 +13,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session, joinedload
 
-from nazgarr import adapter_factory, arr, not_imported, pipeline, seed_requirements
 from nazgarr.adapters.torrent_client.base import state_kind
-from nazgarr.api_errors import coded_detail
-from nazgarr.deps import get_session
-from nazgarr.library_detail import _host, _quality
-from nazgarr.models import (
+from nazgarr.core.errors import coded_detail
+from nazgarr.core.models import (
     ClientTorrent,
     ClientTorrentFile,
     MediaItem,
@@ -27,7 +24,13 @@ from nazgarr.models import (
     SeedJob,
     TorrentClient,
 )
-from nazgarr.tracker_scope import torrent_host
+from nazgarr.integrations import adapter_factory, arr
+from nazgarr.library import not_imported
+from nazgarr.library.detail import _host, _quality
+from nazgarr.reseed import pipeline
+from nazgarr.torrents import seed_requirements
+from nazgarr.torrents.tracker_scope import torrent_host
+from nazgarr.web.deps import get_session
 
 router = APIRouter(prefix="/api/torrents", tags=["torrents"])
 logger = logging.getLogger(__name__)
@@ -92,7 +95,7 @@ class NotImportedItem(BaseModel):
     state: str
     excluded: bool = False
     source: TorrentSource | None = None  # None se i suoi file non sono nell'indice dell'ultima scan
-    # Requisito di seed del tracker e se è soddisfatto (nazgarr/seed_requirements.py).
+    # Requisito di seed del tracker e se è soddisfatto (nazgarr/torrents/seed_requirements.py).
     seed_requirement: SeedRequirement
     swarm_seeders: int | None = None  # seeder dello sciame secondo il tracker, noi compresi
     removal_warnings: list[RemovalWarning] = []
@@ -295,7 +298,7 @@ def remove_not_imported(client_torrent_id: int, body: RemoveRequest, session: Se
         raise HTTPException(status_code=502, detail=coded_detail("removal_failed", error=str(exc)[:300])) from exc
     logger.info("Torrent %s (%s) rimosso da %s con i suoi file, su richiesta dell'utente",
                 ct.name, ct.info_hash, client_row.label)
-    # Come per un torrent sparito dal client (nazgarr/torrent_indexer.py):
+    # Come per un torrent sparito dal client (nazgarr/torrents/indexer.py):
     # fuori dal DB subito, senza aspettare la prossima scansione.
     session.query(SeedJob).filter(SeedJob.result_client_torrent_id == ct.id).update(
         {SeedJob.result_client_torrent_id: None}, synchronize_session=False)

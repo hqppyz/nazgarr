@@ -291,7 +291,7 @@ export const upload = {
   'upload.mediainfo.aspectRatio': 'Proporzioni',
   'upload.mediainfo.frameRate': 'Frame rate',
 
-  // Registro eventi (nazgarr/upload_jobs.py log_event): un codice senza una
+  // Registro eventi (nazgarr/upload/jobs.py log_event): un codice senza una
   // frase qui passa da errors.<code>.
   'upload.event.job_created': 'Upload creato per {trackers}.',
   'upload.event.identify_started': 'Identificazione avviata.',

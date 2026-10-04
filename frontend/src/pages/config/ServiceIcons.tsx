@@ -32,7 +32,7 @@ export function ClientLogo({ type }: { type: string }) {
   )
 }
 
-// La favicon del tracker, scaricata dal backend (nazgarr/tracker_icons.py);
+// La favicon del tracker, scaricata dal backend (nazgarr/torrents/tracker_icons.py);
 // senza, un'antenna generica.
 export function TrackerLogo({ trackerId, className }: { trackerId: number; className?: string }) {
   return (

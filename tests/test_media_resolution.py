@@ -1,7 +1,8 @@
 
-from nazgarr import media_resolution, pipeline
 from nazgarr.adapters.media_resolver.base import MediaResolverAdapter, ResolvedMedia
-from nazgarr.models import Disk, MediaFile, MediaItem
+from nazgarr.core.models import Disk, MediaFile, MediaItem
+from nazgarr.library import resolution as media_resolution
+from nazgarr.reseed import pipeline
 from tests.fakes import make_media_file
 
 
@@ -127,7 +128,7 @@ def test_already_resolved_files_are_skipped(db_session, tmp_path):
 
 
 def test_excluded_files_are_never_resolved(db_session, tmp_path):
-    from nazgarr import settings_repo
+    from nazgarr.core import settings_repo
 
     settings_repo.set_setting(db_session, "exclusion_presets", "scene_junk")
     disk, run = _setup(db_session)
@@ -184,8 +185,8 @@ def test_a_file_that_cannot_be_reread_keeps_its_identity(db_session, tmp_path):
 
 
 def test_radarr_identity_wins_over_the_one_guessed_from_the_name(db_session, tmp_path):
-    from nazgarr import settings_repo
-    from nazgarr.arr import ArrIdentity, ArrIndex
+    from nazgarr.core import settings_repo
+    from nazgarr.integrations.arr import ArrIdentity, ArrIndex
 
     disk, run = _setup(db_session)
     settings_repo.set_setting(db_session, media_resolution.IDENTITY_RULES_KEY, media_resolution.IDENTITY_RULES_VERSION)

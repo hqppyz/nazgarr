@@ -1,6 +1,6 @@
 """setup, login, logout e i profili: come il CLI ottiene la sua API key.
 
-Una API key non può crearne altre (nazgarr/auth.py require_login): login e
+Una API key non può crearne altre (nazgarr/web/auth.py require_login): login e
 setup usano il token del login una volta sola, per creare la chiave che il
 CLI salva in cli.toml. Le password si chiedono sempre a schermo (o da stdin
 con --password-stdin), mai come argomento: finirebbero nella cronologia

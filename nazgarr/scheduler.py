@@ -21,7 +21,8 @@ from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 from sqlalchemy.orm import sessionmaker
 
-from nazgarr import pipeline, review, settings_repo
+from nazgarr.core import settings_repo
+from nazgarr.reseed import pipeline, review
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +61,7 @@ def _add_job(scheduler: BackgroundScheduler, cron_expr: str, session_factory: se
 
 
 RECONCILE_JOB_ID = "reconcile_seed_jobs"
-# Consegne di webhook e notifiche (nazgarr/webhooks.py): spesso, costa una query.
+# Consegne di webhook e notifiche (nazgarr/integrations/webhooks.py): spesso, costa una query.
 EVENTS_JOB_ID = "deliver_events"
 EVENTS_INTERVAL_SECONDS = 15
 RECONCILE_INTERVAL_SECONDS = 120
@@ -84,7 +85,7 @@ def _reconcile_between_runs(session_factory: sessionmaker) -> None:
 
 
 def _deliver_events(session_factory: sessionmaker) -> None:
-    from nazgarr import webhooks
+    from nazgarr.integrations import webhooks
 
     session = session_factory()
     try:
@@ -99,7 +100,7 @@ WATCH_JOB_ID = "upload_watch"
 
 
 def _scan_watch_folders(session_factory: sessionmaker, worker) -> None:
-    from nazgarr import upload_watch
+    from nazgarr.upload import watch as upload_watch
 
     session = session_factory()
     try:
@@ -111,10 +112,10 @@ def _scan_watch_folders(session_factory: sessionmaker, worker) -> None:
 
 
 def add_watch_job(scheduler: BackgroundScheduler, session_factory: sessionmaker, worker) -> None:
-    """La cartella osservata per le release (nazgarr/upload_watch.py): serve il
+    """La cartella osservata per le release (nazgarr/upload/watch.py): serve il
     worker degli upload per svegliarlo sui job creati, quindi si aggiunge
     dopo averlo creato."""
-    from nazgarr import upload_watch
+    from nazgarr.upload import watch as upload_watch
 
     scheduler.add_job(
         _scan_watch_folders, IntervalTrigger(seconds=upload_watch.INTERVAL_SECONDS),

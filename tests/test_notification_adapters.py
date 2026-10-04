@@ -20,7 +20,7 @@ def _client(status=204, body=None, seen=None):
 
 @pytest.fixture(autouse=True)
 def _no_dns(monkeypatch):
-    monkeypatch.setattr("nazgarr.net_guard.check_url", lambda url: None)
+    monkeypatch.setattr("nazgarr.core.net_guard.check_url", lambda url: None)
 
 
 def test_discord_sends_an_embed_without_mentions():

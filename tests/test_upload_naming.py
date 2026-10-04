@@ -4,10 +4,10 @@ from types import SimpleNamespace
 
 from pymediainfo import MediaInfo
 
-from nazgarr import upload_profiles
-from nazgarr.mediainfo_util import summarize
-from nazgarr.models import TrackerUploadProfile
-from nazgarr.upload_naming import build_name, detect, release_values, resolution_format, with_tracker_language
+from nazgarr.core.models import TrackerUploadProfile
+from nazgarr.library.mediainfo import summarize
+from nazgarr.upload import profiles as upload_profiles
+from nazgarr.upload.naming import build_name, detect, release_values, resolution_format, with_tracker_language
 from tests.upload_helpers import make_tracker
 
 MEDIAINFO = summarize(MediaInfo((Path(__file__).parent / "fixtures" / "mediainfo_remux.xml").read_text()), "x.mkv")
@@ -86,7 +86,7 @@ def test_bundled_naming_rules_are_versioned(db_session, monkeypatch):
 
 
 def test_multi_above_a_number_of_languages_also_for_all_and_subtitles():
-    from nazgarr.upload_naming import _languages_value
+    from nazgarr.upload.naming import _languages_value
 
     tracks = [{"language": code} for code in ("en", "it", "fr")]
     assert _languages_value(tracks, {"style": "all", "multi_from": 3}) == "MULTI"
@@ -251,7 +251,7 @@ def test_atmos_comes_once_after_all_the_audio_codecs():
 
 
 def test_the_tracker_language_must_be_in_an_audio_track():
-    from nazgarr.upload_naming import audio_language_check
+    from nazgarr.upload.naming import audio_language_check
 
     def info(*tracks):
         return {"audio": [dict(t) for t in tracks]}
@@ -268,7 +268,7 @@ def test_the_tracker_language_must_be_in_an_audio_track():
 
 
 def test_hdr_full_writes_every_hdr_format_with_the_dolby_vision_profile():
-    from nazgarr.upload_naming import release_values
+    from nazgarr.upload.naming import release_values
 
     job = _job()
 
@@ -297,7 +297,7 @@ def test_the_naming_editor_offers_every_variable():
     import re
     from pathlib import Path
 
-    from nazgarr.upload_naming import VARIABLES
+    from nazgarr.upload.naming import VARIABLES
 
     editor = (Path(__file__).resolve().parent.parent / "frontend/src/components/NamingRulesEditor.tsx").read_text()
     listed = re.search(r"const VARIABLE_NAMES = \[(.*?)\]", editor, re.S).group(1)
@@ -305,7 +305,7 @@ def test_the_naming_editor_offers_every_variable():
 
 
 def test_a_remux_is_recognised_from_vu_or_from_a_disc_without_an_encoder():
-    from nazgarr.upload_naming import detect, release_values
+    from nazgarr.upload.naming import detect, release_values
 
     # "VU": la convenzione ITT dei remux, che guessit non conosce.
     assert detect("Film.2023.2160p.UHD.BluRay.VU.DV.HDR.TrueHD.7.1-GRP")["type"] == "REMUX"
@@ -330,8 +330,8 @@ def test_a_remux_is_recognised_from_vu_or_from_a_disc_without_an_encoder():
 
 
 def test_a_dolby_vision_profile_8_remux_is_hybrid_and_drops_vu_at_itt():
-    from nazgarr.upload_naming import build_name, detect, release_values
-    from nazgarr.upload_profiles import _bundled_naming
+    from nazgarr.upload.naming import build_name, detect, release_values
+    from nazgarr.upload.profiles import _bundled_naming
 
     job = _job()
     itt_rules = _bundled_naming("itt")
@@ -350,7 +350,7 @@ def test_a_dolby_vision_profile_8_remux_is_hybrid_and_drops_vu_at_itt():
 
 
 def test_a_remux_without_a_source_comes_from_a_blu_ray_or_a_dvd():
-    from nazgarr.upload_naming import detect, release_values
+    from nazgarr.upload.naming import detect, release_values
 
     job = _job()
     hd = release_values(job, detect("Film.2023.1080p.VU-GRP"), {"video": {"format": "AVC", "height": 1080}}, {}, None)
@@ -363,7 +363,7 @@ def test_a_remux_without_a_source_comes_from_a_blu_ray_or_a_dvd():
 def test_itt_writes_sdr_when_there_is_no_hdr():
     from types import SimpleNamespace
 
-    from nazgarr.upload_naming import build_name, detect, release_values, with_tracker_language
+    from nazgarr.upload.naming import build_name, detect, release_values, with_tracker_language
 
     rules = with_tracker_language(ITT_RULES, "it")
     job = SimpleNamespace(title="Dune", year=2021, content_type="movie", seasons_json="[]", kind="movie", episode=None)
@@ -380,7 +380,7 @@ def test_itt_writes_sdr_when_there_is_no_hdr():
 def test_the_video_codec_follows_the_release_type_with_or_without_mediainfo():
     from types import SimpleNamespace
 
-    from nazgarr.upload_naming import codec_label, detect, release_values
+    from nazgarr.upload.naming import codec_label, detect, release_values
 
     job = SimpleNamespace(title="Dune", year=2021, content_type="movie", seasons_json="[]", kind="movie", episode=None)
 

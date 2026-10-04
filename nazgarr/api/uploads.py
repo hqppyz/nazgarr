@@ -1,7 +1,7 @@
 """API del flusso di upload v2 (docs/SPEC.md §9 "Upload flow v2"). La
 sorgente si sceglie con lo stesso file browser scoped per disco già usato
-altrove (nazgarr/fs_scope.py, mai un path assoluto passato dal client); il
-lavoro vero lo fa il worker (nazgarr/upload_worker.py), l'API crea i job, li
+altrove (nazgarr/core/fs_scope.py, mai un path assoluto passato dal client); il
+lavoro vero lo fa il worker (nazgarr/upload/worker.py), l'API crea i job, li
 mostra e registra le decisioni dell'utente ai due punti di approvazione."""
 
 import json
@@ -14,27 +14,25 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func
 from sqlalchemy.orm import Session, object_session
 
-from nazgarr import (
-    adapter_factory,
-    episode_orders,
-    settings_repo,
-    upload_decision,
-    upload_execute,
-    upload_file_names,
-    upload_identify,
-    upload_jobs,
-    upload_match_score,
-    upload_pack,
-    upload_profiles,
-    upload_verify,
-)
-from nazgarr.adapter_factory import TmdbApiKeyMissingError
-from nazgarr.api_errors import coded_detail, from_coded_error
-from nazgarr.deps import get_or_404, get_session
-from nazgarr.fs_scope import ScopeViolation
-from nazgarr.logging_config import safe_error
-from nazgarr.models import Disk, TorrentClient, TrackerUploadProfile, UploadEvent, UploadJob, UploadTarget
-from nazgarr.upload_jobs import UploadJobError
+from nazgarr.core import settings_repo
+from nazgarr.core.errors import coded_detail, from_coded_error
+from nazgarr.core.fs_scope import ScopeViolation
+from nazgarr.core.logs import safe_error
+from nazgarr.core.models import Disk, TorrentClient, TrackerUploadProfile, UploadEvent, UploadJob, UploadTarget
+from nazgarr.integrations import adapter_factory
+from nazgarr.integrations.adapter_factory import TmdbApiKeyMissingError
+from nazgarr.library import episode_orders
+from nazgarr.upload import decision as upload_decision
+from nazgarr.upload import execute as upload_execute
+from nazgarr.upload import file_names as upload_file_names
+from nazgarr.upload import identify as upload_identify
+from nazgarr.upload import jobs as upload_jobs
+from nazgarr.upload import match_score as upload_match_score
+from nazgarr.upload import pack as upload_pack
+from nazgarr.upload import profiles as upload_profiles
+from nazgarr.upload import verify as upload_verify
+from nazgarr.upload.jobs import UploadJobError
+from nazgarr.web.deps import get_or_404, get_session
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +53,7 @@ class TrackerChoice(BaseModel):
 class UploadCreateRequest(BaseModel):
     disk_id: int
     relative_path: str | None = None
-    # Un pack di video scelti a mano (nazgarr/upload_pack.py), al posto di relative_path.
+    # Un pack di video scelti a mano (nazgarr/upload/pack.py), al posto di relative_path.
     files: list[str] | None = Field(default=None, max_length=upload_pack.MAX_FILES)
     tracker_ids: list[int] | None = None  # None = tutti i tracker con un profilo di upload
     forced_ids: ForcedIds | None = None
@@ -69,7 +67,7 @@ class UploadMatchRequest(BaseModel):
     kind: str  # movie | episode | season_pack | complete_pack
     seasons: list[int] = []  # nella numerazione dell'ordinamento scelto
     episode: int | None = None
-    episode_order: str | None = None  # l'ordinamento degli episodi (nazgarr/episode_orders.py)
+    episode_order: str | None = None  # l'ordinamento degli episodi (nazgarr/library/episode_orders.py)
 
 
 class OrderEpisodeResponse(BaseModel):
@@ -241,8 +239,8 @@ class UploadJobSummary(BaseModel):
     created_at: datetime | None
     finished_at: datetime | None
     targets: list[UploadTargetResponse]
-    origin: str | None = None  # "watch": dalla cartella osservata (nazgarr/upload_watch.py); "pack"
-    pack_name: str | None = None  # un pack di file scelti a mano (nazgarr/upload_pack.py)
+    origin: str | None = None  # "watch": dalla cartella osservata (nazgarr/upload/watch.py); "pack"
+    pack_name: str | None = None  # un pack di file scelti a mano (nazgarr/upload/pack.py)
 
     @classmethod
     def fields_from(cls, j: UploadJob) -> dict:
@@ -413,7 +411,7 @@ class FileNamingRequest(BaseModel):
 
 @router.get("/file-naming")
 def get_file_naming(session: Session = Depends(get_session)) -> dict:
-    """Il pattern dei nomi dei file nel torrent (nazgarr/upload_file_names.py):
+    """Il pattern dei nomi dei file nel torrent (nazgarr/upload/file_names.py):
     quello salvato, e quello di default per tornarci."""
     return {"rules": upload_file_names.rules(session), "default": upload_file_names.DEFAULT_RULES}
 
@@ -543,7 +541,7 @@ def get_episode_orders(upload_id: int, tmdb_id: int, session: Session = Depends(
 
 @router.post("/{upload_id}/rematch", response_model=UploadJobDetail)
 def rematch_upload(upload_id: int, session: Session = Depends(get_session)):
-    """Dalla decisione torna al match (nazgarr/upload_jobs.py back_to_match): per
+    """Dalla decisione torna al match (nazgarr/upload/jobs.py back_to_match): per
     un match, automatico o no, che si è rivelato sbagliato."""
     job = _get_job_or_404(session, upload_id)
     try:

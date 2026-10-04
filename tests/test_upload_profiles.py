@@ -2,8 +2,8 @@ import json
 
 import pytest
 
-from nazgarr import upload_profiles
-from nazgarr.models import Tracker
+from nazgarr.core.models import Tracker
+from nazgarr.upload import profiles as upload_profiles
 
 
 def _tracker(db_session):
@@ -53,7 +53,7 @@ def test_create_upload_profile_unknown_key_raises(db_session):
 
 
 def test_the_language_in_the_naming_rules_moves_to_the_tracker_once(db_session):
-    from nazgarr.models import TrackerUploadProfile
+    from nazgarr.core.models import TrackerUploadProfile
     from tests.upload_helpers import make_tracker
 
     tracker = make_tracker(db_session, "itt", with_profile=False)

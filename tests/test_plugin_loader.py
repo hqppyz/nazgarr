@@ -19,7 +19,7 @@ def _ep(name, obj, dist="nazgarr-test", version="0.1.0"):
 
 
 def _setup(adapter_type, requires=">=1.0,<2", then_fail=False):
-    import nazgarr_sdk as sdk
+    import nazgarr.sdk as sdk
 
     def setup():
         sdk.register(sdk.AdapterSpec("tracker", adapter_type, adapter_type, lambda ctx: None))
@@ -75,7 +75,7 @@ def test_an_installed_plugin_is_found_through_its_entry_point(tmp_path, monkeypa
     site = tmp_path / "plugins" / "site"
     (site / "nazgarr_demo").mkdir(parents=True)
     (site / "nazgarr_demo" / "__init__.py").write_text(textwrap.dedent('''
-        import nazgarr_sdk as sdk
+        import nazgarr.sdk as sdk
         REQUIRES_SDK = ">=1.0,<2"
 
         def setup():

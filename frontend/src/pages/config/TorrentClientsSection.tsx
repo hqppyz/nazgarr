@@ -303,7 +303,7 @@ function TestButton({ id }: { id: number }) {
 
 // Un disco per questo client: acceso o no e, se il client lo vede altrove,
 // la corrispondenza fra una cartella del disco (vuota = la radice) e la
-// cartella vista dal client (nazgarr/client_paths.py), es. Nazgarr
+// cartella vista dal client (nazgarr/torrents/client_paths.py), es. Nazgarr
 // /data/qbittorrent = qBittorrent /download.
 function DiskAssociationRow({
   torrentClientId,

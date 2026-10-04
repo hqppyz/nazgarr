@@ -1,6 +1,6 @@
 import type { EpisodeOrder } from '@/api/hooks/uploads'
 
-// La stessa traduzione di nazgarr/episode_orders.py, per l'anteprima al match:
+// La stessa traduzione di nazgarr/library/episode_orders.py, per l'anteprima al match:
 // un episodio di un ordinamento -> gli episodi di un altro con gli stessi
 // riferimenti (le stagioni di default di TMDB).
 

@@ -1,7 +1,7 @@
 """Gli adapter integrati, iscritti al registro come farebbe un plugin
 (nazgarr/plugins/registry.py). Tracker e client leggono le colonne che hanno
 sempre avuto (ctx.row); gli host di immagini la loro api_key dalle
-impostazioni (nazgarr/adapter_factory.py)."""
+impostazioni (nazgarr/integrations/adapter_factory.py)."""
 
 from nazgarr.adapters.image_host.dalexni import DalexniAdapter
 from nazgarr.adapters.image_host.imgbb import ImgbbAdapter

@@ -6,8 +6,10 @@ con/senza hardlink.
 import os
 from datetime import UTC, datetime
 
-from nazgarr import library, pipeline, scanner
-from nazgarr.models import Disk, MediaFile
+from nazgarr.core.models import Disk, MediaFile
+from nazgarr.library import scanner
+from nazgarr.library import states as library
+from nazgarr.reseed import pipeline
 
 
 def _make_disk(db_session, tmp_path, torrents_rel_path="torrents"):
@@ -171,8 +173,8 @@ def test_bulk_upsert_writes_more_rows_than_a_single_sqlite_statement_allows(db_s
     """Con ogni file della libreria registrato, un disco arriva a decine di
     migliaia di righe: in un'unica istruzione superava il limite di
     parametri di SQLite e lo scan falliva (0 file scansionati)."""
-    from nazgarr.db_utils import UPSERT_CHUNK_ROWS, bulk_upsert
-    from nazgarr.models import Disk, MediaFile
+    from nazgarr.core.db_utils import UPSERT_CHUNK_ROWS, bulk_upsert
+    from nazgarr.core.models import Disk, MediaFile
 
     disk = Disk(label="d", root_path="/mnt/d", media_rel_path="media")
     db_session.add(disk)
@@ -195,7 +197,7 @@ def test_bulk_upsert_writes_more_rows_than_a_single_sqlite_statement_allows(db_s
 
 
 def test_symlinks_are_never_listed(tmp_path):
-    from nazgarr.scanner import _list_files
+    from nazgarr.library.scanner import _list_files
 
     (tmp_path / "media").mkdir()
     real = tmp_path / "media" / "Movie.mkv"

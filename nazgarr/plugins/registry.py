@@ -1,6 +1,6 @@
 """Registro degli adapter (docs/ROADMAP.md Fase 10): quelli integrati e
 quelli dei plugin si iscrivono allo stesso modo, e le factory
-(nazgarr/adapter_factory.py) costruiscono un adapter da qui invece che da una
+(nazgarr/integrations/adapter_factory.py) costruiscono un adapter da qui invece che da una
 catena di if.
 
 Un adapter è descritto da una AdapterSpec: di che tipo è (kind), il suo

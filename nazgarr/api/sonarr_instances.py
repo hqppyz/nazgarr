@@ -3,7 +3,7 @@ nazgarr/api/arr_instances.py, con i nomi dei modelli dello schema OpenAPI
 che il frontend usa (Schemas['SonarrInstance…'])."""
 
 from nazgarr.api import arr_instances as arr
-from nazgarr.models import SonarrInstance
+from nazgarr.core.models import SonarrInstance
 
 
 # I nomi restano quelli di sempre nello schema OpenAPI (src/api/schema.ts).

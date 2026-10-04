@@ -6,8 +6,8 @@ import re
 import sqlite3
 from pathlib import Path
 
-from nazgarr import models
-from nazgarr.db import SCHEMA_PATH
+from nazgarr.core import models
+from nazgarr.core.db import SCHEMA_PATH
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -81,8 +81,8 @@ def test_every_path_the_cli_calls_exists_in_the_api():
 
 def test_the_cli_and_the_api_agree_on_the_protected_settings():
     """Il CLI chiede la password per cambiare le protezioni; l'API le vieta
-    alle API key (nazgarr/settings_registry.py)."""
+    alle API key (nazgarr/core/settings_registry.py)."""
     from nazgarr.cli_client.settings_catalog import CATALOG
-    from nazgarr.settings_registry import SAFETY_KEYS
+    from nazgarr.core.settings_registry import SAFETY_KEYS
 
     assert {s.key for s in CATALOG if s.safety} == SAFETY_KEYS

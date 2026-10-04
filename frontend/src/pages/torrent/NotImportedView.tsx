@@ -41,7 +41,7 @@ function formatSeedTime(seconds: number | null | undefined): string {
 }
 
 // Se il torrent ha già dato quello che il suo tracker chiede (seedtime e/o
-// ratio, impostati sul tracker: nazgarr/seed_requirements.py) e si può togliere.
+// ratio, impostati sul tracker: nazgarr/torrents/seed_requirements.py) e si può togliere.
 // Una risposta in cache di prima di questo campo non lo ha: come "tracker sconosciuto".
 const NO_REQUIREMENT: Torrent['seed_requirement'] = { status: 'unknown_tracker', remaining: {} }
 
@@ -164,7 +164,7 @@ function CategoryBadge({ category }: { category: string }) {
 }
 
 // Triage (prima "Non importati"): torrent in seed senza hardlink in libreria,
-// per torrent, con il perché (nazgarr/not_imported.py). Sola lettura: niente
+// per torrent, con il perché (nazgarr/library/not_imported.py). Sola lettura: niente
 // viene rimosso da qui. In futuro (idea dell'utente, 2026-10-02) un click per
 // togliere quelli senza rischi, sempre dalla coda di approvazione.
 export function NotImportedView() {

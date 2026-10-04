@@ -8,7 +8,7 @@ export type UploadJob = Schemas['UploadJobDetail']
 export type UploadJobSummary = Schemas['UploadJobSummary']
 export type UploadTarget = Schemas['UploadTargetResponse']
 
-// Stati in cui il worker sta lavorando (nazgarr/upload_jobs.py WORKER_STATES):
+// Stati in cui il worker sta lavorando (nazgarr/upload/jobs.py WORKER_STATES):
 // solo lì serve il polling, a un punto di approvazione o a job finito no.
 export const WORKER_STATES = ['identifying', 'analyzing', 'queued', 'running']
 const POLL_MS = 2000
@@ -103,7 +103,7 @@ export function useImageHostStatus() {
 export type EpisodeOrders = Schemas['EpisodeOrdersResponse']
 export type EpisodeOrder = Schemas['EpisodeOrderResponse']
 
-// Gli ordinamenti degli episodi di una serie candidata (nazgarr/episode_orders.py):
+// Gli ordinamenti degli episodi di una serie candidata (nazgarr/library/episode_orders.py):
 // proposta, quanto ci combaciano i file, avviso, episodi tradotti.
 export function useEpisodeOrders(uploadId: number, tmdbId: number | null) {
   return useQuery({

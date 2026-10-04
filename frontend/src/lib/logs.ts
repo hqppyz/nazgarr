@@ -4,6 +4,11 @@ export function shortLogger(name: string): string {
   if (name.startsWith('apscheduler')) return 'scheduler'
   if (name === 'uvicorn.access') return 'http'
   if (name.startsWith('uvicorn')) return 'server'
-  const parts = name.replace(/^(nazgarr|app)\./, '').split('.')
+  // Il sottopacchetto (nazgarr.reseed.pipeline) non serve a riconoscere il
+  // modulo; upload sì, al posto del vecchio prefisso upload_ (upload.execute).
+  const parts = name
+    .replace(/^(nazgarr|app)\./, '')
+    .replace(/^(core|web|library|torrents|reseed|integrations)\./, '')
+    .split('.')
   return parts.slice(-2).join('.')
 }

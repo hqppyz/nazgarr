@@ -8,11 +8,12 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session, object_session
 
-from nazgarr import pipeline, review, seeding
-from nazgarr.api_errors import coded_detail
-from nazgarr.deps import get_or_404, get_session
-from nazgarr.executor import ExecutionError
-from nazgarr.models import Candidate, MatchReview, SeedJob, TorrentClient
+from nazgarr.core.errors import coded_detail
+from nazgarr.core.models import Candidate, MatchReview, SeedJob, TorrentClient
+from nazgarr.library import seeding
+from nazgarr.reseed import pipeline, review
+from nazgarr.reseed.executor import ExecutionError
+from nazgarr.web.deps import get_or_404, get_session
 
 router = APIRouter(prefix="/api/reviews", tags=["reviews"])
 

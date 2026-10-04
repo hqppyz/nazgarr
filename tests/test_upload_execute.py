@@ -7,12 +7,15 @@ from datetime import UTC, datetime
 import pytest
 import torf
 
-from nazgarr import torrent_create, upload_decision, upload_execute, upload_jobs
 from nazgarr.adapters.tracker.base import UploadedTorrent, UploadError
-from nazgarr.models import Disk, TrackerUploadProfile
-from nazgarr.torrent_file import compute_info_hash
-from nazgarr.upload_jobs import UploadJobError
-from nazgarr.upload_worker import UploadWorker
+from nazgarr.core.models import Disk, TrackerUploadProfile
+from nazgarr.torrents import create as torrent_create
+from nazgarr.torrents.metainfo import compute_info_hash
+from nazgarr.upload import decision as upload_decision
+from nazgarr.upload import execute as upload_execute
+from nazgarr.upload import jobs as upload_jobs
+from nazgarr.upload.jobs import UploadJobError
+from nazgarr.upload.worker import UploadWorker
 from tests.upload_helpers import InlineExecutor, make_client, make_tracker, write_video
 
 KB = 1024
@@ -378,7 +381,7 @@ def test_client_category_and_tags_follow_the_client_defaults_or_the_job(db_sessi
 
 
 def test_an_anime_takes_the_anime_category(db_session, env):
-    from nazgarr import client_labels
+    from nazgarr.torrents import client_labels
 
     env["client_row"].category_tv, env["client_row"].category_anime = "tv", "anime"
     db_session.commit()
@@ -428,7 +431,7 @@ def test_a_library_file_is_uploaded_with_a_generated_release_name(db_session, tm
 
 def test_the_mediainfo_names_the_file_in_the_torrent_not_the_local_path(db_session, tmp_path, env, monkeypatch):
     # Rinominare cambia solo "Complete name"; il percorso locale non esce verso il tracker.
-    monkeypatch.setattr("nazgarr.mediainfo_util.extract_full_text", lambda path: None)
+    monkeypatch.setattr("nazgarr.library.mediainfo.extract_full_text", lambda path: None)
     video = write_video(env["root"] / "media" / "The Matrix (1999) {imdb-tt0133093}.mkv", 300 * KB)
     job = _approved(db_session, env, "media/" + video.name, {"a": _upload("Matrix A"), "b": {"action": "skip"}},
                     file_naming=None)
@@ -444,7 +447,7 @@ def test_the_mediainfo_names_the_file_in_the_torrent_not_the_local_path(db_sessi
 
 
 def test_the_names_of_the_hardlinked_torrent_win(db_session, tmp_path, env):
-    from nazgarr.models import ClientTorrent, ClientTorrentFile, RunLog, SeedFile
+    from nazgarr.core.models import ClientTorrent, ClientTorrentFile, RunLog, SeedFile
 
     video = write_video(env["root"] / "media" / "Matrix (1999).mkv", 300 * KB)
     release = env["root"] / "torrents" / "The.Matrix.1999.1080p.BluRay.x264-GRP.mkv"
@@ -557,7 +560,8 @@ def test_a_release_folder_leaves_with_its_files_and_lists_what_the_torrent_did_n
 
 
 def _single_file(db_session, choice):
-    from nazgarr import settings_repo, upload_file_names
+    from nazgarr.core import settings_repo
+    from nazgarr.upload import file_names as upload_file_names
     settings_repo.set_setting(db_session, upload_file_names.SINGLE_FILE_SETTING, "true")
     settings_repo.set_setting(db_session, upload_file_names.SINGLE_FILE_FOLDER_SETTING, choice)
     db_session.commit()
@@ -613,14 +617,14 @@ def test_a_folder_with_more_files_stays_a_folder(db_session, tmp_path, env):
     assert torrent.mode == "multifile" and torrent.name == "Movie (2024)"
 
 
-# --- pack di file scelti a mano (nazgarr/upload_pack.py) ----------------------
+# --- pack di file scelti a mano (nazgarr/upload/pack.py) ----------------------
 
 
 def _pack(db_session, env, files, kind, seasons, file_naming=None, **overrides):
     from dataclasses import asdict
 
-    from nazgarr import upload_pack
-    from nazgarr.upload_source import scan_source
+    from nazgarr.upload import pack as upload_pack
+    from nazgarr.upload.source import scan_source
     job = upload_pack.create_job(db_session, env["disk"], files)
     layout = scan_source(job.source_path, upload_pack.entries(job), upload_pack.name(job))
     assert (layout.kind, layout.seasons) == (kind, seasons)
@@ -652,7 +656,7 @@ def test_a_pack_of_episodes_already_seeding_becomes_one_season_torrent(db_sessio
     (episodes[0].parent / "other.nfo").write_text("x")  # non è un sottotitolo del video: resta fuori
     job = _pack(db_session, env, [str(p.relative_to(env["root"])) for p in episodes], "season_pack", [1],
                 file_naming="original")
-    from nazgarr import upload_pack
+    from nazgarr.upload import pack as upload_pack
     assert upload_pack.name(job) == "Show.S01.1080p.WEB-DL-GRP"
     assert sorted(n for _p, n in upload_pack.entries(job))[0] == "Show.S01E01.1080p.WEB-DL-GRP.it.srt"
     upload_decision.approve(db_session, job, [
@@ -680,7 +684,7 @@ def test_a_complete_pack_puts_each_season_in_its_folder(db_session, tmp_path, en
     files = _episodes(env, "torrents", 1, 2) + _episodes(env, "torrents", 2, 2)
     job = _pack(db_session, env, [str(p.relative_to(env["root"])) for p in files], "complete_pack", [1, 2],
                 file_naming="original")
-    from nazgarr import upload_file_names
+    from nazgarr.upload import file_names as upload_file_names
     plan = upload_file_names.plan(db_session, job)
     assert plan.content_name == "Show.S01-S02.1080p.WEB-DL-GRP"
     assert sorted(target for _s, target in plan.files) == [
@@ -716,7 +720,7 @@ def test_a_mixed_pack_waits_for_a_confirmation(db_session, tmp_path, env):
 
 
 def test_a_pack_checks_every_file(db_session, tmp_path, env):
-    from nazgarr import upload_pack
+    from nazgarr.upload import pack as upload_pack
     a, b = _episodes(env, "torrents", 1, 2)
     rel = lambda p: str(p.relative_to(env["root"]))  # noqa: E731
     with pytest.raises(UploadJobError, match="upload_pack_too_few_files"):
@@ -731,13 +735,13 @@ def test_a_pack_checks_every_file(db_session, tmp_path, env):
     os.symlink(b, env["root"] / "torrents" / "link.mkv")
     with pytest.raises(UploadJobError, match="upload_source_has_symlinks"):
         upload_pack.create_job(db_session, env["disk"], [rel(a), "torrents/link.mkv"])
-    from nazgarr.fs_scope import ScopeViolation
+    from nazgarr.core.fs_scope import ScopeViolation
     with pytest.raises(ScopeViolation):
         upload_pack.create_job(db_session, env["disk"], [rel(a), "../outside.mkv"])
 
 
 def test_an_episode_seeding_alone_does_not_mark_the_pack_as_seeding():
-    from nazgarr.upload_analysis import seeding_here
+    from nazgarr.upload.analysis import seeding_here
     target = types.SimpleNamespace(
         tracker=types.SimpleNamespace(announce_url="https://t.example/announce", base_url=None), torrent_client_id=1,
     )
@@ -748,7 +752,7 @@ def test_an_episode_seeding_alone_does_not_mark_the_pack_as_seeding():
 
 
 def test_the_season_name_of_an_episode():
-    from nazgarr.upload_pack import season_name
+    from nazgarr.upload.pack import season_name
     assert season_name("Show.S01E01.1080p.WEB-DL-GRP.mkv", [1]) == "Show.S01.1080p.WEB-DL-GRP"
     assert season_name("Show.S01E01E02.1080p-GRP", [1]) == "Show.S01.1080p-GRP"
     assert (season_name("Show (2020) - S02E05 - Title [WEBDL-1080p]", [1, 3])

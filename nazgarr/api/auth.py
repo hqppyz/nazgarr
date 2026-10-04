@@ -10,9 +10,10 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from nazgarr import auth, login_limiter, settings_repo
-from nazgarr.api_errors import coded_detail
-from nazgarr.deps import get_session
+from nazgarr.core import settings_repo
+from nazgarr.core.errors import coded_detail
+from nazgarr.web import auth, login_limiter
+from nazgarr.web.deps import get_session
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 

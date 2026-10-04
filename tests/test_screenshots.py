@@ -9,7 +9,7 @@ import subprocess
 
 import pytest
 
-from nazgarr.screenshots import ScreenshotError, generate_screenshots, is_blank, luma_stats
+from nazgarr.upload.screenshots import ScreenshotError, generate_screenshots, is_blank, luma_stats
 
 pytestmark = pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="richiede il binario ffmpeg")
 
@@ -101,7 +101,7 @@ def test_a_10_bit_source_gives_an_8_bit_png(tmp_path):
 
 
 def test_a_screenshot_over_the_cap_is_kept_as_a_full_size_jpeg(tmp_path, monkeypatch):
-    monkeypatch.setattr("nazgarr.screenshots.MAX_SCREENSHOT_BYTES", 1)
+    monkeypatch.setattr("nazgarr.upload.screenshots.MAX_SCREENSHOT_BYTES", 1)
     video = tmp_path / "video.mp4"
     _make_test_video(video)
 

@@ -6,7 +6,7 @@ torrent è un requisito funzionale non negoziabile, mai un modo per
 bypassarlo implicitamente, es. default a skip_checking=True).
 
 list_torrents() è la parte nuova rispetto a ratio-guardian: enumera ogni
-torrent noto al client, file per file, usata da nazgarr/torrent_indexer.py per
+torrent noto al client, file per file, usata da nazgarr/torrents/indexer.py per
 popolare client_torrent/client_torrent_file e quindi calcolare
 orphan_torrent/ignored (sezione 3, multi-client). Sola lettura — non
 aggiunge/modifica mai nulla sul client.
@@ -37,7 +37,7 @@ class TorrentStatus:
     recheck_status: RecheckStatus
     progress: float  # 0.0-1.0
     # recheck_status "failed" solo perché mancano dati (nessuno stato di
-    # errore del client): nazgarr/executor.py lo accetta se mancano soltanto i
+    # errore del client): nazgarr/reseed/executor.py lo accetta se mancano soltanto i
     # file extra che si sapeva di non avere (seed_job.expected_missing_bytes).
     incomplete: bool = False
     amount_left: int | None = None  # byte ancora da scaricare, se il client lo espone
@@ -123,12 +123,12 @@ class TorrentClientAdapter(ABC):
         skip_check_verified: le sole eccezioni al recheck del client. Il
         chiamante ha appena verificato lui ogni piece di quei file: un reseed
         dopo il controllo completo al 100% (decisione dell'utente, 2026-09-29,
-        opzione spenta di default, nazgarr/full_check.py), o un upload, il cui
+        opzione spenta di default, nazgarr/reseed/full_check.py), o un upload, il cui
         torrent Nazgarr ha appena creato leggendo quei file (decisione
-        dell'utente, 2026-09-30, nazgarr/upload_execute.py). Il client lo
+        dell'utente, 2026-09-30, nazgarr/upload/execute.py). Il client lo
         aggiunge già completo, senza rileggerlo una seconda volta.
 
-        category / tags: solo etichette nel client (nazgarr/client_labels.py); la
+        category / tags: solo etichette nel client (nazgarr/torrents/client_labels.py); la
         gestione automatica resta spenta, una categoria non sposta i file.
 
         expected_info_hash (se noto: il .torrent è già stato scaricato e

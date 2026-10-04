@@ -18,7 +18,7 @@ export type Schemas = components['schemas']
 export const api = createClient<paths>({ baseUrl: '' })
 
 // Allega il token a ogni richiesta se presente — un'istanza senza login
-// mai configurato (nazgarr/auth.py) non ne ha uno, e ogni endpoint resta
+// mai configurato (nazgarr/web/auth.py) non ne ha uno, e ogni endpoint resta
 // raggiungibile esattamente come prima di questa fase. Su 401 il token
 // viene scartato: AuthGate lo rileva al prossimo controllo e rimanda al
 // login, invece di continuare a rimandare un token ormai invalido/scaduto.
@@ -52,7 +52,7 @@ api.use({
  * (weak-type check su un'unione discriminata senza proprietà realmente
  * in comune tra i due rami).
  *
- * Il backend (nazgarr/api_errors.py) restituisce `{"detail": {"code", "params"}}`
+ * Il backend (nazgarr/core/errors.py) restituisce `{"detail": {"code", "params"}}`
  * per ogni errore autorato — mai testo libero — tradotto qui in inglese via
  * t('errors.' + code, params). Un `detail` stringa semplice (validazione
  * pydantic 422, o un messaggio già in inglese proveniente da un servizio

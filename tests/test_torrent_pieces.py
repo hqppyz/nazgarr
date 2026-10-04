@@ -1,6 +1,6 @@
 import hashlib
 
-from nazgarr.torrent_pieces import verify_file_pieces
+from nazgarr.torrents.pieces import verify_file_pieces
 
 
 def _pieces(content: bytes, piece_length: int) -> list[bytes]:

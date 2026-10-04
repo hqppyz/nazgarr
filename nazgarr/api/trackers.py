@@ -9,14 +9,16 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session, object_session
 
-from nazgarr import tracker_icons, upload_decision, upload_profiles
 from nazgarr.api.types import HttpUrlStr, host_changed, require_secrets_for_new_host
-from nazgarr.api_errors import coded_detail, from_coded_error
-from nazgarr.deps import get_or_404, get_session
-from nazgarr.models import Tracker, TrackerUploadProfile
+from nazgarr.core.errors import coded_detail, from_coded_error
+from nazgarr.core.models import Tracker, TrackerUploadProfile
 from nazgarr.plugins import REGISTRY
 from nazgarr.plugins import config as plugin_config
-from nazgarr.upload_naming import LANG3
+from nazgarr.torrents import tracker_icons
+from nazgarr.upload import decision as upload_decision
+from nazgarr.upload import profiles as upload_profiles
+from nazgarr.upload.naming import LANG3
+from nazgarr.web.deps import get_or_404, get_session
 
 LANGUAGE_CODES = frozenset(LANG3)
 
@@ -33,8 +35,8 @@ class TrackerCreateRequest(BaseModel):
     rate_limit_per_min: int | None = None
     rss_key: str | None = None  # facoltativa: appresa in automatico dall'API
     torrent_client_id: int | None = None  # client per i reseed di questo tracker, None = il primo abilitato
-    language: str | None = None  # ISO 639-1, es. "it": per i nomi degli upload (nazgarr/upload_naming.py)
-    # Requisito di seed (hit and run), facoltativo: nazgarr/seed_requirements.py.
+    language: str | None = None  # ISO 639-1, es. "it": per i nomi degli upload (nazgarr/upload/naming.py)
+    # Requisito di seed (hit and run), facoltativo: nazgarr/torrents/seed_requirements.py.
     min_seed_time_seconds: int | None = Field(default=None, ge=0)
     min_ratio: float | None = Field(default=None, ge=0)
     seed_rule: Literal["any", "all"] | None = None
@@ -207,7 +209,7 @@ def update_tracker(
 
 @router.get("/{tracker_id}/icon")
 def tracker_icon(tracker_id: int, request: Request, session: Session = Depends(get_session)):
-    """La favicon del tracker, dalla cache locale (nazgarr/tracker_icons.py)."""
+    """La favicon del tracker, dalla cache locale (nazgarr/torrents/tracker_icons.py)."""
     tracker = _get_tracker_or_404(session, tracker_id)
     path = tracker_icons.fetch_icon(request.app.state.settings.data_dir, tracker.id, tracker.base_url)
     if path is None:

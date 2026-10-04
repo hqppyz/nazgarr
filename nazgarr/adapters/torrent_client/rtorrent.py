@@ -71,7 +71,7 @@ from nazgarr.adapters.torrent_client.base import (
     require_recheck,
     wait_for_hash,
 )
-from nazgarr.torrent_file import compute_info_hash
+from nazgarr.torrents.metainfo import compute_info_hash
 
 logger = logging.getLogger(__name__)
 

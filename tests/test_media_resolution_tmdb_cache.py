@@ -6,11 +6,12 @@ CachingTMDBClient isolato (tests/test_tmdb_cache.py)."""
 
 import httpx
 
-from nazgarr import media_resolution, pipeline
 from nazgarr.adapters.media_resolver.filename_parser import FilenameParserResolver
-from nazgarr.models import Disk, MediaFile
-from nazgarr.tmdb_cache import CachingTMDBClient
-from nazgarr.tmdb_client import TMDBClient
+from nazgarr.core.models import Disk, MediaFile
+from nazgarr.library import resolution as media_resolution
+from nazgarr.library.tmdb_cache import CachingTMDBClient
+from nazgarr.library.tmdb_client import TMDBClient
+from nazgarr.reseed import pipeline
 from tests.fakes import make_media_file
 
 

@@ -2,8 +2,8 @@
 
 Vedi docs/SPEC.md sezione 4 (ereditata da ratio-guardian). Usata sia per
 scegliere le cartelle media e di seeding di un disco (disk_folder,
-nazgarr/disk_folders.py) che le altre sue cartelle — un solo meccanismo di
-scoping condiviso (nazgarr/fs_scope.py), mai duplicato.
+nazgarr/library/disk_folders.py) che le altre sue cartelle — un solo meccanismo di
+scoping condiviso (nazgarr/core/fs_scope.py), mai duplicato.
 
 Nazgarr è un'API JSON pura fin dall'inizio (a differenza di
 ratio-guardian, che ha ancora una Web UI Jinja2): anche l'elenco dei mount
@@ -18,11 +18,11 @@ from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from nazgarr import disk_folders
-from nazgarr.api_errors import CodedError, coded_detail, from_coded_error
-from nazgarr.deps import get_or_404, get_session
-from nazgarr.fs_scope import ScopeViolation, resolve_scoped
-from nazgarr.models import ClientTorrentFile, Disk, SeedFile
+from nazgarr.core.errors import CodedError, coded_detail, from_coded_error
+from nazgarr.core.fs_scope import ScopeViolation, resolve_scoped
+from nazgarr.core.models import ClientTorrentFile, Disk, SeedFile
+from nazgarr.library import disk_folders
+from nazgarr.web.deps import get_or_404, get_session
 
 router = APIRouter(prefix="/api/disks", tags=["disks"])
 
@@ -77,7 +77,7 @@ class DiskUpdateRequest(BaseModel):
 
 
 class DiskFolderResponse(BaseModel):
-    id: int | None  # None: un disco non ancora migrato (nazgarr/db.py migrate_disk_folders)
+    id: int | None  # None: un disco non ancora migrato (nazgarr/core/db.py migrate_disk_folders)
     kind: str  # media | seeding
     relative_path: str
 
@@ -174,7 +174,7 @@ def create_disk(session: Session, label: str, root_path: str, scan_root: str) ->
 
 
 def verify_disk(session: Session, disk: Disk) -> VerifyResponse:
-    """La prova del disco (nazgarr/disk_folders.py test_disk): cartelle,
+    """La prova del disco (nazgarr/library/disk_folders.py test_disk): cartelle,
     filesystem e un hardlink di prova fra le cartelle. st_dev da solo non
     basta: su FUSE cambia a ogni rimontaggio."""
     result = disk_folders.test_disk(session, disk)
@@ -327,7 +327,7 @@ def _watch_folder(session: Session, disk: Disk, relative: str | None) -> str | N
 
 @router.post("/{disk_id}/folders", response_model=DiskResponse, status_code=201)
 def add_folder(disk_id: int, body: DiskFolderRequest, session: Session = Depends(get_session)):
-    """Una cartella media o di seeding in più (nazgarr/disk_folders.py)."""
+    """Una cartella media o di seeding in più (nazgarr/library/disk_folders.py)."""
     disk = _get_disk_or_404(session, disk_id)
     try:
         disk_folders.add(session, disk, body.kind, body.relative_path)

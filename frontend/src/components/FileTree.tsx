@@ -67,7 +67,7 @@ export function buildTree(files: TreeFileEntry[]): TreeNode {
   return root;
 }
 
-// Stesse estensioni di nazgarr/file_types.py: solo l'icona, lo stato arriva dal backend.
+// Stesse estensioni di nazgarr/core/file_types.py: solo l'icona, lo stato arriva dal backend.
 const VIDEO_EXTENSIONS = [".mkv", ".mp4", ".avi", ".m2ts", ".ts", ".wmv", ".mov"];
 
 function isVideo(path: string): boolean {
@@ -107,7 +107,7 @@ export interface TreeRowActions {
   folder?: (node: TreeNode) => RowMenuItem[]
 }
 
-// Un video che può entrare in un pack (nazgarr/upload_pack.py): su un disco, non escluso.
+// Un video che può entrare in un pack (nazgarr/upload/pack.py): su un disco, non escluso.
 function packable(file: TreeFileEntry): boolean {
   return file.disk_id != null && !file.excluded && isVideoPath(file.relative_path);
 }

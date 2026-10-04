@@ -1,12 +1,12 @@
-"""L'unico modo di creare hardlink (nazgarr/hardlinks.py), per l'esecuzione
+"""L'unico modo di creare hardlink (nazgarr/library/hardlinks.py), per l'esecuzione
 delle review e per l'upload."""
 
 import os
 
 import pytest
 
-from nazgarr import hardlinks
-from nazgarr.fs_scope import ScopeViolation
+from nazgarr.core.fs_scope import ScopeViolation
+from nazgarr.library import hardlinks
 
 
 @pytest.fixture

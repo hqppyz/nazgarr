@@ -4,11 +4,12 @@ import types
 import pytest
 from sqlalchemy import text
 
-from nazgarr import db as db_module
-from nazgarr import disk_folders, pipeline, scanner
-from nazgarr.disk_folders import FolderError
-from nazgarr.models import Disk, MediaFile, SeedFile
-from nazgarr.scan_state import is_current, latest_scan_by_disk
+from nazgarr.core import db as db_module
+from nazgarr.core.models import Disk, MediaFile, SeedFile
+from nazgarr.library import disk_folders, scanner
+from nazgarr.library.disk_folders import FolderError
+from nazgarr.library.scan_state import is_current, latest_scan_by_disk
+from nazgarr.reseed import pipeline
 
 
 @pytest.fixture

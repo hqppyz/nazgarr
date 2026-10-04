@@ -1,8 +1,8 @@
 """Contratto dei servizi di notifica (docs/ROADMAP.md Fase 10): Discord,
 Telegram, ntfy, Apprise... arrivano dai plugin. Nazgarr trasforma ogni
-evento (nazgarr/events.py) in una Notification già leggibile; l'adapter la
+evento (nazgarr/core/events.py) in una Notification già leggibile; l'adapter la
 manda. Un errore (NotificationError, o qualunque eccezione) fa ritentare la
-consegna come per i webhook (nazgarr/webhooks.py)."""
+consegna come per i webhook (nazgarr/integrations/webhooks.py)."""
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field

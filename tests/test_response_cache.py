@@ -1,8 +1,8 @@
-"""Cache delle viste della libreria (nazgarr/response_cache.py): ETag sulla
+"""Cache delle viste della libreria (nazgarr/web/response_cache.py): ETag sulla
 versione dei dati, 304 se il browser ha già quella versione, ricalcolo solo
 quando cambia; gzip sulle risposte grandi."""
 
-from nazgarr import library
+from nazgarr.library import states as library
 
 
 def test_same_version_answers_304_without_recomputing(client, monkeypatch):
@@ -43,7 +43,7 @@ def test_disks_folders_and_removed_torrents_change_the_version(client):
     cartelle, un torrent rimosso dal client (Non importati)."""
     from datetime import UTC, datetime
 
-    from nazgarr.models import ClientTorrent, TorrentClient
+    from nazgarr.core.models import ClientTorrent, TorrentClient
 
     def etag():
         return client.get("/api/seed-files").headers["etag"]

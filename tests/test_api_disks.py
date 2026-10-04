@@ -121,8 +121,8 @@ def test_the_watched_folder_is_validated(client):
 def test_a_folder_where_a_client_downloads_is_never_watched(client):
     from datetime import UTC, datetime
 
-    from nazgarr import pipeline
-    from nazgarr.models import ClientTorrent, ClientTorrentFile, SeedFile, TorrentClient
+    from nazgarr.core.models import ClientTorrent, ClientTorrentFile, SeedFile, TorrentClient
+    from nazgarr.reseed import pipeline
 
     root = client.scan_root / "disk1"
     (root / "torrents" / "movies").mkdir(parents=True)

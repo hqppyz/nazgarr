@@ -187,7 +187,7 @@ def test_a_deluge_client_has_only_a_password(cli_env, client, capsys):
     added = json.loads(run(capsys, "--json", "client", "ls")[1])[0]
     assert (added["adapter_type"], added["username"]) == ("deluge", None)
     with client.app.state.session_factory() as session:
-        from nazgarr.models import TorrentClient
+        from nazgarr.core.models import TorrentClient
         assert session.get(TorrentClient, added["id"]).password == "delugepass"
     exported = yaml.safe_load(run(capsys, "config", "export")[1])
     assert exported["torrent_clients"][0]["password"] == "${NAZGARR_CLIENT_DL_PASSWORD}"
@@ -254,7 +254,7 @@ class _NoDupes:
 
 
 def test_an_upload_walks_to_the_decision_and_stops_on_a_problem(cli_env, client, capsys, monkeypatch):
-    from nazgarr import upload_analysis
+    from nazgarr.upload import analysis as upload_analysis
 
     monkeypatch.setattr(upload_analysis.adapter_factory, "build_tracker_adapter", lambda tracker: _NoDupes())
     _login(capsys)

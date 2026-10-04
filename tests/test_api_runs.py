@@ -53,7 +53,7 @@ def test_trigger_bulk_import_and_poll_until_finished(client):
 def test_a_second_run_is_refused_while_one_is_in_progress(client):
     """Due run insieme scriverebbero le stesse tabelle (e con l'esecuzione
     automatica potrebbero eseguire due volte la stessa review)."""
-    from nazgarr import pipeline
+    from nazgarr.reseed import pipeline
 
     session = client.app.state.session_factory()
     try:
@@ -61,7 +61,7 @@ def test_a_second_run_is_refused_while_one_is_in_progress(client):
         response = client.post("/api/runs")
         assert response.status_code == 409
         assert response.json()["detail"]["code"] == "run_in_progress"
-        from nazgarr.models import RunLog
+        from nazgarr.core.models import RunLog
 
         assert [r.id for r in session.query(RunLog).all()] == [running.id]
     finally:

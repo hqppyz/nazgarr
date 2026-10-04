@@ -8,7 +8,7 @@ import { shortLogger } from '@/lib/logs'
 import { cn } from '@/lib/utils'
 
 // DEBUG si chiama "Verbose": il dettaglio per capire un problema, non per
-// leggerlo ogni giorno (nazgarr/logging_config.py ci mette le librerie chiacchierone).
+// leggerlo ogni giorno (nazgarr/core/logs.py ci mette le librerie chiacchierone).
 const LEVELS = ['DEBUG', 'INFO', 'WARNING', 'ERROR'] as const
 const LEVEL_LABEL: Record<string, string> = {
   DEBUG: t('logs.levelVerbose'), INFO: t('logs.levelInfo'), WARNING: t('logs.levelWarning'), ERROR: t('logs.levelError'),

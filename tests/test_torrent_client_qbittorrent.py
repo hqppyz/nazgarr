@@ -212,7 +212,7 @@ def test_close_logs_out_only_when_there_is_a_session():
 def test_the_factory_closes_the_adapter_even_when_the_operation_fails(monkeypatch):
     import pytest
 
-    from nazgarr import adapter_factory
+    from nazgarr.integrations import adapter_factory
 
     closed = []
 

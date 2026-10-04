@@ -4,8 +4,11 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from nazgarr import settings_repo, upload_identify, upload_jobs, upload_watch
-from nazgarr.models import UploadJob, WatchEntry
+from nazgarr.core import settings_repo
+from nazgarr.core.models import UploadJob, WatchEntry
+from nazgarr.upload import identify as upload_identify
+from nazgarr.upload import jobs as upload_jobs
+from nazgarr.upload import watch as upload_watch
 from tests.upload_helpers import FakeTMDB, make_disk, make_tracker, tmdb_result, write_video
 
 T0 = datetime(2026, 10, 2, 12, 0, tzinfo=UTC)

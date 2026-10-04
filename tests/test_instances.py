@@ -1,7 +1,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from nazgarr import instances
+from nazgarr.integrations import instances
 
 
 @pytest.mark.parametrize("remote, local, expected", [

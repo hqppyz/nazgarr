@@ -8,10 +8,10 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from nazgarr import settings_registry, settings_repo
-from nazgarr.api_errors import coded_detail
-from nazgarr.deps import get_session
-from nazgarr.exclusions import DEFAULT_ENABLED_PRESETS, PRESETS
+from nazgarr.core import settings_registry, settings_repo
+from nazgarr.core.errors import coded_detail
+from nazgarr.library.exclusions import DEFAULT_ENABLED_PRESETS, PRESETS
+from nazgarr.web.deps import get_session
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
@@ -46,7 +46,7 @@ def list_exclusion_presets():
 # non si leggono né si scrivono, mai (l'hash della password, o sostituirlo).
 _AUTH = re.compile(r"^auth_")
 # Impostazioni segrete (chiavi API, token, password): la UI dopo il login le
-# usa, una API key no (nazgarr/api_keys.py).
+# usa, una API key no (nazgarr/web/api_keys.py).
 _SECRET = settings_repo.SECRET_KEY
 
 

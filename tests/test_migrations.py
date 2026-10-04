@@ -1,8 +1,8 @@
-"""Le migrazioni con una versione (nazgarr/migrations.py)."""
+"""Le migrazioni con una versione (nazgarr/core/migrations.py)."""
 
 from sqlalchemy import inspect, text
 
-from nazgarr import db, migrations
+from nazgarr.core import db, migrations
 
 
 def test_a_new_database_ends_at_the_latest_version_with_every_table(tmp_path):

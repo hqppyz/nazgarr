@@ -1,6 +1,6 @@
 import pytest
 
-from nazgarr.fs_scope import ScopeViolation, resolve_scoped
+from nazgarr.core.fs_scope import ScopeViolation, resolve_scoped
 
 
 def test_resolves_within_root(tmp_path):

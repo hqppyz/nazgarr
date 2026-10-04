@@ -3,9 +3,8 @@ from datetime import UTC, datetime
 
 import pytest
 
-from nazgarr import executor, pipeline
 from nazgarr.adapters.torrent_client.base import TorrentStatus
-from nazgarr.models import (
+from nazgarr.core.models import (
     Candidate,
     Disk,
     DiskTorrentClient,
@@ -16,6 +15,7 @@ from nazgarr.models import (
     TorrentClient,
     Tracker,
 )
+from nazgarr.reseed import executor, pipeline
 
 
 class FakeAdapter:
@@ -233,7 +233,7 @@ def test_reconcile_seed_job_updates_status_to_seeding(db_session, tmp_path):
     )
     db_session.add(candidate)
     db_session.commit()
-    from nazgarr.models import SeedJob
+    from nazgarr.core.models import SeedJob
 
     seed_job = SeedJob(
         candidate_id=candidate.id, final_status="in_progress", info_hash="deadbeef", recheck_status="pending"

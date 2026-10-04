@@ -3,7 +3,7 @@
 
 I poster dei candidati di solito non sono nella cache della libreria (il
 contenuto non è ancora stato scansionato): questo endpoint li scarica una
-volta nella stessa cache (nazgarr/poster_cache.py) e li serve da lì, così la
+volta nella stessa cache (nazgarr/library/poster_cache.py) e li serve da lì, così la
 chiave TMDB resta sul server e il browser non parla mai con TMDB.
 """
 
@@ -16,12 +16,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
-from nazgarr import upload_identify
-from nazgarr.adapter_factory import TmdbApiKeyMissingError
-from nazgarr.api_errors import coded_detail, from_coded_error
-from nazgarr.deps import get_session
-from nazgarr.logging_config import safe_error
-from nazgarr.poster_cache import download_poster, poster_file
+from nazgarr.core.errors import coded_detail, from_coded_error
+from nazgarr.core.logs import safe_error
+from nazgarr.integrations.adapter_factory import TmdbApiKeyMissingError
+from nazgarr.library.poster_cache import download_poster, poster_file
+from nazgarr.upload import identify as upload_identify
+from nazgarr.web.deps import get_session
 
 logger = logging.getLogger(__name__)
 

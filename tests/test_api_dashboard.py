@@ -25,7 +25,7 @@ def test_dashboard_changes_empty(client):
 def test_dashboard_reflects_run_log(client):
     session = client.app.state.session_factory()
     try:
-        from nazgarr import pipeline
+        from nazgarr.reseed import pipeline
 
         run = pipeline.start_run(session, "bulk_import")
         run.current_phase = None
@@ -89,7 +89,7 @@ def test_schedule_put_empty_disables(client):
 def test_dashboard_trend_uses_the_scan_before_the_last_and_history_by_days(client):
     from datetime import UTC, datetime, timedelta
 
-    from nazgarr import pipeline
+    from nazgarr.reseed import pipeline
 
     session = client.app.state.session_factory()
     try:
@@ -121,7 +121,7 @@ def test_without_a_library_the_history_keeps_the_torrent_numbers(client):
     # Solo torrent e upload: niente salute, ma l'andamento delle card sì.
     from datetime import UTC, datetime
 
-    from nazgarr import pipeline
+    from nazgarr.reseed import pipeline
 
     session = client.app.state.session_factory()
     try:
@@ -139,8 +139,8 @@ def test_without_a_library_the_history_keeps_the_torrent_numbers(client):
 
 def test_the_dashboard_is_not_recomputed_while_the_data_is_unchanged(client, monkeypatch):
     """Si interroga ogni 15 secondi: la salute si ricalcola solo quando i
-    dati cambiano (nazgarr/response_cache.py)."""
-    from nazgarr import health
+    dati cambiano (nazgarr/web/response_cache.py)."""
+    from nazgarr.library import health
 
     calls = []
     real = health.compute_snapshot

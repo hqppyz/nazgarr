@@ -2,10 +2,12 @@ import json
 
 import pytest
 
-from nazgarr import upload_decision, upload_jobs, upload_profiles
-from nazgarr.models import TrackerUploadProfile
-from nazgarr.upload_jobs import UploadJobError
-from nazgarr.upload_naming import build_name, season_token
+from nazgarr.core.models import TrackerUploadProfile
+from nazgarr.upload import decision as upload_decision
+from nazgarr.upload import jobs as upload_jobs
+from nazgarr.upload import profiles as upload_profiles
+from nazgarr.upload.jobs import UploadJobError
+from nazgarr.upload.naming import build_name, season_token
 from tests.upload_helpers import make_disk, make_tracker, write_video
 
 ITT = "{title} ({year}) {resolution} {source} {video_codec} {audio_codec} {group}"
@@ -66,7 +68,7 @@ def test_propose_names_ids_and_flags_per_tracker(decision_job):
 
 
 def test_the_profile_can_make_internal_the_default(db_session, decision_job):
-    from nazgarr.models import TrackerUploadProfile
+    from nazgarr.core.models import TrackerUploadProfile
     itt = decision_job.targets[0]
     db_session.get(TrackerUploadProfile, itt.tracker_id).default_internal = True
     itt.flags_json = None
@@ -205,7 +207,7 @@ def test_the_decision_offers_the_file_names_of_each_mode(db_session, decision_jo
 def test_the_release_details_come_from_the_file_then_the_folder(db_session):
     from types import SimpleNamespace
 
-    from nazgarr.upload_file_names import name_detected
+    from nazgarr.upload.file_names import name_detected
 
     job = SimpleNamespace(
         analysis_json=json.dumps({"name_source": {
@@ -223,8 +225,8 @@ def test_the_release_details_come_from_the_file_then_the_folder(db_session):
 def test_without_a_group_in_the_name_the_releaser_name_is_used(db_session):
     from types import SimpleNamespace
 
-    from nazgarr import settings_repo
-    from nazgarr.upload_file_names import name_detected
+    from nazgarr.core import settings_repo
+    from nazgarr.upload.file_names import name_detected
 
     def job(name):
         return SimpleNamespace(analysis_json=json.dumps({"name_source": {"name": name}}), source_path=f"/data/{name}")
@@ -236,9 +238,9 @@ def test_without_a_group_in_the_name_the_releaser_name_is_used(db_session):
 
 
 def test_the_detected_details_suggest_what_the_trackers_accept(db_session, tmp_path):
-    from nazgarr import upload_jobs
-    from nazgarr.models import TrackerUploadProfile
-    from nazgarr.upload_decision import field_options
+    from nazgarr.core.models import TrackerUploadProfile
+    from nazgarr.upload import jobs as upload_jobs
+    from nazgarr.upload.decision import field_options
     from tests.upload_helpers import make_disk, make_tracker, write_video
 
     tracker = make_tracker(db_session)
@@ -257,7 +259,9 @@ def test_the_detected_details_suggest_what_the_trackers_accept(db_session, tmp_p
 
 
 def test_files_are_renamed_automatically_unless_turned_off(db_session, tmp_path):
-    from nazgarr import settings_repo, upload_file_names, upload_jobs
+    from nazgarr.core import settings_repo
+    from nazgarr.upload import file_names as upload_file_names
+    from nazgarr.upload import jobs as upload_jobs
     from tests.upload_helpers import make_disk, make_tracker, write_video
 
     make_tracker(db_session)
@@ -275,7 +279,8 @@ def test_files_are_renamed_automatically_unless_turned_off(db_session, tmp_path)
 def test_the_file_names_preview_reads_the_source_once(db_session, decision_job, monkeypatch):
     """Ogni modifica di un override ricalcola l'anteprima: disponibili,
     predefinita e il piano di ogni modalità leggono la sorgente una volta."""
-    from nazgarr import upload_decision, upload_file_names
+    from nazgarr.upload import decision as upload_decision
+    from nazgarr.upload import file_names as upload_file_names
 
     walks = []
     real = upload_file_names._source_files

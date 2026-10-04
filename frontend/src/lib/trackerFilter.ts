@@ -1,6 +1,6 @@
 import { useSetting } from '@/api/hooks/settings'
 
-// Filtro per tracker delle viste (nazgarr/tracker_scope.py): "all", "configured"
+// Filtro per tracker delle viste (nazgarr/torrents/tracker_scope.py): "all", "configured"
 // o l'id di un tracker. È un'impostazione, quindi resta quella scelta.
 export const TRACKER_FILTER_SETTING = 'tracker_filter'
 

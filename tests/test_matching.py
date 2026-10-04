@@ -1,8 +1,8 @@
 from datetime import UTC, datetime
 
-from nazgarr import matching, pipeline
 from nazgarr.adapters.tracker.base import TorrentCandidate
-from nazgarr.models import Candidate, Disk, MediaFile, MediaItem, SeedFile, Tracker
+from nazgarr.core.models import Candidate, Disk, MediaFile, MediaItem, SeedFile, Tracker
+from nazgarr.reseed import matching, pipeline
 
 
 def _tc(**overrides) -> TorrentCandidate:
@@ -191,7 +191,7 @@ def test_orphan_media_files_excludes_hardlinked(db_session):
 
 
 def _seed_in_client(db_session, seed_file, announce):
-    from nazgarr.models import ClientTorrent, ClientTorrentFile, TorrentClient
+    from nazgarr.core.models import ClientTorrent, ClientTorrentFile, TorrentClient
 
     client = db_session.query(TorrentClient).first()
     if client is None:
@@ -208,7 +208,7 @@ def _seed_in_client(db_session, seed_file, announce):
 
 
 def test_a_file_seeding_on_one_tracker_is_searched_on_the_others(db_session):
-    from nazgarr import settings_repo
+    from nazgarr.core import settings_repo
 
     disk = _make_disk(db_session)
     run = pipeline.start_run(db_session, "manual")
@@ -239,9 +239,9 @@ def test_the_matching_index_holds_only_files_from_the_latest_scan(db_session, tm
     propone come sorgente di un torrent."""
     from datetime import UTC, datetime
 
-    from nazgarr import pipeline
-    from nazgarr.models import Disk, MediaFile, SeedFile
-    from nazgarr.torrent_layout import LocalFiles
+    from nazgarr.core.models import Disk, MediaFile, SeedFile
+    from nazgarr.reseed import pipeline
+    from nazgarr.torrents.layout import LocalFiles
 
     disk = Disk(label="d", root_path=str(tmp_path), media_rel_path="media", torrents_rel_path="torrents")
     db_session.add(disk)

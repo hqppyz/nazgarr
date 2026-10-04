@@ -8,8 +8,8 @@ from datetime import UTC, datetime
 
 import httpx
 
-from nazgarr import net_guard
 from nazgarr.adapters.notification.base import Notification, NotificationAdapter, NotificationError
+from nazgarr.core import net_guard
 
 _WEBHOOK = re.compile(r"^https://(?:(?:ptb|canary)\.)?discord(?:app)?\.com/api/webhooks/\d+/[\w-]+/?$")
 COLORS = {"info": 0x3B82F6, "success": 0x22C55E, "warning": 0xF59E0B, "error": 0xEF4444}

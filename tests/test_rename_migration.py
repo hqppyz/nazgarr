@@ -1,7 +1,7 @@
 """Rename del progetto Gauntletarr -> Nazgarr: i dati esistenti restano."""
 
-from nazgarr import crypto, db, startup_checks
-from nazgarr.models import AppSetting
+from nazgarr.core import crypto, db, startup_checks
+from nazgarr.core.models import AppSetting
 
 
 def test_the_old_database_file_is_renamed_with_its_sqlite_sidecars(tmp_path):

@@ -1,4 +1,4 @@
-// localStorage invece che in-memory: un JWT valido 30 giorni (nazgarr/auth.py)
+// localStorage invece che in-memory: un JWT valido 30 giorni (nazgarr/web/auth.py)
 // deve sopravvivere a un refresh della pagina, non solo alla sessione tab.
 const STORAGE_KEY = 'nazgarr_token'
 // Prima del rename del progetto (Gauntletarr -> Nazgarr): letta una volta e

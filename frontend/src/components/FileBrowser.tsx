@@ -35,7 +35,7 @@ export function FileBrowser({
   // Azioni a fine riga dell'albero (Torrent files: upload/reseed degli orfani).
   actions?: TreeRowActions
 }) {
-  // Episodi scelti a mano per un pack (nazgarr/upload_pack.py), anche già in seed.
+  // Episodi scelti a mano per un pack (nazgarr/upload/pack.py), anche già in seed.
   const selection = usePackSelection()
   // ?status=… apre la vista già filtrata (link delle card della dashboard),
   // solo se è uno stato offerto da questa vista.

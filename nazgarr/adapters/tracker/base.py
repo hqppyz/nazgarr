@@ -96,7 +96,7 @@ class TorrentCandidate:
     file_sizes: dict[str, int] | None = None  # nome file -> dimensione in byte, se il tracker lo espone
     mediainfo_unique_ids_by_filename: dict[str, str] | None = None  # nome file (basename) -> Unique ID,
     # utile per un futuro motore di matching season-pack-aware (fuori scope in questa fase,
-    # vedi nazgarr/matching.py) — il blob media_info per un pack è la concatenazione dei report
+    # vedi nazgarr/reseed/matching.py) — il blob media_info per un pack è la concatenazione dei report
     # per-file, mediainfo_unique_id da solo cattura solo il primo.
 
 
@@ -300,7 +300,7 @@ class Unit3dTrackerAdapter(TrackerAdapter):
         self.rss_key = rss_key
         # Chiamato con i secondi di attesa prima di un retry su 429, e con
         # None quando si riprende: la run lo mostra nel popup di stato invece
-        # di sembrare bloccata (nazgarr/pipeline.py).
+        # di sembrare bloccata (nazgarr/reseed/pipeline.py).
         self.on_rate_limit_wait: Callable[[float | None], None] | None = None
 
     def search_by_tmdb(self, tmdb_id: int) -> list[TorrentCandidate]:
@@ -512,7 +512,7 @@ class Unit3dTrackerAdapter(TrackerAdapter):
         Se manca sia attributes.folder sia un path annidato, NON si
         indovina più una cartella da attributes.name: è un titolo
         "leggibile" per la UI, non necessariamente il vero nome di release
-        (vedi nazgarr/torrent_file.py per la motivazione completa e il fallback
+        (vedi nazgarr/torrents/metainfo.py per la motivazione completa e il fallback
         che legge il .torrent stesso)."""
         names = [f["name"] for f in files]
 

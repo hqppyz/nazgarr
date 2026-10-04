@@ -1,6 +1,6 @@
 import pytest
 
-from nazgarr import net_guard
+from nazgarr.core import net_guard
 
 
 @pytest.mark.parametrize("url", [

@@ -1,4 +1,4 @@
-"""API del controllo completo dei piece hash (nazgarr/full_check.py): avvio in
+"""API del controllo completo dei piece hash (nazgarr/reseed/full_check.py): avvio in
 background, stato con avanzamento, annullamento. Sola lettura sui file."""
 
 from datetime import datetime
@@ -7,8 +7,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from nazgarr import full_check
-from nazgarr.deps import get_session
+from nazgarr.reseed import full_check
+from nazgarr.web.deps import get_session
 
 router = APIRouter(prefix="/api/full-checks", tags=["full-checks"])
 

@@ -1,7 +1,7 @@
 import pytest
 
-from nazgarr import settings_registry, settings_repo
-from nazgarr.settings_registry import SettingValueError, validate
+from nazgarr.core import settings_registry, settings_repo
+from nazgarr.core.settings_registry import SettingValueError, validate
 
 
 @pytest.mark.parametrize(("key", "value", "saved"), [

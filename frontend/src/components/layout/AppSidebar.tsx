@@ -54,7 +54,7 @@ function StatBox({ dotClassName, label, value }: { dotClassName: string; label: 
 // docs/SPEC.md §0): due box di statistiche affiancati + orario
 // dell'ultima scansione, sempre visibili senza dover aprire la
 // Dashboard. Auditorr non mostra una versione in UI; qui aggiunta su
-// richiesta esplicita (GET /api/health, nazgarr/version.py).
+// richiesta esplicita (GET /api/health, nazgarr/core/version.py).
 const COPYRIGHT_YEAR = new Date().getFullYear()
 
 function AppSidebarFooter() {

@@ -1,11 +1,11 @@
-"""Una sola regola per i file che entrano nel torrent (nazgarr/upload_inventory.py):
+"""Una sola regola per i file che entrano nel torrent (nazgarr/upload/inventory.py):
 analisi, nomi e hashing vedono gli stessi file."""
 
 import pytest
 import torf
 
-from nazgarr import upload_inventory
-from nazgarr.upload_inventory import SAMPLE_MAX_BYTES, in_torrent, is_sample
+from nazgarr.upload import inventory as upload_inventory
+from nazgarr.upload.inventory import SAMPLE_MAX_BYTES, in_torrent, is_sample
 
 
 @pytest.mark.parametrize(("relative", "size", "kept"), [
@@ -40,7 +40,7 @@ def test_a_movie_with_sample_in_its_title_is_hashed_with_its_folder(tmp_path, mo
     monkeypatch.setattr(upload_inventory, "SAMPLE_MAX_BYTES", 1024)  # file piccoli nel test
     from types import SimpleNamespace
 
-    from nazgarr.upload_execute import hash_pieces
+    from nazgarr.upload.execute import hash_pieces
 
     folder = tmp_path / "Free.Sample.2020.1080p-GRP"
     (folder / "Sample").mkdir(parents=True)

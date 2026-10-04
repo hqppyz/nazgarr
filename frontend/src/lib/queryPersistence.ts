@@ -8,7 +8,7 @@ import { activeInstanceId } from '@/lib/instance'
 // pesano diversi MB, troppi per localStorage). All'apertura la vista si
 // disegna subito con i dati dell'ultima visita, poi TanStack Query li
 // rivalida in background: il server risponde 304 in pochi ms se non è
-// cambiato nulla (ETag, nazgarr/response_cache.py), altrimenti i dati nuovi
+// cambiato nulla (ETag, nazgarr/web/response_cache.py), altrimenti i dati nuovi
 // sostituiscono quelli in cache.
 export const CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
 

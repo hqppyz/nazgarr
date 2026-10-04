@@ -1,8 +1,9 @@
 from datetime import UTC, datetime
 
-from nazgarr import pipeline, torrent_indexer
 from nazgarr.adapters.torrent_client.base import ClientTorrentFileInfo, ClientTorrentInfo
-from nazgarr.models import ClientTorrentFile, Disk, DiskTorrentClient, SeedFile, TorrentClient
+from nazgarr.core.models import ClientTorrentFile, Disk, DiskTorrentClient, SeedFile, TorrentClient
+from nazgarr.reseed import pipeline
+from nazgarr.torrents import indexer as torrent_indexer
 from tests.fakes import FakeAdapter
 
 
@@ -190,7 +191,7 @@ def test_client_without_associations_is_matched_against_every_disk_by_path(db_se
 
 
 def test_a_torrent_removed_from_the_client_leaves_the_index(db_session):
-    from nazgarr.models import ClientTorrent
+    from nazgarr.core.models import ClientTorrent
 
     disk, tc = _make_disk_and_client(db_session, root_path="/mnt/disk1")
     run = pipeline.start_run(db_session, run_type="manual")
@@ -212,7 +213,7 @@ def test_a_torrent_removed_from_the_client_leaves_the_index(db_session):
 
 
 def test_the_single_torrent_refresh_never_removes_the_others(db_session):
-    from nazgarr.models import ClientTorrent
+    from nazgarr.core.models import ClientTorrent
 
     disk, tc = _make_disk_and_client(db_session, root_path="/mnt/disk1")
     run = pipeline.start_run(db_session, run_type="manual")

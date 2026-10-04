@@ -1,5 +1,5 @@
 // Codici restituiti dal backend come HTTPException(detail={"code", "params"})
-// — vedi nazgarr/api_errors.py. Ogni codice qui deve avere una controparte
+// — vedi nazgarr/core/errors.py. Ogni codice qui deve avere una controparte
 // backend che lo solleva con esattamente questi nomi di parametro.
 export const errors = {
   'errors.auth_already_configured': 'Accesso già configurato.',

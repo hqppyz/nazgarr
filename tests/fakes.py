@@ -3,7 +3,7 @@
 from datetime import UTC, datetime
 
 from nazgarr.adapters.torrent_client.base import TorrentClientAdapter
-from nazgarr.models import MediaFile
+from nazgarr.core.models import MediaFile
 
 
 class FakeAdapter(TorrentClientAdapter):

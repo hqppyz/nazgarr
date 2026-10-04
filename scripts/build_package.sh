@@ -9,7 +9,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-version="${1:-$(sed -n 's/^BASE_VERSION = "\(.*\)"/\1/p' nazgarr/version.py)}"
+version="${1:-$(sed -n 's/^BASE_VERSION = "\(.*\)"/\1/p' nazgarr/core/version.py)}"
 commit="${2:-$(git rev-parse --short HEAD 2>/dev/null || true)}"
 
 (cd frontend && npm ci && npm run build)

@@ -11,16 +11,16 @@ from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session, object_session
 
-from nazgarr import adapter_factory
 from nazgarr.api.types import HttpUrlStr, require_secrets_for_new_host
-from nazgarr.api_errors import coded_detail, from_coded_error
-from nazgarr.client_labels import split_tags
-from nazgarr.deps import get_or_404, get_session
-from nazgarr.fs_scope import ScopeViolation, resolve_scoped
-from nazgarr.logging_config import safe_error
-from nazgarr.models import ClientTorrent, Disk, DiskTorrentClient, TorrentClient
+from nazgarr.core.errors import coded_detail, from_coded_error
+from nazgarr.core.fs_scope import ScopeViolation, resolve_scoped
+from nazgarr.core.logs import safe_error
+from nazgarr.core.models import ClientTorrent, Disk, DiskTorrentClient, TorrentClient
+from nazgarr.integrations import adapter_factory
 from nazgarr.plugins import REGISTRY
 from nazgarr.plugins import config as plugin_config
+from nazgarr.torrents.client_labels import split_tags
+from nazgarr.web.deps import get_or_404, get_session
 
 router = APIRouter(prefix="/api/torrent-clients", tags=["torrent-clients"])
 
@@ -45,7 +45,7 @@ class TorrentClientUpdateRequest(BaseModel):
     api_token: str | None = None
     qui_instance_id: int | None = None
     enabled: bool | None = None
-    # Etichette dei torrent aggiunti da Nazgarr (nazgarr/client_labels.py): un
+    # Etichette dei torrent aggiunti da Nazgarr (nazgarr/torrents/client_labels.py): un
     # campo inviato vuoto o null le toglie.
     category_movie: str | None = None
     category_tv: str | None = None
@@ -80,7 +80,7 @@ class AssociateDiskRequest(BaseModel):
     # Quale cartella del disco il client vede come torrent_client_root_path,
     # relativa alla radice del disco (vuota = la radice): un client montato
     # su una sottocartella, es. Nazgarr /data/qbittorrent = client /download
-    # (nazgarr/client_paths.py).
+    # (nazgarr/torrents/client_paths.py).
     local_rel_path: str | None = None
 
 

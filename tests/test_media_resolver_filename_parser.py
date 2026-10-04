@@ -1,7 +1,7 @@
 import httpx
 
 from nazgarr.adapters.media_resolver.filename_parser import FilenameParserResolver
-from nazgarr.tmdb_client import TMDBClient
+from nazgarr.library.tmdb_client import TMDBClient
 
 
 def _resolver(handler):

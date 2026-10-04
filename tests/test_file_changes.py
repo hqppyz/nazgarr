@@ -1,9 +1,12 @@
 import os
 
-from nazgarr import file_changes, pipeline, scanner, settings_repo, torrent_indexer
 from nazgarr.adapters.torrent_client.base import ClientTorrentFileInfo, ClientTorrentInfo
 from nazgarr.api.dashboard import get_changes
-from nazgarr.models import Disk, FileChange, TorrentClient
+from nazgarr.core import settings_repo
+from nazgarr.core.models import Disk, FileChange, TorrentClient
+from nazgarr.library import file_changes, scanner
+from nazgarr.reseed import pipeline
+from nazgarr.torrents import indexer as torrent_indexer
 from tests.fakes import FakeAdapter
 
 

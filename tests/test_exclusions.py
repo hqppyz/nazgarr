@@ -1,4 +1,4 @@
-from nazgarr.exclusions import compile_exclusions, parse_custom_patterns, parse_preset_keys
+from nazgarr.library.exclusions import compile_exclusions, parse_custom_patterns, parse_preset_keys
 
 
 def test_parse_custom_patterns_strips_blank_lines():
@@ -71,7 +71,7 @@ def test_compiled_patterns_match_exactly_like_fnmatch():
     fnmatch pattern per pattern (la regola documentata in cima al modulo)."""
     import fnmatch
 
-    from nazgarr.exclusions import PRESETS, CompiledExclusions
+    from nazgarr.library.exclusions import PRESETS, CompiledExclusions
 
     patterns = [p for group in PRESETS.values() for p in group] + ["Extras/*", "*[1-3].mkv", "a?c.txt"]
 

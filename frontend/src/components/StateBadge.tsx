@@ -3,7 +3,7 @@ import { STATUS_STYLES, statusKeyOf, type StatusKey } from '@/lib/status-styles'
 import { cn } from '@/lib/utils'
 
 // Stati unificati per file, docs/SPEC.md §3 — stessa terminologia di
-// nazgarr/library.py; orphan_media e orphan_torrent sono entrambi "orphaned"
+// nazgarr/library/states.py; orphan_media e orphan_torrent sono entrambi "orphaned"
 // per l'utente (il lato è già chiaro dalla vista). Colori da status-styles.
 const STATE_LABELS: Record<string, string> = {
   seeding: 'seeding',

@@ -1,9 +1,9 @@
 import pytest
 
-from nazgarr import upload_identify
 from nazgarr.adapters.media_resolver.base import ResolvedMedia
-from nazgarr.upload_jobs import UploadJobError
-from nazgarr.upload_source import scan_source
+from nazgarr.upload import identify as upload_identify
+from nazgarr.upload.jobs import UploadJobError
+from nazgarr.upload.source import scan_source
 from tests.upload_helpers import FakeTMDB, tmdb_result, write_video
 
 
@@ -162,7 +162,8 @@ def test_auto_match_confirms_the_numbers_of_the_chosen_ordering(db_session, monk
     del tracker usano la stessa numerazione)."""
     from types import SimpleNamespace
 
-    from nazgarr import episode_orders, upload_jobs
+    from nazgarr.library import episode_orders
+    from nazgarr.upload import jobs as upload_jobs
 
     job = SimpleNamespace(id=1, kind="episode", seasons_json="[2]", episode=1, forced_ids_json="{}",
                           title=None, year=None)
@@ -189,7 +190,7 @@ def test_auto_match_confirms_the_numbers_of_the_chosen_ordering(db_session, monk
 
 
 def test_numbers_in_keeps_the_files_numbers_without_found_episodes():
-    from nazgarr import episode_orders
+    from nazgarr.library import episode_orders
 
     assert episode_orders.numbers_in({"found": {}}, "x", "season_pack", [3], None) == ([3], None)
     assert episode_orders.numbers_in({"found": {"x": {"1": [1, 2], "2": [1]}}}, "x", "complete_pack", [5], None) \
@@ -201,7 +202,8 @@ def test_confirm_translates_only_when_asked_and_remembers_only_a_user_choice(db_
     ricordata) e per quello automatico (numeri dei file, niente preferenza)."""
     from types import SimpleNamespace
 
-    from nazgarr import episode_orders, upload_jobs
+    from nazgarr.library import episode_orders
+    from nazgarr.upload import jobs as upload_jobs
 
     orders = {"orders": [{"key": "tmdb:group:1"}, {"key": "tvdb:aired"}], "files_order": "tvdb:aired",
               "found": {"tmdb:group:1": {1: [6]}}}

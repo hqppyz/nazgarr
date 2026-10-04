@@ -1,4 +1,4 @@
-from nazgarr import auth
+from nazgarr.web import auth
 
 
 def test_hash_and_verify_password_roundtrip():
@@ -116,7 +116,7 @@ def test_changing_the_password_or_logging_out_everywhere_revokes_every_token(ano
 
 
 def test_too_many_wrong_passwords_are_slowed_down(anon_client):
-    from nazgarr import login_limiter
+    from nazgarr.web import login_limiter
 
     _setup(anon_client)
     wrong = {"username": "admin", "password": "wrong-password"}
@@ -130,7 +130,7 @@ def test_too_many_wrong_passwords_are_slowed_down(anon_client):
 
 
 def test_the_window_forgets_old_failures():
-    from nazgarr import login_limiter
+    from nazgarr.web import login_limiter
 
     login_limiter.reset()
     for i in range(login_limiter.MAX_FAILURES):

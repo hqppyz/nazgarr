@@ -1,4 +1,4 @@
-// Un pack di episodi scelti a mano (nazgarr/upload_pack.py): si selezionano i
+// Un pack di episodi scelti a mano (nazgarr/upload/pack.py): si selezionano i
 // video nella libreria o nella vista dei torrent, e l'upload parte con quella
 // lista invece di una cartella. I sottotitoli accanto agli episodi li
 // aggiunge il backend.
@@ -14,7 +14,7 @@ export interface PackFile {
 
 export const packKey = (file: PackFile) => `${file.diskId}:${file.path}`
 
-// Stesse estensioni di nazgarr/file_types.py.
+// Stesse estensioni di nazgarr/core/file_types.py.
 const VIDEO_EXTENSIONS = ['.mkv', '.mp4', '.avi', '.m2ts', '.ts', '.wmv', '.mov']
 export const isVideoPath = (path: string) => VIDEO_EXTENSIONS.some((ext) => path.toLowerCase().endsWith(ext))
 

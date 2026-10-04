@@ -2,12 +2,15 @@ import os
 
 import pytest
 
-from nazgarr import adapter_factory, settings_repo, upload_analysis, upload_identify
 from nazgarr.adapters.media_resolver.base import ResolvedMedia
 from nazgarr.api import metadata as metadata_api
-from nazgarr.models import UploadJob
-from nazgarr.poster_cache import poster_file
-from nazgarr.upload_worker import UploadWorker
+from nazgarr.core import settings_repo
+from nazgarr.core.models import UploadJob
+from nazgarr.integrations import adapter_factory
+from nazgarr.library.poster_cache import poster_file
+from nazgarr.upload import analysis as upload_analysis
+from nazgarr.upload import identify as upload_identify
+from nazgarr.upload.worker import UploadWorker
 from tests.upload_helpers import (
     FakeTMDB,
     InlineExecutor,
@@ -376,8 +379,8 @@ def test_a_sure_match_confirms_itself_in_the_classic_flow_too(client, tmp_path, 
 
 
 def test_notices_tell_about_watched_releases_only_from_now_on(client, tmp_path, setup):
-    from nazgarr import upload_jobs
-    from nazgarr.models import Disk
+    from nazgarr.core.models import Disk
+    from nazgarr.upload import jobs as upload_jobs
 
     session = client.app.state.session_factory()
     try:
@@ -401,7 +404,7 @@ def test_notices_tell_about_watched_releases_only_from_now_on(client, tmp_path, 
 
 
 def test_metadata_follows_the_interface_language_and_falls_back_to_english(client, monkeypatch):
-    from nazgarr import tmdb_client as tmdb_module
+    from nazgarr.library import tmdb_client as tmdb_module
 
     calls = []
 
@@ -435,8 +438,8 @@ def test_metadata_follows_the_interface_language_and_falls_back_to_english(clien
 
 
 def test_the_episode_ordering_is_offered_and_kept_with_the_match(client, tmp_path, setup, monkeypatch):
-    from nazgarr import episode_orders
-    from nazgarr.models import EpisodeOrderPreference
+    from nazgarr.core.models import EpisodeOrderPreference
+    from nazgarr.library import episode_orders
     from tests.test_episode_orders import FakeSonarr, FakeTmdb
 
     files = [f"Lupin.S02/Lupin.S02E0{e}.mkv" for e in range(1, 6)]  # le parti di Netflix: S02 da 5
@@ -444,11 +447,11 @@ def test_the_episode_ordering_is_offered_and_kept_with_the_match(client, tmp_pat
     fake = FakeTMDB(details={("tv", 96677): {**tmdb_result(96677, "Lupin", 2021, "tv"), "tvdb_id": 375921}})
     monkeypatch.setattr(upload_identify, "tmdb_client", lambda session: fake)
     monkeypatch.setattr(episode_orders, "TmdbApi", lambda key: FakeTmdb())
-    monkeypatch.setattr("nazgarr.arr.ArrApi", FakeSonarr)
+    monkeypatch.setattr("nazgarr.integrations.arr.ArrApi", FakeSonarr)
     episode_orders._cache.clear()
     session = client.app.state.session_factory()
     try:
-        from nazgarr.models import SonarrInstance
+        from nazgarr.core.models import SonarrInstance
 
         settings_repo.set_setting(session, "tmdb_api_key", "k")
         session.add(SonarrInstance(label="sonarr", base_url="http://s", api_key="k"))

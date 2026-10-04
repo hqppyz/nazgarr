@@ -38,7 +38,7 @@ export function useUpdateDisk() {
   })
 }
 
-// Una cartella media o di seeding in più, o in meno (nazgarr/disk_folders.py).
+// Una cartella media o di seeding in più, o in meno (nazgarr/library/disk_folders.py).
 export function useAddDiskFolder() {
   const queryClient = useQueryClient()
   return useMutation({

@@ -1,5 +1,5 @@
 """API di configurazione delle istanze Radarr e Sonarr: multi-istanza (stesso
-pattern di tracker e client torrent), usate da nazgarr/arr.py per l'indice
+pattern di tracker e client torrent), usate da nazgarr/integrations/arr.py per l'indice
 dei file e la history, sempre opzionali (docs/SPEC.md §2/§6).
 
 Radarr e Sonarr hanno la stessa API REST v3 e la stessa configurazione:
@@ -13,9 +13,9 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from nazgarr.api.types import HttpUrlStr, require_secrets_for_new_host
-from nazgarr.api_errors import coded_detail
-from nazgarr.deps import get_session
-from nazgarr.logging_config import safe_error
+from nazgarr.core.errors import coded_detail
+from nazgarr.core.logs import safe_error
+from nazgarr.web.deps import get_session
 
 DEFAULT_PRIORITY = 0
 DEFAULT_TIMEOUT_SECONDS = 15

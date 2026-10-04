@@ -1,7 +1,7 @@
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from nazgarr import scheduler
-from nazgarr.models import AppSetting
+from nazgarr.core.models import AppSetting
 
 
 def test_build_scheduler_no_job_when_no_cron_configured(db_session):
@@ -63,8 +63,8 @@ def _factory_returning(session):
 def test_a_scheduled_run_is_skipped_while_another_is_in_progress(db_session, monkeypatch):
     from sqlalchemy.orm import sessionmaker
 
-    from nazgarr import pipeline
-    from nazgarr.models import RunLog
+    from nazgarr.core.models import RunLog
+    from nazgarr.reseed import pipeline
 
     pipeline.start_run(db_session, run_type="bulk_import")  # una run a mano, ancora in corso
     started = []

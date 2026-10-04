@@ -11,7 +11,7 @@ protected topic, an access token.
 
 import httpx
 
-import nazgarr_sdk as sdk
+import nazgarr.sdk as sdk
 
 # The SDK versions this plugin works with (a PEP 440 specifier).
 REQUIRES_SDK = ">=1.0,<2"
