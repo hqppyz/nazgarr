@@ -40,6 +40,7 @@ from nazgarr import (
     screenshots,
     settings_repo,
     upload_file_names,
+    upload_inventory,
     upload_jobs,
     upload_pack,
     upload_watch,
@@ -59,7 +60,6 @@ from nazgarr.upload_verify import build_locator
 logger = logging.getLogger(__name__)
 
 # File che non finiscono mai nel torrent di un upload.
-EXCLUDE_GLOBS = [".*", "*.part", "*.!qB", "*.!ut", "Thumbs.db", "desktop.ini", "*sample*", "*Sample*"]
 PROGRESS_EVERY_SECONDS = 1.0
 SD_RESOLUTIONS = {"480p", "480i", "576p", "576i"}
 
@@ -218,7 +218,19 @@ def refresh_mediainfo(session: Session, job: UploadJob, plan, root: str | None) 
 
 
 def hash_pieces(session: Session, job: UploadJob, path: str | None = None) -> torf.Torrent:
-    torrent = torf.Torrent(path=path or job.source_path, private=True, exclude_globs=EXCLUDE_GLOBS)
+    root = path or job.source_path
+    # Fuori i file che la regola di analisi e nomi esclude
+    # (nazgarr/upload_inventory.py), uno per uno: mai dei glob sul percorso,
+    # che toglievano un film con "Sample" nel titolo. Per nome esatto nel
+    # torrent (cartella/percorso), così la struttura resta quella della
+    # cartella anche se rimane un file solo.
+    name = os.path.basename(root.rstrip(os.sep))
+    excluded = [
+        "^" + re.escape(f"{name}/{f.relative}") + "$"
+        for f in (upload_inventory.walk(root) if os.path.isdir(root) else [])
+        if not upload_inventory.in_torrent(f.relative, f.size)
+    ]
+    torrent = torf.Torrent(path=root, private=True, exclude_regexs=excluded)
     if not torrent.files:
         raise UploadJobError("no_video_files")
 

@@ -20,7 +20,17 @@ import time
 
 from sqlalchemy.orm import Session
 
-from nazgarr import adapter_factory, arr, dovi_probe, events, mediainfo_util, upload_decision, upload_jobs, upload_pack
+from nazgarr import (
+    adapter_factory,
+    arr,
+    dovi_probe,
+    events,
+    mediainfo_util,
+    upload_decision,
+    upload_inventory,
+    upload_jobs,
+    upload_pack,
+)
 from nazgarr.file_types import is_video
 from nazgarr.models import (
     ClientTorrent,
@@ -72,19 +82,11 @@ def arr_index_if_configured(session: Session) -> arr.ArrIndex | None:
 
 
 def source_files(job: UploadJob) -> list[tuple[str, int]]:
-    """(percorso assoluto, dimensione) di ogni file della sorgente."""
-    if upload_pack.is_pack(job):
-        return [(path, os.path.getsize(path)) for path, _name in upload_pack.entries(job)]
-    if not job.is_dir:
-        return [(job.source_path, os.path.getsize(job.source_path))]
-    out = []
-    for dirpath, dirnames, filenames in os.walk(job.source_path):
-        dirnames.sort()
-        for name in sorted(filenames):
-            path = os.path.join(dirpath, name)
-            if os.path.isfile(path):
-                out.append((path, os.path.getsize(path)))
-    return out
+    """(percorso assoluto, dimensione) dei file che entrano nel torrent:
+    sample e spazzatura esclusi, come nell'hashing (nazgarr/upload_inventory.py).
+    Il dupe check confronta dimensioni e video con i torrent del tracker:
+    contarli falsava il confronto."""
+    return [(f.path, f.size) for f in upload_inventory.job_files(job)]
 
 
 def _client_matches(session: Session, files: list[tuple[str, int]]) -> list[dict]:

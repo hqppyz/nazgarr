@@ -9,12 +9,12 @@ proposta, che l'utente conferma (o corregge) al primo punto di approvazione.
 import os
 from dataclasses import dataclass, field
 
+from nazgarr import upload_inventory
 from nazgarr.file_types import is_video
 from nazgarr.guess import guess as guess_name
 
 # Sotto questa dimensione un video con "sample" nel nome è un campione, non
 # un episodio: non conta per il tipo né per gli episodi trovati.
-SAMPLE_MAX_BYTES = 300 * 1024 * 1024
 
 # guessit a volte legge l'anno come stagione ("Show 2019" -> season 2019).
 _MAX_PLAUSIBLE_SEASON = 100
@@ -65,23 +65,15 @@ def _folder_seasons(name: str) -> list[int]:
     return _seasons(guess_name(name))
 
 
-def _is_sample(name: str, size: int) -> bool:
-    return "sample" in name.lower() and size < SAMPLE_MAX_BYTES
-
-
 def _walk(source_path: str) -> tuple[list[tuple[str, int]], int]:
+    """I video che entrano nel torrent (stessa regola dell'hashing,
+    nazgarr/upload_inventory.py) e quanti altri file ci sono."""
     videos, others = [], 0
-    for dirpath, dirnames, filenames in os.walk(source_path):
-        dirnames.sort()
-        for name in sorted(filenames):
-            absolute = os.path.join(dirpath, name)
-            if not os.path.isfile(absolute):
-                continue
-            size = os.path.getsize(absolute)
-            if is_video(name) and not _is_sample(name, size):
-                videos.append((os.path.relpath(absolute, source_path), size))
-            else:
-                others += 1
+    for f in upload_inventory.walk(source_path):
+        if is_video(f.relative) and upload_inventory.in_torrent(f.relative, f.size):
+            videos.append((f.relative, f.size))
+        else:
+            others += 1
     return videos, others
 
 
@@ -96,7 +88,7 @@ def scan_source(
         walked, other_files = [], 0
         for relative, path in paths.items():
             size = os.path.getsize(path)
-            if is_video(relative) and not _is_sample(relative, size):
+            if is_video(relative) and upload_inventory.in_torrent(relative, size):
                 walked.append((relative, size))
             else:
                 other_files += 1

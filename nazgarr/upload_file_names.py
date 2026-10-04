@@ -21,7 +21,6 @@ nazgarr/upload_execute.py crea gli hardlink con quei nomi nella cartella di seed
 e calcola gli hash da lì.
 """
 
-import fnmatch
 import json
 import os
 import re
@@ -30,7 +29,7 @@ from dataclasses import dataclass
 
 from sqlalchemy.orm import Session
 
-from nazgarr import episode_orders, settings_repo, upload_pack
+from nazgarr import episode_orders, settings_repo, upload_inventory, upload_pack
 from nazgarr.file_types import is_video
 from nazgarr.models import ClientTorrent, ClientTorrentFile, SeedFile, UploadJob
 from nazgarr.upload_naming import build_name, detect_with_fallback, release_values
@@ -38,7 +37,6 @@ from nazgarr.upload_naming import build_name, detect_with_fallback, release_valu
 MODES = ("hardlink", "generated", "original")
 SETTING = "upload_file_naming_rules"
 # Come in nazgarr/upload_execute.py (torf): mai nel torrent.
-EXCLUDE_GLOBS = [".*", "*.part", "*.!qB", "*.!ut", "Thumbs.db", "desktop.ini", "*sample*", "*Sample*"]
 
 _MOVIE = ("{title} {year} {edition} {repack} {resolution} {source_full} {hybrid} {type} {audio} "
           "{audio_languages} {subs} {hdr} {video_codec} {group}")
@@ -96,26 +94,10 @@ class FilePlan:
         return self.mode != "original"
 
 
-def _excluded(relative: str) -> bool:
-    parts = relative.replace("\\", "/").split("/")
-    return any(fnmatch.fnmatch(part, glob) for part in parts for glob in EXCLUDE_GLOBS)
-
-
 def _source_files(job: UploadJob) -> list[tuple[str, str]]:
-    """(percorso assoluto, relativo alla sorgente) dei file che vanno nel torrent."""
-    if upload_pack.is_pack(job):
-        return [(path, name) for path, name in upload_pack.entries(job) if not _excluded(name)]
-    if not job.is_dir:
-        return [(job.source_path, os.path.basename(job.source_path))]
-    out = []
-    for dirpath, dirnames, filenames in os.walk(job.source_path):
-        dirnames.sort()
-        for name in sorted(filenames):
-            path = os.path.join(dirpath, name)
-            relative = os.path.relpath(path, job.source_path)
-            if os.path.isfile(path) and not os.path.islink(path) and not _excluded(relative):
-                out.append((path, relative))
-    return out
+    """(percorso assoluto, relativo alla sorgente) dei file che vanno nel
+    torrent: la stessa regola dell'hashing (nazgarr/upload_inventory.py)."""
+    return [(f.path, f.relative) for f in upload_inventory.job_files(job)]
 
 
 def _season_dirs(job: UploadJob, files: list[tuple[str, str]]) -> dict[str, str]:
