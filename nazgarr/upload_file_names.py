@@ -30,7 +30,7 @@ from dataclasses import dataclass
 
 from sqlalchemy.orm import Session
 
-from nazgarr import settings_repo, upload_pack
+from nazgarr import episode_orders, settings_repo, upload_pack
 from nazgarr.file_types import is_video
 from nazgarr.models import ClientTorrent, ClientTorrentFile, SeedFile, UploadJob
 from nazgarr.upload_naming import build_name, detect_with_fallback, release_values
@@ -242,11 +242,18 @@ def _generated(session: Session, job: UploadJob, files: list[tuple[str, str]], m
 
 
 class _EpisodeJob:
-    """Il job visto come un solo episodio: stagione ed episodio nel nome."""
+    """Il job visto come un solo episodio: stagione ed episodio nel nome, nella
+    numerazione scelta al match (nazgarr/episode_orders.py) anche quando i file
+    ne seguono un'altra; un episodio accorpato diventa E03E04."""
 
     def __init__(self, job: UploadJob, season: int | None, episode: int):
         self._job = job
         self.kind = "episode"
+        if season is not None:
+            refs = episode_orders.translate_files(job, season, episode)
+            season = refs[0][0]
+            numbers = [e for s, e in refs if s == season]
+            episode = numbers if len(numbers) > 1 else numbers[0]
         self.episode = episode
         self.seasons_json = json.dumps([season] if season is not None else json.loads(job.seasons_json or "[]")[:1])
 

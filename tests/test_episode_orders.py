@@ -78,6 +78,8 @@ class FakeTmdb:
             return {f"season/{n}": {"episodes": [{"episode_number": e, "name": f"Ep {n}x{e}", "air_date": None}
                                                  for e in range(1, c + 1)]}
                     for n, c in self.seasons.items()}
+        if path == "/tv/96677/external_ids":
+            return {"tvdb_id": 375921}
         if path == "/tv/96677/episode_groups":
             return {"results": [{"id": "g1", "name": "Parts", "type": 4, "episode_count": 10},
                                 {"id": "g2", "name": "Empty", "type": 4, "episode_count": 0}]}
@@ -164,3 +166,35 @@ def test_tvdb_api_logs_in_and_reads_every_season_type(monkeypatch):
                                                   ("tvdb:alternate", "TVDB · Netflix Parts")]
     assert sorted(orders[1].seasons) == [1, 2, 3] and len(orders[1].seasons[3]) == 7
     assert seen[0][:2] == ("POST", "/v4/login") and all(h == "Bearer tok" for _m, _p, h in seen[1:])
+
+
+def test_generated_episode_names_follow_the_chosen_ordering():
+    import json
+    from types import SimpleNamespace
+
+    from nazgarr.upload_file_names import _EpisodeJob
+    from nazgarr.upload_naming import season_token
+
+    tmdb = _order("tmdb:default", {1: 10})
+    parts = _order("tmdb:group:g1", {1: 5, 2: 5}, refs=False)
+    eo.align_to(parts, tmdb)
+    doubled = _order("tvdb:regional", {1: 5}, "tvdb", refs=False)
+    eo.align_to(doubled, tmdb)
+
+    def job(chosen, files):
+        return SimpleNamespace(kind="season_pack", seasons_json="[2]", episode=None,
+                               episode_order_json=json.dumps({"chosen": chosen.to_dict(), "files": files.to_dict()}))
+
+    # File "S02E03" (le parti), scelto l'ordine TMDB: S01E08.
+    one = _EpisodeJob(job(tmdb, parts), 2, 3)
+    assert season_token(one.kind, json.loads(one.seasons_json), one.episode) == "S01E08"
+    # File numerati uno a uno, scelto l'ordine con gli episodi accorpati: il file S01E04 è metà del 2.
+    half = _EpisodeJob(job(doubled, tmdb), 1, 4)
+    assert season_token(half.kind, json.loads(half.seasons_json), half.episode) == "S01E02"
+    # Al contrario: un file dell'ordine accorpato copre due episodi.
+    both = _EpisodeJob(job(tmdb, doubled), 1, 2)
+    assert season_token(both.kind, json.loads(both.seasons_json), both.episode) == "S01E03E04"
+    # Senza ordinamento scelto resta com'è.
+    plain = _EpisodeJob(SimpleNamespace(kind="season_pack", seasons_json="[2]", episode=None,
+                                        episode_order_json=None), 2, 3)
+    assert season_token(plain.kind, json.loads(plain.seasons_json), plain.episode) == "S02E03"

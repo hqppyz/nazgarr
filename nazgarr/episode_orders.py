@@ -16,6 +16,7 @@ Nazgarr (quello preferito per la serie, poi TVDB aired, poi TMDB), quale
 combacia meglio con i file (con un avviso se non è lo stesso, mai una scelta
 al posto dell'utente) e gli episodi trovati, tradotti in ognuno."""
 
+import json
 import logging
 import time
 from collections import defaultdict
@@ -403,3 +404,66 @@ def _translate_found(source: EpisodeOrder, target: EpisodeOrder, found: dict[int
             for s2, e2 in translate(source, target, season, e):
                 out[s2].add(e2)
     return {s: sorted(eps) for s, eps in sorted(out.items())}
+
+
+# --- Upload ------------------------------------------------------------------------
+
+
+def found_in_layout(layout_json: str | None) -> dict[int, list[int]]:
+    """Gli episodi trovati nei file (nazgarr/upload_source.py), stagione -> episodi."""
+    layout = json.loads(layout_json or "{}")
+    return {int(season): sorted(eps) for season, eps in (layout.get("episodes_by_season") or {}).items()}
+
+
+def tvdb_id_for(session: Session, tmdb_id: int, tmdb_api=None) -> int | None:
+    """L'id TVDB di una serie TMDB, dai suoi id esterni."""
+    key = settings_repo.get_setting(session, "tmdb_api_key")
+    api = tmdb_api or (TmdbApi(key) if key else None)
+    if api is None:
+        return None
+    try:
+        return _cached(("tvdb_id", tmdb_id), lambda: api.get(f"/tv/{tmdb_id}/external_ids").get("tvdb_id"))
+    except httpx.HTTPError:
+        logger.warning("Id esterni TMDB non disponibili per %s", tmdb_id, exc_info=True)
+        return None
+
+
+def for_job(session: Session, job, tmdb_id: int, tvdb_id: int | None = None, **sources) -> dict:
+    """Gli ordinamenti per il match di un job: con gli episodi dei suoi file."""
+    forced = json.loads(job.forced_ids_json or "{}").get("tvdb")
+    tvdb_id = tvdb_id or (int(forced) if forced else None) or tvdb_id_for(session, tmdb_id, sources.get("tmdb_api"))
+    pack = (job.kind or "") in ("season_pack", "complete_pack")
+    return build(session, tmdb_id, tvdb_id, found_in_layout(job.layout_json), pack, **sources)
+
+
+class EpisodeOrderError(ValueError):
+    pass
+
+
+def snapshot(result: dict, order_key: str) -> dict:
+    """L'ordinamento scelto e quello dei file, salvati sul job: servono a
+    tradurre i numeri degli episodi dei file (nei nomi generati)."""
+    by_key = {o["key"]: o for o in result["orders"]}
+    if order_key not in by_key:
+        raise EpisodeOrderError(order_key)
+    files = result.get("files_order") or order_key
+    return {"chosen": by_key[order_key], "files": by_key.get(files, by_key[order_key])}
+
+
+def remember(session: Session, tmdb_id: int, order_key: str) -> None:
+    """La scelta diventa la proposta per la stessa serie la prossima volta."""
+    from nazgarr.db_utils import bulk_upsert
+    from nazgarr.models import EpisodeOrderPreference
+
+    bulk_upsert(session, EpisodeOrderPreference.__table__, [{"tmdb_id": tmdb_id, "order_key": order_key}],
+                conflict_cols=["tmdb_id"], update_cols=["order_key"])
+
+
+def translate_files(job, season: int, episode: int) -> list[Ref]:
+    """Un episodio come lo numerano i file -> come lo numera l'ordinamento
+    scelto al match. Senza ordinamento scelto (o senza traduzione) resta com'è."""
+    data = json.loads(job.episode_order_json or "{}")
+    if not data.get("chosen") or not data.get("files"):
+        return [(season, episode)]
+    chosen, files = EpisodeOrder.from_dict(data["chosen"]), EpisodeOrder.from_dict(data["files"])
+    return translate(files, chosen, season, episode) or [(season, episode)]

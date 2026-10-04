@@ -381,6 +381,7 @@ export const upload = {
   'upload.language.unknown': 'The audio tracks do not say their language: check that one is in {language}.',
   'upload.event.auto_matched': 'Matched automatically: {title} ({year}).',
   'upload.event.auto_match_skipped': 'Not matched automatically: the best title is not sure enough.',
+  'upload.event.auto_match_skipped_episode_order': "Automatic match skipped: the files look numbered after another episode ordering ({order}), your call.",
   'upload.event.auto_match_failed': 'Automatic match not possible: choose the title by hand.',
   'upload.event.match_reopened': 'Match reopened: choose the title again.',
   'upload.notice.detected': 'New release detected',

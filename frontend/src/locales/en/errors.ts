@@ -161,4 +161,5 @@ export const errors = {
   'errors.removal_failed': "The client did not remove the torrent: {error}",
   'errors.upload_source_missing': "The source is no longer there: {path}",
   'errors.upload_resume_nothing_left': "Nothing to resume: the remaining trackers are already done.",
+  'errors.upload_episode_order_unknown': "The episode ordering {order} is not available for this series.",
 } as const
