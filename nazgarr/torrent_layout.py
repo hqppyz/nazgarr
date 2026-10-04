@@ -153,6 +153,7 @@ class LocalFiles:
     media_by_key: dict[tuple[str, int], list[MediaFile]] = field(default_factory=lambda: defaultdict(list))
     media_by_episode: dict[tuple[int, int, int], list[MediaFile]] = field(default_factory=lambda: defaultdict(list))
     media_by_dir: dict[tuple[int, str], list[MediaFile]] = field(default_factory=lambda: defaultdict(list))
+    episodes_by_series: dict[int, set[tuple[int, int]]] = field(default_factory=lambda: defaultdict(set))
     seed_by_path: dict[tuple[int, str], SeedFile] = field(default_factory=dict)
 
     @classmethod
@@ -164,6 +165,7 @@ class LocalFiles:
             item = mf.media_item
             if item is not None and item.season_number is not None and item.episode_number is not None:
                 index.media_by_episode[(item.tmdb_id, item.season_number, item.episode_number)].append(mf)
+                index.episodes_by_series[item.tmdb_id].add((item.season_number, item.episode_number))
         for sf in session.query(SeedFile).all():
             index.seed_by_path[(sf.disk_id, sf.relative_path)] = sf
         return index
@@ -194,13 +196,17 @@ def _pick_same_disk(files: list[MediaFile], disk_id: int, size: int | None) -> M
 
 
 def map_media_side(
-    layout: Layout, anchor: MediaFile, local: LocalFiles, arr_index: ArrIndex | None = None
+    layout: Layout, anchor: MediaFile, local: LocalFiles, arr_index: ArrIndex | None = None, translator=None,
 ) -> list[FileMatch]:
     """Abbina ogni file del torrent a un media_file sul disco dell'anchor.
-    Con un solo video, quel video è l'anchor stesso (il caso di sempre)."""
+    Con un solo video, quel video è l'anchor stesso (il caso di sempre).
+    translator (nazgarr/episode_orders.py Translator): se il torrent numera gli
+    episodi con un altro ordinamento della libreria, quelli non trovati coi
+    loro numeri si cercano tradotti."""
     videos = layout.videos
     matches: dict[int, FileMatch] = {}
     item = anchor.media_item
+    unmatched: dict[int, tuple[int, int]] = {}  # indice del file -> (stagione, episodio) del torrent
 
     for i, lf in enumerate(layout.files):
         if not lf.is_video:
@@ -219,7 +225,21 @@ def map_media_side(
                     mf = _pick_same_disk(
                         local.media_by_episode.get((item.tmdb_id, *numbers), []), anchor.disk_id, lf.size
                     )
+                    if mf is None:
+                        unmatched[i] = numbers
         matches[i] = FileMatch(lf, _media_local(mf) if mf is not None else None)
+
+    if unmatched and translator is not None and item is not None:
+        torrent_episodes = {n for lf in videos if (n := _episode_numbers(os.path.basename(lf.path))) is not None}
+        mapping = translator.mapping(item.tmdb_id, torrent_episodes, local.episodes_by_series.get(item.tmdb_id, set()))
+        for i, numbers in unmatched.items():
+            target = mapping.get(numbers)
+            if target is None:
+                continue
+            mf = _pick_same_disk(local.media_by_episode.get((item.tmdb_id, *target), []), anchor.disk_id,
+                                 layout.files[i].size)
+            if mf is not None:
+                matches[i] = FileMatch(layout.files[i], _media_local(mf))
 
     # Extra: stesse cartelle dei video abbinati, per nome o (sottotitoli
     # rinominati da Sonarr/Radarr) per estensione + size esatta, se univoca.

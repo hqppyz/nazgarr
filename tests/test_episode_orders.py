@@ -210,3 +210,37 @@ def test_generated_episode_names_follow_the_chosen_ordering():
     plain = _EpisodeJob(SimpleNamespace(kind="season_pack", seasons_json="[2]", episode=None,
                                         episode_order_json=None), 2, 3)
     assert season_token(plain.kind, json.loads(plain.seasons_json), plain.episode) == "S02E03"
+
+
+def test_a_pack_numbered_after_another_ordering_is_mapped_to_the_library(db_session, tmp_path):
+    from datetime import UTC, datetime
+
+    from nazgarr import pipeline
+    from nazgarr.models import Disk, MediaFile, MediaItem
+    from nazgarr.torrent_layout import Layout, LayoutFile, LocalFiles, map_media_side
+
+    disk = Disk(label="d", root_path=str(tmp_path), media_rel_path="media", torrents_rel_path="torrents")
+    db_session.add(disk)
+    db_session.commit()
+    run = pipeline.start_run(db_session, "manual")
+    # La libreria come Sonarr (TVDB aired): la stagione 1 ha 10 episodi.
+    for ep in range(1, 11):
+        item = MediaItem(content_type="tv", tmdb_id=96677, season_number=1, episode_number=ep)
+        db_session.add(item)
+        db_session.commit()
+        db_session.add(MediaFile(disk_id=disk.id, relative_path=f"media/Lupin/Season 01/Lupin - S01E{ep:02d}.mkv",
+                                 size_bytes=1000 + ep, st_dev=1, inode=ep, media_item_id=item.id,
+                                 last_scan_id=run.id, last_seen_at=datetime.now(UTC)))
+    db_session.commit()
+    local = LocalFiles.load(db_session)
+    anchor = db_session.query(MediaFile).filter(MediaFile.relative_path.like("%S01E06%")).one()
+    # Il pack sul tracker: "Parte 2", numerato S02E01-05.
+    layout = Layout("Lupin.S02", [LayoutFile(f"Lupin.S02E0{e}.mkv", 1005 + e, True) for e in range(1, 6)])
+
+    plain = map_media_side(layout, anchor, local)
+    assert [m.local for m in plain] == [None] * 5  # coi soli numeri del torrent non si trova niente
+
+    translator = eo.Translator(db_session, tmdb_api=FakeTmdb())
+    mapped = map_media_side(layout, anchor, local, translator=translator)
+    assert [m.local.relative_path.rsplit(" - ", 1)[1] for m in mapped] == [
+        f"S01E{e:02d}.mkv" for e in range(6, 11)]
