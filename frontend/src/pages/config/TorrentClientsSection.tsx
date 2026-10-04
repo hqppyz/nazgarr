@@ -44,6 +44,7 @@ import { t } from '@/lib/i18n'
 import { relativeFromNow } from '@/lib/time'
 import { cn, selectLabel } from '@/lib/utils'
 import { autosaveFeedback } from '@/lib/autosave'
+import { PASSWORD_ONLY, torrentClientPayload, type TorrentClientForm } from '@/lib/torrentClientForm'
 import { CLIENT_NAMES } from '@/lib/services'
 import { ClientLogo } from '@/pages/config/ServiceIcons'
 import { DiskBrowserDialog } from '@/pages/config/DiskBrowserDialog'
@@ -73,8 +74,6 @@ const TYPE_HELP: Record<string, string> = {
   transmission: t('torrentClients.typeHelp.transmission'),
   rutorrent: t('torrentClients.typeHelp.rutorrent'),
 }
-// La Web UI di Deluge ha solo la password.
-const PASSWORD_ONLY = new Set(['deluge'])
 
 // I client dei plugin, con i campi che dichiarano.
 function usePluginClientTypes() {
@@ -82,287 +81,194 @@ function usePluginClientTypes() {
   return (data?.adapters ?? []).filter((a) => a.kind === 'torrent_client' && a.plugin)
 }
 
-function AddTorrentClientDialog() {
+function emptyForm(tc?: TorrentClient): TorrentClientForm {
+  return {
+    label: tc?.label ?? '',
+    adapterType: tc?.adapter_type ?? 'qbittorrent',
+    baseUrl: tc?.base_url ?? '',
+    username: tc?.username ?? '',
+    password: '',
+    apiToken: '',
+    quiInstanceId: tc?.qui_instance_id?.toString() ?? '',
+  }
+}
+
+// Aggiungere (senza tc) o modificare un client: gli stessi campi. Il tipo si
+// sceglie solo creando; modificando, i segreti vuoti restano quelli salvati.
+function TorrentClientDialog({ tc }: { tc?: TorrentClient }) {
+  const editing = tc != null
   const [open, setOpen] = useState(false)
-  const [label, setLabel] = useState('')
-  const [adapterType, setAdapterType] = useState<string>('qbittorrent')
+  const [form, setForm] = useState<TorrentClientForm>(() => emptyForm(tc))
+  const set = (field: keyof TorrentClientForm) => (value: string) => setForm((f) => ({ ...f, [field]: value }))
   const pluginTypes = usePluginClientTypes()
-  const pluginSpec = pluginTypes.find((a) => a.adapter_type === adapterType)
-  const [config, setConfig] = useState<ConfigValues>({})
+  const pluginSpec = pluginTypes.find((a) => a.adapter_type === form.adapterType)
+  const secretsSet = editing ? ((tc.config as { secrets_set?: string[] }).secrets_set ?? []) : []
+  const [config, setConfig] = useState<ConfigValues | null>(null)
+  const configValues =
+    config ??
+    (pluginSpec
+      ? initialConfigValues(pluginSpec.config_fields, editing ? (tc.config as { values?: Record<string, unknown> }).values : undefined)
+      : {})
   const typeOptions = [
     ...ADAPTER_TYPES,
     ...pluginTypes.map((a) => ({ value: a.adapter_type, label: `${a.label} · ${a.plugin}` })),
   ]
-  const [baseUrl, setBaseUrl] = useState('')
-  const [username, setUsername] = useState('')
-  const [password, setPassword] = useState('')
-  const [apiToken, setApiToken] = useState('')
-  const [quiInstanceId, setQuiInstanceId] = useState('')
   const createTorrentClient = useCreateTorrentClient()
-  const isQui = adapterType === 'qui'
-  const passwordOnly = PASSWORD_ONLY.has(adapterType)
+  const updateTorrentClient = useUpdateTorrentClient()
+  const pending = createTorrentClient.isPending || updateTorrentClient.isPending
+  const isQui = form.adapterType === 'qui'
+  const passwordOnly = PASSWORD_ONLY.has(form.adapterType)
+  const keepPlaceholder = editing ? t('torrentClients.leaveEmptyToKeep') : undefined
+  const idPrefix = editing ? 'tc-edit' : 'tc'
 
-  function reset() {
-    setLabel('')
-    setBaseUrl('')
-    setUsername('')
-    setPassword('')
-    setApiToken('')
-    setQuiInstanceId('')
-    setConfig({})
+  function close() {
+    setOpen(false)
+    // Creato: un modulo vuoto per il prossimo. Modificato: restano i valori
+    // salvati, senza i segreti appena digitati.
+    setForm((f) => (editing ? { ...f, password: '', apiToken: '' } : emptyForm()))
+    setConfig(null)
   }
 
   function submit() {
-    createTorrentClient.mutate(
-      {
-        label,
-        adapter_type: adapterType,
-        base_url: baseUrl,
-        username: isQui || passwordOnly ? undefined : username || undefined,
-        password: isQui ? undefined : password || undefined,
-        api_token: isQui ? apiToken || undefined : undefined,
-        qui_instance_id: isQui && quiInstanceId ? Number(quiInstanceId) : undefined,
-        ...(pluginSpec ? { username: undefined, password: undefined, config: configPayload(pluginSpec.config_fields, config) } : {}),
-      },
-      {
-        onSuccess: () => {
-          setOpen(false)
-          reset()
-        },
-        onError: (error) => toast.error(t('torrentClients.creationFailed', { message: error.message })),
-      },
-    )
+    const payload = torrentClientPayload(form, pluginSpec ? configPayload(pluginSpec.config_fields, configValues) : undefined)
+    if (editing) {
+      updateTorrentClient.mutate(
+        { id: tc.id, body: payload },
+        { onSuccess: close, onError: (error) => toast.error(t('common.saveFailed', { message: error.message })) },
+      )
+    } else {
+      createTorrentClient.mutate(
+        { ...payload, adapter_type: form.adapterType },
+        { onSuccess: close, onError: (error) => toast.error(t('torrentClients.creationFailed', { message: error.message })) },
+      )
+    }
   }
 
   const canSubmit =
-    label &&
-    baseUrl &&
-    (pluginSpec ? !missingRequired(pluginSpec.config_fields, config) : isQui ? apiToken && quiInstanceId : true)
+    form.label &&
+    form.baseUrl &&
+    (pluginSpec
+      ? !missingRequired(pluginSpec.config_fields, configValues, secretsSet)
+      : isQui && !editing
+        ? form.apiToken && form.quiInstanceId
+        : true)
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger render={<Button data-tour="clients.add"><PlusIcon className="size-4" />{t('torrentClients.addClient')}</Button>} />
-      <DialogContent data-tour="clients.dialog">
+      <DialogTrigger
+        render={
+          editing ? (
+            <Button variant="ghost" size="icon-sm" title={t('common.edit')}><PencilIcon className="size-4" /></Button>
+          ) : (
+            <Button data-tour="clients.add"><PlusIcon className="size-4" />{t('torrentClients.addClient')}</Button>
+          )
+        }
+      />
+      <DialogContent data-tour={editing ? undefined : 'clients.dialog'}>
         <DialogHeader>
-          <DialogTitle>{t('torrentClients.addTorrentClient')}</DialogTitle>
+          <DialogTitle>{t(editing ? 'torrentClients.editTorrentClient' : 'torrentClients.addTorrentClient')}</DialogTitle>
+          {editing && <DialogDescription>{t('torrentClients.typeNotEditable', { type: tc.adapter_type })}</DialogDescription>}
         </DialogHeader>
         <div className="grid gap-3">
           <div className="grid gap-1.5">
-            <Label htmlFor="tc-label">{t('torrentClients.label')}</Label>
-            <Input id="tc-label" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="qbit" />
+            <Label htmlFor={`${idPrefix}-label`}>{t('torrentClients.label')}</Label>
+            <Input id={`${idPrefix}-label`} value={form.label} onChange={(e) => set('label')(e.target.value)} placeholder={editing ? undefined : 'qbit'} />
           </div>
-          <div className="grid gap-1.5" data-tour="clients.dialog.type">
-            <Label>{t('torrentClients.type')}</Label>
-            <Select
-              value={adapterType}
-              onValueChange={(v) => {
-                if (v == null) return
-                setAdapterType(v)
-                const spec = pluginTypes.find((a) => a.adapter_type === v)
-                setConfig(spec ? initialConfigValues(spec.config_fields, undefined) : {})
-              }}
-            >
-              <SelectTrigger>
-                <SelectValue>
-                  {(v: string | null) => selectLabel(typeOptions, v, (a) => a.value, (a) => a.label, 'qBittorrent')}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {typeOptions.map((a) => (
-                  <SelectItem key={a.value} value={a.value}>
-                    {a.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {TYPE_HELP[adapterType] ? (
-              <p className="text-xs text-muted-foreground">{TYPE_HELP[adapterType]}</p>
-            ) : null}
-          </div>
-          <div className="grid gap-1.5" data-tour="clients.dialog.url">
-            <Label htmlFor="tc-base-url">{t('torrentClients.url')}</Label>
-            <Input
-              id="tc-base-url"
-              value={baseUrl}
-              onChange={(e) => setBaseUrl(e.target.value)}
-              placeholder={URL_PLACEHOLDERS[adapterType] ?? 'http://client:8080'}
-            />
-          </div>
-          {pluginSpec ? (
-            <AdapterConfigFields idPrefix="tc-config" fields={pluginSpec.config_fields} values={config} onChange={setConfig} />
-          ) : isQui ? (
-            <div className="grid gap-3" data-tour="clients.dialog.credentials">
-              <div className="grid gap-1.5">
-                <Label htmlFor="tc-api-token">{t('torrentClients.apiKey')}</Label>
-                <Input
-                  id="tc-api-token"
-                  type="password"
-                  value={apiToken}
-                  onChange={(e) => setApiToken(e.target.value)}
-                  placeholder={t('torrentClients.apiKeyPlaceholder')}
-                />
-              </div>
-              <div className="grid gap-1.5">
-                <Label htmlFor="tc-qui-instance-id">{t('torrentClients.instance')}</Label>
-                <Input
-                  id="tc-qui-instance-id"
-                  type="number"
-                  value={quiInstanceId}
-                  onChange={(e) => setQuiInstanceId(e.target.value)}
-                  placeholder={t('torrentClients.instanceIdPlaceholder')}
-                />
-                <p className="text-xs text-muted-foreground">{t('torrentClients.instanceHelp')}</p>
-              </div>
-            </div>
-          ) : (
-            <div className="grid gap-3" data-tour="clients.dialog.credentials">
-              {passwordOnly ? null : (
-                <div className="grid gap-1.5">
-                  <Label htmlFor="tc-username">{t('torrentClients.username')}</Label>
-                  <Input id="tc-username" value={username} onChange={(e) => setUsername(e.target.value)} />
-                </div>
-              )}
-              <div className="grid gap-1.5">
-                <Label htmlFor="tc-password">{t('torrentClients.password')}</Label>
-                <Input id="tc-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
-              </div>
+          {!editing && (
+            <div className="grid gap-1.5" data-tour="clients.dialog.type">
+              <Label>{t('torrentClients.type')}</Label>
+              <Select
+                value={form.adapterType}
+                onValueChange={(v) => {
+                  if (v == null) return
+                  set('adapterType')(v)
+                  const spec = pluginTypes.find((a) => a.adapter_type === v)
+                  setConfig(spec ? initialConfigValues(spec.config_fields, undefined) : {})
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue>
+                    {(v: string | null) => selectLabel(typeOptions, v, (a) => a.value, (a) => a.label, 'qBittorrent')}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {typeOptions.map((a) => (
+                    <SelectItem key={a.value} value={a.value}>
+                      {a.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {TYPE_HELP[form.adapterType] ? (
+                <p className="text-xs text-muted-foreground">{TYPE_HELP[form.adapterType]}</p>
+              ) : null}
             </div>
           )}
-        </div>
-        <DialogFooter>
-          <Button data-tour="clients.dialog.create" onClick={submit} disabled={!canSubmit || createTorrentClient.isPending}>
-            {t('torrentClients.create')}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-function EditTorrentClientDialog({ tc }: { tc: TorrentClient }) {
-  const [open, setOpen] = useState(false)
-  const [label, setLabel] = useState(tc.label)
-  const [baseUrl, setBaseUrl] = useState(tc.base_url)
-  const [username, setUsername] = useState(tc.username ?? '')
-  const [password, setPassword] = useState('')
-  const [apiToken, setApiToken] = useState('')
-  const [quiInstanceId, setQuiInstanceId] = useState(tc.qui_instance_id?.toString() ?? '')
-  const updateTorrentClient = useUpdateTorrentClient()
-  const isQui = tc.adapter_type === 'qui'
-  const passwordOnly = PASSWORD_ONLY.has(tc.adapter_type)
-  const pluginSpec = usePluginClientTypes().find((a) => a.adapter_type === tc.adapter_type)
-  const secretsSet = (tc.config as { secrets_set?: string[] }).secrets_set ?? []
-  const [config, setConfig] = useState<ConfigValues | null>(null)
-  const configValues =
-    config ?? (pluginSpec ? initialConfigValues(pluginSpec.config_fields, (tc.config as { values?: Record<string, unknown> }).values) : {})
-
-  function submit() {
-    updateTorrentClient.mutate(
-      {
-        id: tc.id,
-        body: {
-          label,
-          base_url: baseUrl,
-          username: isQui || passwordOnly ? undefined : username || undefined,
-          password: isQui ? undefined : password || undefined,
-          api_token: isQui ? apiToken || undefined : undefined,
-          qui_instance_id: isQui && quiInstanceId ? Number(quiInstanceId) : undefined,
-          ...(pluginSpec
-            ? { username: undefined, password: undefined, config: configPayload(pluginSpec.config_fields, configValues) }
-            : {}),
-        },
-      },
-      {
-        onSuccess: () => {
-          setOpen(false)
-          setPassword('')
-          setApiToken('')
-          setConfig(null)
-        },
-        onError: (error) => toast.error(t('common.saveFailed', { message: error.message })),
-      },
-    )
-  }
-
-  return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger render={<Button variant="ghost" size="icon-sm" title={t('common.edit')}><PencilIcon className="size-4" /></Button>} />
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>{t('torrentClients.editTorrentClient')}</DialogTitle>
-          <DialogDescription>{t('torrentClients.typeNotEditable', { type: tc.adapter_type })}</DialogDescription>
-        </DialogHeader>
-        <div className="grid gap-3">
-          <div className="grid gap-1.5">
-            <Label htmlFor="tc-edit-label">{t('torrentClients.label')}</Label>
-            <Input id="tc-edit-label" value={label} onChange={(e) => setLabel(e.target.value)} />
-          </div>
-          <div className="grid gap-1.5">
-            <Label htmlFor="tc-edit-base-url">{t('torrentClients.url')}</Label>
-            <Input id="tc-edit-base-url" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} />
+          <div className="grid gap-1.5" data-tour={editing ? undefined : 'clients.dialog.url'}>
+            <Label htmlFor={`${idPrefix}-base-url`}>{t('torrentClients.url')}</Label>
+            <Input
+              id={`${idPrefix}-base-url`}
+              value={form.baseUrl}
+              onChange={(e) => set('baseUrl')(e.target.value)}
+              placeholder={editing ? undefined : (URL_PLACEHOLDERS[form.adapterType] ?? 'http://client:8080')}
+            />
           </div>
           {pluginSpec ? (
             <AdapterConfigFields
-              idPrefix={`tc-edit-config-${tc.id}`}
+              idPrefix={editing ? `tc-edit-config-${tc.id}` : 'tc-config'}
               fields={pluginSpec.config_fields}
               values={configValues}
-              secretsSet={secretsSet}
+              secretsSet={editing ? secretsSet : undefined}
               onChange={setConfig}
             />
           ) : isQui ? (
-            <>
+            <div className="grid gap-3" data-tour={editing ? undefined : 'clients.dialog.credentials'}>
               <div className="grid gap-1.5">
-                <Label htmlFor="tc-edit-api-token">{t('torrentClients.apiKey')}</Label>
+                <Label htmlFor={`${idPrefix}-api-token`}>{t('torrentClients.apiKey')}</Label>
                 <Input
-                  id="tc-edit-api-token"
+                  id={`${idPrefix}-api-token`}
                   type="password"
-                  value={apiToken}
-                  onChange={(e) => setApiToken(e.target.value)}
-                  placeholder={t('torrentClients.leaveEmptyToKeep')}
+                  value={form.apiToken}
+                  onChange={(e) => set('apiToken')(e.target.value)}
+                  placeholder={keepPlaceholder ?? t('torrentClients.apiKeyPlaceholder')}
                 />
               </div>
               <div className="grid gap-1.5">
-                <Label htmlFor="tc-edit-qui-instance-id">{t('torrentClients.instance')}</Label>
+                <Label htmlFor={`${idPrefix}-qui-instance-id`}>{t('torrentClients.instance')}</Label>
                 <Input
-                  id="tc-edit-qui-instance-id"
+                  id={`${idPrefix}-qui-instance-id`}
                   type="number"
-                  value={quiInstanceId}
-                  onChange={(e) => setQuiInstanceId(e.target.value)}
+                  value={form.quiInstanceId}
+                  onChange={(e) => set('quiInstanceId')(e.target.value)}
+                  placeholder={editing ? undefined : t('torrentClients.instanceIdPlaceholder')}
                 />
+                {!editing && <p className="text-xs text-muted-foreground">{t('torrentClients.instanceHelp')}</p>}
               </div>
-            </>
+            </div>
           ) : (
-            <>
+            <div className="grid gap-3" data-tour={editing ? undefined : 'clients.dialog.credentials'}>
               {passwordOnly ? null : (
                 <div className="grid gap-1.5">
-                  <Label htmlFor="tc-edit-username">{t('torrentClients.username')}</Label>
-                  <Input id="tc-edit-username" value={username} onChange={(e) => setUsername(e.target.value)} />
+                  <Label htmlFor={`${idPrefix}-username`}>{t('torrentClients.username')}</Label>
+                  <Input id={`${idPrefix}-username`} value={form.username} onChange={(e) => set('username')(e.target.value)} />
                 </div>
               )}
               <div className="grid gap-1.5">
-                <Label htmlFor="tc-edit-password">{t('torrentClients.password')}</Label>
+                <Label htmlFor={`${idPrefix}-password`}>{t('torrentClients.password')}</Label>
                 <Input
-                  id="tc-edit-password"
+                  id={`${idPrefix}-password`}
                   type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder={t('torrentClients.leaveEmptyToKeep')}
+                  value={form.password}
+                  onChange={(e) => set('password')(e.target.value)}
+                  placeholder={keepPlaceholder}
                 />
               </div>
-            </>
+            </div>
           )}
         </div>
         <DialogFooter>
-          <Button
-            onClick={submit}
-            disabled={
-              !label ||
-              !baseUrl ||
-              updateTorrentClient.isPending ||
-              (pluginSpec != null && missingRequired(pluginSpec.config_fields, configValues, secretsSet))
-            }
-          >
-            {t('common.save')}
+          <Button data-tour={editing ? undefined : 'clients.dialog.create'} onClick={submit} disabled={!canSubmit || pending}>
+            {t(editing ? 'common.save' : 'torrentClients.create')}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -384,6 +290,8 @@ function TestButton({ id }: { id: number }) {
             if (result.status === 'ok') toast.success(t('torrentClients.connectedSuccess', { count: result.torrents_found }))
             else toast.error(result.error ?? t('torrentClients.connectionFailed'))
           },
+          // La richiesta stessa fallita (rete, Nazgarr irraggiungibile): prima non si vedeva niente.
+          onError: (error) => toast.error(error.message || t('torrentClients.connectionFailed')),
         })
       }
     >
@@ -603,7 +511,7 @@ export function TorrentClientsSection() {
 
   return (
     <div className="grid content-start gap-4">
-      <SettingsHeader title={t('config.tabClients')} description={t('torrentClients.sectionDescription')} action={<AddTorrentClientDialog />} />
+      <SettingsHeader title={t('config.tabClients')} description={t('torrentClients.sectionDescription')} action={<TorrentClientDialog />} />
       {isPending && <p className="text-sm text-muted-foreground">{t('common.loading')}</p>}
       {torrentClients?.length === 0 && (
         <Card>
@@ -663,7 +571,7 @@ export function TorrentClientsSection() {
                 <TestButton id={tc.id} />
                 <span className="flex-1" />
                 <DisksDialog torrentClientId={tc.id} disks={tc.disks} />
-                <EditTorrentClientDialog tc={tc} />
+                <TorrentClientDialog tc={tc} />
                 <Button variant="ghost" size="icon-sm" title={t('common.delete')} onClick={() => deleteTorrentClient.mutate(tc.id)}>
                   <TrashIcon className="size-4" />
                 </Button>
