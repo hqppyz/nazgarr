@@ -88,7 +88,7 @@ describe('MatchStep', () => {
     expect(confirm.mock.calls[0][0]).toMatchObject({ content_type: 'movie', tmdb_id: 1, kind: 'movie', seasons: [] })
   })
 
-  it('says how sure the best match is against the automatic threshold, and why', () => {
+  it('says how sure the best match is against the automatic threshold, and why', async () => {
     const scored = {
       ...job,
       candidates: [
@@ -100,8 +100,11 @@ describe('MatchStep', () => {
     } as unknown as UploadJob
     render(<MatchStep job={scored} />)
 
-    // Nel dettaglio del candidato scelto, sotto i link: niente riquadro sopra la griglia.
-    expect(screen.getByText(/Reliability 85%\./)).toBeTruthy()
+    // In alto a destra solo la percentuale; il perché nel popover.
+    const badge = screen.getByRole('button', { name: 'Reliability 85%.' })
+    expect(badge.textContent).toBe('85%')
+    fireEvent.click(badge)
+    expect(await screen.findByText(/Reliability 85%\./)).toBeTruthy()
     expect(screen.getByText(/Below the automatic match threshold \(90%\)/)).toBeTruthy()
     // Fattore per fattore, con il motivo, e il prodotto.
     expect(screen.getByText('file 2021, TMDB 2022: one year apart (often release vs. name)')).toBeTruthy()

@@ -21,6 +21,7 @@ import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle }
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { ToggleGroupItem, ToggleGroupSingle } from '@/components/ui/toggle-group'
 import { t } from '@/lib/i18n'
@@ -110,27 +111,47 @@ function confidenceExplained(candidate: MetadataCandidate): string {
 
 // Quanto è affidabile il candidato scelto e da cosa viene, contro la soglia
 // del match automatico (Settings › Releases): per capire a che valore metterla.
-function ConfidenceDetail({ candidate }: { candidate: MetadataCandidate }) {
+// L'affidabilità del match in alto a destra, solo la percentuale (verde se
+// supera la soglia del match automatico); passandoci sopra, il perché.
+function ConfidenceBadge({ candidate }: { candidate: MetadataCandidate }) {
   const { data } = useSetting('upload_auto_match_threshold')
   if (candidate.confidence == null) return null
   const raw = data?.value
   const threshold = raw == null || raw === '' ? 0.9 : Number(raw)
   const off = !(threshold > 0 && threshold <= 1)
   const passes = !off && !candidate.ambiguous && candidate.confidence >= threshold
+  const summary = off
+    ? t('upload.match.summaryOff')
+    : candidate.ambiguous
+      ? t('upload.match.summaryAmbiguous')
+      : t(passes ? 'upload.match.summaryAbove' : 'upload.match.summaryBelow', { threshold: percent(threshold) })
   return (
-    <div className="grid gap-1 border-t pt-3 text-xs">
-      <p className="font-medium">
-        {t('upload.match.reliability', { confidence: percent(candidate.confidence) })}
-        <span className={cn('ml-1.5 font-normal', passes ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground')}>
-          {off
-            ? t('upload.match.summaryOff')
-            : candidate.ambiguous
-              ? t('upload.match.summaryAmbiguous')
-              : t(passes ? 'upload.match.summaryAbove' : 'upload.match.summaryBelow', { threshold: percent(threshold) })}
-        </span>
-      </p>
-      <ConfidenceFactors candidate={candidate} />
-    </div>
+    <Popover>
+      <PopoverTrigger
+        openOnHover
+        delay={150}
+        aria-label={t('upload.match.reliability', { confidence: percent(candidate.confidence) })}
+        className={cn(
+          'cursor-help rounded-md px-2 py-0.5 font-mono text-sm font-semibold tabular-nums',
+          passes
+            ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+            : off
+              ? 'bg-muted text-muted-foreground'
+              : 'bg-amber-500/15 text-amber-700 dark:text-amber-300',
+        )}
+      >
+        {percent(candidate.confidence)}
+      </PopoverTrigger>
+      <PopoverContent align="end" className="grid w-96 max-w-[calc(100vw-2rem)] gap-2 text-xs">
+        <p className="font-medium">
+          {t('upload.match.reliability', { confidence: percent(candidate.confidence) })}
+          <span className={cn('ml-1.5 font-normal', passes ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground')}>
+            {summary}
+          </span>
+        </p>
+        <ConfidenceFactors candidate={candidate} />
+      </PopoverContent>
+    </Popover>
   )
 }
 
@@ -242,7 +263,7 @@ function DetailPanel({ candidate, details, isPending }: {
         </div>
       </div>
       {isPending && !details && <p className="text-xs text-muted-foreground">{t('common.loading')}</p>}
-      {info.overview && <p className="line-clamp-6 text-xs leading-relaxed">{info.overview}</p>}
+      {info.overview && <p className="line-clamp-2 text-xs leading-relaxed" title={info.overview}>{info.overview}</p>}
       {details && details.cast.length > 0 && (
         <p className="text-xs text-muted-foreground">
           <span className="font-medium text-foreground">{t('upload.match.cast')}:</span> {details.cast.join(', ')}
@@ -256,7 +277,6 @@ function DetailPanel({ candidate, details, isPending }: {
           tvdb_id: details?.tvdb_id,
         }}
       />
-      <ConfidenceDetail candidate={candidate} />
     </div>
   )
 }
@@ -640,6 +660,11 @@ export function MatchStep({ job }: { job: UploadJob }) {
       <Card className="h-fit lg:sticky lg:top-4">
         <CardHeader>
           <CardTitle className="text-base">{t('upload.match.selected')}</CardTitle>
+          {selected && (
+            <CardAction>
+              <ConfidenceBadge candidate={selected} />
+            </CardAction>
+          )}
         </CardHeader>
         <CardContent className="grid gap-4">
           {selected ? (
@@ -651,6 +676,8 @@ export function MatchStep({ job }: { job: UploadJob }) {
             <>
               <ChoiceCards
                 label={t('upload.match.kindLabel')}
+                className={cn('border-t pt-4', kindChoices.length === 2 && 'grid-cols-2')}
+                showBadge={false}
                 choices={kindChoices}
                 value={kind}
                 onSelect={(value) => {

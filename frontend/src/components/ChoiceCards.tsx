@@ -19,6 +19,7 @@ export function ChoiceCards<T extends string>({
   value,
   onSelect,
   disabled = false,
+  showBadge = true,
   className,
 }: {
   label: string
@@ -26,6 +27,7 @@ export function ChoiceCards<T extends string>({
   value: T
   onSelect: (value: T, choice: Choice<T>) => void
   disabled?: boolean
+  showBadge?: boolean // il segno "In uso" sulla scheda attiva (il bordo basta dove manca lo spazio)
   className?: string
 }) {
   return (
@@ -47,7 +49,7 @@ export function ChoiceCards<T extends string>({
           >
             <div className="flex items-center justify-between gap-2">
               <span className="text-sm font-medium">{choice.title}</span>
-              {selected && (
+              {selected && showBadge && (
                 <span className="rounded bg-primary px-1.5 py-0.5 text-[length:var(--text-xxs)] font-medium text-primary-foreground">
                   {t('interface.inUse')}
                 </span>
