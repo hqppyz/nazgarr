@@ -266,3 +266,63 @@ def test_library_series_orderings_follow_the_library_numbering(client, monkeypat
     assert [o["key"] for o in body["orders"]] == ["tmdb:default", "tmdb:group:g1"]
     # Gli stessi file nelle "parti": la seconda metà della stagione 1 è la stagione 2.
     assert body["found"]["tmdb:group:g1"] == {"1": [1, 2, 3, 4, 5], "2": [1, 2, 3, 4, 5]}
+
+
+def test_a_library_in_joined_order_is_not_taken_for_aired_segments(db_session, monkeypatch):
+    """Come Dexter's Laboratory: TVDB aired divide ogni episodio in 3
+    segmenti (S01 da 38), "Joined Order" no (S01 da 13), come la libreria."""
+    import httpx
+
+    from nazgarr.models import SonarrInstance
+
+    monkeypatch.setattr("nazgarr.net_guard.check_url", lambda url: None)
+
+    class Tmdb:
+        def get(self, path, **params):
+            if path == "/tv/4229/external_ids":
+                return {"tvdb_id": 76015}
+            if path == "/tv/4229" and not params:
+                return {"seasons": [{"season_number": 1}]}
+            if path == "/tv/4229":
+                episodes = [{"episode_number": e, "name": f"Ep {e}", "air_date": f"1996-{e:02d}-01"}
+                            for e in range(1, 14)]
+                return {"season/1": {"episodes": episodes}}
+            if path == "/tv/4229/episode_groups":
+                return {"results": []}
+            raise AssertionError(path)
+
+    class Sonarr:
+        def __init__(self, instance):
+            pass
+
+        def get(self, path, **params):
+            if path == "/api/v3/series":
+                return [{"id": 1, "tmdbId": 4229, "tvdbId": 76015}]
+            # 38 segmenti, tre (o due) per data.
+            return [{"seasonNumber": 1, "episodeNumber": n, "title": f"Segment {n}",
+                     "airDate": f"1996-{min((n + 2) // 3, 13):02d}-01"} for n in range(1, 39)]
+
+    def tvdb(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/login"):
+            return httpx.Response(200, json={"data": {"token": "t"}})
+        if request.url.path.endswith("/extended"):
+            return httpx.Response(200, json={"data": {"seasonTypes": [
+                {"type": "official", "name": "Aired Order"}, {"type": "alternate", "name": "Joined Order"}]}})
+        kind = request.url.path.rsplit("/", 1)[1]
+        count = 38 if kind == "official" else 13
+        return httpx.Response(200, json={"data": {"episodes": [
+            {"seasonNumber": 1, "number": n, "name": f"{kind} {n}"} for n in range(1, count + 1)]}})
+
+    db_session.add(SonarrInstance(label="Main", base_url="http://s", api_key="k"))
+    db_session.commit()
+    api = eo.TvdbApi("k", client=httpx.Client(base_url=eo.TVDB_API, transport=httpx.MockTransport(tvdb)))
+    library = {1: list(range(1, 14))}
+
+    result = eo.build(db_session, 4229, 76015, library, pack=True, tmdb_api=Tmdb(), tvdb_api=api,
+                      sonarr_factory=Sonarr)
+
+    labels = {o["key"]: o["label"] for o in result["orders"]}
+    assert labels["tvdb:alternate"] == "TVDB · Joined Order" and "tvdb:official" not in labels
+    assert result["recommended"] == "tvdb:alternate"
+    assert result["warning"] == {"code": "files_not_tvdb_aired", "order": "tvdb:alternate", "tvdb": "sonarr:aired"}
+    assert result["fits"]["sonarr:aired"]["score"] < 1.0

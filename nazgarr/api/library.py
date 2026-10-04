@@ -379,5 +379,7 @@ def library_episode_orders(tmdb_id: int, session: Session = Depends(get_session)
         if i.season_number is not None and i.episode_number is not None
     )
     tvdb_id = episode_orders.tvdb_id_for(session, tmdb_id)
-    return episode_orders.build(session, tmdb_id, tvdb_id, found, pack=False)
+    # Come un pack: conta anche quanto sono complete le stagioni, non solo se
+    # gli episodi esistono (13 file su 13 battono 13 su 38).
+    return episode_orders.build(session, tmdb_id, tvdb_id, found, pack=True)
 

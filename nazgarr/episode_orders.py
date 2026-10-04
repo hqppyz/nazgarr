@@ -351,11 +351,9 @@ def collect(session: Session, tmdb_id: int, tvdb_id: int | None, found: dict[int
     if sonarr is not None:
         orders.append(sonarr)
 
-    def best_score() -> float:
-        return max((fit(o, found, pack)["score"] for o in orders), default=0.0)
-
-    # TVDB, l'ultima risorsa: se Sonarr non ha la serie o niente combacia del tutto.
-    if tvdb_id and (sonarr is None or (found and best_score() < 1.0)):
+    # TVDB, l'ultima risorsa: se Sonarr non ha la serie, o se i file non
+    # seguono il suo ordine (un altro ordine TVDB, es. "Joined", li coprirebbe).
+    if tvdb_id and (sonarr is None or (found and fit(sonarr, found, pack)["score"] < 1.0)):
         key = settings_repo.get_setting(session, "tvdb_api_key")
         if tvdb_api is None and key:
             tvdb_api = TvdbApi(key)
@@ -378,7 +376,9 @@ def best_fit(orders: list[EpisodeOrder], found: dict[int, list[int]], pack: bool
     aired, poi TMDB. Senza episodi, la stessa priorità."""
     keys = [o.key for o in orders]
     tvdb_aired = next((k for k in TVDB_AIRED_KEYS if k in keys), None)
-    rank = [k for k in (preferred, tvdb_aired, TMDB_DEFAULT) if k and k in keys] + keys
+    # Priorità a TVDB (decisione dell'utente, 2026-10-04): aired, poi gli altri ordini TVDB, poi TMDB.
+    other_tvdb = [o.key for o in orders if o.source == "tvdb" and o.key != tvdb_aired]
+    rank = list(dict.fromkeys(k for k in (preferred, tvdb_aired, *other_tvdb, TMDB_DEFAULT, *keys) if k and k in keys))
     if not orders:
         return None
     if not found:
@@ -514,11 +514,13 @@ class Translator:
         self.sources = sources
         self._orders: dict[int, list[EpisodeOrder]] = {}
 
-    def orders(self, tmdb_id: int) -> list[EpisodeOrder]:
+    def orders(self, tmdb_id: int, library: set[Ref] | None = None) -> list[EpisodeOrder]:
         if tmdb_id not in self._orders:
             try:
                 tvdb_id = tvdb_id_for(self.session, tmdb_id, self.sources.get("tmdb_api"))
-                self._orders[tmdb_id] = collect(self.session, tmdb_id, tvdb_id, {}, False, **self.sources)
+                # Con gli episodi della libreria: se niente li copre del tutto, anche TVDB.
+                self._orders[tmdb_id] = collect(self.session, tmdb_id, tvdb_id, group(library or set()), True,
+                                                **self.sources)
             except Exception:
                 logger.warning("Ordinamenti degli episodi non disponibili per %s", tmdb_id, exc_info=True)
                 self._orders[tmdb_id] = []
@@ -528,11 +530,11 @@ class Translator:
         """Episodio del torrent -> episodio della libreria. Solo traduzioni uno
         a uno che finiscono su un episodio presente: un file con due episodi
         accorpati non diventa mai un file solo della libreria."""
-        orders = self.orders(tmdb_id)
+        orders = self.orders(tmdb_id, library)
         if not orders or not torrent or not library:
             return {}
         source = best_fit(orders, group(torrent), pack=True)
-        target = best_fit(orders, group(library), pack=False)
+        target = best_fit(orders, group(library), pack=True)
         if source is None or target is None or source.key == target.key:
             return {}
         out = {}
