@@ -3,7 +3,6 @@ serie, attraverso il resolver vero (FilenameParserResolver) e la pipeline
 di risoluzione vera (resolve_unmatched_media_files) — non solo
 CachingTMDBClient isolato (tests/test_tmdb_cache.py)."""
 
-from datetime import UTC, datetime
 
 import httpx
 
@@ -12,16 +11,7 @@ from nazgarr.adapters.media_resolver.filename_parser import FilenameParserResolv
 from nazgarr.models import Disk, MediaFile
 from nazgarr.tmdb_cache import CachingTMDBClient
 from nazgarr.tmdb_client import TMDBClient
-
-
-def _make_media_file(db_session, disk, relative_path, run):
-    mf = MediaFile(
-        disk_id=disk.id, relative_path=relative_path,
-        size_bytes=1, st_dev=1, inode=1, last_scan_id=run.id, last_seen_at=datetime.now(UTC),
-    )
-    db_session.add(mf)
-    db_session.commit()
-    return mf
+from tests.fakes import make_media_file
 
 
 def test_a_full_season_of_episodes_costs_one_tmdb_call(db_session, tmp_path):
@@ -31,7 +21,7 @@ def test_a_full_season_of_episodes_costs_one_tmdb_call(db_session, tmp_path):
     run = pipeline.start_run(db_session, run_type="manual")
 
     for episode in range(1, 25):  # una stagione intera, 24 episodi
-        _make_media_file(db_session, disk, f"tv/Game.of.Thrones.S03E{episode:02d}.mkv", run)
+        make_media_file(db_session, disk, f"tv/Game.of.Thrones.S03E{episode:02d}.mkv", run)
 
     calls = {"count": 0}
 

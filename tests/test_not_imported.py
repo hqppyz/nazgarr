@@ -1,23 +1,10 @@
 import os
 
 from nazgarr import not_imported, pipeline, scanner, torrent_indexer
-from nazgarr.adapters.torrent_client.base import ClientTorrentFileInfo, ClientTorrentInfo, TorrentClientAdapter
+from nazgarr.adapters.torrent_client.base import ClientTorrentFileInfo, ClientTorrentInfo
 from nazgarr.arr import ArrIndex
 from nazgarr.models import ClientTorrent, Disk, MediaFile, MediaItem, NotImportedTorrent, TorrentClient
-
-
-class FakeAdapter(TorrentClientAdapter):
-    def __init__(self, torrents):
-        self._torrents = torrents
-
-    def add_torrent(self, *args, **kwargs):
-        raise NotImplementedError
-
-    def get_torrent_status(self, *args, **kwargs):
-        raise NotImplementedError
-
-    def list_torrents(self):
-        return self._torrents
+from tests.fakes import FakeAdapter
 
 
 def _setup(db_session, tmp_path):
