@@ -164,7 +164,7 @@ function TorrentClientDialog({ tc }: { tc?: TorrentClient }) {
           )
         }
       />
-      <DialogContent data-tour={editing ? undefined : 'clients.dialog'}>
+      <DialogContent data-tour="clients.dialog">
         <DialogHeader>
           <DialogTitle>{t(editing ? 'torrentClients.editTorrentClient' : 'torrentClients.addTorrentClient')}</DialogTitle>
           {editing && <DialogDescription>{t('torrentClients.typeNotEditable', { type: tc.adapter_type })}</DialogDescription>}
@@ -204,7 +204,7 @@ function TorrentClientDialog({ tc }: { tc?: TorrentClient }) {
               ) : null}
             </div>
           )}
-          <div className="grid gap-1.5" data-tour={editing ? undefined : 'clients.dialog.url'}>
+          <div className="grid gap-1.5" data-tour="clients.dialog.url">
             <Label htmlFor={`${idPrefix}-base-url`}>{t('torrentClients.url')}</Label>
             <Input
               id={`${idPrefix}-base-url`}
@@ -222,7 +222,7 @@ function TorrentClientDialog({ tc }: { tc?: TorrentClient }) {
               onChange={setConfig}
             />
           ) : isQui ? (
-            <div className="grid gap-3" data-tour={editing ? undefined : 'clients.dialog.credentials'}>
+            <div className="grid gap-3" data-tour="clients.dialog.credentials">
               <div className="grid gap-1.5">
                 <Label htmlFor={`${idPrefix}-api-token`}>{t('torrentClients.apiKey')}</Label>
                 <Input
@@ -246,7 +246,7 @@ function TorrentClientDialog({ tc }: { tc?: TorrentClient }) {
               </div>
             </div>
           ) : (
-            <div className="grid gap-3" data-tour={editing ? undefined : 'clients.dialog.credentials'}>
+            <div className="grid gap-3" data-tour="clients.dialog.credentials">
               {passwordOnly ? null : (
                 <div className="grid gap-1.5">
                   <Label htmlFor={`${idPrefix}-username`}>{t('torrentClients.username')}</Label>
@@ -267,7 +267,7 @@ function TorrentClientDialog({ tc }: { tc?: TorrentClient }) {
           )}
         </div>
         <DialogFooter>
-          <Button data-tour={editing ? undefined : 'clients.dialog.create'} onClick={submit} disabled={!canSubmit || pending}>
+          <Button data-tour="clients.dialog.create" onClick={submit} disabled={!canSubmit || pending}>
             {t(editing ? 'common.save' : 'torrentClients.create')}
           </Button>
         </DialogFooter>
