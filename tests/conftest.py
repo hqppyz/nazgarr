@@ -85,3 +85,14 @@ def anon_client(tmp_path, monkeypatch):
         yield test_client
 
     crypto_module._fernet.cache_clear()
+
+
+@pytest.fixture(autouse=True)
+def _fresh_tracker_state():
+    """Rate limit e cache delle ricerche dei tracker sono condivisi nel
+    processo (nazgarr/adapters/tracker/base.py): mai fra un test e l'altro."""
+    from nazgarr.adapters.tracker.base import reset_shared_state
+
+    reset_shared_state()
+    yield
+    reset_shared_state()
