@@ -317,7 +317,8 @@ def approve(session: Session, job: UploadJob, decisions: list[dict]) -> None:
             target.reseed_torrent_id = decision["reseed_torrent_id"]
         if decision["action"] in ("upload", "reseed"):
             target.client_category, target.client_tags = _client_labels(job, target, decision)
-        target.status = "skipped" if decision["action"] == "skip" else "approved"
+        status = upload_jobs.TargetStatus
+        upload_jobs.set_target_status(target, status.SKIPPED if decision["action"] == "skip" else status.APPROVED)
         upload_jobs.log_event(
             session, job, "target_approved", target=target, action=decision["action"],
             name=decision.get("name"), torrent=decision.get("reseed_torrent_id"),

@@ -479,7 +479,7 @@ def run_upload(session: Session, job: UploadJob, target: UploadTarget, ctx: dict
     if profile is None:
         raise UploadJobError("tracker_no_upload_profile", tracker=tracker.label)
 
-    target.status = "preparing"
+    upload_jobs.set_target_status(target, upload_jobs.TargetStatus.PREPARING)
     session.commit()
     torrent: torf.Torrent = ctx["torrent"]
     torrent.trackers = [tracker.announce_url]
@@ -495,7 +495,7 @@ def run_upload(session: Session, job: UploadJob, target: UploadTarget, ctx: dict
     resolutions = json.loads(profile.resolution_id_map_json or "{}")
     resolution_key = next((k for k, v in resolutions.items() if v == target.resolution_id), None)
 
-    target.status = "uploading"
+    upload_jobs.set_target_status(target, upload_jobs.TargetStatus.UPLOADING)
     session.commit()
     with adapter_factory.tracker(tracker) as adapter:
         fields = upload_fields(job, target, description, resolution_key)
@@ -507,7 +507,7 @@ def run_upload(session: Session, job: UploadJob, target: UploadTarget, ctx: dict
         if overrides.get("no_seed"):
             upload_jobs.log_event(session, job, "not_seeded", target=target)
             return
-        target.status = "seeding"
+        upload_jobs.set_target_status(target, upload_jobs.TargetStatus.SEEDING)
         session.commit()
         try:
             root = ctx["seed_root"]()
@@ -538,7 +538,7 @@ def run_reseed(session: Session, job: UploadJob, target: UploadTarget, ctx: dict
     dupe = next((d for d in dupes if d["torrent_id_remote"] == target.reseed_torrent_id), None)
     if dupe is None or not dupe.get("download_link"):
         raise UploadJobError("upload_dupe_no_download_link")
-    target.status = "preparing"
+    upload_jobs.set_target_status(target, upload_jobs.TargetStatus.PREPARING)
     session.commit()
     with adapter_factory.tracker(target.tracker) as adapter:
         content = adapter.download_torrent(dupe["download_link"])
@@ -554,7 +554,7 @@ def run_reseed(session: Session, job: UploadJob, target: UploadTarget, ctx: dict
     parsed = parse_torrent_info(content)
     target.torrent_path = torrent_path
 
-    target.status = "seeding"
+    upload_jobs.set_target_status(target, upload_jobs.TargetStatus.SEEDING)
     session.commit()
     locate = build_locator(job, parsed)
     located = []
@@ -725,11 +725,11 @@ def handle(session: Session, job: UploadJob, worker) -> None:
                 run_upload(session, job, target, ctx)
             else:
                 run_reseed(session, job, target, ctx)
-            target.status = "done"
+            upload_jobs.set_target_status(target, upload_jobs.TargetStatus.DONE)
         except Exception as exc:
             session.rollback()
             logger.warning("Upload %s: %s fallito su %s", job.id, target.action, target.tracker.label, exc_info=True)
-            target.status = "failed"
+            upload_jobs.set_target_status(target, upload_jobs.TargetStatus.FAILED)
             target.error_message = getattr(exc, "code", None) or str(exc)
             params = getattr(exc, "params", None) or {"error": str(exc)}
             upload_jobs.log_event(session, job, f"{target.action}_failed", level="error", target=target,

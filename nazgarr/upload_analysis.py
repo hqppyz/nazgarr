@@ -251,7 +251,7 @@ def _check_trackers(
     già seed degli stessi byte sul suo client (vedi seeding_here)."""
     seeding_by_target: dict[str, dict] = {}
     for target in job.targets:
-        target.status = "checking"
+        upload_jobs.set_target_status(target, upload_jobs.TargetStatus.CHECKING)
         session.commit()
         try:
             with adapter_factory.tracker(target.tracker) as adapter:
@@ -279,7 +279,7 @@ def _check_trackers(
             target.suggested_action = "skip"
             upload_jobs.log_event(session, job, "already_seeding_here", level="warning", target=target,
                                   torrent=seeding["name"], client=seeding["client"])
-        target.status = "awaiting_decision"
+        upload_jobs.set_target_status(target, upload_jobs.TargetStatus.AWAITING_DECISION)
         session.commit()
     return seeding_by_target
 

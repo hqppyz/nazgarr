@@ -382,3 +382,24 @@ def test_a_cancelled_upload_whose_source_is_gone_does_not_resume(db_session, tmp
     os.unlink(job.source_path)
     with pytest.raises(UploadJobError, match="upload_source_missing"):
         upload_jobs.resume_job(db_session, job)
+
+
+def test_target_statuses_go_through_one_function(caplog):
+    """Un nome sbagliato fallisce subito; un passaggio non previsto non si
+    blocca ma si vede nel log."""
+    import logging
+    from types import SimpleNamespace
+
+    import pytest
+
+    from nazgarr import upload_jobs
+    from nazgarr.upload_jobs import TargetStatus, set_target_status
+
+    target = SimpleNamespace(id=1, status="approved")
+    set_target_status(target, TargetStatus.UPLOADING)
+    assert target.status == "uploading"
+    with pytest.raises(ValueError):
+        set_target_status(target, "uplaoding")
+    with caplog.at_level(logging.WARNING, logger=upload_jobs.logger.name):
+        set_target_status(target, TargetStatus.CHECKING)  # da uploading: non previsto
+    assert target.status == "checking" and "non previsto uploading -> checking" in caplog.text

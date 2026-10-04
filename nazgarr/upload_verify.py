@@ -98,7 +98,7 @@ def start(session: Session, job: UploadJob, target: UploadTarget, torrent_id_rem
     dupes = json.loads(target.dupes_json or "[]")
     if not any(d["torrent_id_remote"] == torrent_id_remote for d in dupes):
         raise upload_jobs.UploadJobError("upload_dupe_not_found", id=torrent_id_remote)
-    target.status = "verifying"
+    upload_jobs.set_target_status(target, upload_jobs.TargetStatus.VERIFYING)
     upload_jobs.log_event(session, job, "verify_started", target=target, torrent=torrent_id_remote)
     session.commit()
     worker.submit_verify(target.id, torrent_id_remote)
@@ -132,7 +132,7 @@ def execute(session: Session, target_id: int, torrent_id_remote: str) -> None:
         target.suggested_action = "reseed"
         target.reseed_torrent_id = torrent_id_remote
     if target.status == "verifying":  # non annullato nel frattempo
-        target.status = "awaiting_decision"
+        upload_jobs.set_target_status(target, upload_jobs.TargetStatus.AWAITING_DECISION)
     level = "info" if verification["status"] == "passed" else "warning"
     upload_jobs.log_event(
         session, job, f"verify_{verification['status']}", level=level, target=target, torrent=torrent_id_remote,

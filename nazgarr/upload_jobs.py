@@ -16,6 +16,7 @@ import json
 import logging
 import os
 from datetime import UTC, datetime
+from enum import StrEnum
 
 from sqlalchemy import update
 from sqlalchemy.orm import Session
@@ -23,7 +24,16 @@ from sqlalchemy.orm import Session
 from nazgarr import client_labels
 from nazgarr.api_errors import CodedError
 from nazgarr.fs_scope import resolve_scoped
-from nazgarr.models import Disk, TorrentClient, Tracker, TrackerUploadProfile, UploadEvent, UploadJob, UploadTarget
+from nazgarr.models import (
+    UPLOAD_TARGET_STATUSES,
+    Disk,
+    TorrentClient,
+    Tracker,
+    TrackerUploadProfile,
+    UploadEvent,
+    UploadJob,
+    UploadTarget,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +60,54 @@ def log_event(
     )
     session.add(event)
     return event
+
+
+class TargetStatus(StrEnum):
+    """Gli stati di un target (un tracker di un job): gli stessi del CHECK
+    del DB (models.UPLOAD_TARGET_STATUSES)."""
+
+    PENDING = "pending"
+    CHECKING = "checking"
+    AWAITING_DECISION = "awaiting_decision"
+    APPROVED = "approved"
+    VERIFYING = "verifying"
+    PREPARING = "preparing"
+    UPLOADING = "uploading"
+    SEEDING = "seeding"
+    DONE = "done"
+    SKIPPED = "skipped"
+    FAILED = "failed"
+
+
+assert {s.value for s in TargetStatus} == set(UPLOAD_TARGET_STATUSES)
+
+_S = TargetStatus
+# I passaggi previsti, per leggere il ciclo di vita di un target in un posto
+# solo. Uno non previsto non si blocca (ripresa, annullamento e riapertura
+# del match hanno percorsi rari) ma si scrive nel log.
+EXPECTED_TARGET_TRANSITIONS: dict[TargetStatus, frozenset[TargetStatus]] = {
+    _S.PENDING: frozenset({_S.CHECKING, _S.AWAITING_DECISION, _S.FAILED}),
+    _S.CHECKING: frozenset({_S.AWAITING_DECISION, _S.FAILED, _S.PENDING}),
+    _S.AWAITING_DECISION: frozenset({_S.VERIFYING, _S.APPROVED, _S.SKIPPED, _S.PENDING, _S.CHECKING}),
+    _S.VERIFYING: frozenset({_S.AWAITING_DECISION, _S.APPROVED}),
+    _S.APPROVED: frozenset({_S.PREPARING, _S.UPLOADING, _S.DONE, _S.FAILED, _S.PENDING}),
+    _S.PREPARING: frozenset({_S.UPLOADING, _S.SEEDING, _S.APPROVED, _S.DONE, _S.FAILED}),
+    _S.UPLOADING: frozenset({_S.SEEDING, _S.DONE, _S.FAILED}),
+    _S.SEEDING: frozenset({_S.DONE, _S.FAILED}),
+    _S.DONE: frozenset({_S.PENDING}),
+    _S.SKIPPED: frozenset({_S.PENDING, _S.APPROVED}),
+    _S.FAILED: frozenset({_S.APPROVED, _S.PENDING}),
+}
+
+
+def set_target_status(target: UploadTarget, status: TargetStatus | str) -> None:
+    """L'unico modo di cambiare lo stato di un target: un nome sbagliato
+    fallisce subito (ValueError), un passaggio non previsto si vede nel log."""
+    new = TargetStatus(status)
+    old = target.status
+    if old is not None and old != new and new not in EXPECTED_TARGET_TRANSITIONS.get(TargetStatus(old), ()):
+        logger.warning("Target %s: passaggio di stato non previsto %s -> %s", target.id, old, new.value)
+    target.status = new.value
 
 
 def transition(session: Session, job: UploadJob, expected: str | tuple[str, ...], new: str, **values) -> bool:
@@ -289,11 +347,11 @@ def reset_interrupted(session: Session) -> list[int]:
     for job in session.query(UploadJob).filter(UploadJob.status == "running").all():
         for target in job.targets:
             if target.status == "uploading":
-                target.status = "failed"
+                set_target_status(target, TargetStatus.FAILED)
                 target.error_message = "interrupted"
                 log_event(session, job, "target_interrupted", level="error", target=target)
             elif target.status in ("preparing", "verifying"):
-                target.status = "approved"
+                set_target_status(target, TargetStatus.APPROVED)
         job.status = "queued"
         job.stage = None
         log_event(session, job, "job_resumed", level="warning")
@@ -305,7 +363,7 @@ def reset_interrupted(session: Session) -> list[int]:
         .filter(UploadJob.status == "awaiting_decision", UploadTarget.status == "verifying")
         .all()
     ):
-        target.status = "awaiting_decision"
+        set_target_status(target, TargetStatus.AWAITING_DECISION)
         log_event(session, target.job, "verify_interrupted", level="warning", target=target)
     session.commit()
     return [
@@ -402,7 +460,7 @@ def back_to_match(session: Session, job: UploadJob) -> None:
     if not transition(session, job, "awaiting_decision", "awaiting_match", analysis_json=None, stage=None):
         raise UploadJobError("upload_job_wrong_status", status=job.status)
     for target in job.targets:
-        target.status = "pending"
+        set_target_status(target, TargetStatus.PENDING)
         target.suggested_action = target.action = None
         target.dupes_json = target.reseed_torrent_id = None
         target.proposed_name = target.approved_name = None
