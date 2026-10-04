@@ -28,5 +28,12 @@ def clean_name(name: str) -> str:
     return os.path.join(folder, cleaned + ext) if folder else cleaned + ext
 
 
+def as_list(value) -> list:
+    """guessit dà un valore o una lista (es. più episodi): sempre una lista."""
+    if value is None:
+        return []
+    return list(value) if isinstance(value, list) else [value]
+
+
 def guess(name: str, options: dict | None = None) -> dict:
     return guessit.guessit(clean_name(name), options) if options else guessit.guessit(clean_name(name))

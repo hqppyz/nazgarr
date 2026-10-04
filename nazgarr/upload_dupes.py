@@ -17,12 +17,12 @@ nessun risultato viene scartato in silenzio: si mostra tutto con il suo
 verdetto e l'utente decide.
 """
 
-from dataclasses import dataclass
-
-import guessit
+from dataclasses import dataclass, replace
 
 from nazgarr.adapters.tracker.base import TorrentCandidate
 from nazgarr.file_types import is_video
+from nazgarr.guess import as_list
+from nazgarr.guess import guess as guess_name
 
 
 @dataclass(frozen=True)
@@ -37,12 +37,6 @@ class ReleaseTraits:
     group: str | None
 
 
-def _as_list(value) -> list:
-    if value is None:
-        return []
-    return list(value) if isinstance(value, list) else [value]
-
-
 _SOURCES = {
     "web": "web", "web-dl": "web", "webrip": "web",
     "blu-ray": "bluray", "ultra hd blu-ray": "bluray", "hd-dvd": "bluray",
@@ -52,8 +46,9 @@ _SOURCES = {
 
 
 def traits_of(name: str) -> ReleaseTraits:
-    guess = guessit.guessit(name)
-    others = {str(o) for o in _as_list(guess.get("other"))}
+    # Lo stesso guessit del resto dell'app (nazgarr/guess.py), col nome ripulito.
+    guess = guess_name(name)
+    others = {str(o) for o in as_list(guess.get("other"))}
     hdr = set()
     if others & {"HDR10", "HDR10+", "HDR"}:
         hdr.add("HDR")
@@ -65,8 +60,8 @@ def traits_of(name: str) -> ReleaseTraits:
         source=source,
         remux="Remux" in others,
         hdr=frozenset(hdr),
-        seasons=frozenset(s for s in _as_list(guess.get("season")) if isinstance(s, int)),
-        episodes=frozenset(e for e in _as_list(guess.get("episode")) if isinstance(e, int)),
+        seasons=frozenset(s for s in as_list(guess.get("season")) if isinstance(s, int)),
+        episodes=frozenset(e for e in as_list(guess.get("episode")) if isinstance(e, int)),
         repack=bool(guess.get("proper_count")) or bool(others & {"Proper", "Repack"}),
         group=guess.get("release_group"),
     )
@@ -76,12 +71,15 @@ def traits_of(name: str) -> ReleaseTraits:
 class SourceSummary:
     """Quello che serve della sorgente locale per confrontarla."""
 
-    name: str  # nome della cartella o del file, da cui si leggono i tratti
+    name: str  # il nome da cui si leggono i tratti (name_source dell'analisi)
     total_size_bytes: int  # tutti i file, video e non (come la dimensione di un torrent)
     video_sizes: tuple[int, ...]
     kind: str  # movie | episode | season_pack | complete_pack
     seasons: frozenset[int]
     episode: int | None
+    # La risoluzione letta da MediaInfo: vale più di quella del nome, che
+    # spesso non c'è (un nome rinominato da Plex/Radarr).
+    resolution: str | None = None
 
 
 def _covers(source: SourceSummary, other: ReleaseTraits) -> tuple[bool, str | None]:
@@ -102,8 +100,17 @@ def _covers(source: SourceSummary, other: ReleaseTraits) -> tuple[bool, str | No
     return True, None
 
 
-def classify(candidate: TorrentCandidate, source: SourceSummary) -> dict:
-    mine = traits_of(source.name)
+def source_traits(source: SourceSummary) -> ReleaseTraits:
+    traits = traits_of(source.name)
+    if source.resolution:
+        traits = replace(traits, resolution=source.resolution)
+    return traits
+
+
+def classify(candidate: TorrentCandidate, source: SourceSummary, mine: ReleaseTraits | None = None) -> dict:
+    """mine: i tratti della sorgente, se già calcolati (check() li calcola
+    una volta per tutti i candidati)."""
+    mine = mine or source_traits(source)
     theirs = traits_of(candidate.name)
     reasons: list[str] = []
 
@@ -153,7 +160,8 @@ _VERDICT_ORDER = {"identical": 0, "same_slot": 1, "different": 2}
 
 def check(candidates: list[TorrentCandidate], source: SourceSummary) -> tuple[list[dict], str]:
     """(risultati classificati, azione suggerita per questo tracker)."""
-    results = sorted((classify(c, source) for c in candidates), key=lambda r: _VERDICT_ORDER[r["verdict"]])
+    mine = source_traits(source)
+    results = sorted((classify(c, source, mine) for c in candidates), key=lambda r: _VERDICT_ORDER[r["verdict"]])
     verdicts = {r["verdict"] for r in results}
     if "identical" in verdicts:
         suggested = "reseed"

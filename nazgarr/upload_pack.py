@@ -31,7 +31,7 @@ from nazgarr.guess import clean_name
 from nazgarr.guess import guess as guess_name
 from nazgarr.models import Disk, UploadJob
 from nazgarr.upload_jobs import UploadJobError
-from nazgarr.upload_naming import hdr_full
+from nazgarr.upload_naming import hdr_full, mi_resolution
 
 ORIGIN = "pack"
 MAX_FILES = 500
@@ -160,24 +160,13 @@ def create_job(
 # --- pack misti ---------------------------------------------------------------
 
 
-def _resolution(video: dict) -> str | None:
-    width, height = video.get("width") or 0, video.get("height") or 0
-    if width >= 3200 or height >= 1800:
-        return "2160p"
-    if width >= 1700 or height >= 900:
-        return "1080p"
-    if width >= 1100 or height >= 650:
-        return "720p"
-    return "SD" if width or height else None
-
-
 def signature(path: str, summary: dict | None) -> dict:
     """Quello che deve essere uguale in tutti gli episodi di un pack."""
     guess = guess_name(os.path.basename(path))
     video = (summary or {}).get("video") or {}
     audio = (summary or {}).get("audio") or []
     return {
-        "resolution": _resolution(video),
+        "resolution": mi_resolution(video),  # le stesse soglie del nome della release
         "video_codec": video.get("format"),
         # Normalizzato come nei nomi ("DV.P8.HDR10"): lo stesso HDR scritto in
         # modo diverso (es. il DV letto dal flusso) non fa un pack misto.

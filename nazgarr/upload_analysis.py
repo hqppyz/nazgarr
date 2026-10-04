@@ -29,6 +29,7 @@ from nazgarr import (
     upload_decision,
     upload_inventory,
     upload_jobs,
+    upload_naming,
     upload_pack,
 )
 from nazgarr.file_types import is_video
@@ -211,9 +212,15 @@ def _single_name_source(job: UploadJob, files: list[tuple[str, int]], client_mat
     return None
 
 
-def summary_of(job: UploadJob, files: list[tuple[str, int]]) -> SourceSummary:
+def summary_of(job: UploadJob, files: list[tuple[str, int]], analysis: dict | None = None) -> SourceSummary:
+    """analysis: per leggere i tratti dal nome scelto per la release
+    (name_source: il torrent in seed, il nome originale di Radarr/Sonarr) e
+    la risoluzione da MediaInfo, invece che dal nome della cartella."""
+    analysis = analysis or {}
+    video = (analysis.get("mediainfo") or {}).get("video") or {}
     return SourceSummary(
-        name=upload_pack.name(job),
+        name=(analysis.get("name_source") or {}).get("name") or upload_pack.name(job),
+        resolution=upload_naming.mi_resolution(video) if video else None,
         total_size_bytes=sum(s for _p, s in files),
         video_sizes=tuple(s for p, s in files if is_video(p)),
         kind=job.kind or "movie",
@@ -333,7 +340,7 @@ def handle(session: Session, job: UploadJob, worker) -> None:
 
     job.stage = "trackers"
     session.commit()
-    analysis["seeding_here"] = _check_trackers(session, job, summary_of(job, files), client_matches)
+    analysis["seeding_here"] = _check_trackers(session, job, summary_of(job, files, analysis), client_matches)
     job.analysis_json = json.dumps(analysis)
     session.commit()
     upload_decision.propose(session, job)

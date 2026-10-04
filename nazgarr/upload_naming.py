@@ -21,6 +21,7 @@ import json
 import re
 
 from nazgarr import streaming_services
+from nazgarr.guess import as_list
 from nazgarr.guess import guess as guess_name
 from nazgarr.upload_dupes import traits_of
 
@@ -96,12 +97,6 @@ LANG3 = {
 }
 
 
-def _as_list(value) -> list:
-    if value is None:
-        return []
-    return list(value) if isinstance(value, list) else [value]
-
-
 # "VU" (video untouched, la convenzione dei remux su ITT) e "UNTOUCHED": un
 # remux anche se il nome non dice REMUX. guessit non li conosce.
 _UNTOUCHED = re.compile(r"(?:^|[ ._\-\[(])(?:VU|UNTOUCHED)(?:$|[ ._\-\])])")
@@ -109,7 +104,7 @@ _UNTOUCHED = re.compile(r"(?:^|[ ._\-\[(])(?:VU|UNTOUCHED)(?:$|[ ._\-\])])")
 
 def release_type(guess: dict, name: str = "") -> str:
     """Chiave type_id dei profili (REMUX, ENCODE, WEBDL, ...)."""
-    others = {str(o) for o in _as_list(guess.get("other"))}
+    others = {str(o) for o in as_list(guess.get("other"))}
     source = str(guess.get("source") or "").lower()
     if "Remux" in others or _UNTOUCHED.search(name):
         return "REMUX"
@@ -131,7 +126,7 @@ def _source_label(guess: dict) -> str | None:
     {format} (decisione dell'utente, 2026-09-30). Per il DVD senza PAL/NTSC
     nel nome decide la risoluzione, in release_values."""
     source = str(guess.get("source") or "")
-    others = {str(o) for o in _as_list(guess.get("other"))}
+    others = {str(o) for o in as_list(guess.get("other"))}
     if source == "Web":
         return "WEBRip" if "Rip" in others else "WEB-DL"
     if source in ("Ultra HD Blu-ray", "Blu-ray") and "3D" not in others:
@@ -210,11 +205,11 @@ def _name_video_codec(guess: dict, release: str) -> str | None:
 
 
 def _name_audio(guess: dict) -> str | None:
-    codecs = [str(c) for c in _as_list(guess.get("audio_codec"))]
+    codecs = [str(c) for c in as_list(guess.get("audio_codec"))]
     atmos = "Dolby Atmos" in codecs
     main = next((c for c in codecs if c != "Dolby Atmos"), None)
     label = _NAME_AUDIO.get(main or "", main)
-    if label == "DTS-HD" and "Master Audio" in {str(p) for p in _as_list(guess.get("audio_profile"))}:
+    if label == "DTS-HD" and "Master Audio" in {str(p) for p in as_list(guess.get("audio_profile"))}:
         label = "DTS-HD MA"
     if label is None:
         return "Atmos" if atmos else None
@@ -238,7 +233,7 @@ def detect(source_name: str) -> dict:
         "type": release,
         "resolution": guess.get("screen_size"),
         "source": _source_label(guess),
-        "edition": " ".join(str(e) for e in _as_list(guess.get("edition"))) or None,
+        "edition": " ".join(str(e) for e in as_list(guess.get("edition"))) or None,
         "repack": "REPACK" if traits.repack else None,
         "hybrid": "HYBRID" if _HYBRID.search(source_name) else None,
         "service": service or None,
@@ -263,7 +258,7 @@ def detect_with_fallback(name: str, fallback: str | None = None) -> dict:
 # --- dal MediaInfo --------------------------------------------------------------
 
 
-def _mi_resolution(video: dict) -> str | None:
+def mi_resolution(video: dict) -> str | None:
     width, height = video.get("width") or 0, video.get("height") or 0
     if not width and not height:
         return None
@@ -539,7 +534,7 @@ def release_values(
     if video and release == "REMUX" and not values.get("hybrid") and dv_profile(video) == 8:
         values["hybrid"] = "HYBRID"
     if video:
-        values["resolution"] = _mi_resolution(video) or values["resolution"]
+        values["resolution"] = mi_resolution(video) or values["resolution"]
         values["video_codec"] = video.get("format") or values["video_codec"]
         values["hdr"] = _mi_hdr(video)
         values["hdr_full"] = _mi_hdr_full(video)
