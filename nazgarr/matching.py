@@ -18,7 +18,7 @@ import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from nazgarr import settings_repo
 from nazgarr.adapters.tracker.base import (
@@ -28,6 +28,7 @@ from nazgarr.adapters.tracker.base import (
     UploadError,
 )
 from nazgarr.arr import ArrGrab, ArrIndex, host_of
+from nazgarr.db_utils import keep_loaded_on_commit
 from nazgarr.exclusions import CompiledExclusions, load_exclusions
 from nazgarr.file_types import is_video
 from nazgarr.hardlinks import seed_copies_by_inode
@@ -90,6 +91,17 @@ class MatchContext:
     evaluated_packs: set[str] = field(default_factory=set)
     _torrents: dict[str, TorrentInfo | None] = field(default_factory=dict)
     _info_hashes: dict[str, str] = field(default_factory=dict)
+
+    _in_client: set[str] | None = None
+
+    def hashes_in_clients(self) -> set[str]:
+        """Gli info hash nei client, letti una volta: durante il matching nessun
+        torrent entra in un client (l'esecuzione viene dopo)."""
+        if self._in_client is None:
+            from nazgarr.review import hashes_in_clients
+
+            self._in_client = hashes_in_clients(self.session)
+        return self._in_client
 
     def local_files(self) -> LocalFiles:
         if self.local is None:
@@ -320,7 +332,8 @@ def orphan_media_files(
     latest = latest_scan_by_disk(session, MediaFile)
     return [
         mf
-        for mf in session.query(MediaFile).filter(MediaFile.media_item_id.isnot(None)).all()
+        for mf in session.query(MediaFile).options(selectinload(MediaFile.media_item))
+        .filter(MediaFile.media_item_id.isnot(None)).all()
         if mf.id not in linked_ids
         and is_current(mf, latest)  # un file sparito dal disco non si cerca più
         and is_video(mf.relative_path)
@@ -353,7 +366,9 @@ def orphan_seed_files_with_identity(
             tracked_ids |= group
     result = []
     latest = latest_scan_by_disk(session, SeedFile)
-    for sf in session.query(SeedFile).filter(SeedFile.media_file_id.isnot(None)).all():
+    for sf in session.query(SeedFile).options(
+        selectinload(SeedFile.media_file).selectinload(MediaFile.media_item),
+    ).filter(SeedFile.media_file_id.isnot(None)).all():
         if sf.id in tracked_ids or not is_current(sf, latest):
             continue
         if not is_video(sf.relative_path):
@@ -379,13 +394,14 @@ def _as_utc(value: datetime) -> datetime:
     return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
 
 
-def _attempt_for(
-    session: Session, tracker_row: Tracker, *, media_file_id: int | None = None, seed_file_id: int | None = None
-) -> MatchAttempt | None:
-    query = session.query(MatchAttempt).filter_by(tracker_id=tracker_row.id)
-    if media_file_id is not None:
-        return query.filter_by(media_file_id=media_file_id).one_or_none()
-    return query.filter_by(seed_file_id=seed_file_id).one_or_none()
+def _attempts_by_file(session: Session, tracker_row: Tracker, side: str) -> dict[int, MatchAttempt]:
+    """I tentativi precedenti su questo tracker, per media_file_id o
+    seed_file_id: letti in blocco invece che con una query per file."""
+    column = MatchAttempt.media_file_id if side == "media" else MatchAttempt.seed_file_id
+    return {
+        getattr(a, column.key): a
+        for a in session.query(MatchAttempt).filter(MatchAttempt.tracker_id == tracker_row.id, column.isnot(None))
+    }
 
 
 def _is_fresh(attempt: MatchAttempt | None, size_bytes: int, tmdb_id: int, interval: timedelta) -> bool:
@@ -443,16 +459,24 @@ def run_media_to_torrent_matching(
         # "Cerca ora" dalla scheda di dettaglio: solo i file di quel contenuto.
         orphans = [mf for mf in orphans if mf.id in only_media_file_ids]
     progress.add_total(len(orphans))
+    attempts = _attempts_by_file(session, tracker_row, "media")
+    with keep_loaded_on_commit(session):
+        return _match_media_orphans(session, ctx, tracker_row, orphans, attempts, interval, force, totals, progress,
+                                    create_review_for_media_file)
+
+
+def _match_media_orphans(session, ctx, tracker_row, orphans, attempts, interval, force, totals, progress,
+                         create_review_for_media_file) -> dict:
     for media_file in orphans:
         tmdb_id = media_file.media_item.tmdb_id
-        attempt = _attempt_for(session, tracker_row, media_file_id=media_file.id)
+        attempt = attempts.get(media_file.id)
         if not force and _is_fresh(attempt, media_file.size_bytes, tmdb_id, interval):
             totals["skipped_fresh"] += 1
             progress.advance(skipped=1)
             continue
         try:
             candidates, from_history = find_candidates(ctx, media_file, media_file.media_item_id, tmdb_id)
-            create_review_for_media_file(session, media_file, candidates)
+            create_review_for_media_file(session, media_file, candidates, ctx.hashes_in_clients())
         except TrackerRateLimitedError:
             logger.warning("Tracker %r in rate limit: matching interrotto per questa run", tracker_row.label)
             session.rollback()
@@ -487,16 +511,24 @@ def run_torrent_to_client_matching(
     ctx = MatchContext(session, tracker_row, tracker_adapter, "torrent_to_client", arr_index)
     orphans = orphan_seed_files_with_identity(session, load_exclusions(session))
     progress.add_total(len(orphans))
+    attempts = _attempts_by_file(session, tracker_row, "seed")
+    with keep_loaded_on_commit(session):
+        return _match_seed_orphans(session, ctx, tracker_row, orphans, attempts, interval, totals, progress,
+                                   create_review_for_seed_file)
+
+
+def _match_seed_orphans(session, ctx, tracker_row, orphans, attempts, interval, totals, progress,
+                        create_review_for_seed_file) -> dict:
     for seed_file in orphans:
         media_item = seed_file.media_file.media_item
-        attempt = _attempt_for(session, tracker_row, seed_file_id=seed_file.id)
+        attempt = attempts.get(seed_file.id)
         if _is_fresh(attempt, seed_file.size_bytes, media_item.tmdb_id, interval):
             totals["skipped_fresh"] += 1
             progress.advance(skipped=1)
             continue
         try:
             candidates, from_history = find_candidates(ctx, seed_file, media_item.id, media_item.tmdb_id)
-            create_review_for_seed_file(session, seed_file, candidates)
+            create_review_for_seed_file(session, seed_file, candidates, ctx.hashes_in_clients())
         except TrackerRateLimitedError:
             logger.warning("Tracker %r in rate limit: matching interrotto per questa run", tracker_row.label)
             session.rollback()

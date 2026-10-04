@@ -4,6 +4,8 @@ successive che ne avranno bisogno) usa un bulk upsert, mai una query per
 riga — qui per evitare di duplicare la stessa costruzione dello statement
 in ogni modulo che scrive."""
 
+from contextlib import contextmanager
+
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
@@ -26,3 +28,19 @@ def bulk_upsert(session: Session, table, rows: list[dict], conflict_cols: list[s
 def bulk_insert(session: Session, table, rows: list[dict]) -> None:
     for start in range(0, len(rows), UPSERT_CHUNK_ROWS):
         session.execute(sqlite_insert(table).values(rows[start : start + UPSERT_CHUNK_ROWS]))
+
+
+@contextmanager
+def keep_loaded_on_commit(session: Session):
+    """Per i cicli che fanno commit a ogni elemento (un file, un orfano) con
+    migliaia di oggetti caricati: di default ogni commit scade TUTTI gli
+    oggetti della sessione, che poi si ricaricano uno a uno al primo accesso.
+    Un costo che cresce col quadrato degli elementi (13 mila orfani nel
+    matching: minuti invece di secondi). Solo dove gli oggetti caricati non
+    cambiano altrove nel frattempo."""
+    previous = session.expire_on_commit
+    session.expire_on_commit = False
+    try:
+        yield
+    finally:
+        session.expire_on_commit = previous

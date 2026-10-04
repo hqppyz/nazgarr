@@ -124,7 +124,7 @@ def seed_job_display_status(seed_job: SeedJob, in_client: set[str]) -> str:
 
 
 def _torrents_already_in_progress(
-    session: Session, *, media_file_id: int | None, seed_file_id: int | None
+    session: Session, *, media_file_id: int | None, seed_file_id: int | None, in_client: set[str] | None = None,
 ) -> set[tuple[int, str]]:
     """(tracker_id, torrent_id_remote) già in coda o in esecuzione per un
     ALTRO file: un season pack scoperto dall'episodio 1 non deve rientrare
@@ -147,7 +147,7 @@ def _torrents_already_in_progress(
     )
     # Un'esecuzione "seeding" il cui torrent l'utente ha poi rimosso dal
     # client non occupa più quel torrent: si deve poter riproporre.
-    in_client = hashes_in_clients(session)
+    in_client = hashes_in_clients(session) if in_client is None else in_client
     running = [
         (tracker_id, remote, mf_id, sf_id)
         for tracker_id, remote, mf_id, sf_id, status, info_hash in running
@@ -161,15 +161,21 @@ def _torrents_already_in_progress(
 
 
 def _create_review(
-    session: Session, candidates: list[Candidate], *, media_file_id: int | None, seed_file_id: int | None
+    session: Session, candidates: list[Candidate], *, media_file_id: int | None, seed_file_id: int | None,
+    in_client: set[str] | None = None,
 ) -> MatchReview | None:
+    """in_client: gli info hash nei client, se il chiamante li ha già letti
+    (il matching li legge una volta per tracker invece che per ogni file)."""
+    if not candidates:
+        return None  # il caso più comune nel matching: niente da leggere
     # Un torrent già rifiutato dall'utente per questo file non torna mai in
     # coda a ogni nuova ricerca — resta solo nell'audit trail di candidate.
     rejected = _user_rejected_torrents(session, media_file_id=media_file_id, seed_file_id=seed_file_id)
-    busy = _torrents_already_in_progress(session, media_file_id=media_file_id, seed_file_id=seed_file_id)
+    in_client = hashes_in_clients(session) if in_client is None else in_client
+    busy = _torrents_already_in_progress(
+        session, media_file_id=media_file_id, seed_file_id=seed_file_id, in_client=in_client)
     # Un torrent già in un client (con un'altra copia dei file) non si può
     # aggiungere di nuovo: il client lo rifiuterebbe come duplicato.
-    in_client = hashes_in_clients(session)
     candidates = [
         c for c in candidates
         if (c.tracker_id, c.torrent_id_remote) not in rejected | busy and (c.info_hash or "").lower() not in in_client
@@ -203,15 +209,15 @@ def _create_review(
 
 
 def create_review_for_media_file(
-    session: Session, media_file: MediaFile, candidates: list[Candidate]
+    session: Session, media_file: MediaFile, candidates: list[Candidate], in_client: set[str] | None = None,
 ) -> MatchReview | None:
-    return _create_review(session, candidates, media_file_id=media_file.id, seed_file_id=None)
+    return _create_review(session, candidates, media_file_id=media_file.id, seed_file_id=None, in_client=in_client)
 
 
 def create_review_for_seed_file(
-    session: Session, seed_file: SeedFile, candidates: list[Candidate]
+    session: Session, seed_file: SeedFile, candidates: list[Candidate], in_client: set[str] | None = None,
 ) -> MatchReview | None:
-    return _create_review(session, candidates, media_file_id=None, seed_file_id=seed_file.id)
+    return _create_review(session, candidates, media_file_id=None, seed_file_id=seed_file.id, in_client=in_client)
 
 
 def _build_torrent_client_adapter_or_none(session: Session):

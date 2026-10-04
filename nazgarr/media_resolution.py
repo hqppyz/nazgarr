@@ -14,6 +14,7 @@ from collections.abc import Callable
 from sqlalchemy.orm import Session
 
 from nazgarr.adapters.media_resolver.base import MediaResolverAdapter, ResolvedMedia
+from nazgarr.db_utils import keep_loaded_on_commit
 from nazgarr.exclusions import load_exclusions
 from nazgarr.file_types import is_video
 from nazgarr.models import MediaFile, MediaItem
@@ -110,43 +111,46 @@ def resolve_unmatched_media_files(
     unresolved = 0
     corrected = 0
 
-    for mf in media_files:
-        progress.advance()
-        abs_path = os.path.join(mf.disk.root_path, mf.relative_path)
-        previous = mf.media_item_id
-        try:
-            result = resolver.resolve(abs_path)
-        except Exception:
-            logger.exception("Resolver fallito su %r", abs_path)
-            if previous is None:
-                unresolved += 1
-            continue
-
-        if result is None:
-            if previous is None:
-                unresolved += 1
-            continue
-
-        media_item = get_or_create_media_item(session, result)
-        mf.media_item_id = media_item.id
-        mf.resolver_source = result.source or resolver.SOURCE
-        session.commit()
-        if previous is None:
-            resolved += 1
-        elif previous != media_item.id:
-            corrected += 1
-            logger.info("Identità corretta per %r: media_item %s -> %s", mf.relative_path, previous, media_item.id)
-
-        if result.poster_path:
+    # Un commit per file con tutti i file da risolvere caricati: senza, ogni
+    # commit li scadrebbe tutti (nazgarr/db_utils.py).
+    with keep_loaded_on_commit(session):
+        for mf in media_files:
+            progress.advance()
+            abs_path = os.path.join(mf.disk.root_path, mf.relative_path)
+            previous = mf.media_item_id
             try:
-                download_poster(posters_dir, result.content_type, result.tmdb_id, result.poster_path)
+                result = resolver.resolve(abs_path)
             except Exception:
-                # Un poster mancante non è un errore di risoluzione — il contenuto
-                # resta identificato, mostrerà solo un placeholder in UI (§6).
-                logger.warning("Download poster fallito per tmdb_id=%s", result.tmdb_id, exc_info=True)
+                logger.exception("Resolver fallito su %r", abs_path)
+                if previous is None:
+                    unresolved += 1
+                continue
 
-    if reread_parsed:
-        set_setting(session, IDENTITY_RULES_KEY, IDENTITY_RULES_VERSION)
+            if result is None:
+                if previous is None:
+                    unresolved += 1
+                continue
+
+            media_item = get_or_create_media_item(session, result)
+            mf.media_item_id = media_item.id
+            mf.resolver_source = result.source or resolver.SOURCE
+            session.commit()
+            if previous is None:
+                resolved += 1
+            elif previous != media_item.id:
+                corrected += 1
+                logger.info("Identità corretta per %r: media_item %s -> %s", mf.relative_path, previous, media_item.id)
+
+            if result.poster_path:
+                try:
+                    download_poster(posters_dir, result.content_type, result.tmdb_id, result.poster_path)
+                except Exception:
+                    # Un poster mancante non è un errore di risoluzione — il contenuto
+                    # resta identificato, mostrerà solo un placeholder in UI (§6).
+                    logger.warning("Download poster fallito per tmdb_id=%s", result.tmdb_id, exc_info=True)
+
+        if reread_parsed:
+            set_setting(session, IDENTITY_RULES_KEY, IDENTITY_RULES_VERSION)
     return {"resolved": resolved, "unresolved": unresolved, "excluded": excluded, "corrected": corrected}
 
 
@@ -172,36 +176,37 @@ def complete_media_items(
     progress.add_total(len(by_content))
     completed = failed = 0
 
-    for (content_type, tmdb_id), items in by_content.items():
-        progress.advance()
-        known = next((i for i in items if i.title), None)
-        title, year = (known.title, known.year) if known else (None, None)
-        poster_path = next((i.tmdb_poster_path for i in items if i.tmdb_poster_path), None)
-        identity = arr_index.details_for(content_type, tmdb_id) if arr_index is not None else None
-        if identity is not None:
-            title, year = title or identity.title, year or identity.year
-            poster_path = poster_path or identity.poster_path
+    with keep_loaded_on_commit(session):  # un commit per contenuto, con tutti gli elementi caricati
+        for (content_type, tmdb_id), items in by_content.items():
+            progress.advance()
+            known = next((i for i in items if i.title), None)
+            title, year = (known.title, known.year) if known else (None, None)
+            poster_path = next((i.tmdb_poster_path for i in items if i.tmdb_poster_path), None)
+            identity = arr_index.details_for(content_type, tmdb_id) if arr_index is not None else None
+            if identity is not None:
+                title, year = title or identity.title, year or identity.year
+                poster_path = poster_path or identity.poster_path
+                for item in items:
+                    _apply_arr_link(item, identity.source, identity.instance_id, identity.slug, identity.imdb_id)
+            if (title is None or poster_path is None) and tmdb_details is not None:
+                try:
+                    details = tmdb_details(content_type, tmdb_id)
+                except Exception:
+                    logger.warning("Dettaglio TMDB fallito per %s %s", content_type, tmdb_id, exc_info=True)
+                    failed += 1
+                    continue
+                title, year = title or details.get("title"), year or details.get("year")
+                poster_path = poster_path or details.get("poster_path")
             for item in items:
-                _apply_arr_link(item, identity.source, identity.instance_id, identity.slug, identity.imdb_id)
-        if (title is None or poster_path is None) and tmdb_details is not None:
-            try:
-                details = tmdb_details(content_type, tmdb_id)
-            except Exception:
-                logger.warning("Dettaglio TMDB fallito per %s %s", content_type, tmdb_id, exc_info=True)
-                failed += 1
-                continue
-            title, year = title or details.get("title"), year or details.get("year")
-            poster_path = poster_path or details.get("poster_path")
-        for item in items:
-            item.title = item.title or title
-            item.year = item.year or year
-            item.tmdb_poster_path = item.tmdb_poster_path or poster_path
-        session.commit()
-        if poster_path:
-            try:
-                download_poster(posters_dir, content_type, tmdb_id, poster_path)
-            except Exception:
-                logger.warning("Download poster fallito per %s %s", content_type, tmdb_id, exc_info=True)
-        completed += 1
+                item.title = item.title or title
+                item.year = item.year or year
+                item.tmdb_poster_path = item.tmdb_poster_path or poster_path
+            session.commit()
+            if poster_path:
+                try:
+                    download_poster(posters_dir, content_type, tmdb_id, poster_path)
+                except Exception:
+                    logger.warning("Download poster fallito per %s %s", content_type, tmdb_id, exc_info=True)
+            completed += 1
     return {"completed": completed, "failed": failed}
 
