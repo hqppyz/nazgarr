@@ -221,10 +221,6 @@ def update_overrides(session: Session, job: UploadJob, overrides: dict | None) -
     propose(session, job)
 
 
-def _profile_of(target: UploadTarget) -> TrackerUploadProfile | None:
-    return object_session(target).get(TrackerUploadProfile, target.tracker_id)
-
-
 def _validate(target: UploadTarget, decision: dict) -> dict:
     action = decision.get("action")
     if action not in ("upload", "reseed", "skip"):
@@ -242,7 +238,7 @@ def _validate(target: UploadTarget, decision: dict) -> dict:
             raise UploadJobError("upload_ids_required", tracker=target.tracker.label)
         flags = decision.get("flags") or {}
         freeleech = int(flags.get("freeleech") or 0)
-        if freeleech and freeleech not in freeleech_options(_profile_of(target)):
+        if freeleech and freeleech not in freeleech_options(_profile(object_session(target), target)):
             raise UploadJobError("upload_freeleech_not_allowed", tracker=target.tracker.label, value=freeleech)
         out.update(ids, name=name, flags={**{key: bool(flags.get(key)) for key in FLAG_KEYS}, "freeleech": freeleech})
     if action == "reseed":

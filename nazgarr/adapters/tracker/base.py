@@ -327,7 +327,7 @@ class Unit3dTrackerAdapter(TrackerAdapter):
 
     _TORRENT_ID_RE = re.compile(r"/(\d+)\.")
 
-    def upload_torrent(self, fields: UploadFields, torrent_path: str) -> str:
+    def upload_torrent(self, fields: UploadFields, torrent_path: str) -> UploadedTorrent:
         """POST /api/torrents/upload, multipart (file "torrent" + campi
         form). Risposta {"success": bool, "message": str, "data": <URL di
         download tipo "https://tracker/torrents/download/12345.<token>">}

@@ -103,11 +103,13 @@ def scan(session: Session, kick: Callable[[int, str], None] | None = None, now: 
         for path in _entries(root):
             relative = os.path.relpath(path, disk.root_path)
             present.add(relative)
+            row = known.get(relative)
+            if row is not None and row.started_at is not None:
+                continue  # upload già partito: niente da rileggere (la firma visita tutto l'albero)
             try:
                 size, mtime, partial = _signature(path)
             except OSError:
                 continue  # sparito o illeggibile mentre lo si leggeva: al prossimo giro
-            row = known.get(relative)
             if row is None:
                 row = WatchEntry(disk_id=disk.id, relative_path=relative, size_bytes=size, mtime=mtime,
                                  stable_since=now)
@@ -115,8 +117,6 @@ def scan(session: Session, kick: Callable[[int, str], None] | None = None, now: 
                 session.flush()
                 unchanged = True  # visto ora: pronto se nessuno ci scrive (spostato dentro)
             else:
-                if row.started_at is not None:
-                    continue
                 unchanged = (row.size_bytes, row.mtime) == (size, mtime)
                 if not unchanged:
                     row.size_bytes, row.mtime, row.stable_since = size, mtime, now

@@ -12,7 +12,6 @@ from sqlalchemy.orm import Session
 
 from nazgarr import settings_repo
 from nazgarr.api_errors import CodedError
-from nazgarr.guess import guess as guess_name
 from nazgarr.models import TrackerUploadProfile
 from nazgarr.version import __version__
 
@@ -22,35 +21,6 @@ logger = logging.getLogger(__name__)
 # MAI la fonte di verità: category_id/resolution_id si ricavano in modo
 # affidabile (content_type risolto, screen_size di guessit combacia quasi
 # sempre con le chiavi resolution_id_map), ma la distinzione
-# REMUX/ENCODE/WEBDL/BDMUX/ecc. dipende da convenzioni di release troppo
-# sfumate per un guess automatico affidabile — per questo type_id resta
-# sempre modificabile prima dell'approvazione (docs/SPEC.md §9: "risolti,
-# modificabili prima dell'invio"), mai bloccante di per sé.
-_DEFAULT_TYPE_GUESS = "ENCODE"
-
-
-class UploadPreparationError(CodedError):
-    """Errore non recuperabile prima ancora di provare l'invio — es. tracker
-    senza announce_url configurato, o senza un profilo di upload."""
-
-
-def guess_release_type_key(source_path: str, type_map: dict) -> str | None:
-    guess = guess_name(source_path)
-    other = guess.get("other")
-    others = {other} if isinstance(other, str) else set(other or [])
-    source = str(guess.get("source") or "").lower()
-
-    if "Remux" in others and "REMUX" in type_map:
-        return "REMUX"
-    if source == "web" and "WEBDL" in type_map:
-        return "WEBDL"
-    if source == "hdtv" and "HDTV" in type_map:
-        return "HDTV"
-    if source == "dvd" and "DVDRIP" in type_map:
-        return "DVDRIP"
-    return _DEFAULT_TYPE_GUESS if _DEFAULT_TYPE_GUESS in type_map else None
-
-
 PROJECT_URL = "https://github.com/lktorrentz/nazgarr"
 # Servito da GitHub (repo pubblico): il tracker non vede mai l'istanza.
 CREDIT_LOGO_URL = "https://raw.githubusercontent.com/lktorrentz/nazgarr/main/docs/assets/nazgarr-credit.png"
