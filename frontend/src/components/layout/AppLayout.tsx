@@ -1,4 +1,5 @@
-import { lazy, Suspense, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
 
 import { useSetting } from '@/api/hooks/settings'
@@ -15,6 +16,7 @@ import { NAV_DASHBOARD, resolveSectionTitle } from '@/lib/nav'
 import { usesTrackerFilter } from '@/lib/trackerFilter'
 import { RemoteBar, RemoteGate } from '@/components/instances/RemoteGate'
 import { isRemote } from '@/lib/instance'
+import { preloadPages } from '@/lib/lazyPages'
 import { UploadNotices } from '@/components/upload/UploadNotices'
 import { WelcomeDialog } from '@/onboarding/WelcomeDialog'
 
@@ -47,8 +49,16 @@ function useSizeUnitsSync() {
   setSizeUnits(data?.value === 'binary' ? 'binary' : 'decimal')
 }
 
+// Finita la pagina aperta (nessuna richiesta in corso), le altre pagine si
+// scaricano in background: aprirle dopo è immediato.
+function usePreloadPages() {
+  const queryClient = useQueryClient()
+  useEffect(() => preloadPages(() => queryClient.isFetching() > 0), [queryClient])
+}
+
 export function AppLayout() {
   useSizeUnitsSync()
+  usePreloadPages()
   const [floatingSlot, setFloatingSlot] = useState<HTMLElement | null>(null)
   return (
     <FloatingSlotContext.Provider value={floatingSlot}>

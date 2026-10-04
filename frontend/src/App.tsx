@@ -1,26 +1,15 @@
-import { lazy, Suspense, type ComponentType, type ReactNode } from 'react'
+import { type ReactNode } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 
 import { AppLayout } from '@/components/layout/AppLayout'
 import { ComingSoon } from '@/pages/ComingSoon'
-import { t } from '@/lib/i18n'
+import { lazyPage } from '@/lib/lazyPages'
 import { NAV_DASHBOARD, NAV_GROUPS } from '@/lib/nav'
 
-// Ogni pagina è un chunk a parte, scaricato la prima volta che si apre: il
-// bundle iniziale non porta con sé grafici (recharts), drag and drop
-// (dnd-kit), configurazione e upload di chi apre solo la dashboard.
-function lazyPage<M>(load: () => Promise<M>, pick: (module: M) => ComponentType): ComponentType {
-  // lazy() una volta sola, qui: creato a ogni render rimonterebbe la pagina.
-  const Page = lazy(() => load().then((module) => ({ default: pick(module) })))
-  return function LazyPage() {
-    return (
-      <Suspense fallback={<p className="text-sm text-muted-foreground">{t('common.loading')}</p>}>
-        <Page />
-      </Suspense>
-    )
-  }
-}
-
+// Ogni pagina è un chunk a parte (src/lib/lazyPages.tsx): il bundle iniziale
+// non porta con sé grafici (recharts), drag and drop (dnd-kit),
+// configurazione e upload di chi apre solo la dashboard; le altre pagine si
+// scaricano in background subito dopo.
 const DashboardPage = lazyPage(() => import('@/pages/DashboardPage'), (m) => m.DashboardPage)
 const PosterView = lazyPage(() => import('@/pages/library/PosterView'), (m) => m.PosterView)
 const FolderView = lazyPage(() => import('@/pages/library/FolderView'), (m) => m.FolderView)
@@ -33,7 +22,8 @@ const NewUploadPage = lazyPage(() => import('@/pages/upload/NewUploadPage'), (m)
 const UploadJobPage = lazyPage(() => import('@/pages/upload/UploadJobPage'), (m) => m.UploadJobPage)
 const ConfigurationPage = lazyPage(() => import('@/pages/config/ConfigurationPage'), (m) => m.ConfigurationPage)
 const InstancesPage = lazyPage(() => import('@/pages/InstancesPage'), (m) => m.InstancesPage)
-const RingLabPage = lazyPage(() => import('@/pages/lab/RingLabPage'), (m) => m.default)
+// Il laboratorio del logo porta Three.js: mai precaricato.
+const RingLabPage = lazyPage(() => import('@/pages/lab/RingLabPage'), (m) => m.default, { preload: false })
 
 // Ogni voce di navigazione (NAV_DASHBOARD + NAV_GROUPS) diventa una route:
 // ComingSoon di default, sostituita da una pagina reale via `overrides`
