@@ -19,6 +19,7 @@ aveva riusato l'inode per un file nuovo.
 
 from collections import defaultdict
 
+from sqlalchemy import or_, tuple_
 from sqlalchemy.orm import Session
 
 from nazgarr.models import MediaFile, SeedFile
@@ -35,10 +36,20 @@ def media_links(session: Session, media_file_ids: list[int] | None = None) -> di
     links: dict[int, dict[int, str]] = defaultdict(dict)
     latest_seed = latest_scan_by_disk(session, SeedFile)
     latest_media = latest_scan_by_disk(session, MediaFile)
-    for sf_id, disk_id, st_dev, inode, path, media_file_id, last_scan_id in session.query(
+    seed_query = session.query(
         SeedFile.id, SeedFile.disk_id, SeedFile.st_dev, SeedFile.inode, SeedFile.relative_path, SeedFile.media_file_id,
         SeedFile.last_scan_id,
-    ).all():
+    )
+    if wanted is not None:
+        # Pochi file (la scheda di un elemento): solo i seed_file con i loro
+        # inode o già collegati a loro, non tutto il lato torrent.
+        inodes = session.query(MediaFile.disk_id, MediaFile.st_dev, MediaFile.inode).filter(
+            MediaFile.id.in_(wanted)).all()
+        seed_query = seed_query.filter(or_(
+            tuple_(SeedFile.disk_id, SeedFile.st_dev, SeedFile.inode).in_([tuple(r) for r in inodes]),
+            SeedFile.media_file_id.in_(wanted),
+        ))
+    for sf_id, disk_id, st_dev, inode, path, media_file_id, last_scan_id in seed_query.all():
         if last_scan_id != latest_seed.get(disk_id, last_scan_id):
             continue  # sparito dal disco: non è più un hardlink di niente
         seeds[(disk_id, st_dev, inode)].append((sf_id, path))

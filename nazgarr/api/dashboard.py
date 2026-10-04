@@ -6,12 +6,12 @@ scansione (nazgarr/file_changes.py).
 
 from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
-from nazgarr import health, not_imported, tracker_scope
+from nazgarr import health, not_imported, response_cache, tracker_scope
 from nazgarr.deps import get_session
 from nazgarr.models import FileChange, NotImportedTorrent, RunLog, TrackerHealthSnapshot
 
@@ -149,8 +149,20 @@ def _scoped_history(session: Session, scope: str):
 
 
 @router.get("", response_model=DashboardResponse)
-def get_dashboard(disk_id: int | None = None, tracker: str | None = None, session: Session = Depends(get_session)):
+def get_dashboard(
+    request: Request, disk_id: int | None = None, tracker: str | None = None, session: Session = Depends(get_session),
+):
+    """La dashboard si interroga ogni 15 secondi: la risposta resta in cache
+    finché i dati non cambiano (nazgarr/response_cache.py), invece di
+    ricalcolare la salute di tutta la libreria a ogni giro."""
     scope = tracker_scope.normalize(tracker)
+    return response_cache.cached_json(
+        request, session, f"dashboard|{disk_id}|{scope}",
+        lambda: _dashboard(session, disk_id, scope).model_dump(mode="json"),
+    )
+
+
+def _dashboard(session: Session, disk_id: int | None, scope: str) -> DashboardResponse:
     snapshot = health.compute_snapshot(session, disk_id=disk_id, tracker=scope)
     finished = _scoped_history(session, scope).limit(2).all()
     previous = None

@@ -16,6 +16,7 @@ verificato nell'equivalente di Auditorr (get_fast_hash).
 import hashlib
 import os
 
+from sqlalchemy import tuple_
 from sqlalchemy.orm import Session
 
 from nazgarr.exclusions import load_exclusions
@@ -40,15 +41,27 @@ def compute_fast_hash(path: str) -> str | None:
         return None
 
 
-def find_duplicate_media_files(session: Session, disk_id: int | None = None) -> list[dict]:
+def find_duplicate_media_files(
+    session: Session, disk_id: int | None = None, media_file_ids: list[int] | None = None,
+) -> list[dict]:
     """Due tipi di gruppi (campo "kind"):
     - "copy": stesso (size_bytes, content_hash) su inode diversi, copie che
       sprecano spazio;
     - "hardlink": stesso inode con più percorsi in libreria, nessuno spazio
-      in più ma lo stesso contenuto due volte."""
+      in più ma lo stesso contenuto due volte.
+    media_file_ids: solo i gruppi che possono contenere questi file (la
+    scheda di un elemento), senza leggere tutta la libreria."""
     query = session.query(MediaFile).filter(MediaFile.content_hash.isnot(None))
     if disk_id is not None:
         query = query.filter_by(disk_id=disk_id)
+    if media_file_ids is not None:
+        # Un gruppo ha sempre stessa dimensione e stesso hash (anche gli
+        # hardlink: stesso inode, stessi byte): bastano quelle coppie.
+        keys = set(session.query(MediaFile.size_bytes, MediaFile.content_hash).filter(
+            MediaFile.id.in_(media_file_ids), MediaFile.content_hash.isnot(None)).all())
+        if not keys:
+            return []
+        query = query.filter(tuple_(MediaFile.size_bytes, MediaFile.content_hash).in_(list(keys)))
 
     groups: dict[tuple[int, str], list[MediaFile]] = {}
     latest = latest_scan_by_disk(session, MediaFile)

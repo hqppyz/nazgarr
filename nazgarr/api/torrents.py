@@ -11,7 +11,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from nazgarr import adapter_factory, arr, not_imported, pipeline, seed_requirements
 from nazgarr.adapters.torrent_client.base import state_kind
@@ -182,11 +182,19 @@ class NotImportedResponse(BaseModel):
 
 @router.get("/not-imported", response_model=NotImportedResponse)
 def list_not_imported(session: Session = Depends(get_session)):
-    rows = session.query(NotImportedTorrent).all()
+    # Torrent e file sostitutivo caricati con le righe, non uno per riga.
+    rows = session.query(NotImportedTorrent).options(
+        joinedload(NotImportedTorrent.client_torrent), joinedload(NotImportedTorrent.replaced_by),
+    ).all()
     clients = dict(session.query(TorrentClient.id, TorrentClient.label).all())
+    # Solo i titoli dei contenuti di queste righe, non tutta la libreria.
     titles: dict[tuple[str, int], tuple[str | None, int | None]] = {}
-    for item in session.query(MediaItem).all():
-        titles.setdefault((item.content_type, item.tmdb_id), (item.title, item.year))
+    tmdb_ids = {row.tmdb_id for row in rows if row.tmdb_id}
+    if tmdb_ids:
+        for content_type, tmdb_id, title, year in session.query(
+            MediaItem.content_type, MediaItem.tmdb_id, MediaItem.title, MediaItem.year,
+        ).filter(MediaItem.tmdb_id.in_(tmdb_ids)).all():
+            titles.setdefault((content_type, tmdb_id), (title, year))
     summary: dict[str, CategorySummary] = {}
     torrents = []
     sources = _sources(session)

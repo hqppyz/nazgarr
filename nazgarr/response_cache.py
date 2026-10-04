@@ -35,6 +35,7 @@ from nazgarr.models import (
     MatchReview,
     MediaFile,
     MediaItem,
+    NotImportedTorrent,
     RunLog,
     SeedFile,
     SeedJob,
@@ -44,7 +45,7 @@ from nazgarr.models import (
 
 RUNNING_BUCKET_SECONDS = 15
 # Impostazioni che cambiano stati o contenuti delle viste senza una run.
-_VERSIONED_SETTINGS = ("exclusion_patterns", "exclusion_presets", "rematch_interval_days")
+_VERSIONED_SETTINGS = ("exclusion_patterns", "exclusion_presets", "rematch_interval_days", "not_imported_status")
 
 _lock = threading.Lock()
 _cache: dict[str, tuple[str, bytes]] = {}  # chiave -> (etag, corpo JSON)
@@ -86,8 +87,13 @@ def data_version(session: Session) -> str:
         DiskTorrentClient.disk_id, DiskTorrentClient.torrent_client_id, DiskTorrentClient.torrent_client_root_path,
         DiskTorrentClient.local_rel_path,
     ).order_by(DiskTorrentClient.disk_id, DiskTorrentClient.torrent_client_id).all()
+    # Non importati: ricalcolati a mano o esclusi dall'utente (dashboard e vista).
+    not_imported = session.query(
+        func.count(NotImportedTorrent.id), func.max(NotImportedTorrent.id),
+        func.sum(func.coalesce(NotImportedTorrent.excluded, False)),
+    ).one()
     parts = [runs, reviews, jobs, candidates, items, sorted(settings.items()), trackers, clients,
-             torrents, files, disks, folders, mappings]
+             torrents, files, disks, folders, mappings, not_imported]
     if running:
         parts.append(("running", int(time.time() // RUNNING_BUCKET_SECONDS)))
     return hashlib.sha1(repr(parts).encode()).hexdigest()

@@ -171,7 +171,7 @@ def item_detail(session: Session, content_type: str, tmdb_id: int) -> dict | Non
 
     duplicate_peers: dict[int, list[dict]] = {}
     wanted = set(mf_ids)
-    for group in find_duplicate_media_files(session):
+    for group in find_duplicate_media_files(session, media_file_ids=mf_ids) if mf_ids else []:
         for f in group["files"]:
             if f["media_file_id"] in wanted:
                 duplicate_peers.setdefault(f["media_file_id"], []).extend(

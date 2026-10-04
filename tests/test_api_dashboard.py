@@ -135,3 +135,24 @@ def test_without_a_library_the_history_keeps_the_torrent_numbers(client):
 
     [point] = client.get("/api/dashboard/history").json()
     assert (point["health_snapshot"], point["orphan_torrent_bytes"]) == (None, 1234)
+
+
+def test_the_dashboard_is_not_recomputed_while_the_data_is_unchanged(client, monkeypatch):
+    """Si interroga ogni 15 secondi: la salute si ricalcola solo quando i
+    dati cambiano (nazgarr/response_cache.py)."""
+    from nazgarr import health
+
+    calls = []
+    real = health.compute_snapshot
+    monkeypatch.setattr(health, "compute_snapshot", lambda *a, **k: calls.append(1) or real(*a, **k))
+
+    first = client.get("/api/dashboard")
+    again = client.get("/api/dashboard", headers={"If-None-Match": first.headers["etag"]})
+    other_scope = client.get("/api/dashboard?tracker=configured")
+    client.put("/api/settings/exclusion_patterns", json={"value": "*.nfo"})
+    changed = client.get("/api/dashboard")
+
+    assert first.status_code == 200 and again.status_code == 304
+    assert other_scope.status_code == 200 and changed.status_code == 200
+    assert len(calls) == 3  # la prima, l'altro filtro, dopo il cambio
+    assert first.json()["health_pct"] == changed.json()["health_pct"]
