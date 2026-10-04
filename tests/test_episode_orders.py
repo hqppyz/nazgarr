@@ -326,3 +326,44 @@ def test_a_library_in_joined_order_is_not_taken_for_aired_segments(db_session, m
     assert result["recommended"] == "tvdb:alternate"
     assert result["warning"] == {"code": "files_not_tvdb_aired", "order": "tvdb:alternate", "tvdb": "sonarr:aired"}
     assert result["fits"]["sonarr:aired"]["score"] < 1.0
+
+
+def test_episode_group_seasons_come_from_their_names_or_start_at_one():
+    parts = [{"order": 0, "name": "Season 1"}, {"order": 1, "name": "Season 2"}]
+    assert [eo._group_season(p, i, parts) for i, p in enumerate(parts)] == [1, 2]
+    named = [{"order": 0, "name": "Specials"}, {"order": 1, "name": "Stagione 1"}, {"order": 2, "name": "Part 3"}]
+    assert [eo._group_season(p, i, named) for i, p in enumerate(named)] == [0, 1, 3]
+    # Senza numeri nel nome: dalla posizione, da 1 se parte da 0 senza speciali.
+    bare = [{"order": 0, "name": "First"}, {"order": 1, "name": "Second"}]
+    assert [eo._group_season(p, i, bare) for i, p in enumerate(bare)] == [1, 2]
+    with_specials = [{"order": 0, "name": "Specials"}, {"order": 1, "name": "Main"}]
+    assert [eo._group_season(p, i, with_specials) for i, p in enumerate(with_specials)] == [0, 1]
+
+
+
+def test_without_a_tvdb_key_the_tmdb_production_group_fits_a_joined_library(db_session):
+    counts = {1: 13, 2: 39, 3: 13, 4: 13}
+    segments = {1: 38, 2: 108, 3: 36, 4: 38}
+
+    class Tmdb:
+        def get(self, path, **params):
+            if path == "/tv/4229" and not params:
+                return {"seasons": [{"season_number": n} for n in segments]}
+            if path == "/tv/4229":
+                return {f"season/{n}": {"episodes": [{"episode_number": e} for e in range(1, c + 1)]}
+                        for n, c in segments.items()}
+            if path == "/tv/4229/episode_groups":
+                return {"results": [{"id": "prod", "name": "TV", "type": 6, "episode_count": 78}]}
+            if path == "/tv/episode_group/prod":
+                return {"groups": [
+                    {"order": n - 1, "name": f"Season {n}", "episodes": [
+                        {"season_number": n, "episode_number": 3 * e - 2, "order": e - 1} for e in range(1, c + 1)]}
+                    for n, c in counts.items()]}
+            raise AssertionError(path)
+
+    library = {n: list(range(1, c + 1)) for n, c in counts.items()}
+    result = eo.build(db_session, 4229, None, library, pack=True, tmdb_api=Tmdb())
+
+    assert result["recommended"] == "tmdb:group:prod"
+    group = next(o for o in result["orders"] if o["key"] == "tmdb:group:prod")
+    assert [(s["season_number"], len(s["episodes"])) for s in group["seasons"]] == [(1, 13), (2, 39), (3, 13), (4, 13)]

@@ -19,6 +19,7 @@ trovati, tradotti in ognuno."""
 
 import json
 import logging
+import re
 import time
 from collections import defaultdict
 from dataclasses import asdict, dataclass, field
@@ -196,8 +197,11 @@ def tmdb_orders(client, tmdb_id: int) -> list[EpisodeOrder]:
                 f"tmdb:group:{group['id']}",
                 f"TMDB · {group.get('name') or TMDB_GROUP_TYPES.get(group.get('type'), 'Group')}", "tmdb",
             )
-            for index, part in enumerate(sorted(detail.get("groups") or [], key=lambda g: g.get("order", 0))):
-                season = part.get("order", index)
+            parts = sorted(detail.get("groups") or [], key=lambda g: g.get("order", 0))
+            for index, part in enumerate(parts):
+                season = _group_season(part, index, parts)
+                if season in order.seasons:
+                    continue  # due gruppi con lo stesso numero: tiene il primo
                 order.seasons[season] = [
                     OrderEpisode(number=pos + 1, titles=[e.get("name") or ""], air_date=e.get("air_date"),
                                  refs=[(e["season_number"], e["episode_number"])])
@@ -208,6 +212,27 @@ def tmdb_orders(client, tmdb_id: int) -> list[EpisodeOrder]:
         return orders
 
     return _cached(("tmdb", tmdb_id), fetch)
+
+
+_SPECIALS = re.compile(r"\b(specials?|speciali|extras?)\b", re.IGNORECASE)
+_NUMBER = re.compile(r"(\d+)")
+
+
+def _group_season(part: dict, index: int, parts: list[dict]) -> int:
+    """Il numero di stagione di un gruppo di un episode group TMDB: dal nome
+    ("Season 1", "Stagione 2", "Part 3"; gli speciali sono la 0), altrimenti
+    dalla posizione. Le posizioni partono spesso da 0 anche senza un gruppo
+    di speciali: allora la prima è la stagione 1."""
+    name = part.get("name") or ""
+    if _SPECIALS.search(name):
+        return 0
+    number = _NUMBER.search(name)
+    if number:
+        return int(number.group(1))
+    order = part.get("order", index)
+    starts_at_zero = min((p.get("order", i) for i, p in enumerate(parts)), default=0) == 0
+    has_specials = any(_SPECIALS.search(p.get("name") or "") for p in parts)
+    return order + 1 if starts_at_zero and not has_specials else order
 
 
 class TmdbApi:
