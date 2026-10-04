@@ -99,8 +99,9 @@ class OrderFit(BaseModel):
 
 
 class OrderWarning(BaseModel):
-    code: str
-    order: str
+    code: str  # files_not_tvdb_aired
+    order: str  # quello scelto, che combacia con i file
+    tvdb: str  # TVDB aired, che invece non combacia
 
 
 class EpisodeOrdersResponse(BaseModel):

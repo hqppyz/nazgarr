@@ -3380,6 +3380,8 @@ export interface components {
             code: string;
             /** Order */
             order: string;
+            /** Tvdb */
+            tvdb: string;
         };
         /**
          * PhaseProgressResponse

@@ -112,28 +112,40 @@ class FakeSonarr:
         raise AssertionError(path)
 
 
-def test_tvdb_aired_from_sonarr_comes_first_and_other_fits_only_warn(db_session):
+def test_the_best_fit_is_chosen_and_only_a_miss_on_tvdb_aired_warns(db_session):
     from nazgarr.models import EpisodeOrderPreference, SonarrInstance
+
+    found = {2: [1, 2, 3, 4, 5]}  # un "S02" da 5: le parti di Netflix, non l'ordine aired
+    # Senza Sonarr né chiave TVDB non si sa cosa sia TVDB aired: nessun avviso.
+    alone = eo.build(db_session, 96677, 375921, found, pack=True, tmdb_api=FakeTmdb())
+    assert alone["recommended"] == "tmdb:group:g1" and alone["warning"] is None
 
     db_session.add(SonarrInstance(label="sonarr", base_url="http://s", api_key="k"))
     db_session.commit()
-    found = {2: [1, 2, 3, 4, 5]}  # un "S02" da 5: le parti di Netflix, non l'ordine aired
-
     result = eo.build(db_session, 96677, 375921, found, pack=True, tmdb_api=FakeTmdb(), sonarr_factory=FakeSonarr)
 
     keys = [o["key"] for o in result["orders"]]
     assert keys == ["tmdb:default", "tmdb:group:g1", "sonarr:aired"]
-    assert result["recommended"] == "sonarr:aired"
-    assert result["warning"] == {"code": "files_fit_other_order", "order": "tmdb:group:g1"}
-    assert result["files_order"] == "tmdb:group:g1"
+    # Scelto quello che combacia meglio, con l'avviso: non è l'ordine di Sonarr.
+    assert result["recommended"] == "tmdb:group:g1" and result["files_order"] == "tmdb:group:g1"
+    assert result["warning"] == {"code": "files_not_tvdb_aired", "order": "tmdb:group:g1", "tvdb": "sonarr:aired"}
     # Gli episodi dei file tradotti: la parte 2 è la seconda metà della stagione 1.
     assert result["found"]["sonarr:aired"] == {1: [6, 7, 8, 9, 10]}
 
-    # La scelta fatta l'ultima volta per la serie vince.
-    db_session.add(EpisodeOrderPreference(tmdb_id=96677, order_key="tmdb:group:g1"))
+    # File che seguono TVDB aired: scelto quello, nessun avviso.
+    aired = eo.build(db_session, 96677, 375921, {1: list(range(1, 11))}, pack=True, tmdb_api=FakeTmdb(),
+                     sonarr_factory=FakeSonarr)
+    assert aired["warning"] is None and aired["fits"][aired["recommended"]]["score"] == 1.0
+    # A parità vince TVDB aired (qui anche TMDB combacia del tutto).
+    assert aired["recommended"] == "sonarr:aired"
+
+    # Senza episodi nei file: la scelta dell'ultima volta per la serie, poi TVDB aired.
+    assert eo.build(db_session, 96677, 375921, {}, pack=True, tmdb_api=FakeTmdb(),
+                    sonarr_factory=FakeSonarr)["recommended"] == "sonarr:aired"
+    db_session.add(EpisodeOrderPreference(tmdb_id=96677, order_key="tmdb:default"))
     db_session.commit()
-    again = eo.build(db_session, 96677, 375921, found, pack=True, tmdb_api=FakeTmdb(), sonarr_factory=FakeSonarr)
-    assert again["recommended"] == "tmdb:group:g1" and again["warning"] is None
+    assert eo.build(db_session, 96677, 375921, {}, pack=True, tmdb_api=FakeTmdb(),
+                    sonarr_factory=FakeSonarr)["recommended"] == "tmdb:default"
 
 
 def test_round_trip_through_a_dict():

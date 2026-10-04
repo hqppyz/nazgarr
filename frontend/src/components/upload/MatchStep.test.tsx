@@ -110,7 +110,7 @@ describe('MatchStep', () => {
     expect(screen.queryByText(/Best match/)).toBeNull()
   })
 
-  it('proposes the TVDB ordering, warns when the files follow another one, and sends the choice', () => {
+  it('picks the ordering that fits the files, warns when it is not TVDB aired, and sends the choice', () => {
     const episode = (n: number, refs: number[][]) => ({ number: n, titles: [`Capitolo ${n}`], air_date: null, refs })
     const parts = {
       key: 'tmdb:group:g1', label: 'TMDB · Parts', source: 'tmdb',
@@ -124,25 +124,25 @@ describe('MatchStep', () => {
       seasons: [{ season_number: 1, episodes: Array.from({ length: 10 }, (_, i) => episode(i + 1, [[1, i + 1]])) }],
     }
     ordersData = {
-      orders: [parts, aired], recommended: 'sonarr:aired', files_order: 'tmdb:group:g1',
+      orders: [parts, aired], recommended: 'tmdb:group:g1', files_order: 'tmdb:group:g1',
       fits: { 'tmdb:group:g1': { score: 1, matched: 5, files: 5, complete_seasons: 1 },
               'sonarr:aired': { score: 0.85, matched: 5, files: 5, complete_seasons: 0 } },
-      warning: { code: 'files_fit_other_order', order: 'tmdb:group:g1' },
+      warning: { code: 'files_not_tvdb_aired', order: 'tmdb:group:g1', tvdb: 'sonarr:aired' },
       found: { 'tmdb:group:g1': { '2': [1, 2, 3, 4, 5] }, 'sonarr:aired': { '1': [6, 7, 8, 9, 10] } },
     }
     render(<MatchStep job={job} />)
 
     expect(screen.getByText('Episode ordering')).toBeTruthy()
-    expect(screen.getByText(/look numbered after TMDB · Parts/)).toBeTruthy()
-    // La corrispondenza dei file nella numerazione proposta: S02E01 dei file è S01E06.
+    expect(screen.getByText(/do not follow TVDB · Aired \(sonarr\)/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm match' }))
+    expect(confirm.mock.calls.at(-1)?.[0]).toMatchObject({ seasons: [2], episode_order: 'tmdb:group:g1' })
+
+    // Con la scorciatoia si passa a TVDB aired: la stagione dei file diventa la 1,
+    // e la corrispondenza dice che S02E01 dei file è S01E06.
+    fireEvent.click(screen.getByRole('button', { name: 'Use TVDB · Aired (sonarr)' }))
     fireEvent.click(screen.getByText('How the files map (5 episodes)'))
     expect(screen.getByText('S01E06')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Confirm match' }))
     expect(confirm.mock.calls.at(-1)?.[0]).toMatchObject({ seasons: [1], episode_order: 'sonarr:aired' })
-
-    // Con la scorciatoia dell'avviso si passa all'altro: la stagione dei file torna la 2.
-    fireEvent.click(screen.getByRole('button', { name: 'Use TMDB · Parts' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Confirm match' }))
-    expect(confirm.mock.calls.at(-1)?.[0]).toMatchObject({ seasons: [2], episode_order: 'tmdb:group:g1' })
   })
 })

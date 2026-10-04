@@ -397,7 +397,9 @@ function EpisodeOrderPicker({ data, active, onChange }: {
   onChange: (key: string) => void
 }) {
   const filesOrder = data.orders.find((o) => o.key === data.files_order)
-  const suggested = data.warning ? data.orders.find((o) => o.key === data.warning!.order) : undefined
+  // L'avviso: i file non seguono TVDB aired (l'ordine di Sonarr); la scorciatoia porta lì.
+  const tvdb = data.warning ? data.orders.find((o) => o.key === data.warning!.tvdb) : undefined
+  const fitting = data.warning ? data.orders.find((o) => o.key === data.warning!.order) : undefined
   const found = data.found[data.files_order ?? ''] ?? {}
   const mapping = filesOrder
     ? Object.entries(found).flatMap(([season, eps]) =>
@@ -427,12 +429,12 @@ function EpisodeOrderPicker({ data, active, onChange }: {
           })}
         </SelectContent>
       </Select>
-      {suggested && suggested.key !== active.key && (
+      {tvdb && fitting && active.key !== tvdb.key && (
         <div className="flex flex-wrap items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-xs">
           <TriangleAlertIcon className="mt-0.5 size-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
-          <span className="min-w-0 flex-1">{t('upload.match.orderWarning', { order: suggested.label })}</span>
-          <button type="button" className="shrink-0 font-medium underline" onClick={() => onChange(suggested.key)}>
-            {t('upload.match.orderUse', { order: suggested.label })}
+          <span className="min-w-0 flex-1">{t('upload.match.orderWarning', { tvdb: tvdb.label, order: fitting.label })}</span>
+          <button type="button" className="shrink-0 font-medium underline" onClick={() => onChange(tvdb.key)}>
+            {t('upload.match.orderUse', { order: tvdb.label })}
           </button>
         </div>
       )}

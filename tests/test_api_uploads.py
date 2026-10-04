@@ -457,8 +457,8 @@ def test_the_episode_ordering_is_offered_and_kept_with_the_match(client, tmp_pat
         session.close()
 
     orders = client.get(f"/api/uploads/{job_id}/episode-orders", params={"tmdb_id": 96677}).json()
-    assert orders["recommended"] == "sonarr:aired"
-    assert orders["warning"] == {"code": "files_fit_other_order", "order": "tmdb:group:g1"}
+    assert orders["recommended"] == "tmdb:group:g1"
+    assert orders["warning"] == {"code": "files_not_tvdb_aired", "order": "tmdb:group:g1", "tvdb": "sonarr:aired"}
     assert orders["found"]["sonarr:aired"] == {"1": [6, 7, 8, 9, 10]}
 
     bad = client.post(f"/api/uploads/{job_id}/match", json={

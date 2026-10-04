@@ -230,18 +230,13 @@ def _auto_match(session: Session, job: UploadJob, candidates: list[dict]) -> Non
         return
     order = None
     if best["content_type"] == "tv":
-        # L'ordinamento proposto (TVDB prima); se i file ne seguono un altro,
-        # la scelta è dell'utente: niente conferma automatica.
+        # L'ordinamento che combacia meglio con i file, come al match a mano;
+        # se non è TVDB aired lo dice il registro.
         try:
             orders = episode_orders.for_job(session, job, best["tmdb_id"], (details or {}).get("tvdb_id"))
         except Exception:
             logger.warning("Ordinamenti degli episodi non disponibili per il job %s", job.id, exc_info=True)
             orders = None
-        if orders and orders["warning"]:
-            upload_jobs.log_event(session, job, "auto_match_skipped_episode_order",
-                                  order=orders["warning"]["order"])
-            session.commit()
-            return
         if orders and orders["recommended"]:
             order = (orders["recommended"], episode_orders.snapshot(orders, orders["recommended"]))
     try:
@@ -257,6 +252,9 @@ def _auto_match(session: Session, job: UploadJob, candidates: list[dict]) -> Non
         return
     if order is not None:
         job.episode_order, job.episode_order_json = order[0], json.dumps(order[1])
+        if orders["warning"]:
+            upload_jobs.log_event(session, job, "episode_order_not_tvdb_aired", level="warning",
+                                  order=order[1]["chosen"]["label"])
     upload_jobs.log_event(session, job, "auto_matched", confidence=best["confidence"], title=job.title,
                           year=job.year)
     session.commit()

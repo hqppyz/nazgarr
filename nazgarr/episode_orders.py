@@ -11,10 +11,11 @@ di TMDB. Molti a molti: un episodio "doppio" (due episodi trasmessi insieme,
 con due titoli) rimanda a due episodi di riferimento, e il contrario. Così
 si traduce da un ordinamento all'altro passando dai riferimenti.
 
-Usato al primo punto di approvazione dell'upload: quale ordinamento propone
-Nazgarr (quello preferito per la serie, poi TVDB aired, poi TMDB), quale
-combacia meglio con i file (con un avviso se non è lo stesso, mai una scelta
-al posto dell'utente) e gli episodi trovati, tradotti in ognuno."""
+Usato al primo punto di approvazione dell'upload: Nazgarr sceglie di default
+l'ordinamento che combacia meglio con i file (a parità, quello dell'ultima
+volta per la serie, poi TVDB aired, poi TMDB), sempre modificabile, e avvisa
+solo se i file non seguono TVDB aired, l'ordine di Sonarr. Più gli episodi
+trovati, tradotti in ognuno."""
 
 import json
 import logging
@@ -373,15 +374,22 @@ def build(session: Session, tmdb_id: int, tvdb_id: int | None, found: dict[int, 
     fits = {o.key: fit(o, found, pack) for o in orders}
     keys = [o.key for o in orders]
     preference = session.get(EpisodeOrderPreference, tmdb_id)
-    recommended = (
-        preference.order_key if preference is not None and preference.order_key in keys
-        else next((k for k in TVDB_AIRED_KEYS if k in keys), TMDB_DEFAULT if TMDB_DEFAULT in keys else None)
-    )
-    best = max(keys, key=lambda k: fits[k]["score"], default=None)
+    preferred = preference.order_key if preference is not None and preference.order_key in keys else None
+    tvdb_aired = next((k for k in TVDB_AIRED_KEYS if k in keys), None)
+    # A parità di punteggio: la scelta dell'ultima volta, poi TVDB aired, poi TMDB.
+    rank = [k for k in (preferred, tvdb_aired, TMDB_DEFAULT) if k] + keys
+    if found:
+        # Di default quello che combacia meglio con i file (decisione dell'utente, 2026-10-04).
+        recommended = max(keys, key=lambda k: (fits[k]["score"], -rank.index(k)), default=None)
+    else:
+        recommended = rank[0] if keys else None
+    # L'avviso solo se i file non seguono TVDB aired, l'ordine di Sonarr, e
+    # solo se TVDB aired si conosce (Sonarr o la chiave TVDB).
     warning = None
-    if found and best and recommended and fits[best]["score"] > fits[recommended]["score"] + WARNING_MARGIN:
-        warning = {"code": "files_fit_other_order", "order": best}
-    files_order = best if found and best and fits[best]["score"] > 0 else recommended
+    if found and recommended and tvdb_aired and recommended != tvdb_aired \
+            and fits[recommended]["score"] > fits[tvdb_aired]["score"] + WARNING_MARGIN:
+        warning = {"code": "files_not_tvdb_aired", "order": recommended, "tvdb": tvdb_aired}
+    files_order = recommended
     by_key = {o.key: o for o in orders}
     return {
         "orders": [o.to_dict() for o in orders],
