@@ -537,6 +537,22 @@ def snapshot(result: dict, order_key: str) -> dict:
     return {"chosen": by_key[order_key], "files": by_key.get(files, by_key[order_key])}
 
 
+def numbers_in(result: dict, order_key: str, kind: str | None, seasons: list[int],
+               episode: int | None) -> tuple[list[int], int | None]:
+    """Stagioni ed episodio di un job nella numerazione di un ordinamento:
+    gli episodi dei file tradotti (result["found"], da build). Come propone
+    il match a mano (frontend MatchStep). Senza episodi trovati restano
+    quelli dei file."""
+    found = (result.get("found") or {}).get(order_key) or {}
+    if not found:
+        return seasons, episode
+    translated = sorted(int(s) for s in found)
+    if kind == "episode":
+        first = found.get(translated[0]) or found.get(str(translated[0])) or []
+        return translated, (first[0] if first else episode)
+    return translated, episode
+
+
 def remember(session: Session, tmdb_id: int, order_key: str) -> None:
     """La scelta diventa la proposta per la stessa serie la prossima volta."""
     from nazgarr.db_utils import bulk_upsert

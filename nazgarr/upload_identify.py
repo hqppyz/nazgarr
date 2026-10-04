@@ -239,10 +239,15 @@ def _auto_match(session: Session, job: UploadJob, candidates: list[dict]) -> Non
             orders = None
         if orders and orders["recommended"]:
             order = (orders["recommended"], episode_orders.snapshot(orders, orders["recommended"]))
+    seasons, episode = json.loads(job.seasons_json or "[]"), job.episode
+    if order is not None:
+        # Come al match a mano: stagioni ed episodio nella numerazione
+        # dell'ordinamento scelto, quella che usano nome, file e tracker.
+        seasons, episode = episode_orders.numbers_in(orders, order[0], job.kind, seasons, episode)
     try:
         upload_jobs.confirm_match(
             session, job, content_type=best["content_type"], tmdb_id=best["tmdb_id"], kind=job.kind,
-            seasons=json.loads(job.seasons_json or "[]"), episode=job.episode, details=details,
+            seasons=seasons, episode=episode, details=details,
             forced=json.loads(job.forced_ids_json or "{}"),
         )
     except upload_jobs.UploadJobError as exc:
