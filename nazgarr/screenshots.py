@@ -7,7 +7,8 @@ import os
 import re
 
 import ffmpeg
-from pymediainfo import MediaInfo
+
+from nazgarr import mediainfo_util
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +36,7 @@ _JPEG_QUALITIES = (2, 3, 5)
 
 
 def _get_duration_seconds(file_path: str) -> float:
-    media_info = MediaInfo.parse(file_path)
+    media_info = mediainfo_util.parse(file_path)  # già letta dall'analisi: dalla cache
     for track in media_info.video_tracks:
         if track.duration:
             return float(track.duration) / 1000.0

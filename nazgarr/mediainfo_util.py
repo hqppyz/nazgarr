@@ -9,6 +9,8 @@ media_file.mediainfo_unique_id (vedi nazgarr/matching.py).
 import logging
 import os
 import re
+import threading
+from collections import OrderedDict
 
 from pymediainfo import MediaInfo
 
@@ -16,13 +18,48 @@ logger = logging.getLogger(__name__)
 
 _LEADING_TOKEN_RE = re.compile(r"^(\S+)")
 
+# Lo stesso video passa da mediainfo più volte in un upload (analisi, pack
+# misti, screenshot, Unique ID): ogni lettura di un file grande su un disco
+# lento costa. Risultati in cache per (dispositivo, inode, dimensione, mtime):
+# un hardlink (gli stessi byte) riusa la stessa voce, un file cambiato no.
+_CACHE_SIZE = 32
+_cache: OrderedDict[tuple, object] = OrderedDict()
+_cache_lock = threading.Lock()
+
+
+def _parse(file_path: str, kind: str):
+    """MediaInfo.parse, in cache. kind "object" (tracce) o "text" (il report
+    testuale). Le eccezioni passano al chiamante, mai in cache."""
+    st = os.stat(file_path)
+    key = (kind, st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns)
+    with _cache_lock:
+        if key in _cache:
+            _cache.move_to_end(key)
+            return _cache[key]
+    result = MediaInfo.parse(file_path, output="STRING", full=False) if kind == "text" else MediaInfo.parse(file_path)
+    with _cache_lock:
+        _cache[key] = result
+        while len(_cache) > _CACHE_SIZE:
+            _cache.popitem(last=False)
+    return result
+
+
+def parse(file_path: str) -> MediaInfo:
+    """Le tracce di un file (MediaInfo.parse), dalla cache se il file non è cambiato."""
+    return _parse(file_path, "object")
+
+
+def clear_cache() -> None:
+    with _cache_lock:
+        _cache.clear()
+
 
 def compute_unique_id(file_path: str) -> str | None:
     """Ritorna None se mediainfo non riesce a leggere il file o non
     espone un Unique ID (es. cartella BDMV multi-file) — mai un'eccezione
     che blocchi il motore di matching."""
     try:
-        media_info = MediaInfo.parse(file_path)
+        media_info = parse(file_path)
     except Exception:
         logger.exception("mediainfo fallito su %r", file_path)
         return None
@@ -46,7 +83,7 @@ def extract_full_text(file_path: str) -> str | None:
     codice riusato). None solo se mediainfo non riesce proprio a leggere il
     file — mai un'eccezione che blocchi la pipeline di upload."""
     try:
-        text = MediaInfo.parse(file_path, output="STRING", full=False)
+        text = _parse(file_path, "text")
     except Exception:
         logger.exception("mediainfo (testo completo) fallito su %r", file_path)
         return None
@@ -130,7 +167,7 @@ def summarize(media_info: MediaInfo, file_name: str | None = None) -> dict:
 def extract_summary(file_path: str) -> dict | None:
     """summarize() di un file locale; None se mediainfo non lo legge."""
     try:
-        media_info = MediaInfo.parse(file_path)
+        media_info = parse(file_path)
     except Exception:
         logger.exception("mediainfo (riepilogo) fallito su %r", file_path)
         return None

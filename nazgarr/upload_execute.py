@@ -202,16 +202,15 @@ def refresh_mediainfo(session: Session, job: UploadJob, plan, root: str | None) 
     """Il MediaInfo per il tracker, dal file del torrent: rinominare cambia
     solo "Complete name" (i flussi sono gli stessi byte), che ora è il
     percorso dentro il torrent, non quello locale (le tue cartelle non escono
-    verso il tracker). Rigenerato sul nome nuovo; se mediainfo non riesce, il
-    testo dell'analisi con la sola riga corretta."""
+    verso il tracker). Il testo dell'analisi con la sola riga corretta, senza
+    rileggere il file; letto dal file solo se l'analisi non l'ha."""
     main_video = (json.loads(job.layout_json or "{}").get("main_video")) or job.source_path
     target = next((t for source, t in plan.files if source == main_video), None)
     if target is None:
         return
-    text = None
-    if root is not None:
+    text = job.mediainfo_text
+    if not text and root is not None:
         text = mediainfo_util.extract_full_text(os.path.join(root, *target.split("/")))
-    text = text or job.mediainfo_text
     if not text:
         return
     job.mediainfo_text = _COMPLETE_NAME.sub(lambda m: m.group(1) + target, text, count=1)
