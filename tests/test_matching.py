@@ -232,3 +232,32 @@ def test_a_file_seeding_on_one_tracker_is_searched_on_the_others(db_session):
 
     settings_repo.set_setting(db_session, "cross_seed_search", "false")
     assert matching.orphan_media_files(db_session, tracker=b) == []
+
+
+def test_the_matching_index_holds_only_files_from_the_latest_scan(db_session, tmp_path):
+    """Un file sparito dal disco (visto solo da una scansione vecchia) non si
+    propone come sorgente di un torrent."""
+    from datetime import UTC, datetime
+
+    from nazgarr import pipeline
+    from nazgarr.models import Disk, MediaFile, SeedFile
+    from nazgarr.torrent_layout import LocalFiles
+
+    disk = Disk(label="d", root_path=str(tmp_path), media_rel_path="media", torrents_rel_path="torrents")
+    db_session.add(disk)
+    db_session.commit()
+    old, new = pipeline.start_run(db_session, "manual"), pipeline.start_run(db_session, "manual")
+    now = datetime.now(UTC)
+    for path, scan, inode in (("media/Gone.mkv", old, 1), ("media/Here.mkv", new, 2)):
+        db_session.add(MediaFile(disk_id=disk.id, relative_path=path, size_bytes=10, st_dev=1, inode=inode,
+                                 last_scan_id=scan.id, last_seen_at=now))
+    for path, scan, inode in (("torrents/Gone.mkv", old, 3), ("torrents/Here.mkv", new, 4)):
+        db_session.add(SeedFile(disk_id=disk.id, relative_path=path, size_bytes=10, st_dev=1, inode=inode,
+                                last_scan_id=scan.id, last_seen_at=now))
+    disk.media_scan_id = disk.seed_scan_id = new.id
+    db_session.commit()
+
+    local = LocalFiles.load(db_session)
+
+    assert [mf.relative_path for files in local.media_by_key.values() for mf in files] == ["media/Here.mkv"]
+    assert list(local.seed_by_path) == [(disk.id, "torrents/Here.mkv")]

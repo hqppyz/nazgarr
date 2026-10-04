@@ -35,6 +35,7 @@ from nazgarr.arr import ArrIndex, path_key
 from nazgarr.file_types import is_video
 from nazgarr.guess import guess as guess_name
 from nazgarr.models import MediaFile, SeedFile
+from nazgarr.scan_state import is_current, latest_scan_by_disk
 from nazgarr.torrent_file import TorrentInfo
 from nazgarr.torrent_pieces import verify_file_pieces
 
@@ -158,8 +159,14 @@ class LocalFiles:
 
     @classmethod
     def load(cls, session: Session) -> "LocalFiles":
+        """Solo le righe dell'ultima scansione di ogni disco: un file che non
+        c'è più non si propone come sorgente di un torrent."""
         index = cls()
+        latest_media = latest_scan_by_disk(session, MediaFile)
+        latest_seed = latest_scan_by_disk(session, SeedFile)
         for mf in session.query(MediaFile).options(selectinload(MediaFile.media_item)).all():
+            if not is_current(mf, latest_media):
+                continue
             index.media_by_key[(path_key(mf.relative_path), mf.size_bytes)].append(mf)
             index.media_by_dir[(mf.disk_id, os.path.dirname(mf.relative_path))].append(mf)
             item = mf.media_item
@@ -167,7 +174,8 @@ class LocalFiles:
                 index.media_by_episode[(item.tmdb_id, item.season_number, item.episode_number)].append(mf)
                 index.episodes_by_series[item.tmdb_id].add((item.season_number, item.episode_number))
         for sf in session.query(SeedFile).all():
-            index.seed_by_path[(sf.disk_id, sf.relative_path)] = sf
+            if is_current(sf, latest_seed):
+                index.seed_by_path[(sf.disk_id, sf.relative_path)] = sf
         return index
 
 
