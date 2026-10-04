@@ -1,6 +1,6 @@
-# Web and worker/scheduler run in the same container, managed by
-# supervisord (see Dockerfile and docker/supervisord.conf) - a single
-# docker-compose service.
+# One container, one process: the web app, with the scheduler and the
+# upload worker inside it, run by supervisord (see Dockerfile and
+# docker/supervisord.conf) - a single docker-compose service.
 #
 # ./config is mounted as a DIRECTORY (not a file): if config/config.yaml
 # doesn't exist on first start, the container creates it from

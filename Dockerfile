@@ -19,7 +19,7 @@ COPY frontend .
 RUN npm run build
 
 # Stage 2: backend Python + frontend statico servito dallo stesso
-# container (nazgarr/web/frontend.py) - un solo container con supervisord (CLAUDE.md).
+# container (nazgarr/web/frontend.py) - un solo container con supervisord, un solo processo (CLAUDE.md).
 FROM python:3.12-slim@sha256:dddfd7e07f9d15aeeca61529320492139d21cac7f0070c00609243e51e4e0016
 
 # ffmpeg (solo per gli screenshot del modulo Upload, docs/SPEC.md sezione 9):

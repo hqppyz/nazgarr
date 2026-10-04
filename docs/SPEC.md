@@ -436,9 +436,9 @@ Inherits ratio-guardian (CLAUDE.md), with additions for multi-client and posters
 - **guessit** for filename parsing
 - **torf** to create `.torrent` files for uploads (pure Python)
 - **ffmpeg-python** for upload screenshots (needs `ffmpeg` in the container)
-- A minimal BEP3 bencode parser (already in ratio-guardian as `nazgarr/torrents/metainfo.py`, reusable) — used both for the folder-name fallback (ratio-guardian §7) and for the piece hash (section 6)
+- A minimal BEP3 bencode parser (ratio-guardian's `app/torrent_file.py`, ported as `nazgarr/torrents/metainfo.py`) — used both for the folder-name fallback (ratio-guardian §7) and for the piece hash (section 6)
 - **Frontend**: **React + shadcn/ui** SPA, Vite build, served by the FastAPI container
-- **Single container with supervisord** (web + worker/scheduler), same pattern as ratio-guardian
+- **Single container with supervisord**, which runs one process: the FastAPI app, with APScheduler and the upload worker inside it (same pattern as ratio-guardian)
 
 ## 12. What to reuse from each source project (summary)
 
