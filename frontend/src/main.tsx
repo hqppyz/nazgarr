@@ -19,16 +19,19 @@ import './index.css'
 // da altri siti. Non fa niente dove le bandiere ci sono già.
 polyfillCountryFlagEmojis('Twemoji Country Flags', flagsFont)
 
-// gcTime almeno quanto la cache persistita: una query ripristinata da
-// IndexedDB non deve essere scartata dopo i 5 minuti di default.
 // Dopo ogni salvataggio, la checklist del tour (src/onboarding) si riallinea:
 // un passo si chiude appena la configurazione c'è, ovunque sia stata fatta.
 const queryClient: QueryClient = new QueryClient({
-  defaultOptions: { queries: { gcTime: CACHE_MAX_AGE_MS } },
   mutationCache: new MutationCache({
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['setup-status'] }),
   }),
 })
+// gcTime almeno quanto la cache persistita, ma solo per le query persistite
+// (le viste della libreria, src/lib/queryPersistence.ts): una query
+// ripristinata da IndexedDB non deve essere scartata dopo i 5 minuti di
+// default. Le altre (ricerche, anteprime dei nomi) restano ai 5 minuti,
+// invece di restare in memoria per tutta la sessione.
+queryClient.setQueryDefaults(['library'], { gcTime: CACHE_MAX_AGE_MS })
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
