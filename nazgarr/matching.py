@@ -20,7 +20,7 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.orm import Session, selectinload
 
-from nazgarr import settings_registry
+from nazgarr import review, settings_registry
 from nazgarr.adapters.tracker.base import (
     NotSupportedError,
     TrackerAdapter,
@@ -444,54 +444,12 @@ def run_media_to_torrent_matching(
     matching su questo tracker per il resto della run ("rate_limited"),
     lasciando i file rimanenti al prossimo giro — la ricerca di quelli
     completati è già registrata in match_attempt, quindi non si ripete."""
-    from nazgarr.review import create_review_for_media_file  # import qui: evita un ciclo review<->matching
-
-    totals = _new_totals()
-    interval = get_rematch_interval(session)
     ctx = MatchContext(session, tracker_row, tracker_adapter, "media_to_torrent", arr_index)
     orphans = orphan_media_files(session, load_exclusions(session), tracker_row)
     if only_media_file_ids is not None:
         # "Cerca ora" dalla scheda di dettaglio: solo i file di quel contenuto.
         orphans = [mf for mf in orphans if mf.id in only_media_file_ids]
-    progress.add_total(len(orphans))
-    attempts = _attempts_by_file(session, tracker_row, "media")
-    with keep_loaded_on_commit(session):
-        return _match_media_orphans(session, ctx, tracker_row, orphans, attempts, interval, force, totals, progress,
-                                    create_review_for_media_file)
-
-
-def _match_media_orphans(session, ctx, tracker_row, orphans, attempts, interval, force, totals, progress,
-                         create_review_for_media_file) -> dict:
-    for media_file in orphans:
-        tmdb_id = media_file.media_item.tmdb_id
-        attempt = attempts.get(media_file.id)
-        if not force and _is_fresh(attempt, media_file.size_bytes, tmdb_id, interval):
-            totals["skipped_fresh"] += 1
-            progress.advance(skipped=1)
-            continue
-        try:
-            candidates, from_history = find_candidates(ctx, media_file, media_file.media_item_id, tmdb_id)
-            create_review_for_media_file(session, media_file, candidates, ctx.hashes_in_clients())
-        except TrackerRateLimitedError:
-            logger.warning("Tracker %r in rate limit: matching interrotto per questa run", tracker_row.label)
-            session.rollback()
-            totals["rate_limited"] = True
-            break
-        except Exception:
-            logger.exception("Matching fallito per media_file %s su tracker %r", media_file.id, tracker_row.label)
-            session.rollback()
-            totals["failed"] += 1
-            progress.advance()
-            continue
-        _record_attempt(
-            session, attempt, tracker_row, media_file.size_bytes, tmdb_id, media_file_id=media_file.id
-        )
-        totals["files"] += 1
-        totals["from_history"] += int(from_history)
-        totals["candidates"] += len(candidates)
-        progress.advance()
-        progress.result(candidates=len(candidates))
-    return totals
+    return _match_orphans(ctx, orphans, "media", progress, force)
 
 
 def run_torrent_to_client_matching(
@@ -499,48 +457,49 @@ def run_torrent_to_client_matching(
     progress=NULL_PROGRESS,
 ) -> dict:
     """Stesse regole di run_media_to_torrent_matching, direzione opposta."""
-    from nazgarr.review import create_review_for_seed_file  # import qui: evita un ciclo review<->matching
-
-    totals = _new_totals()
-    interval = get_rematch_interval(session)
     ctx = MatchContext(session, tracker_row, tracker_adapter, "torrent_to_client", arr_index)
     orphans = orphan_seed_files_with_identity(session, load_exclusions(session))
+    return _match_orphans(ctx, orphans, "seed", progress)
+
+
+def _match_orphans(ctx: MatchContext, orphans: list, side: str, progress, force: bool = False) -> dict:
+    """Il giro sugli orfani di una direzione: side "media" (media_file, la
+    sua identità) o "seed" (seed_file, l'identità del media_file collegato)."""
+    session, tracker_row = ctx.session, ctx.tracker_row
+    totals = _new_totals()
+    interval = get_rematch_interval(session)
     progress.add_total(len(orphans))
-    attempts = _attempts_by_file(session, tracker_row, "seed")
+    attempts = _attempts_by_file(session, tracker_row, side)
     with keep_loaded_on_commit(session):
-        return _match_seed_orphans(session, ctx, tracker_row, orphans, attempts, interval, totals, progress,
-                                   create_review_for_seed_file)
-
-
-def _match_seed_orphans(session, ctx, tracker_row, orphans, attempts, interval, totals, progress,
-                        create_review_for_seed_file) -> dict:
-    for seed_file in orphans:
-        media_item = seed_file.media_file.media_item
-        attempt = attempts.get(seed_file.id)
-        if _is_fresh(attempt, seed_file.size_bytes, media_item.tmdb_id, interval):
-            totals["skipped_fresh"] += 1
-            progress.advance(skipped=1)
-            continue
-        try:
-            candidates, from_history = find_candidates(ctx, seed_file, media_item.id, media_item.tmdb_id)
-            create_review_for_seed_file(session, seed_file, candidates, ctx.hashes_in_clients())
-        except TrackerRateLimitedError:
-            logger.warning("Tracker %r in rate limit: matching interrotto per questa run", tracker_row.label)
-            session.rollback()
-            totals["rate_limited"] = True
-            break
-        except Exception:
-            logger.exception("Matching fallito per seed_file %s su tracker %r", seed_file.id, tracker_row.label)
-            session.rollback()
-            totals["failed"] += 1
+        for orphan in orphans:
+            item = orphan.media_item if side == "media" else orphan.media_file.media_item
+            attempt = attempts.get(orphan.id)
+            if not force and _is_fresh(attempt, orphan.size_bytes, item.tmdb_id, interval):
+                totals["skipped_fresh"] += 1
+                progress.advance(skipped=1)
+                continue
+            try:
+                candidates, from_history = find_candidates(ctx, orphan, item.id, item.tmdb_id)
+                if side == "media":
+                    review.create_review_for_media_file(session, orphan, candidates, ctx.hashes_in_clients())
+                else:
+                    review.create_review_for_seed_file(session, orphan, candidates, ctx.hashes_in_clients())
+            except TrackerRateLimitedError:
+                logger.warning("Tracker %r in rate limit: matching interrotto per questa run", tracker_row.label)
+                session.rollback()
+                totals["rate_limited"] = True
+                break
+            except Exception:
+                logger.exception("Matching fallito per %s_file %s su tracker %r", side, orphan.id, tracker_row.label)
+                session.rollback()
+                totals["failed"] += 1
+                progress.advance()
+                continue
+            _record_attempt(session, attempt, tracker_row, orphan.size_bytes, item.tmdb_id,
+                            **({"media_file_id": orphan.id} if side == "media" else {"seed_file_id": orphan.id}))
+            totals["files"] += 1
+            totals["from_history"] += int(from_history)
+            totals["candidates"] += len(candidates)
             progress.advance()
-            continue
-        _record_attempt(
-            session, attempt, tracker_row, seed_file.size_bytes, media_item.tmdb_id, seed_file_id=seed_file.id
-        )
-        totals["files"] += 1
-        totals["from_history"] += int(from_history)
-        totals["candidates"] += len(candidates)
-        progress.advance()
-        progress.result(candidates=len(candidates))
+            progress.result(candidates=len(candidates))
     return totals
