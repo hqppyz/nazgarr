@@ -32,17 +32,40 @@ def _duplicates(session: Session, disk_id: int | None) -> dict:
     }
 
 
-def compute_snapshot(session: Session, disk_id: int | None = None, tracker: str | None = None) -> dict:
+def shared_metrics(session: Session, disk_id: int | None = None, exclusions=None) -> dict:
+    """Le metriche che non dipendono dal filtro per tracker: duplicati, review
+    in attesa, seed falliti, file non identificati. A fine run si calcolano
+    una volta per tutti i filtri (nazgarr/pipeline.py)."""
+    exclusions = exclusions or load_exclusions(session)
+    return {
+        **_duplicates(session, disk_id),
+        "pending_review": len(review.list_ready_for_review(session)),
+        "failed": len(review.list_failed_seed_jobs(session)),
+        "unmatched": sum(
+            1 for f in library.unmatched_media_files(session, disk_id=disk_id, exclusions=exclusions)
+            if not f["excluded"]
+        ),
+    }
+
+
+def compute_snapshot(
+    session: Session, disk_id: int | None = None, tracker: str | None = None,
+    data: library.LibraryData | None = None, shared: dict | None = None,
+) -> dict:
     """tracker: filtro per tracker (nazgarr/tracker_scope.py), gli stessi stati
-    delle viste della libreria con lo stesso filtro."""
+    delle viste della libreria con lo stesso filtro. data e shared: dati di
+    base e metriche comuni già calcolati, per più filtri di fila."""
     # Stessi file che si vedono nelle viste: gli esclusi non contano mai.
     exclusions = load_exclusions(session)
+    data = data or library.LibraryData(session)
     media_states = [
-        f for f in library.media_file_states(session, disk_id=disk_id, exclusions=exclusions, tracker=tracker)
+        f for f in library.media_file_states(
+            session, disk_id=disk_id, exclusions=exclusions, tracker=tracker, data=data)
         if not f["excluded"]
     ]
     seed_states = [
-        f for f in library.seed_file_states(session, disk_id=disk_id, exclusions=exclusions, tracker=tracker)
+        f for f in library.seed_file_states(
+            session, disk_id=disk_id, exclusions=exclusions, tracker=tracker, data=data)
         if not f["excluded"]
     ]
 
@@ -65,11 +88,5 @@ def compute_snapshot(session: Session, disk_id: int | None = None, tracker: str 
             f["size_bytes"] for f in seed_states if f["state"] == "orphan_torrent" and not f["linked_paths"]
         ),
         "ignored_bytes": sum(f["size_bytes"] for f in seed_states if f["state"] == "ignored"),
-        **_duplicates(session, disk_id),
-        "pending_review": len(review.list_ready_for_review(session)),
-        "failed": len(review.list_failed_seed_jobs(session)),
-        "unmatched": sum(
-            1 for f in library.unmatched_media_files(session, disk_id=disk_id, exclusions=exclusions)
-            if not f["excluded"]
-        ),
+        **(shared if shared is not None else shared_metrics(session, disk_id, exclusions)),
     }

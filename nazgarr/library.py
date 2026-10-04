@@ -16,6 +16,8 @@ Definizione usata qui (coerente con la tabella di SPEC.md sezione 3):
 - orphan_media: media_file senza alcun seed_file sibling "seeding" (vedi sopra)
 """
 
+from functools import cached_property
+
 from sqlalchemy.orm import Session
 
 from nazgarr.adapters.torrent_client.base import is_stopped_state
@@ -28,6 +30,64 @@ from nazgarr.scan_state import is_current, latest_scan_by_disk
 from nazgarr.tracker_scope import enabled_torrent_ids, scoped_torrent_ids
 
 _NO_EXCLUSIONS = CompiledExclusions(patterns=[])
+
+
+class LibraryData:
+    """I dati di base degli stati dei file, letti una volta: righe correnti
+    (tuple leggere, non oggetti ORM), hardlink, tracciamento dei torrent,
+    identità. A fine run la salute si calcola per ogni filtro per tracker
+    (nazgarr/pipeline.py): con questo ogni filtro cambia solo quali torrent
+    contano, senza rileggere le tabelle."""
+
+    def __init__(self, session: Session):
+        self._session = session
+
+    # Ogni parte si legge solo la prima volta che serve: una vista sola usa
+    # meno parti della salute a fine run.
+    @cached_property
+    def media_rows(self) -> list:
+        latest = latest_scan_by_disk(self._session, MediaFile)
+        return [
+            row for row in self._session.query(
+                MediaFile.id, MediaFile.disk_id, MediaFile.relative_path, MediaFile.size_bytes, MediaFile.last_scan_id,
+            ).order_by(MediaFile.relative_path).all()
+            if is_current(row, latest)  # file spariti dal disco: mai mostrati né contati
+        ]
+
+    @cached_property
+    def seed_rows(self) -> list:
+        latest = latest_scan_by_disk(self._session, SeedFile)
+        return [
+            row for row in self._session.query(
+                SeedFile.id, SeedFile.disk_id, SeedFile.relative_path, SeedFile.size_bytes, SeedFile.media_file_id,
+                SeedFile.st_dev, SeedFile.inode, SeedFile.last_scan_id,
+            ).order_by(SeedFile.relative_path).all()
+            if is_current(row, latest)
+        ]
+
+    @cached_property
+    def links(self) -> dict[int, list[tuple[int, str]]]:
+        return media_links(self._session)  # per inode: anche il secondo percorso di un import doppio
+
+    @cached_property
+    def identity(self) -> dict[int, tuple[str, int]]:
+        return _identity_by_media_file(self._session)
+
+    @cached_property
+    def media_paths_by_id(self) -> dict[int, str]:
+        return dict(self._session.query(MediaFile.id, MediaFile.relative_path).all())
+
+    @cached_property
+    def copies(self) -> dict[tuple[int, int, int], set[int]]:
+        return seed_copies_by_inode(self._session)
+
+    @cached_property
+    def tracking_rows(self) -> list[tuple[int, int, str]]:
+        return _tracking_rows(self._session)
+
+    @cached_property
+    def enabled_torrent_ids(self) -> set[int]:
+        return enabled_torrent_ids(self._session)
 
 
 def _media_file_to_seed_paths(session: Session) -> dict[int, list[str]]:
@@ -55,14 +115,23 @@ def _tracking(session: Session, torrent_ids: set[int] | None = None) -> tuple[se
     torrent non fermo): un file in più torrent (cross-seed) è "stopped" solo
     se lo sono tutti. torrent_ids: solo questi torrent (filtro per tracker,
     nazgarr/tracker_scope.py); None = tutti."""
-    tracked: set[int] = set()
-    active: set[int] = set()
-    for torrent_id, seed_file_id, state in (
+    return _tracked_from(_tracking_rows(session), torrent_ids)
+
+
+def _tracking_rows(session: Session) -> list[tuple[int, int, str]]:
+    """(client_torrent_id, seed_file_id, stato) di ogni file tracciato."""
+    return (
         session.query(ClientTorrentFile.client_torrent_id, ClientTorrentFile.seed_file_id, ClientTorrent.state)
         .join(ClientTorrent, ClientTorrent.id == ClientTorrentFile.client_torrent_id)
         .filter(ClientTorrentFile.seed_file_id.isnot(None))
         .all()
-    ):
+    )
+
+
+def _tracked_from(rows, torrent_ids: set[int] | None) -> tuple[set[int], set[int]]:
+    tracked: set[int] = set()
+    active: set[int] = set()
+    for torrent_id, seed_file_id, state in rows:
         if torrent_ids is not None and torrent_id not in torrent_ids:
             continue
         tracked.add(seed_file_id)
@@ -73,21 +142,18 @@ def _tracking(session: Session, torrent_ids: set[int] | None = None) -> tuple[se
 
 def media_file_states(
     session: Session, disk_id: int | None = None, exclusions: CompiledExclusions = _NO_EXCLUSIONS,
-    tracker: str | None = None,
+    tracker: str | None = None, data: LibraryData | None = None,
 ) -> list[dict]:
     """tracker: filtro per tracker (nazgarr/tracker_scope.py). Con un filtro un
-    file è "seeding" solo se è in un torrent di quel tracker."""
-    query = session.query(MediaFile)
-    if disk_id is not None:
-        query = query.filter_by(disk_id=disk_id)
-
-    tracked_seed_file_ids, active_seed_file_ids = _tracking(session, scoped_torrent_ids(session, tracker))
-    links = media_links(session)  # per inode: anche il secondo percorso di un import doppio
+    file è "seeding" solo se è in un torrent di quel tracker. data: i dati già
+    letti (LibraryData), per calcolare più filtri senza rileggerli."""
+    data = data or LibraryData(session)
+    tracked_seed_file_ids, active_seed_file_ids = _tracked_from(
+        data.tracking_rows, scoped_torrent_ids(session, tracker))
+    links = data.links
     seeding_media_file_ids = {mf_id for mf_id, sfs in links.items() if any(i in tracked_seed_file_ids for i, _ in sfs)}
     active_media_file_ids = {mf_id for mf_id, sfs in links.items() if any(i in active_seed_file_ids for i, _ in sfs)}
-    linked_paths = {mf_id: [path for _i, path in sfs] for mf_id, sfs in links.items()}
-    latest = latest_scan_by_disk(session, MediaFile)
-    identity = _identity_by_media_file(session)
+    identity = data.identity
 
     return [
         {
@@ -98,45 +164,40 @@ def media_file_states(
             "state": "seeding" if mf.id in seeding_media_file_ids else "orphan_media",
             "stopped": mf.id in seeding_media_file_ids and mf.id not in active_media_file_ids,
             "excluded": exclusions.is_excluded(mf.relative_path),
-            "linked_paths": linked_paths.get(mf.id, []),
+            "linked_paths": [path for _i, path in links.get(mf.id, [])],
             "content_type": identity.get(mf.id, (None, None))[0],
             "tmdb_id": identity.get(mf.id, (None, None))[1],
         }
-        for mf in query.order_by(MediaFile.relative_path).all()
-        if is_current(mf, latest)  # file spariti dal disco: mai mostrati né contati
+        for mf in data.media_rows
+        if disk_id is None or mf.disk_id == disk_id
     ]
 
 
 def seed_file_states(
     session: Session, disk_id: int | None = None, exclusions: CompiledExclusions = _NO_EXCLUSIONS,
-    tracker: str | None = None,
+    tracker: str | None = None, data: LibraryData | None = None,
 ) -> list[dict]:
     """tracker: con un filtro, solo i file dei torrent di quel tracker, più
     quelli che non sono in nessun torrent (orfani per qualunque tracker):
-    un file in seed solo per altri tracker non compare."""
-    query = session.query(SeedFile)
-    if disk_id is not None:
-        query = query.filter_by(disk_id=disk_id)
-
+    un file in seed solo per altri tracker non compare. data: come in
+    media_file_states."""
+    data = data or LibraryData(session)
     scope_ids = scoped_torrent_ids(session, tracker)
-    directly_tracked, directly_active = _tracking(session, scope_ids)
+    directly_tracked, directly_active = _tracked_from(data.tracking_rows, scope_ids)
     # Con un filtro, un file in torrent solo di client disattivati è orfano come
     # uno in nessun torrent (nazgarr/tracker_scope.py): i client spenti non contano.
-    anywhere = directly_tracked if scope_ids is None else _tracking(session, enabled_torrent_ids(session))[0]
-    media_paths_by_id = {
-        row[0]: row[1] for row in session.query(MediaFile.id, MediaFile.relative_path).all()
-    }
-
-    latest_seed = latest_scan_by_disk(session, SeedFile)
-    identity = _identity_by_media_file(session)
-    rows = [sf for sf in query.order_by(SeedFile.relative_path).all() if is_current(sf, latest_seed)]
+    anywhere = directly_tracked if scope_ids is None else _tracked_from(
+        data.tracking_rows, data.enabled_torrent_ids)[0]
+    media_paths_by_id = data.media_paths_by_id
+    identity = data.identity
+    rows = [sf for sf in data.seed_rows if disk_id is None or sf.disk_id == disk_id]
 
     # Un file lato torrent che nessun client usa, ma che è un'altra copia
     # (hardlink, stesso inode) di un file in seed da un altro percorso (es. il
     # torrent rimosso dal client dopo un cross-seed): gli stessi byte sono in
     # seed, quindi conta come in seed, con lo stato di quel torrent, e la vista
     # dice da dove (seeding_copies). Mai orfano, mai cercato sui tracker.
-    copies = seed_copies_by_inode(session)
+    copies = data.copies
 
     def _through_copies(ids: set[int]) -> set[int]:
         return ids | {sf_id for group in copies.values() if group & ids for sf_id in group}

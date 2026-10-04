@@ -47,6 +47,7 @@ from nazgarr import (
     arr,
     file_changes,
     health,
+    library,
     matching,
     media_resolution,
     not_imported,
@@ -155,10 +156,11 @@ def _plural(n: int, singular: str, plural: str) -> str:
     return singular if n == 1 else plural
 
 
-def _save_tracker_snapshots(session: Session, run: RunLog) -> None:
-    """Lo storico della dashboard per ogni filtro per tracker (nazgarr/tracker_scope.py)."""
+def _save_tracker_snapshots(session: Session, run: RunLog, data=None, shared: dict | None = None) -> None:
+    """Lo storico della dashboard per ogni filtro per tracker (nazgarr/tracker_scope.py).
+    data/shared: quelli della fotografia generale, letti una volta sola."""
     for scope in tracker_scope.snapshot_scopes(session):
-        snap = health.compute_snapshot(session, tracker=scope)
+        snap = health.compute_snapshot(session, tracker=scope, data=data, shared=shared)
         session.add(TrackerHealthSnapshot(
             run_id=run.id, scope=scope, health_snapshot=snap["health_pct"] if snap["total_media_size"] else None,
             orphan_torrent_bytes=snap["orphan_torrent_bytes"], ignored_bytes=snap["ignored_bytes"],
@@ -473,7 +475,9 @@ def run_bulk_import(session: Session, run: RunLog, data_dir: str) -> RunLog:
     run.matches_found = totals["candidates_found"]
     run.auto_executed = totals["auto_executed"]
     try:
-        snapshot = health.compute_snapshot(session)
+        data = library.LibraryData(session)
+        shared = health.shared_metrics(session)
+        snapshot = health.compute_snapshot(session, data=data, shared=shared)
         run.pending_review = snapshot["pending_review"]
         run.orphan_torrent_count = snapshot["orphan_torrent_count"]
         run.ignored_count = snapshot["ignored_count"]
@@ -483,7 +487,7 @@ def run_bulk_import(session: Session, run: RunLog, data_dir: str) -> RunLog:
         run.orphan_torrent_bytes = snapshot["orphan_torrent_bytes"]
         run.ignored_bytes = snapshot["ignored_bytes"]
         run.duplicate_wasted_bytes = snapshot["duplicate_wasted_bytes"]
-        _save_tracker_snapshots(session, run)
+        _save_tracker_snapshots(session, run, data, shared)
     except Exception as exc:
         errors = _record_failure(session, run, errors, "library health snapshot", exc)
         run.pending_review = len(review.list_ready_for_review(session))

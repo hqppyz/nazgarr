@@ -43,7 +43,9 @@ class _FileState:
 
 def _current(session: Session) -> dict[tuple[str, int, str], _FileState]:
     states: dict[tuple[str, int, str], _FileState] = {}
-    for side, rows in (("media", library.media_file_states(session)), ("torrent", library.seed_file_states(session))):
+    data = library.LibraryData(session)
+    for side, rows in (("media", library.media_file_states(session, data=data)),
+                       ("torrent", library.seed_file_states(session, data=data))):
         for row in rows:
             states[(side, row["disk_id"], row["relative_path"])] = _FileState(
                 size_bytes=row["size_bytes"], state=row["state"], stopped=row.get("stopped", False),
