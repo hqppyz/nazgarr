@@ -485,6 +485,9 @@ class MediaFile(Base):
     # intenzionali dello stesso contenuto su inode diversi, mai per il
     # matching col tracker (quello resta mediainfo_unique_id sotto).
     content_hash: Mapped[str | None]
+    # mtime del file quando content_hash è stato calcolato: se inode,
+    # dimensione e mtime non cambiano, lo scanner riusa l'hash senza rileggere.
+    mtime_ns: Mapped[int | None]
     media_item_id: Mapped[int | None] = mapped_column(ForeignKey("media_item.id", ondelete="SET NULL"))
     resolver_source: Mapped[str | None]
     mediainfo_unique_id: Mapped[str | None]

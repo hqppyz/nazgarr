@@ -370,6 +370,7 @@ CREATE TABLE IF NOT EXISTS media_file (
     nlink                   INTEGER,                -- >1 = hardlinked somewhere, a quick first signal
     content_hash            TEXT,                   -- fast partial-content hash (nazgarr/duplicates.py), to find
                                                       -- unintentional same-content copies across different inodes
+    mtime_ns                INTEGER,                -- mtime when content_hash was computed: reused while unchanged
     media_item_id           INTEGER REFERENCES media_item(id) ON DELETE SET NULL,     -- resolved by the resolver
     resolver_source         TEXT,                   -- "filename_parser" | "sonarr" | "radarr"
     mediainfo_unique_id     TEXT,                    -- computed on demand, cached

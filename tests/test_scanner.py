@@ -205,3 +205,28 @@ def test_symlinks_are_never_listed(tmp_path):
     (tmp_path / "media" / "innocent.mkv").symlink_to(secret)
 
     assert _list_files(str(tmp_path / "media")) == [str(real)]
+
+
+def test_the_content_hash_is_reread_only_for_changed_files(db_session, tmp_path, monkeypatch):
+    """La seconda scansione riusa l'hash dei file invariati (stesso inode,
+    dimensione e mtime) e rilegge solo quelli cambiati."""
+    disk, root = _make_disk(db_session, tmp_path)
+    same = root / "media" / "movies" / "Same.2024.mkv"
+    changed = root / "media" / "movies" / "Changed.2024.mkv"
+    same.write_bytes(b"a" * 1000)
+    changed.write_bytes(b"b" * 1000)
+    _run_scan(db_session, disk)
+    before = {mf.relative_path: mf.content_hash for mf in db_session.query(MediaFile)}
+
+    changed.write_bytes(b"c" * 1000)  # stessa dimensione, contenuto e mtime nuovi
+    os.utime(changed, ns=(1, os.stat(changed).st_mtime_ns + 10**9))
+    read = []
+    real = scanner.compute_fast_hash
+    monkeypatch.setattr(scanner, "compute_fast_hash", lambda path: read.append(os.path.basename(path)) or real(path))
+    _run_scan(db_session, disk)
+    db_session.expire_all()
+    after = {mf.relative_path: mf.content_hash for mf in db_session.query(MediaFile)}
+
+    assert read == ["Changed.2024.mkv"]
+    assert after["media/movies/Same.2024.mkv"] == before["media/movies/Same.2024.mkv"]
+    assert after["media/movies/Changed.2024.mkv"] != before["media/movies/Changed.2024.mkv"]

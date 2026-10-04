@@ -44,11 +44,24 @@ def _list_files(abs_root: str) -> list[str]:
         return []
     # I symlink no: un link in libreria verso un file qualsiasi dello stesso
     # disco (il DB, una chiave) finirebbe hardlinkato nella cartella torrent
-    # e messo in seed. os.walk già non entra nelle cartelle-link.
-    return [
-        path for dirpath, _dirs, names in os.walk(abs_root) for name in names
-        if not os.path.islink(path := os.path.join(dirpath, name))
-    ]
+    # e messo in seed. Né file né cartelle-link: scandir lo sa già dalla
+    # lettura della cartella, senza un lstat per file (su una share di rete
+    # è una richiesta in meno per ogni file).
+    out: list[str] = []
+    pending = [abs_root]
+    while pending:
+        try:
+            with os.scandir(pending.pop()) as entries:
+                for entry in entries:
+                    if entry.is_symlink():
+                        continue
+                    if entry.is_dir(follow_symlinks=False):
+                        pending.append(entry.path)
+                    else:
+                        out.append(entry.path)
+        except OSError as exc:
+            logger.warning("Cartella non leggibile, salto: %s", exc)
+    return out
 
 
 # stat + hash parziale in parallelo: operazioni di I/O indipendenti, che su
@@ -57,7 +70,7 @@ def _list_files(abs_root: str) -> list[str]:
 STAT_WORKERS = 8
 
 
-def _stat_one(full_path: str, with_hash: bool):
+def _stat_one(full_path: str, with_hash: bool, known: dict | None = None):
     try:
         st = os.stat(full_path)
     except OSError as exc:
@@ -65,18 +78,28 @@ def _stat_one(full_path: str, with_hash: bool):
         return full_path, None, None
     # Hash parziale (128KB, nazgarr/duplicates.py) solo per i video: i duplicati
     # riguardano solo loro, leggere ogni nfo o immagine sarebbe spreco.
-    content_hash = compute_fast_hash(full_path) if with_hash and is_video(full_path) else None
-    return full_path, st, content_hash
+    if not with_hash or not is_video(full_path):
+        return full_path, st, None
+    # Stesso file della scansione precedente (stesso inode, dimensione e
+    # mtime): l'hash di allora vale ancora, niente da rileggere.
+    previous = (known or {}).get(full_path)
+    if previous is not None and previous[:4] == (st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns) and previous[4]:
+        return full_path, st, previous[4]
+    return full_path, st, compute_fast_hash(full_path)
 
 
-def _stat_files(paths: list[str], on_progress: Callable[[int], None] | None, with_hash: bool = False):
+def _stat_files(
+    paths: list[str], on_progress: Callable[[int], None] | None, with_hash: bool = False, known: dict | None = None,
+):
     """(path, stat, content_hash) per ogni file ancora leggibile, nello stesso
     ordine di `paths`. Un errore di stat su un singolo file (permessi, file
     sparito dopo l'elenco) viene loggato e saltato — non deve mai far
-    fallire l'intero scan. on_progress è chiamato nel thread chiamante."""
+    fallire l'intero scan. on_progress è chiamato nel thread chiamante.
+    known: percorso -> (st_dev, inode, size, mtime_ns, content_hash) della
+    scansione precedente, per riusare gli hash dei file invariati."""
     pool = ThreadPoolExecutor(max_workers=STAT_WORKERS)
     try:
-        for full_path, st, content_hash in pool.map(lambda p: _stat_one(p, with_hash), paths):
+        for full_path, st, content_hash in pool.map(lambda p: _stat_one(p, with_hash, known), paths):
             if st is not None:
                 yield full_path, st, content_hash
             if on_progress is not None:
@@ -153,7 +176,14 @@ def scan_disk(
     previous_seed = latest_scan_by_disk(session, SeedFile).get(disk.id)
     media_rows: list[dict] = []
     if files.media:
-        for full_path, st, content_hash in _stat_files(files.media, on_progress, with_hash=True):
+        known = {
+            os.path.join(disk.root_path, rel): (dev, ino, size, mtime, content_hash)
+            for rel, dev, ino, size, mtime, content_hash in session.query(
+                MediaFile.relative_path, MediaFile.st_dev, MediaFile.inode, MediaFile.size_bytes, MediaFile.mtime_ns,
+                MediaFile.content_hash,
+            ).filter(MediaFile.disk_id == disk.id, MediaFile.mtime_ns.isnot(None)).all()
+        }
+        for full_path, st, content_hash in _stat_files(files.media, on_progress, with_hash=True, known=known):
             media_rows.append({
                 "disk_id": disk.id,
                 "relative_path": os.path.relpath(full_path, disk.root_path),
@@ -162,9 +192,10 @@ def scan_disk(
                 "inode": st.st_ino,
                 "nlink": st.st_nlink,
                 # Costo limitato a 128KB/file indipendentemente dalla dimensione
-                # (nazgarr/duplicates.py), solo per i video — ricalcolato a ogni
-                # scan, nessuna cache incrementale ancora.
+                # (nazgarr/duplicates.py), solo per i video, e riletto solo se il
+                # file è cambiato dalla scansione precedente (mtime_ns).
                 "content_hash": content_hash,
+                "mtime_ns": st.st_mtime_ns,
                 "last_scan_id": run.id,
                 "last_seen_at": now,
             })
@@ -173,7 +204,7 @@ def scan_disk(
         session, MediaFile.__table__, media_rows,
         conflict_cols=["disk_id", "relative_path"],
         update_cols=[
-            "size_bytes", "st_dev", "inode", "nlink", "content_hash",
+            "size_bytes", "st_dev", "inode", "nlink", "content_hash", "mtime_ns",
             "last_scan_id", "last_seen_at",
         ],
     )
