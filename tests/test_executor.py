@@ -145,7 +145,7 @@ def test_execute_media_to_torrent_fails_on_cross_device(db_session, tmp_path, mo
     def fake_stat(path, *a, **kw):
         result = real_stat(path, *a, **kw)
         if str(path) == str(media_file_path):
-            # os.path.isfile() (chiamato prima di _check_same_filesystem) usa
+            # os.path.isfile() (chiamato prima dei controlli di hardlinks.check_link) usa
             # anche st_mode: serve un os.stat_result completo, non un oggetto
             # con solo st_dev, altrimenti fallisce lì invece che dove vogliamo.
             seq = list(result)

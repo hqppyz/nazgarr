@@ -36,6 +36,7 @@ from nazgarr import (
     adapter_factory,
     client_labels,
     disk_folders,
+    hardlinks,
     mediainfo_util,
     screenshots,
     settings_repo,
@@ -99,39 +100,24 @@ def _inside(path: str, folder: str | list[str] | None) -> bool:
     return real.startswith(base + os.sep)
 
 
-def link_files(pairs: list[tuple[str, str]], root: str) -> int:
+def link_files(pairs: list[tuple[str, str]], root: str) -> list[str]:
     """Crea gli hardlink (sorgente, destinazione); una destinazione che è già
     lo stesso file (un tentativo precedente) va bene, un file diverso no.
-    Tutto si controlla prima di creare il primo: destinazioni dentro la
-    cartella di seed (sul percorso già risolto, niente symlink piazzati nel
-    mezzo), sorgenti che sono file veri (non symlink) sullo stesso disco. Se
+    Tutto si controlla prima di creare il primo (hardlinks.check_link): dentro
+    la cartella di seed, sorgenti che sono file veri sullo stesso disco. Se
     un hardlink fallisce a metà, quelli appena creati si tolgono.
     Restituisce gli hardlink creati."""
-    root_dev = os.stat(root).st_dev
+    codes = {"source_not_a_file": "upload_source_not_a_file", "cross_device": "upload_cross_device",
+             "target_exists": "upload_seed_path_exists"}
     planned: list[tuple[str, str]] = []
     for source, target in pairs:
-        if os.path.islink(source) or not os.path.isfile(source):
-            raise UploadJobError("upload_source_not_a_file", path=source)
-        if os.stat(source).st_dev != root_dev:
-            raise UploadJobError("upload_cross_device", path=source)
-        resolved = resolve_scoped(root, os.path.relpath(target, root))  # mai fuori dalla cartella di seed
-        if os.path.lexists(resolved):
-            if os.path.islink(resolved) or not os.path.samefile(source, resolved):
-                raise UploadJobError("upload_seed_path_exists", path=target)
-            continue
-        planned.append((source, resolved))
-    created: list[str] = []
-    try:
-        for source, target in planned:
-            os.makedirs(os.path.dirname(target), exist_ok=True)
-            os.link(source, target, follow_symlinks=False)
-            created.append(target)
-    except OSError:
-        for path in created:
-            with contextlib.suppress(OSError):
-                os.unlink(path)
-        raise
-    return created
+        try:
+            resolved = hardlinks.check_link(source, target, root)
+        except hardlinks.LinkProblem as problem:
+            raise UploadJobError(codes[problem.code], path=problem.path) from problem
+        if resolved is not None:
+            planned.append((source, resolved))
+    return hardlinks.create_links(planned)
 
 
 # --- una volta per job --------------------------------------------------------

@@ -15,13 +15,20 @@ cancella le righe dei file spariti (restano con un last_scan_id vecchio), e
 un file lato torrent cancellato risultava ancora hardlink del file in
 libreria, per il collegamento esplicito rimasto o perché il filesystem ne
 aveva riusato l'inode per un file nuovo.
+
+Qui anche la creazione: check_link e create_links sono l'unico modo in cui
+l'esecuzione delle review (nazgarr/executor.py) e l'upload
+(nazgarr/upload_execute.py) creano hardlink.
 """
 
+import logging
+import os
 from collections import defaultdict
 
 from sqlalchemy import or_, tuple_
 from sqlalchemy.orm import Session
 
+from nazgarr.fs_scope import resolve_scoped
 from nazgarr.models import MediaFile, SeedFile
 from nazgarr.scan_state import latest_scan_by_disk
 
@@ -80,3 +87,61 @@ def seed_copies_by_inode(session: Session) -> dict[tuple[int, int, int], set[int
         if last_scan_id == latest.get(disk_id, last_scan_id):
             groups.setdefault((disk_id, st_dev, inode), set()).add(sf_id)
     return {key: ids for key, ids in groups.items() if len(ids) > 1}
+
+
+logger = logging.getLogger(__name__)
+
+
+class LinkProblem(Exception):
+    """Un hardlink che non si può creare. code: source_not_a_file (un symlink
+    o niente), cross_device (un hardlink non attraversa i filesystem),
+    target_exists (un altro file al suo posto: mai sovrascritto)."""
+
+    def __init__(self, code: str, path: str, detail: str = ""):
+        super().__init__(f"{code}: {path}")
+        self.code, self.path, self.detail = code, path, detail
+
+
+def check_link(source: str, target: str, root: str) -> str | None:
+    """Prima di creare: la sorgente è un file vero (non un link simbolico),
+    sullo stesso filesystem di root; la destinazione resta dentro root anche
+    a percorso risolto (ScopeViolation, nazgarr/fs_scope.py) ed è libera.
+    Restituisce la destinazione risolta, o None se c'è già lo stesso file
+    (un cross-seed con lo stesso nome: si riusa)."""
+    if os.path.islink(source) or not os.path.isfile(source):
+        raise LinkProblem("source_not_a_file", source)
+    source_dev, root_dev = os.stat(source).st_dev, os.stat(root).st_dev
+    if source_dev != root_dev:
+        raise LinkProblem("cross_device", source, f"{source_dev} != {root_dev}")
+    resolved = resolve_scoped(root, os.path.relpath(target, root))
+    if os.path.lexists(resolved):
+        if os.path.islink(resolved) or not os.path.samefile(source, resolved):
+            raise LinkProblem("target_exists", target)
+        return None
+    return resolved
+
+
+def create_links(pairs: list[tuple[str, str]]) -> list[str]:
+    """Crea gli hardlink (sorgente, destinazione) già controllati con
+    check_link, senza mai seguire link simbolici. Se uno fallisce, toglie
+    quelli appena creati e rilancia: mai un torrent ricreato a metà.
+    Restituisce le destinazioni create."""
+    created: list[str] = []
+    try:
+        for source, target in pairs:
+            os.makedirs(os.path.dirname(target), exist_ok=True)
+            os.link(source, target, follow_symlinks=False)
+            created.append(target)
+    except OSError:
+        remove_links(created)
+        raise
+    return created
+
+
+def remove_links(paths: list[str]) -> None:
+    """Toglie hardlink creati da questa esecuzione (mai i file di partenza)."""
+    for path in paths:
+        try:
+            os.unlink(path)
+        except OSError:
+            logger.warning("Impossibile rimuovere l'hardlink %s", path)

@@ -23,7 +23,7 @@ from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session
 
-from nazgarr import client_labels, client_paths, settings_repo
+from nazgarr import client_labels, client_paths, hardlinks, settings_repo
 from nazgarr.adapters.torrent_client.base import TorrentClientAdapter
 from nazgarr.fs_scope import ScopeViolation, resolve_scoped
 from nazgarr.models import Disk, DiskTorrentClient, MatchReview, SeedJob, TorrentClient
@@ -55,16 +55,6 @@ def client_visible_path(session: Session, disk: Disk, torrent_client_id: int | N
         return local_path
     return client_paths.to_client(
         client_paths.Mapping(disk.root_path, link.torrent_client_root_path, link.local_rel_path), local_path)
-
-
-def _check_same_filesystem(source_path: str, torrents_root: str) -> None:
-    source_dev = os.stat(source_path).st_dev
-    target_dev = os.stat(torrents_root).st_dev
-    if source_dev != target_dev:
-        raise ExecutionError(
-            f"Source and destination are on different devices ({source_dev} != {target_dev}): "
-            "a hardlink cannot cross filesystems, see docs/SPEC.md section 4"
-        )
 
 
 def execute_review(
@@ -170,16 +160,25 @@ def _source_path(disk: Disk, relative_path: str) -> str:
     return path
 
 
-def _reusable_link(source_path: str, target_path: str) -> bool:
-    """True se la destinazione esiste già ed è lo stesso file della sorgente
-    (stesso inode, mai un link simbolico): un cross-seed della stessa release
-    con lo stesso nome su un altro tracker riusa quell'hardlink, gli stessi
-    byte. Un altro file al suo posto resta un errore: mai sovrascritto."""
-    if not os.path.lexists(target_path):
-        return False
-    if not os.path.islink(target_path) and os.path.isfile(target_path) and os.path.samefile(source_path, target_path):
-        return True
-    raise ExecutionError(f"Destination path already exists: {target_path}")
+def _check_link(source_path: str, target_path: str, target_root: str) -> bool:
+    """I controlli comuni (nazgarr/hardlinks.py::check_link) prima di creare
+    un hardlink. True se la destinazione è già lo stesso file (stesso inode):
+    un cross-seed della stessa release con lo stesso nome su un altro
+    tracker riusa quell'hardlink. Un altro file al suo posto resta un
+    errore: mai sovrascritto."""
+    try:
+        return hardlinks.check_link(source_path, target_path, target_root) is None
+    except hardlinks.LinkProblem as problem:
+        if problem.code == "cross_device":
+            raise ExecutionError(
+                f"Source and destination are on different devices ({problem.detail}): "
+                "a hardlink cannot cross filesystems, see docs/SPEC.md section 4"
+            ) from problem
+        if problem.code == "target_exists":
+            raise ExecutionError(f"Destination path already exists: {target_path}") from problem
+        raise ExecutionError(f"Local file is not a regular file: {problem.path}") from problem
+    except ScopeViolation as exc:
+        raise ExecutionError(f"Path outside the allowed scope: {exc.candidate}") from exc
 
 
 def _execute_layout_media_to_torrent(
@@ -217,8 +216,7 @@ def _execute_layout_media_to_torrent(
             target_path = resolve_scoped(target_root, _torrent_rel_path(candidate, f.torrent_path))
         except ScopeViolation as exc:
             raise ExecutionError(f"Path outside the allowed scope: {exc.candidate}") from exc
-        _check_same_filesystem(source_path, target_root)
-        if _reusable_link(source_path, target_path):
+        if _check_link(source_path, target_path, target_root):
             continue  # già lì, stesso inode: niente da creare (e niente da togliere se fallisce)
         links.append((source_path, target_path))
 
@@ -234,10 +232,7 @@ def _execute_layout_media_to_torrent(
 
     created: list[str] = []
     try:
-        for source_path, target_path in links:
-            os.makedirs(os.path.dirname(target_path), exist_ok=True)
-            os.link(source_path, target_path, follow_symlinks=False)
-            created.append(target_path)
+        created = hardlinks.create_links(links)  # se uno fallisce, toglie quelli appena creati
         seed_job.hardlink_created_at = datetime.now(UTC)
         session.commit()
         logger.info("Creati %d hardlink per candidate %s", len(created), candidate.id)
@@ -254,11 +249,7 @@ def _execute_layout_media_to_torrent(
         # Solo gli hardlink appena creati da QUESTA esecuzione: i file
         # sorgente in libreria non vengono mai toccati.
         if seed_job.info_hash is None:
-            for path in created:
-                try:
-                    os.unlink(path)
-                except OSError:
-                    logger.warning("Impossibile rimuovere l'hardlink %s dopo il fallimento", path)
+            hardlinks.remove_links(created)
         seed_job.final_status = "failed"
         seed_job.error_message = str(exc)
         session.commit()
@@ -361,9 +352,7 @@ def _execute_media_to_torrent(
     except ScopeViolation as exc:
         raise ExecutionError(f"Path outside the allowed scope: {exc.candidate}") from exc
 
-    _check_same_filesystem(source_path, target_root)
-    reuse = _reusable_link(source_path, target_path)
-    os.makedirs(os.path.dirname(target_path), exist_ok=True)
+    reuse = _check_link(source_path, target_path, target_root)
 
     seed_job = SeedJob(
         candidate_id=candidate.id, source_media_file_id=media_file.id, final_status="in_progress",
@@ -398,8 +387,8 @@ def _create_hardlink_then_seed(
         raise ExecutionError(seed_job.error_message)
 
     try:
-        if not reuse:  # già lì con lo stesso inode (_reusable_link): un cross-seed
-            os.link(source_path, target_path, follow_symlinks=False)
+        if not reuse:  # già lì con lo stesso inode (_check_link): un cross-seed
+            hardlinks.create_links([(source_path, target_path)])
         seed_job.hardlink_created_at = datetime.now(UTC)
         session.commit()
         logger.info("Hardlink %s per candidate %s: %s", "riusato" if reuse else "creato", candidate.id, target_path)
