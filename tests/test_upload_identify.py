@@ -194,3 +194,34 @@ def test_numbers_in_keeps_the_files_numbers_without_found_episodes():
     assert episode_orders.numbers_in({"found": {}}, "x", "season_pack", [3], None) == ([3], None)
     assert episode_orders.numbers_in({"found": {"x": {"1": [1, 2], "2": [1]}}}, "x", "complete_pack", [5], None) \
         == ([1, 2], None)
+
+
+def test_confirm_translates_only_when_asked_and_remembers_only_a_user_choice(db_session, monkeypatch):
+    """Lo stesso servizio per il match a mano (numeri già tradotti, scelta
+    ricordata) e per quello automatico (numeri dei file, niente preferenza)."""
+    from types import SimpleNamespace
+
+    from nazgarr import episode_orders, upload_jobs
+
+    orders = {"orders": [{"key": "tmdb:group:1"}, {"key": "tvdb:aired"}], "files_order": "tvdb:aired",
+              "found": {"tmdb:group:1": {1: [6]}}}
+    confirmed, remembered = [], []
+    monkeypatch.setattr(upload_jobs, "confirm_match", lambda session, job, **kw: confirmed.append(kw))
+    monkeypatch.setattr(episode_orders, "remember", lambda session, tmdb_id, key: remembered.append(key))
+
+    def job():
+        return SimpleNamespace(forced_ids_json="{}", episode_order=None, episode_order_json=None)
+
+    manual, auto = job(), job()
+    upload_identify.confirm(db_session, manual, content_type="tv", tmdb_id=1, kind="episode", seasons=[1],
+                            episode=6, details=None, order_key="tmdb:group:1", orders=orders, remember=True)
+    upload_identify.confirm(db_session, auto, content_type="tv", tmdb_id=1, kind="episode", seasons=[2],
+                            episode=1, details=None, order_key="tmdb:group:1", orders=orders, translate=True)
+
+    assert [(c["seasons"], c["episode"]) for c in confirmed] == [([1], 6), ([1], 6)]
+    assert remembered == ["tmdb:group:1"]
+    assert manual.episode_order == auto.episode_order == "tmdb:group:1"
+
+    with pytest.raises(episode_orders.EpisodeOrderError):
+        upload_identify.confirm(db_session, job(), content_type="tv", tmdb_id=1, kind="episode", seasons=[1],
+                                episode=1, details=None, order_key="nope", orders=orders)

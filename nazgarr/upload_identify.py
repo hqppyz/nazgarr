@@ -228,7 +228,7 @@ def _auto_match(session: Session, job: UploadJob, candidates: list[dict]) -> Non
         upload_jobs.log_event(session, job, "auto_match_failed", level="warning")
         session.commit()
         return
-    order = None
+    orders = None
     if best["content_type"] == "tv":
         # L'ordinamento che combacia meglio con i file, come al match a mano;
         # se non è TVDB aired lo dice il registro.
@@ -236,33 +236,55 @@ def _auto_match(session: Session, job: UploadJob, candidates: list[dict]) -> Non
             orders = episode_orders.for_job(session, job, best["tmdb_id"], (details or {}).get("tvdb_id"))
         except Exception:
             logger.warning("Ordinamenti degli episodi non disponibili per il job %s", job.id, exc_info=True)
-            orders = None
-        if orders and orders["recommended"]:
-            order = (orders["recommended"], episode_orders.snapshot(orders, orders["recommended"]))
-    seasons, episode = json.loads(job.seasons_json or "[]"), job.episode
-    if order is not None:
-        # Come al match a mano: stagioni ed episodio nella numerazione
-        # dell'ordinamento scelto, quella che usano nome, file e tracker.
-        seasons, episode = episode_orders.numbers_in(orders, order[0], job.kind, seasons, episode)
+    order_key = orders["recommended"] if orders else None
     try:
-        upload_jobs.confirm_match(
-            session, job, content_type=best["content_type"], tmdb_id=best["tmdb_id"], kind=job.kind,
-            seasons=seasons, episode=episode, details=details,
-            forced=json.loads(job.forced_ids_json or "{}"),
-        )
+        # I numeri dei file tradotti nell'ordinamento scelto, come li manda il
+        # match a mano. Una scelta automatica non diventa la preferenza della serie.
+        confirm(session, job, content_type=best["content_type"], tmdb_id=best["tmdb_id"], kind=job.kind,
+                seasons=json.loads(job.seasons_json or "[]"), episode=job.episode, details=details,
+                order_key=order_key, orders=orders, translate=True, remember=False)
     except upload_jobs.UploadJobError as exc:
         session.rollback()
         upload_jobs.log_event(session, job, "auto_match_failed", level="warning", reason=exc.code)
         session.commit()
         return
-    if order is not None:
-        job.episode_order, job.episode_order_json = order[0], json.dumps(order[1])
-        if orders["warning"]:
-            upload_jobs.log_event(session, job, "episode_order_not_tvdb_aired", level="warning",
-                                  order=order[1]["chosen"]["label"])
+    if order_key and orders["warning"]:
+        upload_jobs.log_event(session, job, "episode_order_not_tvdb_aired", level="warning",
+                              order=json.loads(job.episode_order_json)["chosen"]["label"])
     upload_jobs.log_event(session, job, "auto_matched", confidence=best["confidence"], title=job.title,
                           year=job.year)
     session.commit()
+
+
+def confirm(
+    session: Session, job: UploadJob, *, content_type: str, tmdb_id: int, kind: str | None,
+    seasons: list[int], episode: int | None, details: dict | None,
+    order_key: str | None = None, orders: dict | None = None, translate: bool = False, remember: bool = False,
+) -> None:
+    """Il primo punto di approvazione, uguale dal match a mano (API) e da
+    quello automatico: contenuto, stagioni ed episodio, e per le serie
+    l'ordinamento degli episodi scelto (salvato sul job: nome, file e campi
+    del tracker usano la sua numerazione).
+    translate: seasons/episode sono nella numerazione dei file e vanno
+    tradotti (auto-match); il frontend li manda già tradotti.
+    remember: la scelta diventa la proposta per la serie (solo una scelta
+    dell'utente). episode_orders.EpisodeOrderError per un ordinamento che
+    la serie non ha, UploadJobError se il match non è valido. Il commit è
+    del chiamante."""
+    snapshot = None
+    if content_type == "tv" and order_key:
+        orders = orders or episode_orders.for_job(session, job, tmdb_id, (details or {}).get("tvdb_id"))
+        snapshot = episode_orders.snapshot(orders, order_key)
+        if translate:
+            seasons, episode = episode_orders.numbers_in(orders, order_key, kind, seasons, episode)
+    upload_jobs.confirm_match(
+        session, job, content_type=content_type, tmdb_id=tmdb_id, kind=kind, seasons=seasons, episode=episode,
+        details=details, forced=json.loads(job.forced_ids_json or "{}"),
+    )
+    job.episode_order = order_key if snapshot is not None else None
+    job.episode_order_json = json.dumps(snapshot) if snapshot is not None else None
+    if snapshot is not None and remember:
+        episode_orders.remember(session, tmdb_id, order_key)
 
 
 def handle(session: Session, job: UploadJob, worker) -> None:

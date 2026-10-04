@@ -519,26 +519,18 @@ def confirm_match(
         details = None  # solo Radarr/Sonarr: niente dettagli TMDB, bastano gli id
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=502, detail=coded_detail("tmdb_error", error=safe_error(exc))) from exc
-    order = None
-    if body.content_type == "tv" and body.episode_order:
-        # La numerazione scelta vale per tutto il resto: nome, file, campi del tracker.
-        try:
-            order = episode_orders.snapshot(
-                episode_orders.for_job(session, job, body.tmdb_id, (details or {}).get("tvdb_id")), body.episode_order)
-        except episode_orders.EpisodeOrderError as exc:
-            raise HTTPException(status_code=400, detail=coded_detail(
-                "upload_episode_order_unknown", order=body.episode_order)) from exc
     try:
-        upload_jobs.confirm_match(
+        # La numerazione scelta vale per tutto il resto: nome, file, campi del tracker.
+        upload_identify.confirm(
             session, job, content_type=body.content_type, tmdb_id=body.tmdb_id, kind=body.kind,
-            seasons=body.seasons, episode=body.episode, details=details, forced=_loads(job.forced_ids_json, {}),
+            seasons=body.seasons, episode=body.episode, details=details,
+            order_key=body.episode_order, remember=True,
         )
+    except episode_orders.EpisodeOrderError as exc:
+        raise HTTPException(status_code=400, detail=coded_detail(
+            "upload_episode_order_unknown", order=body.episode_order)) from exc
     except UploadJobError as exc:
         raise HTTPException(status_code=400, detail=from_coded_error(exc)) from exc
-    job.episode_order = body.episode_order if order is not None else None
-    job.episode_order_json = json.dumps(order) if order is not None else None
-    if order is not None:
-        episode_orders.remember(session, body.tmdb_id, body.episode_order)
     session.commit()
     _worker(request).kick(job.id, job.status)
     return UploadJobDetail.from_model(job)
