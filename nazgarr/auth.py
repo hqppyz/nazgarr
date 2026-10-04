@@ -1,9 +1,10 @@
 """Login JWT (Fase 9) — protegge le API e la WebUI dietro un unico account
 amministratore, mai basic auth. Le credenziali vivono in app_settings
 (auth_username/auth_password_hash), coerente con "tutto tranne i mount
-point vive nel DB, editabile da UI" (CLAUDE.md) — finché non sono
-configurate, l'app resta aperta esattamente come oggi: nessuna rottura per
-chi aggiorna un'istanza già in uso senza aver mai impostato un login.
+point vive nel DB, editabile da UI" (CLAUDE.md). Il login è obbligatorio
+(decisione dell'utente, 2026-10-01): finché l'account non esiste, tutto è
+chiuso tranne /api/auth/*, e per crearlo serve il codice monouso stampato
+nel log (o NAZGARR_SETUP_CODE).
 
 Il segreto di firma JWT riusa APP_SECRET_KEY (già l'unico segreto che
 questo progetto richiede via env, usato per cifrare le credenziali in

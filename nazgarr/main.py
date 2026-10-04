@@ -106,9 +106,8 @@ app.add_middleware(SecurityMiddleware)
 app.include_router(auth_router)
 
 # API JSON pura sotto /api/* fin dall'inizio (docs/SPEC.md §10). Protette da
-# require_auth, che però lascia passare tutto finché nessun login è stato
-# configurato (nazgarr/auth.py) — un'istanza esistente senza login impostato
-# continua a funzionare esattamente come prima di questa fase.
+# require_auth: il login è obbligatorio, e finché l'account non esiste tutto
+# resta chiuso tranne /api/auth/* (nazgarr/auth.py).
 _protected = Depends(auth.require_auth)
 app.include_router(disks_router, dependencies=[_protected])
 app.include_router(runs_router, dependencies=[_protected])
