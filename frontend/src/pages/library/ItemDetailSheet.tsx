@@ -250,7 +250,9 @@ export function Seasons({ files, uploadTmdb, selection, tmdbId }: {
   const [orderKey, setOrderKey] = useState<string | null>(null)
   const data = orders.data
   const filesOrder = data?.orders.find((o) => o.key === data.files_order) ?? null
-  const active = data?.orders.find((o) => o.key === (orderKey ?? data.files_order)) ?? null
+  // Di default quello che combacia con la forma delle stagioni; si traduce
+  // dalla numerazione dei numeri dei file (spesso Sonarr), che può essere un'altra.
+  const active = data?.orders.find((o) => o.key === (orderKey ?? data.recommended ?? data.files_order)) ?? null
   const translating = filesOrder != null && active != null && active.key !== filesOrder.key
   const mapped = useMemo(() => {
     const out = new Map<number, { season: number; code: string; title?: string }>()
@@ -292,7 +294,8 @@ export function Seasons({ files, uploadTmdb, selection, tmdbId }: {
                   <span className="grid">
                     <span>
                       {order.label}
-                      {order.key === data.files_order && ` · ${t('itemDetail.orderOfFiles')}`}
+                      {order.key === data.recommended && ` · ${t('itemDetail.orderRecommended')}`}
+                      {order.key === data.files_order && order.key !== data.recommended && ` · ${t('itemDetail.orderOfFiles')}`}
                     </span>
                     <span className="text-xs text-muted-foreground">
                       {seasonCounts(order)}

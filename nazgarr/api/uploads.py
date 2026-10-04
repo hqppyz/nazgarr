@@ -92,7 +92,8 @@ class EpisodeOrderResponse(BaseModel):
 
 
 class OrderFit(BaseModel):
-    score: float
+    score: float  # quanto combacia (numero di episodi per stagione, poi i numeri)
+    coverage: float = 0  # quanti numeri dei file esistono
     matched: int
     files: int
     complete_seasons: int
@@ -110,7 +111,7 @@ class EpisodeOrdersResponse(BaseModel):
     sources: dict[str, str] = {}
     orders: list[EpisodeOrderResponse]
     recommended: str | None
-    files_order: str | None
+    files_order: str | None  # la numerazione dei numeri dei file: da qui si traducono
     fits: dict[str, OrderFit]
     warning: OrderWarning | None
     found: dict[str, dict[int, list[int]]]  # gli episodi dei file, tradotti in ogni ordinamento

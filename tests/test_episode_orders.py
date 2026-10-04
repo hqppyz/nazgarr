@@ -63,8 +63,9 @@ def test_fit_counts_existing_episodes_and_complete_seasons():
     found = {3: [1, 2, 3, 4, 5, 6, 7]}  # un "S03" di 7 episodi
     assert eo.fit(parts, found, pack=True)["score"] == 1.0
     assert eo.fit(tmdb, found, pack=True)["score"] == 0.0
-    assert eo.fit(tmdb, {1: [1, 2, 3, 4, 5]}, pack=True) == {"score": 0.85, "matched": 5, "files": 5,
-                                                            "complete_seasons": 0}
+    # 5 file contro una stagione da 10: i numeri esistono, ma il numero di episodi no.
+    assert eo.fit(tmdb, {1: [1, 2, 3, 4, 5]}, pack=True) == {"score": 0.625, "coverage": 1.0, "matched": 5,
+                                                            "files": 5, "complete_seasons": 0}
 
 
 class FakeTmdb:
@@ -367,3 +368,47 @@ def test_without_a_tvdb_key_the_tmdb_production_group_fits_a_joined_library(db_s
     assert result["recommended"] == "tmdb:group:prod"
     group = next(o for o in result["orders"] if o["key"] == "tmdb:group:prod")
     assert [(s["season_number"], len(s["episodes"])) for s in group["seasons"]] == [(1, 13), (2, 39), (3, 13), (4, 13)]
+
+
+def test_a_library_numbered_by_sonarr_segments_is_shown_in_the_order_its_files_follow(db_session):
+    """Dexter's Laboratory com'è davvero: Sonarr numera in TVDB aired, tre
+    segmenti per file, e la libreria registra il primo (1, 4, 7...). I file
+    però sono 13 per stagione, come il gruppo TV di TMDB."""
+    from nazgarr.models import SonarrInstance
+
+    segments = {1: 39, 3: 39}
+
+    class Tmdb:
+        def get(self, path, **params):
+            if path == "/tv/4229" and not params:
+                return {"seasons": [{"season_number": n} for n in segments]}
+            if path == "/tv/4229":
+                return {f"season/{n}": {"episodes": [{"episode_number": e} for e in range(1, c + 1)]}
+                        for n, c in segments.items()}
+            if path == "/tv/4229/episode_groups":
+                return {"results": [{"id": "prod", "name": "TV", "type": 6, "episode_count": 26}]}
+            if path == "/tv/episode_group/prod":
+                return {"groups": [{"order": i, "name": f"Season {n}", "episodes": [
+                    {"season_number": n, "episode_number": 3 * e - 2, "order": e - 1} for e in range(1, 14)]}
+                    for i, n in enumerate(segments)]}
+            raise AssertionError(path)
+
+    class Sonarr:
+        def __init__(self, instance):
+            pass
+
+        def get(self, path, **params):
+            if path == "/api/v3/series":
+                return [{"id": 1, "tmdbId": 4229}]
+            return [{"seasonNumber": n, "episodeNumber": e} for n, c in segments.items() for e in range(1, c + 1)]
+
+    db_session.add(SonarrInstance(label="Main", base_url="http://s", api_key="k"))
+    db_session.commit()
+    library = {n: list(range(1, 38, 3)) for n in segments}  # 13 file, numerati col primo segmento
+
+    result = eo.build(db_session, 4229, None, library, pack=True, tmdb_api=Tmdb(), sonarr_factory=Sonarr)
+
+    assert result["fits"]["tmdb:group:prod"]["score"] > result["fits"]["sonarr:aired"]["score"]
+    assert result["recommended"] == "tmdb:group:prod"  # la forma delle stagioni: 13 file, 13 episodi
+    assert result["files_order"] == "sonarr:aired"  # i numeri registrati, da cui si traduce
+    assert result["found"]["tmdb:group:prod"] == {1: list(range(1, 14)), 3: list(range(1, 14))}

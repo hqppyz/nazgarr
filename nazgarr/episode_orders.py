@@ -340,24 +340,34 @@ def tvdb_orders(api: TvdbApi, tvdb_id: int) -> list[EpisodeOrder]:
 
 
 def fit(order: EpisodeOrder, found: dict[int, list[int]], pack: bool) -> dict:
-    """Quanto i file (stagione -> episodi) combaciano con un ordinamento,
-    stagione per stagione e per numero (mai per posizione: uno speciale
-    davanti non sposta niente): quanti episodi dei file esistono in quella
-    stagione e, per un pack o una libreria, quanto la stagione è completa,
-    cioè quanto il numero di episodi coincide. score in [0, 1]."""
+    """Quanto i file (stagione -> episodi) combaciano con un ordinamento.
+    Stagione per stagione e per numero, mai per posizione (uno speciale
+    davanti non sposta niente).
+
+    Per un pack o una libreria conta prima di tutto il numero di episodi di
+    ogni stagione (decisione dell'utente, 2026-10-04): 13 file nella stagione
+    1 combaciano con un ordinamento che ne ha 13, anche se i loro numeri
+    vengono da un'altra numerazione (es. Sonarr in TVDB aired, con tre
+    segmenti per file). Poi, meno, che i numeri dei file esistano.
+    - coverage: quanti numeri dei file esistono nell'ordinamento;
+    - score: 0.75 numero di episodi per stagione + 0.25 coverage (un pack o
+      una libreria), solo coverage per un episodio singolo."""
     files = {(s, e) for s, eps in found.items() for e in eps}
     known = order.episodes()
     matched = len(files & set(known))
     coverage = matched / len(files) if files else 0.0
     score = coverage
-    complete = []
+    complete = 0
     if pack and files:
+        counts = 0.0
         for season, eps in found.items():
-            numbers = {e.number for e in order.seasons.get(season) or []}
-            complete.append(len(set(eps) & numbers) / len(numbers) if numbers else 0.0)
-        score = 0.7 * coverage + 0.3 * (sum(complete) / len(complete))
-    return {"score": round(score, 3), "matched": matched, "files": len(files),
-            "complete_seasons": sum(1 for c in complete if c >= 1.0)}
+            expected = len(order.seasons.get(season) or [])
+            ratio = min(len(eps), expected) / max(len(eps), expected) if expected else 0.0
+            counts += ratio * len(eps)
+            complete += ratio >= 1.0
+        score = 0.75 * (counts / len(files)) + 0.25 * coverage
+    return {"score": round(score, 3), "coverage": round(coverage, 3), "matched": matched, "files": len(files),
+            "complete_seasons": complete}
 
 
 def collect(session: Session, tmdb_id: int, tvdb_id: int | None, found: dict[int, list[int]], pack: bool,
@@ -414,9 +424,10 @@ def collect(session: Session, tmdb_id: int, tvdb_id: int | None, found: dict[int
 
 
 def best_fit(orders: list[EpisodeOrder], found: dict[int, list[int]], pack: bool,
-             preferred: str | None = None) -> EpisodeOrder | None:
+             preferred: str | None = None, by: str = "score") -> EpisodeOrder | None:
     """Quello che combacia meglio; a parità la scelta della serie, poi TVDB
-    aired, poi TMDB. Senza episodi, la stessa priorità."""
+    aired, poi TMDB. Senza episodi, la stessa priorità. by="coverage": quello
+    in cui esistono i numeri dei file (la loro numerazione, per tradurli)."""
     keys = [o.key for o in orders]
     tvdb_aired = next((k for k in TVDB_AIRED_KEYS if k in keys), None)
     # Priorità a TVDB (decisione dell'utente, 2026-10-04): aired, poi gli altri ordini TVDB, poi TMDB.
@@ -426,8 +437,9 @@ def best_fit(orders: list[EpisodeOrder], found: dict[int, list[int]], pack: bool
         return None
     if not found:
         return next(o for o in orders if o.key == rank[0])
-    fits = {o.key: fit(o, found, pack)["score"] for o in orders}
-    return max(orders, key=lambda o: (fits[o.key], -rank.index(o.key)))
+    fits = {o.key: fit(o, found, pack) for o in orders}
+    # Per la numerazione, a pari numeri esistenti decide la forma delle stagioni.
+    return max(orders, key=lambda o: (fits[o.key][by], fits[o.key]["score"], -rank.index(o.key)))
 
 
 def build(session: Session, tmdb_id: int, tvdb_id: int | None, found: dict[int, list[int]], pack: bool,
@@ -451,7 +463,11 @@ def build(session: Session, tmdb_id: int, tvdb_id: int | None, found: dict[int, 
     if found and recommended and tvdb_aired and recommended != tvdb_aired \
             and fits[recommended]["score"] > fits[tvdb_aired]["score"] + WARNING_MARGIN:
         warning = {"code": "files_not_tvdb_aired", "order": recommended, "tvdb": tvdb_aired}
-    files_order = recommended
+    # La numerazione dei numeri dei file (per tradurli): quella in cui
+    # esistono, che può non essere quella proposta (es. Sonarr in TVDB aired
+    # con tre segmenti per file, e i file che sono gli episodi di un'altra).
+    numbering = best_fit(orders, found, pack, preferred, by="coverage") if found else chosen
+    files_order = numbering.key if numbering is not None else recommended
     by_key = {o.key: o for o in orders}
     return {
         "sources": status,
@@ -579,7 +595,8 @@ class Translator:
         if not orders or not torrent or not library:
             return {}
         source = best_fit(orders, group(torrent), pack=True)
-        target = best_fit(orders, group(library), pack=True)
+        # La libreria: i numeri registrati (spesso di Sonarr), non la forma delle stagioni.
+        target = best_fit(orders, group(library), pack=True, by="coverage")
         if source is None or target is None or source.key == target.key:
             return {}
         out = {}
