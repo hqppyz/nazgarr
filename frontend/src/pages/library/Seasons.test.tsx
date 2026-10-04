@@ -54,7 +54,7 @@ describe('Seasons', () => {
     expect(screen.getByText(/10 expected/)).toBeTruthy()
 
     await user.click(screen.getByRole('combobox'))
-    await user.click(await screen.findByRole('option', { name: 'TMDB · Parts' }))
+    await user.click(await screen.findByRole('option', { name: /TMDB · Parts/ }))
     // Nelle "parti" gli episodi 6 e 7 sono la stagione 2, episodi 1 e 2.
     expect(await screen.findByText('Season 2')).toBeTruthy()
     fireEvent.click(screen.getByText('Season 2'))

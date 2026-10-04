@@ -105,6 +105,9 @@ class OrderWarning(BaseModel):
 
 
 class EpisodeOrdersResponse(BaseModel):
+    # Com'è andata ogni fonte: tmdb, sonarr, tvdb -> ok | no_key | not_found |
+    # not_needed | no_tvdb_id | empty | error: ... (perché un ordinamento manca).
+    sources: dict[str, str] = {}
     orders: list[EpisodeOrderResponse]
     recommended: str | None
     files_order: str | None

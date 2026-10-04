@@ -26,7 +26,7 @@ import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
-import { episodeLabel, translateEpisode } from '@/lib/episodeOrders'
+import { episodeLabel, seasonCounts, sourceProblems, translateEpisode } from '@/lib/episodeOrders'
 import { t } from '@/lib/i18n'
 import { formatBytes } from '@/lib/library-filters'
 import { STATUS_STYLES } from '@/lib/status-styles'
@@ -289,12 +289,23 @@ export function Seasons({ files, uploadTmdb, selection, tmdbId }: {
             <SelectContent>
               {data.orders.map((order) => (
                 <SelectItem key={order.key} value={order.key}>
-                  {order.label}
-                  {order.key === data.files_order && ` · ${t('itemDetail.orderOfFiles')}`}
+                  <span className="grid">
+                    <span>
+                      {order.label}
+                      {order.key === data.files_order && ` · ${t('itemDetail.orderOfFiles')}`}
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      {seasonCounts(order)}
+                      {data.fits[order.key] && ` · ${t('metadata.orderFit', { score: `${Math.round(data.fits[order.key].score * 100)}%` })}`}
+                    </span>
+                  </span>
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
+          {sourceProblems(data.sources, t).map((line) => (
+            <p key={line} className="text-xs text-muted-foreground">{line}</p>
+          ))}
           {data.warning && (
             <p className="text-xs text-amber-600 dark:text-amber-400">
               {t('itemDetail.orderNotTvdb', { tvdb: data.orders.find((o) => o.key === data.warning!.tvdb)?.label ?? '' })}

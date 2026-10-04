@@ -2787,6 +2787,13 @@ export interface components {
         };
         /** EpisodeOrdersResponse */
         EpisodeOrdersResponse: {
+            /**
+             * Sources
+             * @default {}
+             */
+            sources: {
+                [key: string]: string;
+            };
             /** Orders */
             orders: components["schemas"]["EpisodeOrderResponse"][];
             /** Recommended */

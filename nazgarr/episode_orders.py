@@ -340,9 +340,11 @@ def tvdb_orders(api: TvdbApi, tvdb_id: int) -> list[EpisodeOrder]:
 
 
 def fit(order: EpisodeOrder, found: dict[int, list[int]], pack: bool) -> dict:
-    """Quanto i file (stagione -> episodi) combaciano con un ordinamento:
-    quanti dei loro episodi esistono, e per un pack quanto sono complete le
-    stagioni. score in [0, 1]."""
+    """Quanto i file (stagione -> episodi) combaciano con un ordinamento,
+    stagione per stagione e per numero (mai per posizione: uno speciale
+    davanti non sposta niente): quanti episodi dei file esistono in quella
+    stagione e, per un pack o una libreria, quanto la stagione è completa,
+    cioè quanto il numero di episodi coincide. score in [0, 1]."""
     files = {(s, e) for s, eps in found.items() for e in eps}
     known = order.episodes()
     matched = len(files & set(known))
@@ -359,35 +361,51 @@ def fit(order: EpisodeOrder, found: dict[int, list[int]], pack: bool) -> dict:
 
 
 def collect(session: Session, tmdb_id: int, tvdb_id: int | None, found: dict[int, list[int]], pack: bool,
-            tmdb_api=None, tvdb_api=None, sonarr_factory=None) -> list[EpisodeOrder]:
+            tmdb_api=None, tvdb_api=None, sonarr_factory=None, status: dict | None = None) -> list[EpisodeOrder]:
     """Gli ordinamenti di una serie, già allineati alle stagioni di TMDB:
-    TMDB (default e gruppi), Sonarr e, come ultima risorsa, TVDB."""
+    TMDB (default e gruppi), Sonarr e, come ultima risorsa, TVDB. status, se
+    dato, dice com'è andata ogni fonte (per capire perché un ordinamento manca)."""
+    status = status if status is not None else {}
     orders: list[EpisodeOrder] = []
     tmdb_key = settings_repo.get_setting(session, "tmdb_api_key")
     if tmdb_api is None and tmdb_key:
         tmdb_api = TmdbApi(tmdb_key)
-    if tmdb_api is not None:
+    if tmdb_api is None:
+        status["tmdb"] = "no_key"
+    else:
         try:
             orders += tmdb_orders(tmdb_api, tmdb_id)
-        except httpx.HTTPError:
+            status["tmdb"] = "ok"
+        except Exception as exc:
             logger.warning("Ordinamenti TMDB non disponibili per %s", tmdb_id, exc_info=True)
+            status["tmdb"] = f"error: {type(exc).__name__}: {exc}"[:200]
     default = next((o for o in orders if o.key == TMDB_DEFAULT), None)
     sonarr = sonarr_order(session, tmdb_id, tvdb_id, sonarr_factory)
+    status["sonarr"] = "ok" if sonarr is not None else "not_found"
     if sonarr is not None:
         orders.append(sonarr)
 
     # TVDB, l'ultima risorsa: se Sonarr non ha la serie, o se i file non
     # seguono il suo ordine (un altro ordine TVDB, es. "Joined", li coprirebbe).
-    if tvdb_id and (sonarr is None or (found and fit(sonarr, found, pack)["score"] < 1.0)):
+    if not tvdb_id:
+        status["tvdb"] = "no_tvdb_id"
+    elif not (sonarr is None or (found and fit(sonarr, found, pack)["score"] < 1.0)):
+        status["tvdb"] = "not_needed"
+    else:
         key = settings_repo.get_setting(session, "tvdb_api_key")
         if tvdb_api is None and key:
             tvdb_api = TvdbApi(key)
-        if tvdb_api is not None:
+        if tvdb_api is None:
+            status["tvdb"] = "no_key"
+        else:
             try:
-                orders += [o for o in tvdb_orders(tvdb_api, tvdb_id)
+                fetched = tvdb_orders(tvdb_api, tvdb_id)
+                orders += [o for o in fetched
                            if not (sonarr is not None and o.key in ("tvdb:official", "tvdb:default"))]
-            except httpx.HTTPError:
+                status["tvdb"] = "ok" if fetched else "empty"
+            except Exception as exc:
                 logger.warning("Ordinamenti TVDB non disponibili per %s", tvdb_id, exc_info=True)
+                status["tvdb"] = f"error: {type(exc).__name__}: {exc}"[:200]
     if default is not None:
         for order in orders:
             if order.source in ("sonarr", "tvdb"):
@@ -417,7 +435,8 @@ def build(session: Session, tmdb_id: int, tvdb_id: int | None, found: dict[int, 
     """Gli ordinamenti di una serie per il primo punto di approvazione."""
     from nazgarr.models import EpisodeOrderPreference
 
-    orders = collect(session, tmdb_id, tvdb_id, found, pack, tmdb_api, tvdb_api, sonarr_factory)
+    status: dict = {}
+    orders = collect(session, tmdb_id, tvdb_id, found, pack, tmdb_api, tvdb_api, sonarr_factory, status)
     fits = {o.key: fit(o, found, pack) for o in orders}
     keys = [o.key for o in orders]
     preference = session.get(EpisodeOrderPreference, tmdb_id)
@@ -435,6 +454,7 @@ def build(session: Session, tmdb_id: int, tvdb_id: int | None, found: dict[int, 
     files_order = recommended
     by_key = {o.key: o for o in orders}
     return {
+        "sources": status,
         "orders": [o.to_dict() for o in orders],
         "recommended": recommended,
         "files_order": files_order,
