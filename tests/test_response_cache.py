@@ -36,3 +36,40 @@ def test_large_responses_are_gzipped(client):
     assert response.status_code == 200  # piccola: sotto la soglia, nessun obbligo di gzip
     big = client.get("/openapi.json", headers={"Accept-Encoding": "gzip"})
     assert big.headers.get("content-encoding") == "gzip"
+
+
+def test_disks_folders_and_removed_torrents_change_the_version(client):
+    """Cambi che arrivano fuori da una run: un disco aggiunto o tolto, le sue
+    cartelle, un torrent rimosso dal client (Non importati)."""
+    from datetime import UTC, datetime
+
+    from nazgarr.models import ClientTorrent, TorrentClient
+
+    def etag():
+        return client.get("/api/seed-files").headers["etag"]
+
+    first = etag()
+    root = client.scan_root / "disk1"
+    (root / "torrents").mkdir(parents=True)
+    disk_id = client.post("/api/disks", json={"label": "Disk 1", "root_path": str(root)}).json()["id"]
+    with_disk = etag()
+    client.patch(f"/api/disks/{disk_id}", json={"torrents_rel_path": "torrents"})
+    with_folder = etag()
+
+    session = client.app.state.session_factory()
+    try:
+        tc = TorrentClient(label="qb", adapter_type="qbittorrent", base_url="http://qb:8080")
+        session.add(tc)
+        session.commit()
+        ct = ClientTorrent(torrent_client_id=tc.id, info_hash="a" * 40, name="X", save_path="/x", state="uploading",
+                           last_polled_at=datetime.now(UTC))
+        session.add(ct)
+        session.commit()
+        with_torrent = etag()
+        session.delete(ct)
+        session.commit()
+    finally:
+        session.close()
+    removed = etag()
+
+    assert len({first, with_disk, with_folder, with_torrent, removed}) == 5

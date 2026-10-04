@@ -49,3 +49,10 @@ def test_changed_key_on_second_boot_raises(db_session, monkeypatch):
 
     with pytest.raises(startup_checks.SecretKeyMismatchError):
         startup_checks.verify_secret_key(db_session)
+
+
+def test_every_connection_waits_for_a_busy_database(db_session):
+    from sqlalchemy import text
+
+    assert db_session.execute(text("PRAGMA busy_timeout")).scalar() == 30000
+    assert db_session.execute(text("PRAGMA journal_mode")).scalar() == "wal"

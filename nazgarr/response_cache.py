@@ -25,7 +25,22 @@ from fastapi import Request, Response
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from nazgarr.models import AppSetting, Candidate, MatchReview, MediaItem, RunLog, SeedJob, TorrentClient, Tracker
+from nazgarr.models import (
+    AppSetting,
+    Candidate,
+    ClientTorrent,
+    Disk,
+    DiskFolder,
+    DiskTorrentClient,
+    MatchReview,
+    MediaFile,
+    MediaItem,
+    RunLog,
+    SeedFile,
+    SeedJob,
+    TorrentClient,
+    Tracker,
+)
 
 RUNNING_BUCKET_SECONDS = 15
 # Impostazioni che cambiano stati o contenuti delle viste senza una run.
@@ -56,7 +71,23 @@ def data_version(session: Session) -> str:
         session.query(Tracker.id, Tracker.announce_url, Tracker.base_url, Tracker.enabled).order_by(Tracker.id).all()
     )
     clients = session.query(TorrentClient.id, TorrentClient.enabled).order_by(TorrentClient.id).all()
-    parts = [runs, reviews, jobs, candidates, items, sorted(settings.items()), trackers, clients]
+    # Cambiano le viste anche fuori da una run: un torrent rimosso dal
+    # client (Non importati), un disco tolto (via le sue righe in cascata),
+    # cartelle e mappature dei percorsi dei client modificate.
+    torrents = session.query(func.count(ClientTorrent.id), func.max(ClientTorrent.id)).one()
+    files = (session.query(func.count(MediaFile.id)).scalar(), session.query(func.count(SeedFile.id)).scalar())
+    disks = session.query(
+        Disk.id, Disk.root_path, Disk.media_rel_path, Disk.torrents_rel_path, Disk.new_torrent_rel_path,
+        Disk.media_scan_id, Disk.seed_scan_id,
+    ).order_by(Disk.id).all()
+    folders = session.query(DiskFolder.id, DiskFolder.disk_id, DiskFolder.kind, DiskFolder.relative_path).order_by(
+        DiskFolder.id).all()
+    mappings = session.query(
+        DiskTorrentClient.disk_id, DiskTorrentClient.torrent_client_id, DiskTorrentClient.torrent_client_root_path,
+        DiskTorrentClient.local_rel_path,
+    ).order_by(DiskTorrentClient.disk_id, DiskTorrentClient.torrent_client_id).all()
+    parts = [runs, reviews, jobs, candidates, items, sorted(settings.items()), trackers, clients,
+             torrents, files, disks, folders, mappings]
     if running:
         parts.append(("running", int(time.time() // RUNNING_BUCKET_SECONDS)))
     return hashlib.sha1(repr(parts).encode()).hexdigest()

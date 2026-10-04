@@ -73,6 +73,10 @@ def _configure_sqlite(dbapi_connection, _connection_record):
     # polling dello stato live di una run, a partire dalla Fase 5) non
     # vengono bloccati da uno scrittore concorrente (lo scan in corso).
     cursor.execute("PRAGMA journal_mode=WAL")
+    # Scheduler, worker degli upload e controlli completi sono thread dello
+    # stesso processo: uno scrittore aspetta l'altro fino a 30 secondi
+    # invece di fallire subito con "database is locked".
+    cursor.execute("PRAGMA busy_timeout=30000")
     cursor.close()
 
 
