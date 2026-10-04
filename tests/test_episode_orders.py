@@ -412,3 +412,35 @@ def test_a_library_numbered_by_sonarr_segments_is_shown_in_the_order_its_files_f
     assert result["recommended"] == "tmdb:group:prod"  # la forma delle stagioni: 13 file, 13 episodi
     assert result["files_order"] == "sonarr:aired"  # i numeri registrati, da cui si traduce
     assert result["found"]["tmdb:group:prod"] == {1: list(range(1, 14)), 3: list(range(1, 14))}
+
+
+def test_cached_orders_are_copies_and_sonarr_is_asked_once(db_session):
+    """align_to riallinea gli ordinamenti che riceve: quelli in cache non
+    cambiano. La lista delle serie di Sonarr si chiede una volta, non a
+    ogni scheda, match e serie del reseeding."""
+    from nazgarr.models import SonarrInstance
+
+    first = eo.tmdb_orders(FakeTmdb(), 96677)
+    first[0].seasons[1][0].refs = [(9, 9)]  # come farebbe align_to
+    again = eo.tmdb_orders(FakeTmdb(), 96677)
+    assert again[0].seasons[1][0].refs == [(1, 1)]
+
+    asked = []
+
+    class CountingSonarr(FakeSonarr):
+        def get(self, path, **params):
+            asked.append(path)
+            return super().get(path, **params)
+
+    db_session.add(SonarrInstance(label="sonarr", base_url="http://s", api_key="k"))
+    db_session.commit()
+    for _ in range(3):
+        assert eo.sonarr_order(db_session, 96677, 375921, CountingSonarr) is not None
+    assert asked == ["/api/v3/series", "/api/v3/episode"]
+
+
+def test_the_cache_keeps_a_bounded_number_of_entries(monkeypatch):
+    monkeypatch.setattr(eo, "_CACHE_MAX", 3)
+    for n in range(5):
+        eo._cached(("k", n), lambda n=n: n)
+    assert list(eo._cache) == [("k", 2), ("k", 3), ("k", 4)]

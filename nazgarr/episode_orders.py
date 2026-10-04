@@ -20,8 +20,10 @@ trovati, tradotti in ognuno."""
 import json
 import logging
 import re
+import threading
 import time
-from collections import defaultdict
+from collections import OrderedDict, defaultdict
+from copy import deepcopy
 from dataclasses import asdict, dataclass, field
 
 import httpx
@@ -40,6 +42,8 @@ TMDB_GROUP_TYPES = {
     1: "Original air date", 2: "Absolute", 3: "DVD", 4: "Digital", 5: "Story arc", 6: "Production", 7: "TV",
 }
 CACHE_SECONDS = 3600
+# Sonarr è locale e cambia più spesso (una serie aggiunta): una scadenza più corta.
+SONARR_CACHE_SECONDS = 600
 # Combacia "meglio" solo con un margine: piccole differenze non fanno avvisi.
 WARNING_MARGIN = 0.05
 
@@ -159,16 +163,35 @@ def align_to(order: EpisodeOrder, reference: EpisodeOrder) -> None:
 
 # --- Fonti -------------------------------------------------------------------------
 
-_cache: dict[tuple, tuple[float, object]] = {}
+# Risposte di TMDB, TVDB e Sonarr per CACHE_SECONDS: la scheda di una serie,
+# il match e il reseeding chiedono gli stessi ordinamenti più volte. Con un
+# lock (thread diversi: API, worker, run) e un limite di voci.
+_CACHE_MAX = 256
+_cache: OrderedDict[tuple, tuple[float, object]] = OrderedDict()
+_cache_lock = threading.Lock()
 
 
-def _cached(key: tuple, fetch):
-    hit = _cache.get(key)
-    if hit and time.monotonic() - hit[0] < CACHE_SECONDS:
-        return hit[1]
+def _cached(key: tuple, fetch, copy: bool = False, ttl: float = CACHE_SECONDS):
+    """copy: una copia a ogni lettura, per i valori che chi li riceve
+    modifica (gli ordinamenti, che align_to riallinea): la voce in cache
+    resta com'era."""
+    with _cache_lock:
+        hit = _cache.get(key)
+        if hit and time.monotonic() - hit[0] < ttl:
+            _cache.move_to_end(key)
+            return deepcopy(hit[1]) if copy else hit[1]
     value = fetch()
-    _cache[key] = (time.monotonic(), value)
-    return value
+    with _cache_lock:
+        _cache[key] = (time.monotonic(), value)
+        _cache.move_to_end(key)
+        while len(_cache) > _CACHE_MAX:
+            _cache.popitem(last=False)
+    return deepcopy(value) if copy else value
+
+
+def clear_cache() -> None:
+    with _cache_lock:
+        _cache.clear()
 
 
 def tmdb_orders(client, tmdb_id: int) -> list[EpisodeOrder]:
@@ -211,7 +234,7 @@ def tmdb_orders(client, tmdb_id: int) -> list[EpisodeOrder]:
                 orders.append(order)
         return orders
 
-    return _cached(("tmdb", tmdb_id), fetch)
+    return _cached(("tmdb", tmdb_id), fetch, copy=True)
 
 
 _SPECIALS = re.compile(r"\b(specials?|speciali|extras?)\b", re.IGNORECASE)
@@ -258,15 +281,23 @@ def sonarr_order(session: Session, tmdb_id: int, tvdb_id: int | None, api_factor
         api = None
         try:
             api = factory(instance)
+            # Tutte le serie dell'istanza in una risposta: in cache per istanza
+            # (prima si riscaricava a ogni scheda, match e serie del reseeding).
+            where = (instance.id, instance.base_url)
+            all_series = _cached(("sonarr_series", *where), lambda: api.get("/api/v3/series") or [],
+                                 ttl=SONARR_CACHE_SECONDS)
             series = next(
-                (s for s in api.get("/api/v3/series") or []
+                (s for s in all_series
                  if s.get("tmdbId") == tmdb_id or (tvdb_id and s.get("tvdbId") == tvdb_id)),
                 None,
             )
             if series is None:
                 continue
             order = EpisodeOrder("sonarr:aired", f"TVDB · Aired ({instance.label})", "sonarr")
-            for e in api.get("/api/v3/episode", seriesId=series["id"]) or []:
+            episodes = _cached(("sonarr_episodes", *where, series["id"]),
+                               lambda: api.get("/api/v3/episode", seriesId=series["id"]) or [],
+                               ttl=SONARR_CACHE_SECONDS)
+            for e in episodes:
                 if e.get("seasonNumber") is None or e.get("episodeNumber") is None:
                     continue
                 order.seasons.setdefault(e["seasonNumber"], []).append(
@@ -336,7 +367,7 @@ def tvdb_orders(api: TvdbApi, tvdb_id: int) -> list[EpisodeOrder]:
                 orders.append(order)
         return orders
 
-    return _cached(("tvdb", tvdb_id), fetch)
+    return _cached(("tvdb", tvdb_id), fetch, copy=True)
 
 
 # --- Combacia con i file ------------------------------------------------------------

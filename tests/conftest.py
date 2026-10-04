@@ -91,11 +91,14 @@ def anon_client(tmp_path, monkeypatch):
 def _fresh_tracker_state():
     """Rate limit e cache delle ricerche dei tracker sono condivisi nel
     processo (nazgarr/adapters/tracker/base.py): mai fra un test e l'altro."""
-    from nazgarr import mediainfo_util
+    from nazgarr import episode_orders, mediainfo_util
     from nazgarr.adapters.tracker.base import reset_shared_state
 
-    reset_shared_state()
-    mediainfo_util.clear_cache()  # per inode: mai una voce di un file di un altro test
+    def clear():
+        reset_shared_state()
+        mediainfo_util.clear_cache()  # per inode: mai una voce di un file di un altro test
+        episode_orders.clear_cache()
+
+    clear()
     yield
-    reset_shared_state()
-    mediainfo_util.clear_cache()
+    clear()
