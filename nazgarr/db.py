@@ -524,9 +524,8 @@ def encrypt_plaintext_secrets(engine: Engine) -> int:
 
 
 def make_session_factory(engine: Engine) -> sessionmaker:
-    from nazgarr import (  # noqa: F401  (hook di eventi e redazione: nazgarr/events.py, nazgarr/redaction.py)
-        events,
-        redaction,
-    )
+    # Importati per i loro hook (eventi e redazione dei segreti nei log).
+    from nazgarr import events  # noqa: F401
+    from nazgarr import redaction  # noqa: F401
 
     return sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
