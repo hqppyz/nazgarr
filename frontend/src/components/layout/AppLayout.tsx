@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { lazy, Suspense, useState } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
 
 import { useSetting } from '@/api/hooks/settings'
@@ -13,11 +13,13 @@ import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/s
 import { setSizeUnits } from '@/lib/library-filters'
 import { NAV_DASHBOARD, resolveSectionTitle } from '@/lib/nav'
 import { usesTrackerFilter } from '@/lib/trackerFilter'
-import { TourRunner } from '@/onboarding/TourRunner'
 import { RemoteBar, RemoteGate } from '@/components/instances/RemoteGate'
 import { isRemote } from '@/lib/instance'
 import { UploadNotices } from '@/components/upload/UploadNotices'
 import { WelcomeDialog } from '@/onboarding/WelcomeDialog'
+
+// Il tour (driver.js e il suo CSS) in un chunk a parte, fuori dal caricamento iniziale.
+const TourRunner = lazy(() => import('@/onboarding/TourRunner').then((m) => ({ default: m.TourRunner })))
 
 function TopHeader() {
   const location = useLocation()
@@ -54,7 +56,11 @@ export function AppLayout() {
         <AppSidebar />
         {/* Il tour è dell'istanza su cui si è fatto il login, non di quella che si guarda. */}
         {!isRemote() && <WelcomeDialog />}
-        {!isRemote() && <TourRunner />}
+        {!isRemote() && (
+          <Suspense fallback={null}>
+            <TourRunner />
+          </Suspense>
+        )}
         <UploadNotices />
         <SidebarInset className="h-svh overflow-hidden">
           <TopHeader />
