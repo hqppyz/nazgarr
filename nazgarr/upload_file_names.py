@@ -27,6 +27,7 @@ import re
 import unicodedata
 from dataclasses import dataclass
 
+from sqlalchemy import tuple_
 from sqlalchemy.orm import Session
 
 from nazgarr import episode_orders, settings_repo, upload_inventory, upload_pack
@@ -135,19 +136,25 @@ def _original(job: UploadJob, files: list[tuple[str, str]]) -> FilePlan:
 def _hardlink(session: Session, job: UploadJob, files: list[tuple[str, str]]) -> FilePlan | None:
     """I percorsi del torrent di un client che ha in hardlink tutti i video
     della sorgente, se ce n'è uno."""
-    paths: dict[str, dict[int, str]] = {}
+    by_inode: dict[tuple[int, int], list[str]] = {}
     for path, _relative in files:
         try:
             st = os.stat(path)
         except OSError:
             continue
-        rows = (
-            session.query(ClientTorrentFile.client_torrent_id, ClientTorrentFile.path_in_torrent)
-            .join(SeedFile, SeedFile.id == ClientTorrentFile.seed_file_id)
-            .filter(SeedFile.st_dev == st.st_dev, SeedFile.inode == st.st_ino)
+        by_inode.setdefault((st.st_dev, st.st_ino), []).append(path)
+    paths: dict[str, dict[int, str]] = {path: {} for group in by_inode.values() for path in group}
+    keys = list(by_inode)
+    for start in range(0, len(keys), 500):  # una query ogni 500 file, non una per file
+        for st_dev, inode, torrent_id, in_torrent in (
+            session.query(SeedFile.st_dev, SeedFile.inode, ClientTorrentFile.client_torrent_id,
+                          ClientTorrentFile.path_in_torrent)
+            .join(ClientTorrentFile, ClientTorrentFile.seed_file_id == SeedFile.id)
+            .filter(tuple_(SeedFile.st_dev, SeedFile.inode).in_(keys[start:start + 500]))
             .all()
-        )
-        paths[path] = {torrent_id: in_torrent for torrent_id, in_torrent in rows}
+        ):
+            for path in by_inode.get((st_dev, inode), ()):
+                paths[path][torrent_id] = in_torrent
     videos = [path for path, relative in files if is_video(relative)]
     common = set.intersection(*(set(paths.get(v, {})) for v in videos)) if videos else set()
     if not common:
@@ -243,9 +250,28 @@ class _EpisodeJob:
         return getattr(self._job, name)
 
 
-def available_modes(session: Session, job: UploadJob) -> list[str]:
-    files = _source_files(job)
-    return [m for m in MODES if m != "hardlink" or _hardlink(session, job, files) is not None]
+class NameInputs:
+    """I file della sorgente e il torrent in hardlink, letti una volta per
+    tutte le modalità: l'anteprima della decisione chiede available_modes,
+    default_mode e il piano di ogni modalità, e ognuno rileggeva la
+    sorgente e cercava gli hardlink da capo."""
+
+    _UNSET = object()
+
+    def __init__(self, session: Session, job: UploadJob):
+        self.session, self.job = session, job
+        self.files = _source_files(job)
+        self._hardlink = self._UNSET
+
+    def hardlink(self) -> FilePlan | None:
+        if self._hardlink is self._UNSET:
+            self._hardlink = _hardlink(self.session, self.job, self.files)
+        return self._hardlink
+
+
+def available_modes(session: Session, job: UploadJob, inputs: NameInputs | None = None) -> list[str]:
+    inputs = inputs or NameInputs(session, job)
+    return [m for m in MODES if m != "hardlink" or inputs.hardlink() is not None]
 
 
 def _in_media_library(job: UploadJob) -> bool:
@@ -267,7 +293,7 @@ def auto_rename(session: Session) -> bool:
     return (settings_repo.get_setting(session, AUTO_RENAME_SETTING) or "true").lower() != "false"
 
 
-def default_mode(session: Session, job: UploadJob) -> str:
+def default_mode(session: Session, job: UploadJob, inputs: NameInputs | None = None) -> str:
     """Il nome del torrent in hardlink se c'è; se no un nome generato, per un
     file della libreria (nomi alla Plex) o una release della cartella
     osservata (la tua, da chiamare come vuole il pattern). Una sorgente già
@@ -275,7 +301,7 @@ def default_mode(session: Session, job: UploadJob) -> str:
     Con il rename automatico spento, sempre i nomi originali."""
     if not auto_rename(session):
         return "original"
-    if "hardlink" in available_modes(session, job):
+    if "hardlink" in available_modes(session, job, inputs):
         return "hardlink"
     # Un pack di file scelti a mano ha una cartella nuova: il suo nome di release.
     if _in_media_library(job) or job.origin == "watch" or upload_pack.is_pack(job):
@@ -312,10 +338,10 @@ def _as_single_file(found: FilePlan, folder_choice: str | None) -> FilePlan:
                     folder=folder if folder_choice == "keep" else None)
 
 
-def plan(session: Session, job: UploadJob, mode: str | None = None) -> FilePlan:
+def plan(session: Session, job: UploadJob, mode: str | None = None, inputs: NameInputs | None = None) -> FilePlan:
     """Il piano dei nomi per la modalità scelta (o quella di default), un
     file solo senza la sua cartella se l'impostazione è accesa."""
-    return _as_single_file(_plan(session, job, mode), single_file_folder(session))
+    return _as_single_file(_plan(session, job, mode, inputs or NameInputs(session, job)), single_file_folder(session))
 
 
 def name_detected(session: Session, job: UploadJob) -> dict:
@@ -333,13 +359,13 @@ def name_detected(session: Session, job: UploadJob) -> dict:
     return detected
 
 
-def _plan(session: Session, job: UploadJob, mode: str | None) -> FilePlan:
-    files = _source_files(job)
+def _plan(session: Session, job: UploadJob, mode: str | None, inputs: NameInputs) -> FilePlan:
+    files = inputs.files
     analysis = json.loads(job.analysis_json or "{}")
     overrides = json.loads(job.overrides_json or "{}")
-    mode = mode or overrides.get("file_naming") or default_mode(session, job)
+    mode = mode or overrides.get("file_naming") or default_mode(session, job, inputs)
     if mode == "hardlink":
-        found = _hardlink(session, job, files)
+        found = inputs.hardlink()
         if found is not None:
             return found
         mode = "generated"

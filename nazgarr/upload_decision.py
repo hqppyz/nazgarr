@@ -195,10 +195,11 @@ def file_names_preview(session: Session, job: UploadJob) -> dict:
     """I nomi dei file nel torrent per ogni modalità disponibile
     (nazgarr/upload_file_names.py), per sceglierla nella decisione."""
     try:
-        available = upload_file_names.available_modes(session, job)
+        inputs = upload_file_names.NameInputs(session, job)  # sorgente e hardlink letti una volta
+        available = upload_file_names.available_modes(session, job, inputs)
         previews = {}
         for mode in available:
-            plan = upload_file_names.plan(session, job, mode)
+            plan = upload_file_names.plan(session, job, mode, inputs)
             if plan.mode != mode:
                 continue  # es. "generated" senza titolo ripiega sui nomi originali
             targets = [target for _source, target in plan.files]
@@ -206,7 +207,7 @@ def file_names_preview(session: Session, job: UploadJob) -> dict:
                               "single_file": plan.single_file, "folder": plan.folder}
         return {
             "available": [m for m in available if m in previews],
-            "default": upload_file_names.default_mode(session, job),
+            "default": upload_file_names.default_mode(session, job, inputs),
             "previews": previews,
         }
     except OSError:

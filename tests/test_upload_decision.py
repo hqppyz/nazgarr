@@ -270,3 +270,17 @@ def test_files_are_renamed_automatically_unless_turned_off(db_session, tmp_path)
     # ...a meno che il rename automatico sia spento: allora i nomi originali.
     settings_repo.set_setting(db_session, upload_file_names.AUTO_RENAME_SETTING, "false")
     assert upload_file_names.default_mode(db_session, watched) == "original"
+
+
+def test_the_file_names_preview_reads_the_source_once(db_session, decision_job, monkeypatch):
+    """Ogni modifica di un override ricalcola l'anteprima: disponibili,
+    predefinita e il piano di ogni modalità leggono la sorgente una volta."""
+    from nazgarr import upload_decision, upload_file_names
+
+    walks = []
+    real = upload_file_names._source_files
+    monkeypatch.setattr(upload_file_names, "_source_files", lambda job: walks.append(1) or real(job))
+
+    preview = upload_decision.file_names_preview(db_session, decision_job)
+
+    assert preview["previews"] and len(walks) == 1
