@@ -486,6 +486,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/library/items/tv/{tmdb_id}/episode-orders": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Library Episode Orders
+         * @description Gli ordinamenti degli episodi di una serie in libreria
+         *     (nazgarr/episode_orders.py): quello che seguono i file (di solito Sonarr),
+         *     gli altri per vederla in un'altra numerazione, e l'avviso se i file non
+         *     seguono TVDB aired.
+         */
+        get: operations["library_episode_orders_api_library_items_tv__tmdb_id__episode_orders_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/torrent-clients": {
         parameters: {
             query?: never;
@@ -5603,6 +5626,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ExcludeFileResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    library_episode_orders_api_library_items_tv__tmdb_id__episode_orders_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tmdb_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EpisodeOrdersResponse"];
                 };
             };
             /** @description Validation Error */

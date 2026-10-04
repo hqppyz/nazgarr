@@ -244,3 +244,25 @@ def test_a_pack_numbered_after_another_ordering_is_mapped_to_the_library(db_sess
     mapped = map_media_side(layout, anchor, local, translator=translator)
     assert [m.local.relative_path.rsplit(" - ", 1)[1] for m in mapped] == [
         f"S01E{e:02d}.mkv" for e in range(6, 11)]
+
+
+def test_library_series_orderings_follow_the_library_numbering(client, monkeypatch):
+    from nazgarr import settings_repo
+    from nazgarr.models import MediaItem
+
+    monkeypatch.setattr(eo, "TmdbApi", lambda key: FakeTmdb())
+    session = client.app.state.session_factory()
+    try:
+        settings_repo.set_setting(session, "tmdb_api_key", "k")
+        session.add_all([MediaItem(content_type="tv", tmdb_id=96677, season_number=1, episode_number=e)
+                         for e in range(1, 11)])
+        session.commit()
+    finally:
+        session.close()
+
+    body = client.get("/api/library/items/tv/96677/episode-orders").json()
+
+    assert body["recommended"] == "tmdb:default" and body["warning"] is None
+    assert [o["key"] for o in body["orders"]] == ["tmdb:default", "tmdb:group:g1"]
+    # Gli stessi file nelle "parti": la seconda metà della stagione 1 è la stagione 2.
+    assert body["found"]["tmdb:group:g1"] == {"1": [1, 2, 3, 4, 5], "2": [1, 2, 3, 4, 5]}

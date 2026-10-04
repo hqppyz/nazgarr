@@ -14,7 +14,8 @@ import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import type { Schemas } from '@/api/client'
-import { useExcludeFile, useItemDetail, useSearchNow } from '@/api/hooks/library'
+import { useExcludeFile, useItemDetail, useLibraryEpisodeOrders, useSearchNow } from '@/api/hooks/library'
+import type { EpisodeOrder } from '@/api/hooks/uploads'
 import { useApproveReview, useReconcileNow, useRejectReview } from '@/api/hooks/reviews'
 import { AuthedPoster } from '@/components/AuthedPoster'
 import { FullCheckButton } from '@/components/FullCheckButton'
@@ -23,7 +24,9 @@ import { VerifyStatus } from '@/components/VerifyStatus'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
+import { episodeLabel, translateEpisode } from '@/lib/episodeOrders'
 import { t } from '@/lib/i18n'
 import { formatBytes } from '@/lib/library-filters'
 import { STATUS_STYLES } from '@/lib/status-styles'
@@ -46,6 +49,14 @@ export interface OpenItem {
 function episodeCode(f: DetailFile): string | null {
   if (f.season_number == null || f.episode_number == null) return null
   return `S${String(f.season_number).padStart(2, '0')}E${String(f.episode_number).padStart(2, '0')}`
+}
+
+// Il titolo dell'episodio nell'ordinamento dei file, senza rinumerarlo.
+function titleOf(order: EpisodeOrder, f: DetailFile): { code: string; title?: string } | undefined {
+  const code = episodeCode(f)
+  if (!code) return undefined
+  const ep = order.seasons.find((s) => s.season_number === f.season_number)?.episodes.find((e) => e.number === f.episode_number)
+  return { code, title: ep?.titles.filter(Boolean).join(' + ') || undefined }
 }
 
 function Section({ title, children, action }: { title: string; children: React.ReactNode; action?: React.ReactNode }) {
@@ -91,11 +102,14 @@ function FileRow({
   uploadTmdb,
   selection,
   ordered = [],
+  episode,
 }: {
   file: DetailFile
   showEpisode: boolean
   uploadTmdb: string
   selection?: PackSelection
+  // Numero e titolo nell'ordinamento scelto, se non è quello dei file.
+  episode?: { code: string; title?: string }
   // I video sceglibili nell'ordine mostrato, per SHIFT+clic.
   ordered?: { diskId: number; path: string }[]
 }) {
@@ -104,7 +118,7 @@ function FileRow({
   const picking = selection?.active && packable(file)
   // Un video orfano (in libreria, non in seed): upload o reseed dal flusso di upload.
   const orphan = file.is_video && !file.excluded && file.state !== 'seeding'
-  const code = showEpisode ? episodeCode(file) : null
+  const code = showEpisode ? episode?.code ?? episodeCode(file) : null
   return (
     <div className={cn('grid gap-1 rounded-md border p-2.5', file.excluded && 'opacity-60')}>
       <div className="flex items-start gap-2">
@@ -128,6 +142,7 @@ function FileRow({
             {code && <span className="mr-1.5 font-sans font-medium">{code}</span>}
             {file.relative_path}
           </p>
+          {episode?.title && <p className="text-xs text-muted-foreground">{episode.title}</p>}
           <div className="mt-1 flex flex-wrap items-center gap-1.5">
             {file.excluded ? (
               // Escluso = fuori da ogni controllo: nessuno stato, solo "excluded".
@@ -222,19 +237,71 @@ function seasonFolder(files: DetailFile[]): { diskId: number; path: string } | n
   return path ? { diskId: Number(disk), path } : null
 }
 
-function Seasons({ files, uploadTmdb, selection }: { files: DetailFile[]; uploadTmdb: string; selection: PackSelection }) {
+export function Seasons({ files, uploadTmdb, selection, tmdbId }: {
+  files: DetailFile[]
+  uploadTmdb: string
+  selection: PackSelection
+  tmdbId: number
+}) {
   const navigate = useNavigate()
+  // L'ordinamento in cui vedere la serie: di default quello che seguono i file
+  // (di solito Sonarr); scegliendone un altro, stagioni e numeri tradotti.
+  const orders = useLibraryEpisodeOrders(tmdbId)
+  const [orderKey, setOrderKey] = useState<string | null>(null)
+  const data = orders.data
+  const filesOrder = data?.orders.find((o) => o.key === data.files_order) ?? null
+  const active = data?.orders.find((o) => o.key === (orderKey ?? data.files_order)) ?? null
+  const translating = filesOrder != null && active != null && active.key !== filesOrder.key
+  const mapped = useMemo(() => {
+    const out = new Map<number, { season: number; code: string; title?: string }>()
+    if (!filesOrder || !active) return out
+    for (const f of files) {
+      if (f.season_number == null || f.episode_number == null) continue
+      const to = translateEpisode(filesOrder, active, f.season_number, f.episode_number)
+      if (to.length === 0) continue
+      const season = to[0].season
+      out.set(f.media_file_id, {
+        season,
+        code: episodeLabel(season, to.filter((m) => m.season === season).map((m) => m.episode)),
+        title: to.flatMap((m) => m.titles).filter(Boolean).join(' + ') || undefined,
+      })
+    }
+    return out
+  }, [files, filesOrder, active])
   const seasons = useMemo(() => {
     const bySeason = new Map<number, DetailFile[]>()
     for (const f of files) {
-      const key = f.season_number ?? 0
+      const key = (translating ? mapped.get(f.media_file_id)?.season : undefined) ?? f.season_number ?? 0
       bySeason.set(key, [...(bySeason.get(key) ?? []), f])
     }
-    return [...bySeason.entries()].sort(([a], [b]) => a - b)
-  }, [files])
+    return [...bySeason.entries()].sort(([a], [b]) => Number(a === 0) - Number(b === 0) || a - b)
+  }, [files, mapped, translating])
+  const expected = (season: number) => active?.seasons.find((s) => s.season_number === season)?.episodes.length
   const ordered = useMemo(() => seasons.flatMap(([, seasonFiles]) => seasonFiles.filter(packable).map(packFile)), [seasons])
   return (
     <div className="grid gap-2">
+      {data && active && data.orders.length > 1 && (
+        <div className="grid gap-1.5">
+          <Select value={active.key} onValueChange={(value) => value && setOrderKey(String(value))}>
+            <SelectTrigger size="sm" className="w-full" aria-label={t('upload.match.orderLabel')}>
+              <SelectValue>{() => `${t('upload.match.orderLabel')}: ${active.label}`}</SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              {data.orders.map((order) => (
+                <SelectItem key={order.key} value={order.key}>
+                  {order.label}
+                  {order.key === data.files_order && ` · ${t('itemDetail.orderOfFiles')}`}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {data.warning && (
+            <p className="text-xs text-amber-600 dark:text-amber-400">
+              {t('itemDetail.orderNotTvdb', { tvdb: data.orders.find((o) => o.key === data.warning!.tvdb)?.label ?? '' })}
+            </p>
+          )}
+        </div>
+      )}
       {seasons.map(([season, seasonFiles]) => {
         const videos = seasonFiles.filter((f) => f.is_video && !f.excluded)
         const seeding = videos.filter((f) => f.state === 'seeding').length
@@ -263,6 +330,7 @@ function Seasons({ files, uploadTmdb, selection }: { files: DetailFile[]; upload
               <span className="font-medium">{t('itemDetail.season', { n: season })}</span>
               <span className="ml-auto text-xs text-muted-foreground tabular-nums">
                 {t('itemDetail.seasonSummary', { seeding, total: videos.length })}
+                {expected(season) != null && ` · ${t('itemDetail.seasonExpected', { count: expected(season)! })}`}
               </span>
             </CollapsibleTrigger>
             </div>
@@ -279,7 +347,15 @@ function Seasons({ files, uploadTmdb, selection }: { files: DetailFile[]; upload
                 </Button>
               )}
               {seasonFiles.map((f) => (
-                <FileRow key={f.media_file_id} file={f} showEpisode uploadTmdb={uploadTmdb} selection={selection} ordered={ordered} />
+                <FileRow
+                  key={f.media_file_id}
+                  file={f}
+                  showEpisode
+                  uploadTmdb={uploadTmdb}
+                  selection={selection}
+                  ordered={ordered}
+                  episode={translating ? mapped.get(f.media_file_id) : active ? titleOf(active, f) : undefined}
+                />
               ))}
             </CollapsibleContent>
           </Collapsible>
@@ -528,6 +604,7 @@ export function ItemDetailSheet({ item, onClose }: { item: OpenItem | null; onCl
                     files={detail.files}
                     uploadTmdb={`${detail.content_type}/${detail.tmdb_id}`}
                     selection={selection}
+                    tmdbId={detail.tmdb_id}
                   />
                 ) : (
                   detail.files.map((f) => (
