@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session, object_session
 from nazgarr import tracker_icons, upload_decision, upload_profiles
 from nazgarr.api.types import HttpUrlStr, host_changed, require_secrets_for_new_host
 from nazgarr.api_errors import coded_detail, from_coded_error
-from nazgarr.deps import get_session
+from nazgarr.deps import get_or_404, get_session
 from nazgarr.models import Tracker, TrackerUploadProfile
 from nazgarr.plugins import REGISTRY
 from nazgarr.plugins import config as plugin_config
@@ -125,10 +125,7 @@ def _language(raw: str | None) -> str | None:
 
 
 def _get_tracker_or_404(session: Session, tracker_id: int) -> Tracker:
-    tracker = session.get(Tracker, tracker_id)
-    if tracker is None:
-        raise HTTPException(status_code=404, detail=coded_detail("tracker_not_found", id=tracker_id))
-    return tracker
+    return get_or_404(session, Tracker, tracker_id, "tracker_not_found")
 
 
 @router.get("", response_model=list[TrackerResponse])
@@ -297,10 +294,7 @@ def list_bundled_upload_profiles():
 
 
 def _get_upload_profile_or_404(session: Session, tracker_id: int) -> TrackerUploadProfile:
-    profile = session.get(TrackerUploadProfile, tracker_id)
-    if profile is None:
-        raise HTTPException(status_code=404, detail=coded_detail("tracker_no_upload_profile", tracker=tracker_id))
-    return profile
+    return get_or_404(session, TrackerUploadProfile, tracker_id, "tracker_no_upload_profile", tracker=tracker_id)
 
 
 @router.post("/{tracker_id}/upload-profile", response_model=UploadProfileResponse, status_code=201)

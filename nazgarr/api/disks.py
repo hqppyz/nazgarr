@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 
 from nazgarr import disk_folders
 from nazgarr.api_errors import CodedError, coded_detail, from_coded_error
-from nazgarr.deps import get_session
+from nazgarr.deps import get_or_404, get_session
 from nazgarr.fs_scope import ScopeViolation, resolve_scoped
 from nazgarr.models import ClientTorrentFile, Disk, SeedFile
 
@@ -132,10 +132,7 @@ class DiskConflictError(CodedError):
 
 
 def _get_disk_or_404(session: Session, disk_id: int) -> Disk:
-    disk = session.get(Disk, disk_id)
-    if disk is None:
-        raise HTTPException(status_code=404, detail=coded_detail("disk_not_found", id=disk_id))
-    return disk
+    return get_or_404(session, Disk, disk_id, "disk_not_found")
 
 
 def is_within_scan_root(path: str, scan_root: str) -> bool:

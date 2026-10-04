@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session, object_session
 
 from nazgarr import pipeline, review, seeding
 from nazgarr.api_errors import coded_detail
-from nazgarr.deps import get_session
+from nazgarr.deps import get_or_404, get_session
 from nazgarr.executor import ExecutionError
 from nazgarr.models import Candidate, MatchReview, SeedJob, TorrentClient
 
@@ -146,10 +146,7 @@ class ReviewResponse(BaseModel):
 
 
 def _get_review_or_404(session: Session, review_id: int) -> MatchReview:
-    row = session.get(MatchReview, review_id)
-    if row is None:
-        raise HTTPException(status_code=404, detail=coded_detail("review_not_found", id=review_id))
-    return row
+    return get_or_404(session, MatchReview, review_id, "review_not_found")
 
 
 @router.get("", response_model=list[ReviewResponse])

@@ -1,6 +1,6 @@
 import httpx
 
-import nazgarr.api.sonarr_instances as sonarr_instances_module
+import nazgarr.api.arr_instances as sonarr_instances_module  # il router comune di Radarr e Sonarr
 
 
 def test_create_list_update_delete_sonarr_instance(client):

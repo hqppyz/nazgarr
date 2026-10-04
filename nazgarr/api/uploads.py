@@ -30,7 +30,7 @@ from nazgarr import (
 )
 from nazgarr.adapter_factory import TmdbApiKeyMissingError
 from nazgarr.api_errors import coded_detail, from_coded_error
-from nazgarr.deps import get_session
+from nazgarr.deps import get_or_404, get_session
 from nazgarr.fs_scope import ScopeViolation
 from nazgarr.logging_config import safe_error
 from nazgarr.models import Disk, TorrentClient, TrackerUploadProfile, UploadEvent, UploadJob, UploadTarget
@@ -309,10 +309,7 @@ def _loads(raw: str | None, default):
 
 
 def _get_job_or_404(session: Session, upload_id: int) -> UploadJob:
-    job = session.get(UploadJob, upload_id)
-    if job is None:
-        raise HTTPException(status_code=404, detail=coded_detail("upload_job_not_found", id=upload_id))
-    return job
+    return get_or_404(session, UploadJob, upload_id, "upload_job_not_found")
 
 
 def _worker(request: Request):

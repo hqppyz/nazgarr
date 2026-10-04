@@ -15,7 +15,7 @@ from nazgarr import adapter_factory
 from nazgarr.api.types import HttpUrlStr, require_secrets_for_new_host
 from nazgarr.api_errors import coded_detail, from_coded_error
 from nazgarr.client_labels import split_tags
-from nazgarr.deps import get_session
+from nazgarr.deps import get_or_404, get_session
 from nazgarr.fs_scope import ScopeViolation, resolve_scoped
 from nazgarr.logging_config import safe_error
 from nazgarr.models import ClientTorrent, Disk, DiskTorrentClient, TorrentClient
@@ -132,17 +132,11 @@ def _apply_config(tc: TorrentClient, config: dict | None, *, creating: bool) -> 
 
 
 def _get_torrent_client_or_404(session: Session, torrent_client_id: int) -> TorrentClient:
-    tc = session.get(TorrentClient, torrent_client_id)
-    if tc is None:
-        raise HTTPException(status_code=404, detail=coded_detail("torrent_client_not_found", id=torrent_client_id))
-    return tc
+    return get_or_404(session, TorrentClient, torrent_client_id, "torrent_client_not_found")
 
 
 def _get_disk_or_404(session: Session, disk_id: int) -> Disk:
-    disk = session.get(Disk, disk_id)
-    if disk is None:
-        raise HTTPException(status_code=404, detail=coded_detail("disk_not_found", id=disk_id))
-    return disk
+    return get_or_404(session, Disk, disk_id, "disk_not_found")
 
 
 def _links_for(session: Session, torrent_client_id: int) -> list[DiskTorrentClient]:
