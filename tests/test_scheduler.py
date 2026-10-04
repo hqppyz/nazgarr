@@ -58,3 +58,23 @@ def _factory_returning(session):
         return _CtxSession() if session is not None else session
 
     return factory
+
+
+def test_a_scheduled_run_is_skipped_while_another_is_in_progress(db_session, monkeypatch):
+    from sqlalchemy.orm import sessionmaker
+
+    from nazgarr import pipeline
+    from nazgarr.models import RunLog
+
+    pipeline.start_run(db_session, run_type="bulk_import")  # una run a mano, ancora in corso
+    started = []
+    monkeypatch.setattr(pipeline, "run_bulk_import", lambda *a, **k: started.append(a))
+    scheduler._run_scheduled(sessionmaker(bind=db_session.get_bind()), "/tmp")
+    assert started == [] and db_session.query(RunLog).count() == 1
+
+
+def test_the_scheduled_scan_never_overlaps_itself(db_session):
+    db_session.add(AppSetting(key=scheduler.SETTING_KEY, value="0 3 * * *"))
+    db_session.commit()
+    job = scheduler.build_scheduler(_factory_returning(db_session), "/tmp/data").get_job(scheduler.JOB_ID)
+    assert job.max_instances == 1 and job.coalesce is True

@@ -160,9 +160,38 @@ class TorrentClientAdapter(ABC):
 
 def is_stopped_state(state: str | None) -> bool:
     """Torrent fermato nel client (qBittorrent 4 "paused*", 5 "stopped*";
-    qui riporta gli stessi stati): il file resta tracciato, quindi "seeding"
+    qui riporta gli stessi stati; Deluge "Paused", Transmission e rTorrent
+    "stopped", rTorrent "paused"): il file resta tracciato, quindi "seeding"
     nel modello a stati (docs/SPEC.md §3), ma in quel momento non condivide."""
     return (state or "").lower().startswith(("paused", "stopped"))
+
+
+StateKind = Literal["checking", "error", "stopped", "downloading", "other"]
+
+# Gli stati nativi di ogni adapter incluso, in minuscolo, raggruppati per
+# quello che contano per chi li legge (per esempio gli avvisi prima di
+# rimuovere un torrent). qBittorrent/qui: checkingUP, missingFiles, *DL;
+# Deluge: Checking, Error, Downloading, Allocating; Transmission: checking,
+# check_pending, download_pending; rTorrent: checking, downloading. Un
+# plugin che usa gli stessi nomi generici viene classificato uguale.
+_CHECKING_KIND = {"checkingup", "checkingdl", "checkingresumedata", "checking", "check_pending"}
+_ERROR_KIND = {"error", "missingfiles"}
+_DOWNLOADING_KIND = {"downloading", "download_pending", "allocating"}
+
+
+def state_kind(state: str | None) -> StateKind:
+    """Lo stato nativo di un qualunque client, ridotto a una categoria: chi
+    deve decidere (avvisi, blocchi) usa questa, mai i nomi di un client."""
+    native = (state or "").lower()
+    if native in _CHECKING_KIND:
+        return "checking"
+    if native in _ERROR_KIND:
+        return "error"
+    if is_stopped_state(native):
+        return "stopped"
+    if native in _DOWNLOADING_KIND or native.endswith("dl"):  # qBittorrent: stalledDL, queuedDL, forcedDL, metaDL
+        return "downloading"
+    return "other"
 
 
 

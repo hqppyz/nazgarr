@@ -298,3 +298,27 @@ def test_the_last_seeder_is_a_warning_that_does_not_block_removal(db_session, tm
     remove_not_imported(rows["h-old"].id, RemoveRequest(delete_files=True), session=db_session)
     assert removed == ["h-old"]
 
+
+
+def test_removal_warnings_understand_every_client_state_vocabulary():
+    """Gli avvisi bloccanti non dipendono dai nomi di qBittorrent: Deluge,
+    Transmission e rTorrent hanno i propri stati nativi."""
+    from nazgarr.api.torrents import removal_warnings
+
+    def codes(state):
+        return [w.code for w in removal_warnings(state, [])]
+
+    # qBittorrent / qui
+    assert codes("checkingUP") == ["checking"] and codes("missingFiles") == ["client_error"]
+    assert codes("stalledDL") == ["downloading"] and codes("pausedDL") == [] and codes("stoppedDL") == []
+    # Deluge
+    assert codes("Checking") == ["checking"] and codes("Error") == ["client_error"]
+    assert codes("Downloading") == ["downloading"] and codes("Allocating") == ["downloading"]
+    assert codes("Paused") == [] and codes("Seeding") == [] and codes("Queued") == []
+    # Transmission
+    assert codes("check_pending") == ["checking"] and codes("checking") == ["checking"]
+    assert codes("error") == ["client_error"] and codes("download_pending") == ["downloading"]
+    assert codes("stopped") == [] and codes("seed_pending") == []
+    # rTorrent
+    assert codes("downloading") == ["downloading"] and codes("paused") == [] and codes("seeding") == []
+    assert codes(None) == []

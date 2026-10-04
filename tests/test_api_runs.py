@@ -48,3 +48,21 @@ def test_trigger_bulk_import_and_poll_until_finished(client):
     media_files = client.get("/api/media-files").json()
     seed_files = client.get("/api/seed-files").json()
     assert seed_files[0]["media_file_id"] == media_files[0]["id"]
+
+
+def test_a_second_run_is_refused_while_one_is_in_progress(client):
+    """Due run insieme scriverebbero le stesse tabelle (e con l'esecuzione
+    automatica potrebbero eseguire due volte la stessa review)."""
+    from nazgarr import pipeline
+
+    session = client.app.state.session_factory()
+    try:
+        running = pipeline.start_run(session, run_type="bulk_import")  # rimasta in corso
+        response = client.post("/api/runs")
+        assert response.status_code == 409
+        assert response.json()["detail"]["code"] == "run_in_progress"
+        from nazgarr.models import RunLog
+
+        assert [r.id for r in session.query(RunLog).all()] == [running.id]
+    finally:
+        session.close()

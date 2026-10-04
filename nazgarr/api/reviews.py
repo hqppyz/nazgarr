@@ -8,11 +8,11 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session, object_session
 
-from nazgarr import review, seeding
+from nazgarr import pipeline, review, seeding
 from nazgarr.api_errors import coded_detail
 from nazgarr.deps import get_session
 from nazgarr.executor import ExecutionError
-from nazgarr.models import Candidate, MatchReview, RunLog, SeedJob, TorrentClient
+from nazgarr.models import Candidate, MatchReview, SeedJob, TorrentClient
 
 router = APIRouter(prefix="/api/reviews", tags=["reviews"])
 
@@ -196,7 +196,7 @@ def reconcile_now(session: Session = Depends(get_session)):
     """Controlla subito l'esito dei recheck in attesa (lo scheduler lo fa
     comunque ogni 2 minuti). Sola lettura sul client: nessun torrent
     aggiunto né file modificato."""
-    if session.query(RunLog.id).filter(RunLog.finished_at.is_(None)).first() is not None:
+    if pipeline.run_in_progress(session):
         raise HTTPException(status_code=409, detail=coded_detail("run_in_progress"))
     return review.reconcile_pending_seed_jobs(session)
 

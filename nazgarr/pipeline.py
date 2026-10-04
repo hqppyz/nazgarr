@@ -37,6 +37,7 @@ query() di per sé fallita, non solo il lavoro di una singola fase)."""
 import json
 import logging
 import os
+import threading
 from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session
@@ -91,6 +92,29 @@ def start_run(session: Session, run_type: str) -> RunLog:
     session.add(run)
     session.commit()
     return run
+
+
+class RunInProgressError(Exception):
+    """Una run è già in corso: non se ne avvia un'altra."""
+
+
+# Le run girano in thread di questo stesso processo (scheduler e
+# BackgroundTasks): il lock rende atomici il controllo e l'inserimento.
+_start_lock = threading.Lock()
+
+
+def run_in_progress(session: Session) -> bool:
+    return session.query(RunLog.id).filter(RunLog.finished_at.is_(None)).first() is not None
+
+
+def try_start_run(session: Session, run_type: str) -> RunLog:
+    """Avvia una run solo se non ce n'è già una in corso: due run insieme
+    scriverebbero le stesse tabelle e potrebbero eseguire due volte la
+    stessa review approvata. Solleva RunInProgressError altrimenti."""
+    with _start_lock:
+        if run_in_progress(session):
+            raise RunInProgressError()
+        return start_run(session, run_type)
 
 
 MAX_RUN_ERRORS_KEPT = 50

@@ -94,7 +94,10 @@ def _run_bulk_import_bg(session_factory: sessionmaker, run_id: int, data_dir: st
 def trigger_bulk_import(
     request: Request, background_tasks: BackgroundTasks, session: Session = Depends(get_session)
 ):
-    run = pipeline.start_run(session, run_type="bulk_import")
+    try:
+        run = pipeline.try_start_run(session, run_type="bulk_import")
+    except pipeline.RunInProgressError as exc:
+        raise HTTPException(status_code=409, detail=coded_detail("run_in_progress")) from exc
     background_tasks.add_task(
         _run_bulk_import_bg, request.app.state.session_factory, run.id, request.app.state.settings.data_dir
     )

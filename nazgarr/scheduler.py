@@ -22,7 +22,6 @@ from apscheduler.triggers.interval import IntervalTrigger
 from sqlalchemy.orm import sessionmaker
 
 from nazgarr import pipeline, review, settings_repo
-from nazgarr.models import RunLog
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +32,11 @@ SETTING_KEY = "schedule_cron"
 def _run_scheduled(session_factory: sessionmaker, data_dir: str) -> None:
     session = session_factory()
     try:
-        run = pipeline.start_run(session, run_type="scheduled")
+        try:
+            run = pipeline.try_start_run(session, run_type="scheduled")
+        except pipeline.RunInProgressError:
+            logger.info("Run schedulata saltata: ce n'è già una in corso")
+            return
         pipeline.run_bulk_import(session, run, data_dir)
     except Exception:
         # Non deve mai far morire il thread dello scheduler: un ciclo
@@ -51,6 +54,8 @@ def _add_job(scheduler: BackgroundScheduler, cron_expr: str, session_factory: se
         args=[session_factory, data_dir],
         id=JOB_ID,
         replace_existing=True,
+        max_instances=1,
+        coalesce=True,
     )
 
 
@@ -68,7 +73,7 @@ def _reconcile_between_runs(session_factory: sessionmaker) -> None:
     fa già il suo reconcile alla fine, e non si scrive in due sul DB)."""
     session = session_factory()
     try:
-        if session.query(RunLog.id).filter(RunLog.finished_at.is_(None)).first() is not None:
+        if pipeline.run_in_progress(session):
             return
         if review.has_pending_seed_jobs(session):
             review.reconcile_pending_seed_jobs(session)

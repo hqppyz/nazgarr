@@ -18,6 +18,7 @@ from nazgarr import (
     library,
     library_detail,
     matching,
+    pipeline,
     response_cache,
     settings_repo,
     tracker_scope,
@@ -27,7 +28,7 @@ from nazgarr.api.uploads import EpisodeOrdersResponse
 from nazgarr.api_errors import coded_detail
 from nazgarr.deps import get_session
 from nazgarr.exclusions import CompiledExclusions, load_exclusions
-from nazgarr.models import MediaFile, MediaItem, RunLog, Tracker
+from nazgarr.models import MediaFile, MediaItem, Tracker
 from nazgarr.poster_cache import poster_file
 
 router = APIRouter(prefix="/api", tags=["library"])
@@ -310,7 +311,7 @@ def search_item_now(content_type: str, tmdb_id: int, session: Session = Depends(
     l'intervallo fra una ricerca e l'altra. Non modifica file né client:
     al massimo crea review, che restano da approvare in Reseeding."""
     _content_type_or_404(content_type)
-    if session.query(RunLog).filter(RunLog.finished_at.is_(None)).count():
+    if pipeline.run_in_progress(session):
         raise HTTPException(status_code=409, detail=coded_detail("run_in_progress"))
     mf_ids = {
         mf.id for mf in session.query(MediaFile).join(MediaItem, MediaItem.id == MediaFile.media_item_id)

@@ -13,8 +13,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from nazgarr import adapter_factory, arr, not_imported, seed_requirements
-from nazgarr.adapters.torrent_client.base import CHECKING_STATES, ERROR_STATES, is_stopped_state
+from nazgarr import adapter_factory, arr, not_imported, pipeline, seed_requirements
+from nazgarr.adapters.torrent_client.base import state_kind
 from nazgarr.api_errors import coded_detail
 from nazgarr.deps import get_session
 from nazgarr.library_detail import _host, _quality
@@ -23,7 +23,6 @@ from nazgarr.models import (
     ClientTorrentFile,
     MediaItem,
     NotImportedTorrent,
-    RunLog,
     SeedFile,
     SeedJob,
     TorrentClient,
@@ -127,11 +126,14 @@ def removal_warnings(state: str | None, shared: list[str], swarm_seeders: int | 
     if shared:
         params = {"count": len(shared), "torrents": ", ".join(shared[:3])}
         out.append(RemovalWarning(code="shared_files", params=params))
-    if state in ERROR_STATES:
+    # Lo stato nativo ridotto a una categoria: vale per ogni client, non
+    # solo per i nomi di qBittorrent.
+    kind = state_kind(state)
+    if kind == "error":
         out.append(RemovalWarning(code="client_error", params={"state": state}))
-    elif state in CHECKING_STATES:
+    elif kind == "checking":
         out.append(RemovalWarning(code="checking", params={"state": state}))
-    elif (state in ("downloading", "allocating") or (state or "").endswith("DL")) and not is_stopped_state(state):
+    elif kind == "downloading":
         out.append(RemovalWarning(code="downloading", params={"state": state}))
     return out
 
@@ -231,7 +233,7 @@ def list_not_imported(session: Session = Depends(get_session)):
 def refresh_not_imported(session: Session = Depends(get_session)):
     """Ricalcola subito, senza aspettare uno scan: rilegge la history di
     Radarr/Sonarr e i dati già indicizzati. Sola lettura su file e client."""
-    if session.query(RunLog.id).filter(RunLog.finished_at.is_(None)).first() is not None:
+    if pipeline.run_in_progress(session):
         raise HTTPException(status_code=409, detail=coded_detail("run_in_progress"))
     try:
         arr_index = arr.build_arr_index(session)
