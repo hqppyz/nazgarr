@@ -112,6 +112,7 @@
  "upload_reseed_missing_video": "The tracker's torrent has a video Nazgarr can't find locally: {path}",
  "upload_reseed_needs_identical": "{tracker}: a reseed needs an identical release on the tracker.",
  "upload_reseed_needs_verification": "{tracker}: run the full hash check first, only a passed check allows a reseed",
+ "upload_reseed_torrent_changed": "{tracker}: the .torrent on the tracker is not the one the full hash check verified, run the check again",
  "upload_resume_nothing_left": "Nothing to resume: the remaining trackers are already done.",
  "upload_screenshots_failed": "Could not make or upload the screenshots: {error}",
  "upload_season_required": "Choose the season.",

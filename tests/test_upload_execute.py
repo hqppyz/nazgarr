@@ -10,6 +10,7 @@ import torf
 from nazgarr import torrent_create, upload_decision, upload_execute, upload_jobs
 from nazgarr.adapters.tracker.base import UploadedTorrent, UploadError
 from nazgarr.models import Disk, TrackerUploadProfile
+from nazgarr.torrent_file import compute_info_hash
 from nazgarr.upload_jobs import UploadJobError
 from nazgarr.upload_worker import UploadWorker
 from tests.upload_helpers import InlineExecutor, make_client, make_tracker, write_video
@@ -185,7 +186,10 @@ def test_a_source_inside_the_seeding_folder_seeds_in_place(db_session, tmp_path,
     assert (fields.season_number, fields.episode_number) == (1, 0)
 
 
-def test_reseed_links_the_files_with_the_tracker_names(db_session, tmp_path, env):
+def _reseed_job(db_session, tmp_path, env, verified_hash=None):
+    """Un job col solo target "a" in reseed del torrent 7, già verificato
+    (verified_hash: l'info hash letto dal controllo; di default quello del
+    .torrent che il tracker restituisce)."""
     video = write_video(env["root"] / "media" / "Matrix" / "matrix.mkv", 300 * KB)
     other = tmp_path / "tracker-layout" / "The.Matrix.1999.1080p-GRP"
     other.mkdir(parents=True)
@@ -193,10 +197,11 @@ def test_reseed_links_the_files_with_the_tracker_names(db_session, tmp_path, env
     torrent_path, _ = torrent_create.create_torrent(str(other), "https://a/announce", str(tmp_path / "t.torrent"))
     with open(torrent_path, "rb") as f:
         env["trackers"]["a"].torrent_bytes = f.read()
+    info_hash = verified_hash or compute_info_hash(env["trackers"]["a"].torrent_bytes)
     job = upload_jobs.create_job(db_session, env["disk"], "media/Matrix")
     job.targets[0].dupes_json = json.dumps([{"torrent_id_remote": "7", "verdict": "identical",
                                              "download_link": "https://a/dl/7",
-                                             "verification": {"status": "passed"}}])
+                                             "verification": {"status": "passed", "info_hash": info_hash}}])
     db_session.commit()
     upload_jobs.transition(db_session, job, "identifying", "awaiting_decision", tmdb_id=603, content_type="movie",
                            kind="movie")
@@ -207,6 +212,11 @@ def test_reseed_links_the_files_with_the_tracker_names(db_session, tmp_path, env
         {"target_id": job.targets[0].id, "action": "reseed", "reseed_torrent_id": "7"},
         {"target_id": job.targets[1].id, "action": "skip"},
     ])
+    return job, video
+
+
+def test_reseed_links_the_files_with_the_tracker_names(db_session, tmp_path, env):
+    job, video = _reseed_job(db_session, tmp_path, env)
 
     _run(db_session, tmp_path, job)
 
@@ -216,6 +226,19 @@ def test_reseed_links_the_files_with_the_tracker_names(db_session, tmp_path, env
     assert env["client"].added == [(job.targets[0].torrent_path, str(env["root"] / "torrents"))]
     assert env["client"].skipped == [False]  # il .torrent è del tracker: recheck del client
     assert env["trackers"]["a"].uploads == []  # un reseed non pubblica niente
+
+
+def test_a_reseed_refuses_a_torrent_other_than_the_verified_one(db_session, tmp_path, env):
+    # Il controllo completo ha letto un altro .torrent: quello riscaricato
+    # non entra nel client, e niente hardlink.
+    job, _video = _reseed_job(db_session, tmp_path, env, verified_hash="0" * 40)
+
+    _run(db_session, tmp_path, job)
+
+    target = job.targets[0]
+    assert env["client"].added == []
+    assert not (env["root"] / "torrents" / "The.Matrix.1999.1080p-GRP").exists()
+    assert "upload_reseed_torrent_changed" in [e.code for e in job.events] + [target.error_message]
 
 
 def test_a_client_that_cannot_skip_the_recheck_is_never_asked_to(db_session, tmp_path, env):

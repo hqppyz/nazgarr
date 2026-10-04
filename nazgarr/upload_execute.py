@@ -51,7 +51,7 @@ from nazgarr.executor import client_visible_path
 from nazgarr.file_types import is_video
 from nazgarr.fs_scope import ScopeViolation, resolve_scoped
 from nazgarr.models import TorrentClient, TrackerUploadProfile, UploadJob, UploadTarget
-from nazgarr.torrent_file import parse_torrent_info
+from nazgarr.torrent_file import compute_info_hash, parse_torrent_info
 from nazgarr.upload import render_description
 from nazgarr.upload_jobs import UploadJobError
 from nazgarr.upload_verify import build_locator
@@ -522,6 +522,12 @@ def run_reseed(session: Session, job: UploadJob, target: UploadTarget, ctx: dict
     session.commit()
     adapter = adapter_factory.build_tracker_adapter(target.tracker)
     content = adapter.download_torrent(dupe["download_link"])
+    # Il controllo completo vale per il .torrent che ha letto: quello che si
+    # aggiunge al client dev'essere lo stesso, non uno riscaricato e cambiato
+    # nel frattempo sul tracker.
+    verified = (dupe.get("verification") or {})
+    if verified.get("status") != "passed" or verified.get("info_hash") != compute_info_hash(content):
+        raise UploadJobError("upload_reseed_torrent_changed", tracker=target.tracker.label)
     torrent_path = os.path.join(ctx["dir"], f"reseed-{target.tracker_id}.torrent")
     with open(torrent_path, "wb") as f:
         f.write(content)

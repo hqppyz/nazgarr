@@ -6,6 +6,7 @@ export const errors = {
   'errors.auth_username_required': 'Username is required.',
   'errors.auth_password_too_short': 'Password must be at least 8 characters.',
   'errors.upload_reseed_needs_verification': '{tracker}: run the full hash check first, only a passed check allows a reseed',
+  'errors.upload_reseed_torrent_changed': '{tracker}: the .torrent on the tracker is not the one the full hash check verified, run the check again',
   'errors.upload_source_not_a_file': 'Not a regular file (a symlink?): {path}',
   'errors.cross_site_request': 'Request refused: it came from another website',
   'errors.upload_source_has_symlinks': '{path} contains symlinks: upload the real files, not links to them',
