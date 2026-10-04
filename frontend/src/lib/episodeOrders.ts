@@ -30,3 +30,25 @@ export function translateEpisode(source: EpisodeOrder, target: EpisodeOrder, sea
 export function episodeLabel(season: number, episodes: number[]): string {
   return `S${String(season).padStart(2, '0')}${episodes.map((e) => `E${String(e).padStart(2, '0')}`).join('')}`
 }
+
+// "S1 13 · S2 39 · S3 13": gli episodi per stagione, speciali in fondo.
+export function seasonCounts(order: EpisodeOrder): string {
+  return [...order.seasons]
+    .sort((a, b) => Number(a.season_number === 0) - Number(b.season_number === 0) || a.season_number - b.season_number)
+    .map((s) => `S${s.season_number} ${s.episodes.length}`)
+    .join(' · ')
+}
+
+// Le fonti che non hanno dato niente, e perché: "TVDB: chiave non configurata".
+export function sourceProblems(sources: Record<string, string> | undefined, t: (key: string, params?: Record<string, unknown>) => string): string[] {
+  return Object.entries(sources ?? {})
+    .filter(([, status]) => status !== 'ok' && status !== 'not_needed')
+    .map(([source, status]) => {
+      const [code, ...rest] = status.split(': ')
+      return t('metadata.orderSource', {
+        source: t(`metadata.orderSourceName.${source}`),
+        status: code === 'error' ? t('metadata.orderStatus.error', { detail: rest.join(': ') }) : t(`metadata.orderStatus.${code}`),
+      })
+    })
+}
+

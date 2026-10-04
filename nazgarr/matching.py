@@ -86,6 +86,7 @@ class MatchContext:
     direction: str
     arr_index: ArrIndex | None = None
     local: LocalFiles | None = None
+    translator: object | None = None  # nazgarr/episode_orders.py Translator, creato alla prima serie
     evaluated_packs: set[str] = field(default_factory=set)
     _torrents: dict[str, TorrentInfo | None] = field(default_factory=dict)
     _info_hashes: dict[str, str] = field(default_factory=dict)
@@ -94,6 +95,13 @@ class MatchContext:
         if self.local is None:
             self.local = LocalFiles.load(self.session)
         return self.local
+
+    def episode_translator(self):
+        if self.translator is None:
+            from nazgarr.episode_orders import Translator
+
+            self.translator = Translator(self.session)
+        return self.translator
 
     def fetch_torrent(self, url: str | None) -> TorrentInfo | None:
         """Scarica e analizza un .torrent tramite l'adapter (rate limit del
@@ -119,7 +127,7 @@ class MatchContext:
 
 def _map(ctx: MatchContext, layout: Layout, anchor: MediaFile | SeedFile):
     if ctx.direction == "media_to_torrent":
-        return map_media_side(layout, anchor, ctx.local_files(), ctx.arr_index)
+        return map_media_side(layout, anchor, ctx.local_files(), ctx.arr_index, ctx.episode_translator())
     return map_seed_side(layout, anchor, ctx.local_files())
 
 

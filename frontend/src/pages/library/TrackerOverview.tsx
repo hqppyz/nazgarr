@@ -59,8 +59,9 @@ function TrackerRow({ detail, group }: { detail: Detail; group: Group }) {
           onClick={() => setOpen((v) => !v)}
           className="flex min-w-0 flex-1 items-center gap-2.5 text-left disabled:cursor-default"
         >
+          {/* Il logo grande quanto l'icona generica dei tracker non configurati. */}
           {group.tracker_id != null ? (
-            <TrackerLogo trackerId={group.tracker_id} />
+            <TrackerLogo trackerId={group.tracker_id} className="size-5 shrink-0" />
           ) : (
             <GlobeIcon className="size-5 shrink-0 text-muted-foreground" />
           )}

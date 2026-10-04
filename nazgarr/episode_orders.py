@@ -19,6 +19,7 @@ trovati, tradotti in ognuno."""
 
 import json
 import logging
+import re
 import time
 from collections import defaultdict
 from dataclasses import asdict, dataclass, field
@@ -196,8 +197,11 @@ def tmdb_orders(client, tmdb_id: int) -> list[EpisodeOrder]:
                 f"tmdb:group:{group['id']}",
                 f"TMDB · {group.get('name') or TMDB_GROUP_TYPES.get(group.get('type'), 'Group')}", "tmdb",
             )
-            for index, part in enumerate(sorted(detail.get("groups") or [], key=lambda g: g.get("order", 0))):
-                season = part.get("order", index)
+            parts = sorted(detail.get("groups") or [], key=lambda g: g.get("order", 0))
+            for index, part in enumerate(parts):
+                season = _group_season(part, index, parts)
+                if season in order.seasons:
+                    continue  # due gruppi con lo stesso numero: tiene il primo
                 order.seasons[season] = [
                     OrderEpisode(number=pos + 1, titles=[e.get("name") or ""], air_date=e.get("air_date"),
                                  refs=[(e["season_number"], e["episode_number"])])
@@ -208,6 +212,27 @@ def tmdb_orders(client, tmdb_id: int) -> list[EpisodeOrder]:
         return orders
 
     return _cached(("tmdb", tmdb_id), fetch)
+
+
+_SPECIALS = re.compile(r"\b(specials?|speciali|extras?)\b", re.IGNORECASE)
+_NUMBER = re.compile(r"(\d+)")
+
+
+def _group_season(part: dict, index: int, parts: list[dict]) -> int:
+    """Il numero di stagione di un gruppo di un episode group TMDB: dal nome
+    ("Season 1", "Stagione 2", "Part 3"; gli speciali sono la 0), altrimenti
+    dalla posizione. Le posizioni partono spesso da 0 anche senza un gruppo
+    di speciali: allora la prima è la stagione 1."""
+    name = part.get("name") or ""
+    if _SPECIALS.search(name):
+        return 0
+    number = _NUMBER.search(name)
+    if number:
+        return int(number.group(1))
+    order = part.get("order", index)
+    starts_at_zero = min((p.get("order", i) for i, p in enumerate(parts)), default=0) == 0
+    has_specials = any(_SPECIALS.search(p.get("name") or "") for p in parts)
+    return order + 1 if starts_at_zero and not has_specials else order
 
 
 class TmdbApi:
@@ -315,22 +340,106 @@ def tvdb_orders(api: TvdbApi, tvdb_id: int) -> list[EpisodeOrder]:
 
 
 def fit(order: EpisodeOrder, found: dict[int, list[int]], pack: bool) -> dict:
-    """Quanto i file (stagione -> episodi) combaciano con un ordinamento:
-    quanti dei loro episodi esistono, e per un pack quanto sono complete le
-    stagioni. score in [0, 1]."""
+    """Quanto i file (stagione -> episodi) combaciano con un ordinamento.
+    Stagione per stagione e per numero, mai per posizione (uno speciale
+    davanti non sposta niente).
+
+    Per un pack o una libreria conta prima di tutto il numero di episodi di
+    ogni stagione (decisione dell'utente, 2026-10-04): 13 file nella stagione
+    1 combaciano con un ordinamento che ne ha 13, anche se i loro numeri
+    vengono da un'altra numerazione (es. Sonarr in TVDB aired, con tre
+    segmenti per file). Poi, meno, che i numeri dei file esistano.
+    - coverage: quanti numeri dei file esistono nell'ordinamento;
+    - score: 0.75 numero di episodi per stagione + 0.25 coverage (un pack o
+      una libreria), solo coverage per un episodio singolo."""
     files = {(s, e) for s, eps in found.items() for e in eps}
     known = order.episodes()
     matched = len(files & set(known))
     coverage = matched / len(files) if files else 0.0
     score = coverage
-    complete = []
+    complete = 0
     if pack and files:
+        counts = 0.0
         for season, eps in found.items():
-            numbers = {e.number for e in order.seasons.get(season) or []}
-            complete.append(len(set(eps) & numbers) / len(numbers) if numbers else 0.0)
-        score = 0.7 * coverage + 0.3 * (sum(complete) / len(complete))
-    return {"score": round(score, 3), "matched": matched, "files": len(files),
-            "complete_seasons": sum(1 for c in complete if c >= 1.0)}
+            expected = len(order.seasons.get(season) or [])
+            ratio = min(len(eps), expected) / max(len(eps), expected) if expected else 0.0
+            counts += ratio * len(eps)
+            complete += ratio >= 1.0
+        score = 0.75 * (counts / len(files)) + 0.25 * coverage
+    return {"score": round(score, 3), "coverage": round(coverage, 3), "matched": matched, "files": len(files),
+            "complete_seasons": complete}
+
+
+def collect(session: Session, tmdb_id: int, tvdb_id: int | None, found: dict[int, list[int]], pack: bool,
+            tmdb_api=None, tvdb_api=None, sonarr_factory=None, status: dict | None = None) -> list[EpisodeOrder]:
+    """Gli ordinamenti di una serie, già allineati alle stagioni di TMDB:
+    TMDB (default e gruppi), Sonarr e, come ultima risorsa, TVDB. status, se
+    dato, dice com'è andata ogni fonte (per capire perché un ordinamento manca)."""
+    status = status if status is not None else {}
+    orders: list[EpisodeOrder] = []
+    tmdb_key = settings_repo.get_setting(session, "tmdb_api_key")
+    if tmdb_api is None and tmdb_key:
+        tmdb_api = TmdbApi(tmdb_key)
+    if tmdb_api is None:
+        status["tmdb"] = "no_key"
+    else:
+        try:
+            orders += tmdb_orders(tmdb_api, tmdb_id)
+            status["tmdb"] = "ok"
+        except Exception as exc:
+            logger.warning("Ordinamenti TMDB non disponibili per %s", tmdb_id, exc_info=True)
+            status["tmdb"] = f"error: {type(exc).__name__}: {exc}"[:200]
+    default = next((o for o in orders if o.key == TMDB_DEFAULT), None)
+    sonarr = sonarr_order(session, tmdb_id, tvdb_id, sonarr_factory)
+    status["sonarr"] = "ok" if sonarr is not None else "not_found"
+    if sonarr is not None:
+        orders.append(sonarr)
+
+    # TVDB, l'ultima risorsa: se Sonarr non ha la serie, o se i file non
+    # seguono il suo ordine (un altro ordine TVDB, es. "Joined", li coprirebbe).
+    if not tvdb_id:
+        status["tvdb"] = "no_tvdb_id"
+    elif not (sonarr is None or (found and fit(sonarr, found, pack)["score"] < 1.0)):
+        status["tvdb"] = "not_needed"
+    else:
+        key = settings_repo.get_setting(session, "tvdb_api_key")
+        if tvdb_api is None and key:
+            tvdb_api = TvdbApi(key)
+        if tvdb_api is None:
+            status["tvdb"] = "no_key"
+        else:
+            try:
+                fetched = tvdb_orders(tvdb_api, tvdb_id)
+                orders += [o for o in fetched
+                           if not (sonarr is not None and o.key in ("tvdb:official", "tvdb:default"))]
+                status["tvdb"] = "ok" if fetched else "empty"
+            except Exception as exc:
+                logger.warning("Ordinamenti TVDB non disponibili per %s", tvdb_id, exc_info=True)
+                status["tvdb"] = f"error: {type(exc).__name__}: {exc}"[:200]
+    if default is not None:
+        for order in orders:
+            if order.source in ("sonarr", "tvdb"):
+                align_to(order, default)
+    return orders
+
+
+def best_fit(orders: list[EpisodeOrder], found: dict[int, list[int]], pack: bool,
+             preferred: str | None = None, by: str = "score") -> EpisodeOrder | None:
+    """Quello che combacia meglio; a parità la scelta della serie, poi TVDB
+    aired, poi TMDB. Senza episodi, la stessa priorità. by="coverage": quello
+    in cui esistono i numeri dei file (la loro numerazione, per tradurli)."""
+    keys = [o.key for o in orders]
+    tvdb_aired = next((k for k in TVDB_AIRED_KEYS if k in keys), None)
+    # Priorità a TVDB (decisione dell'utente, 2026-10-04): aired, poi gli altri ordini TVDB, poi TMDB.
+    other_tvdb = [o.key for o in orders if o.source == "tvdb" and o.key != tvdb_aired]
+    rank = list(dict.fromkeys(k for k in (preferred, tvdb_aired, *other_tvdb, TMDB_DEFAULT, *keys) if k and k in keys))
+    if not orders:
+        return None
+    if not found:
+        return next(o for o in orders if o.key == rank[0])
+    fits = {o.key: fit(o, found, pack) for o in orders}
+    # Per la numerazione, a pari numeri esistenti decide la forma delle stagioni.
+    return max(orders, key=lambda o: (fits[o.key][by], fits[o.key]["score"], -rank.index(o.key)))
 
 
 def build(session: Session, tmdb_id: int, tvdb_id: int | None, found: dict[int, list[int]], pack: bool,
@@ -338,60 +447,30 @@ def build(session: Session, tmdb_id: int, tvdb_id: int | None, found: dict[int, 
     """Gli ordinamenti di una serie per il primo punto di approvazione."""
     from nazgarr.models import EpisodeOrderPreference
 
-    orders: list[EpisodeOrder] = []
-    tmdb_key = settings_repo.get_setting(session, "tmdb_api_key")
-    if tmdb_api is None and tmdb_key:
-        tmdb_api = TmdbApi(tmdb_key)
-    if tmdb_api is not None:
-        try:
-            orders += tmdb_orders(tmdb_api, tmdb_id)
-        except httpx.HTTPError:
-            logger.warning("Ordinamenti TMDB non disponibili per %s", tmdb_id, exc_info=True)
-    default = next((o for o in orders if o.key == TMDB_DEFAULT), None)
-    sonarr = sonarr_order(session, tmdb_id, tvdb_id, sonarr_factory)
-    if sonarr is not None:
-        orders.append(sonarr)
-
-    def best_score() -> float:
-        return max((fit(o, found, pack)["score"] for o in orders), default=0.0)
-
-    # TVDB, l'ultima risorsa: se Sonarr non ha la serie o niente combacia del tutto.
-    if tvdb_id and (sonarr is None or (found and best_score() < 1.0)):
-        key = settings_repo.get_setting(session, "tvdb_api_key")
-        if tvdb_api is None and key:
-            tvdb_api = TvdbApi(key)
-        if tvdb_api is not None:
-            try:
-                orders += [o for o in tvdb_orders(tvdb_api, tvdb_id)
-                           if not (sonarr is not None and o.key in ("tvdb:official", "tvdb:default"))]
-            except httpx.HTTPError:
-                logger.warning("Ordinamenti TVDB non disponibili per %s", tvdb_id, exc_info=True)
-    if default is not None:
-        for order in orders:
-            if order.source in ("sonarr", "tvdb"):
-                align_to(order, default)
-
+    status: dict = {}
+    orders = collect(session, tmdb_id, tvdb_id, found, pack, tmdb_api, tvdb_api, sonarr_factory, status)
     fits = {o.key: fit(o, found, pack) for o in orders}
     keys = [o.key for o in orders]
     preference = session.get(EpisodeOrderPreference, tmdb_id)
     preferred = preference.order_key if preference is not None and preference.order_key in keys else None
     tvdb_aired = next((k for k in TVDB_AIRED_KEYS if k in keys), None)
-    # A parità di punteggio: la scelta dell'ultima volta, poi TVDB aired, poi TMDB.
-    rank = [k for k in (preferred, tvdb_aired, TMDB_DEFAULT) if k] + keys
-    if found:
-        # Di default quello che combacia meglio con i file (decisione dell'utente, 2026-10-04).
-        recommended = max(keys, key=lambda k: (fits[k]["score"], -rank.index(k)), default=None)
-    else:
-        recommended = rank[0] if keys else None
+    # Di default quello che combacia meglio con i file (decisione dell'utente, 2026-10-04).
+    chosen = best_fit(orders, found, pack, preferred)
+    recommended = chosen.key if chosen is not None else None
     # L'avviso solo se i file non seguono TVDB aired, l'ordine di Sonarr, e
     # solo se TVDB aired si conosce (Sonarr o la chiave TVDB).
     warning = None
     if found and recommended and tvdb_aired and recommended != tvdb_aired \
             and fits[recommended]["score"] > fits[tvdb_aired]["score"] + WARNING_MARGIN:
         warning = {"code": "files_not_tvdb_aired", "order": recommended, "tvdb": tvdb_aired}
-    files_order = recommended
+    # La numerazione dei numeri dei file (per tradurli): quella in cui
+    # esistono, che può non essere quella proposta (es. Sonarr in TVDB aired
+    # con tre segmenti per file, e i file che sono gli episodi di un'altra).
+    numbering = best_fit(orders, found, pack, preferred, by="coverage") if found else chosen
+    files_order = numbering.key if numbering is not None else recommended
     by_key = {o.key: o for o in orders}
     return {
+        "sources": status,
         "orders": [o.to_dict() for o in orders],
         "recommended": recommended,
         "files_order": files_order,
@@ -475,3 +554,55 @@ def translate_files(job, season: int, episode: int) -> list[Ref]:
         return [(season, episode)]
     chosen, files = EpisodeOrder.from_dict(data["chosen"]), EpisodeOrder.from_dict(data["files"])
     return translate(files, chosen, season, episode) or [(season, episode)]
+
+
+def group(episodes) -> dict[int, list[int]]:
+    """(stagione, episodio) -> stagione: [episodi]."""
+    out: dict[int, set[int]] = defaultdict(set)
+    for season, episode in episodes:
+        out[season].add(episode)
+    return {s: sorted(e) for s, e in out.items()}
+
+
+class Translator:
+    """Per il motore di matching (reseeding): i numeri degli episodi di un
+    torrent nella numerazione della libreria, quando i due seguono
+    ordinamenti diversi. Gli ordinamenti di ogni serie si raccolgono una volta
+    per run (e restano in cache per un'ora)."""
+
+    def __init__(self, session: Session, **sources):
+        self.session = session
+        self.sources = sources
+        self._orders: dict[int, list[EpisodeOrder]] = {}
+
+    def orders(self, tmdb_id: int, library: set[Ref] | None = None) -> list[EpisodeOrder]:
+        if tmdb_id not in self._orders:
+            try:
+                tvdb_id = tvdb_id_for(self.session, tmdb_id, self.sources.get("tmdb_api"))
+                # Con gli episodi della libreria: se niente li copre del tutto, anche TVDB.
+                self._orders[tmdb_id] = collect(self.session, tmdb_id, tvdb_id, group(library or set()), True,
+                                                **self.sources)
+            except Exception:
+                logger.warning("Ordinamenti degli episodi non disponibili per %s", tmdb_id, exc_info=True)
+                self._orders[tmdb_id] = []
+        return self._orders[tmdb_id]
+
+    def mapping(self, tmdb_id: int, torrent: set[Ref], library: set[Ref]) -> dict[Ref, Ref]:
+        """Episodio del torrent -> episodio della libreria. Solo traduzioni uno
+        a uno che finiscono su un episodio presente: un file con due episodi
+        accorpati non diventa mai un file solo della libreria."""
+        orders = self.orders(tmdb_id, library)
+        if not orders or not torrent or not library:
+            return {}
+        source = best_fit(orders, group(torrent), pack=True)
+        # La libreria: i numeri registrati (spesso di Sonarr), non la forma delle stagioni.
+        target = best_fit(orders, group(library), pack=True, by="coverage")
+        if source is None or target is None or source.key == target.key:
+            return {}
+        out = {}
+        for season, episode in torrent:
+            translated = translate(source, target, season, episode)
+            if len(translated) == 1 and translated[0] in library:
+                out[(season, episode)] = translated[0]
+        return out
+

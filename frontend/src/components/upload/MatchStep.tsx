@@ -25,7 +25,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { ToggleGroupItem, ToggleGroupSingle } from '@/components/ui/toggle-group'
 import { t } from '@/lib/i18n'
-import { episodeLabel, translateEpisode } from '@/lib/episodeOrders'
+import { episodeLabel, seasonCounts, sourceProblems, translateEpisode } from '@/lib/episodeOrders'
 import { fromForcedIds, missingEpisodes, toForcedIds, type UploadKind } from '@/lib/upload'
 import { cn } from '@/lib/utils'
 
@@ -438,17 +438,23 @@ function EpisodeOrderPicker({ data, active, onChange }: {
             const fit = fitOf(order.key)
             return (
               <SelectItem key={order.key} value={order.key}>
-                <span className="flex w-full items-center justify-between gap-3">
-                  <span>{order.label}</span>
-                  {fit && fit.files > 0 && (
-                    <span className="text-xs text-muted-foreground">{t('upload.match.orderFit', { matched: fit.matched, files: fit.files })}</span>
-                  )}
+                <span className="grid w-full">
+                  <span className="flex items-center justify-between gap-3">
+                    <span>{order.label}</span>
+                    {fit && fit.files > 0 && (
+                      <span className="text-xs text-muted-foreground">{t('metadata.orderFit', { score: `${Math.round(fit.score * 100)}%` })}</span>
+                    )}
+                  </span>
+                  <span className="text-xs text-muted-foreground">{seasonCounts(order)}</span>
                 </span>
               </SelectItem>
             )
           })}
         </SelectContent>
       </Select>
+      {sourceProblems(data.sources, t).map((line) => (
+        <p key={line} className="text-xs text-muted-foreground">{line}</p>
+      ))}
       {tvdb && fitting && active.key !== tvdb.key && (
         <div className="flex flex-wrap items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-xs">
           <TriangleAlertIcon className="mt-0.5 size-3.5 shrink-0 text-amber-600 dark:text-amber-400" />

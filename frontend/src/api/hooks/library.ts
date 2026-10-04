@@ -150,3 +150,16 @@ export function useRefreshNotImported() {
     },
   })
 }
+
+// Gli ordinamenti degli episodi di una serie in libreria (nazgarr/episode_orders.py):
+// quello che seguono i file e gli altri, per vederla in un'altra numerazione.
+export function useLibraryEpisodeOrders(tmdbId: number | null) {
+  return useQuery({
+    queryKey: ['library-episode-orders', tmdbId],
+    queryFn: () =>
+      unwrap(api.GET('/api/library/items/tv/{tmdb_id}/episode-orders', { params: { path: { tmdb_id: tmdbId! } } })),
+    enabled: tmdbId != null,
+    staleTime: 10 * 60 * 1000,
+  })
+}
+

@@ -34,11 +34,11 @@ export function ClientLogo({ type }: { type: string }) {
 
 // La favicon del tracker, scaricata dal backend (nazgarr/tracker_icons.py);
 // senza, un'antenna generica.
-export function TrackerLogo({ trackerId }: { trackerId: number }) {
+export function TrackerLogo({ trackerId, className }: { trackerId: number; className?: string }) {
   return (
     <AuthedImage
       url={`/api/trackers/${trackerId}/icon`}
-      className={BOX}
+      className={className ?? BOX}
       fallback={<RadioTowerIcon className="size-4 text-muted-foreground" />}
     />
   )

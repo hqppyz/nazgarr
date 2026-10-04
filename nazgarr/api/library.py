@@ -23,6 +23,7 @@ from nazgarr import (
     tracker_scope,
 )
 from nazgarr.api.reviews import ReviewResponse
+from nazgarr.api.uploads import EpisodeOrdersResponse
 from nazgarr.api_errors import coded_detail
 from nazgarr.deps import get_session
 from nazgarr.exclusions import CompiledExclusions, load_exclusions
@@ -362,3 +363,23 @@ def exclude_file(body: ExcludeFileRequest, session: Session = Depends(get_sessio
         lines.append(pattern)
         settings_repo.set_setting(session, "exclusion_patterns", "\n".join(lines))
     return ExcludeFileResponse(pattern=pattern)
+
+
+@router.get("/library/items/tv/{tmdb_id}/episode-orders", response_model=EpisodeOrdersResponse)
+def library_episode_orders(tmdb_id: int, session: Session = Depends(get_session)):
+    """Gli ordinamenti degli episodi di una serie in libreria
+    (nazgarr/episode_orders.py): quello che seguono i file (di solito Sonarr),
+    gli altri per vederla in un'altra numerazione, e l'avviso se i file non
+    seguono TVDB aired."""
+    from nazgarr import episode_orders
+
+    found = episode_orders.group(
+        (i.season_number, i.episode_number)
+        for i in session.query(MediaItem).filter_by(content_type="tv", tmdb_id=tmdb_id)
+        if i.season_number is not None and i.episode_number is not None
+    )
+    tvdb_id = episode_orders.tvdb_id_for(session, tmdb_id)
+    # Come un pack: conta anche quanto sono complete le stagioni, non solo se
+    # gli episodi esistono (13 file su 13 battono 13 su 38).
+    return episode_orders.build(session, tmdb_id, tvdb_id, found, pack=True)
+
