@@ -39,7 +39,12 @@ from nazgarr.models import (
     Tracker,
     TrackerUploadProfile,
 )
-from nazgarr.review import READY_FOR_DECISION_STATUSES, hashes_in_clients, seed_job_display_status
+from nazgarr.review import (
+    READY_FOR_DECISION_STATUSES,
+    hashes_in_clients,
+    seed_job_display_status,
+    without_seed_job,
+)
 from nazgarr.scan_state import is_current, latest_scan_by_disk
 
 MAX_CANDIDATES = 30
@@ -175,12 +180,9 @@ def item_detail(session: Session, content_type: str, tmdb_id: int) -> dict | Non
                     for g in group["files"] if g["media_file_id"] != f["media_file_id"]
                 )
 
-    reviews = [
-        r for r in session.query(MatchReview)
-        .filter(MatchReview.media_file_id.in_(mf_ids), MatchReview.status.in_(READY_FOR_DECISION_STATUSES))
-        .all()
-        if not session.query(SeedJob).filter_by(candidate_id=r.candidate_id).count()
-    ] if mf_ids else []
+    reviews = without_seed_job(session.query(MatchReview).filter(
+        MatchReview.media_file_id.in_(mf_ids), MatchReview.status.in_(READY_FOR_DECISION_STATUSES),
+    )).all() if mf_ids else []
     in_review = {r.media_file_id for r in reviews}
 
     items_by_id = {i.id: i for i in items}

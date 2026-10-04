@@ -14,6 +14,7 @@ sia al relative_path intero — un pattern senza "/" matcha ovunque nel path
 """
 
 import fnmatch
+import re
 from dataclasses import dataclass
 
 from sqlalchemy.orm import Session
@@ -67,23 +68,30 @@ DEFAULT_ENABLED_PRESETS = [MEDIA_SERVER_METADATA_PRESET]
 class CompiledExclusions:
     patterns: list[str]
 
+    def __post_init__(self) -> None:
+        # Tutti i pattern in due espressioni regolari, compilate una volta:
+        # is_excluded gira su ogni file della libreria a ogni vista e a ogni
+        # fotografia della salute (decine di migliaia di chiamate).
+        by_name, by_path = [], []
+        for pattern in self.patterns:
+            p = pattern.lower()
+            if "/" not in p:
+                by_name.append(fnmatch.translate(p))
+            else:
+                # Un pattern con "/" matcha da qualunque profondità, non solo
+                # dalla radice — "sample/*" deve prendere sia "sample/x.mkv"
+                # sia "Movie/sample/x.mkv", non solo il primo.
+                by_path.extend((fnmatch.translate(p), fnmatch.translate(f"*/{p}")))
+        self._by_name = re.compile("|".join(by_name)) if by_name else None
+        self._by_path = re.compile("|".join(by_path)) if by_path else None
+
     def is_excluded(self, relative_path: str) -> bool:
         if not self.patterns:
             return False
         normalized = relative_path.replace("\\", "/").lower()
-        filename = normalized.rsplit("/", 1)[-1]
-        for pattern in self.patterns:
-            p = pattern.lower()
-            if "/" not in p:
-                if fnmatch.fnmatch(filename, p):
-                    return True
-                continue
-            # Un pattern con "/" matcha da qualunque profondità, non solo
-            # dalla radice — "sample/*" deve prendere sia "sample/x.mkv"
-            # sia "Movie/sample/x.mkv", non solo il primo.
-            if fnmatch.fnmatch(normalized, p) or fnmatch.fnmatch(normalized, f"*/{p}"):
-                return True
-        return False
+        if self._by_name is not None and self._by_name.match(normalized.rsplit("/", 1)[-1]):
+            return True
+        return self._by_path is not None and self._by_path.match(normalized) is not None
 
 
 def parse_custom_patterns(raw: str | None) -> list[str]:

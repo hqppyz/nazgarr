@@ -64,3 +64,33 @@ def test_custom_and_preset_patterns_combine():
 def test_matching_is_case_insensitive():
     exclusions = compile_exclusions("*.NFO", None)
     assert exclusions.is_excluded("movie/readme.nfo")
+
+
+def test_compiled_patterns_match_exactly_like_fnmatch():
+    """Le espressioni regolari compilate danno gli stessi risultati di
+    fnmatch pattern per pattern (la regola documentata in cima al modulo)."""
+    import fnmatch
+
+    from nazgarr.exclusions import PRESETS, CompiledExclusions
+
+    patterns = [p for group in PRESETS.values() for p in group] + ["Extras/*", "*[1-3].mkv", "a?c.txt"]
+
+    def reference(path):
+        normalized = path.replace("\\", "/").lower()
+        filename = normalized.rsplit("/", 1)[-1]
+        for pattern in patterns:
+            p = pattern.lower()
+            if "/" not in p:
+                if fnmatch.fnmatch(filename, p):
+                    return True
+            elif fnmatch.fnmatch(normalized, p) or fnmatch.fnmatch(normalized, f"*/{p}"):
+                return True
+        return False
+
+    paths = [
+        "Movie/Movie.mkv", "Movie/movie.NFO", "Movie/Sample/x.mkv", "sample/x.mkv", "Movie/sample.mkv",
+        "Show/Season 01/poster.jpg", "Show/season01-poster.jpg", "x/extras/y.mkv", "Movie\\Proof\\p.jpg",
+        "a/abc.txt", "a/ab.txt", "Show/Ep2.mkv", "Show/Ep4.mkv", "file.!qb", "dir.nfo/file.mkv", ".actors/a.jpg",
+    ]
+    compiled = CompiledExclusions(patterns=patterns)
+    assert [compiled.is_excluded(p) for p in paths] == [reference(p) for p in paths]

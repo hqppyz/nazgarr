@@ -20,6 +20,7 @@ default, mai un bypass "perché il file esiste già"."""
 import logging
 from datetime import UTC, datetime
 
+from sqlalchemy import exists
 from sqlalchemy.orm import Session
 
 from nazgarr import full_check
@@ -416,10 +417,8 @@ def close_resolved_reviews(session: Session) -> int:
     e un file non più orfano non lo ricerca più. Anche un file ora escluso
     esce dalla coda. Chiamata dalla pipeline
     dopo scan e indicizzazione, prima del matching."""
-    active = [
-        r for r in session.query(MatchReview).filter(MatchReview.status.in_(READY_FOR_DECISION_STATUSES)).all()
-        if not session.query(SeedJob).filter_by(candidate_id=r.candidate_id).count()
-    ]
+    active = without_seed_job(session.query(MatchReview).filter(
+        MatchReview.status.in_(READY_FOR_DECISION_STATUSES))).all()
     if not active:
         return 0
     # In seed davvero (un client lo segue), e con i cross-seed per tracker:
@@ -482,11 +481,7 @@ def execute_auto_approved(session: Session, progress=NULL_PROGRESS) -> dict[str,
     seed_job — SOLO se l'utente ha acceso l'esecuzione automatica, mai di
     default (auto_execute_enabled). Le 'pending' non vengono mai eseguite
     qui. Chiamata da nazgarr/pipeline.py dopo il matching di ogni run."""
-    reviews = [
-        r
-        for r in session.query(MatchReview).filter(MatchReview.status == "auto_approved").all()
-        if not session.query(SeedJob).filter_by(candidate_id=r.candidate_id).count()
-    ]
+    reviews = without_seed_job(session.query(MatchReview).filter(MatchReview.status == "auto_approved")).all()
     if not auto_execute_enabled(session):
         progress.detail(f"Automatic execution is off: {len(reviews)} recommended, waiting for your approval")
         return {"executed": 0, "waiting": len(reviews)}
@@ -523,16 +518,18 @@ def _verify_now(session: Session, review: MatchReview, progress):
     return result if passed else None
 
 
+def without_seed_job(query):
+    """Solo le review il cui candidato non ha ancora un seed_job: in SQL,
+    invece di una query per review."""
+    return query.filter(~exists().where(SeedJob.candidate_id == MatchReview.candidate_id))
+
+
 def list_ready_for_review(session: Session) -> list[MatchReview]:
     """match_review in attesa di una decisione (pending o auto_approved) il
     cui candidate non ha ancora un seed_job — esclude quelle già eseguite
     (con successo o meno) in un tentativo precedente."""
-    reviews = session.query(MatchReview).filter(MatchReview.status.in_(READY_FOR_DECISION_STATUSES)).all()
-    return [
-        r
-        for r in reviews
-        if not session.query(SeedJob).filter_by(candidate_id=r.candidate_id).count()
-    ]
+    return without_seed_job(
+        session.query(MatchReview).filter(MatchReview.status.in_(READY_FOR_DECISION_STATUSES))).all()
 
 
 def approve_all(session: Session, decided_by: str = "user") -> int:
