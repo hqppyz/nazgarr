@@ -21,7 +21,7 @@ class Setting:
 CATALOG = [
     # Metadati
     Setting("tmdb_api_key", "TMDB API key (v3): identifies every file. Free at themoviedb.org.", "secret"),
-    Setting("tvdb_api_key", "TVDB API key (not used yet).", "secret"),
+    Setting("tvdb_api_key", "TVDB API key: optional, a last resort for episode orders.", "secret"),
     # Esclusioni
     Setting("exclusion_patterns", "Your exclusion patterns, one per line (e.g. */Extras/*).", "lines"),
     Setting("exclusion_presets", "Enabled exclusion presets, comma separated (see the web UI for the list)."),

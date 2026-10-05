@@ -23,7 +23,6 @@ export const disks = {
     'Dove viene creato un NUOVO hardlink (e il save_path del client). Non limita mai la ricerca "già in seed", che copre sempre tutte le cartelle di seeding. Vuoto = la prima cartella di seeding.',
   'disks.mediaFolder': 'Cartella media',
   'disks.seedingFolder': 'Cartella dei torrent',
-  'disks.seedingFolderDialogTitle': 'Cartella dei torrent (torrents_rel_path)',
   'disks.noDisksConfigured': 'Nessun disco configurato.',
   'disks.createFolderFailed': 'Creazione della cartella non riuscita: {message}',
   'disks.navigateToFile': 'Vai al file e selezionalo.',

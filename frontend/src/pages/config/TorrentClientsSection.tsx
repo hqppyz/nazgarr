@@ -329,11 +329,12 @@ function DiskAssociationRow({
   const nazgarrSide = `${disk.root_path.replace(/\/$/, '')}${localRel ? `/${localRel}` : ''}`
 
   return (
-    <div className="grid gap-3 rounded-md border px-3 py-2.5">
-      <div className="flex items-center justify-between gap-2">
+    <div className="grid min-w-0 gap-3 rounded-md border px-3 py-2.5">
+      <div className="flex min-w-0 items-center justify-between gap-2">
         <span className="font-medium">{disk.label}</span>
-        <span className="truncate font-mono text-xs text-muted-foreground">{disk.root_path}</span>
-        <span className="flex-1" />
+        <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground" title={disk.root_path}>
+          {disk.root_path}
+        </span>
         <Switch
           checked={enabled}
           onCheckedChange={(checked) => {
@@ -412,7 +413,18 @@ function DisksDialog({ torrentClientId, disks: associations }: { torrentClientId
           <DialogTitle>{t('torrentClients.enabledDisksForClient')}</DialogTitle>
           <DialogDescription>{t('torrentClients.rootPathOverrideHelp')}</DialogDescription>
         </DialogHeader>
-        <div className="grid gap-2">
+        {/* I tre casi tipici (retrospettiva del tutorial, 2026-10-05): cartella del disco = come la vede il client. */}
+        <div className="grid gap-1.5 rounded-md bg-muted/40 p-3 text-xs">
+          <p className="font-medium">{t('torrentClients.mappingExamples.title')}</p>
+          {(['same', 'subfolder', 'unraid'] as const).map((key) => (
+            <div key={key} className="grid gap-0.5 sm:grid-cols-[1fr_auto]">
+              <span className="text-muted-foreground">{t(`torrentClients.mappingExamples.${key}`)}</span>
+              <code className="font-mono">{t(`torrentClients.mappingExamples.${key}Value`)}</code>
+            </div>
+          ))}
+          <p className="text-muted-foreground">{t('torrentClients.mappingExamples.check')}</p>
+        </div>
+        <div className="grid min-w-0 gap-2">
           {disks?.map((disk) => (
             <DiskAssociationRow
               key={disk.id}

@@ -24,7 +24,6 @@ export const disks = {
     'Where a NEW hardlink is created (and the save path handed to the client). It never narrows the "already seeding" search, which always covers every seeding folder. Empty = the first seeding folder.',
   'disks.mediaFolder': 'Media folder',
   'disks.seedingFolder': 'Seeding folder',
-  'disks.seedingFolderDialogTitle': 'Seeding folder (torrents_rel_path)',
   'disks.noDisksConfigured': 'No disks configured.',
   'disks.createFolderFailed': 'Failed to create folder: {message}',
   'disks.navigateToFile': 'Browse to the file and select it.',
