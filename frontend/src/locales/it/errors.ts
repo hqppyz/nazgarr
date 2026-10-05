@@ -133,10 +133,8 @@ export const errors = {
   'errors.poster_not_available': 'Nessuna locandina per questo contenuto.',
 
   'errors.tmdb_api_key_missing': 'tmdb_api_key non configurata in app_settings (PUT /api/settings/tmdb_api_key).',
-  'errors.image_host_unknown': 'Host di immagini sconosciuto in image_host_priority: {key}',
   'errors.no_image_host_configured':
-    'Nessun host di immagini configurato: imposta almeno una api_key, oppure includi Imgbox/Pixhost in image_host_priority '
-    + '— sono gli unici due che non la richiedono.',
+    'Nessun host di immagini utilizzabile: inserisci la API key di almeno un host in Impostazioni › Upload › Immagini.',
   'errors.bundled_profile_not_found': 'Profilo incluso non trovato: {key}',
   'errors.upload_verify_in_progress': 'È in corso un controllo completo degli hash: aspetta che finisca.',
   'errors.watch_folder_not_found': "La cartella '{path}' non esiste su questo disco.",

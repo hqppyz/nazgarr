@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 from nazgarr.plugins import REGISTRY, loader
+from nazgarr.plugins.builtin import BUNDLED
 
 
 def _ep(name, obj, dist="nazgarr-test", version="0.1.0"):
@@ -32,7 +33,7 @@ def _setup(adapter_type, requires=">=1.0,<2", then_fail=False):
 @pytest.fixture(autouse=True)
 def _clean():
     yield
-    for spec in [s for s in REGISTRY.all() if s.plugin]:
+    for spec in [s for s in REGISTRY.all() if s.plugin and s.plugin not in BUNDLED]:
         REGISTRY.unregister(spec.kind, spec.adapter_type)
 
 
@@ -147,8 +148,13 @@ def test_the_api_lists_plugins_and_adapters(client):
     body = client.get("/api/plugins").json()
 
     assert body["sdk_version"] and body["env_var"] == "NAZGARR_PLUGINS"
-    ptpimg = next(a for a in body["adapters"] if a["adapter_type"] == "ptpimg")
-    assert ptpimg["plugin"] is None and ptpimg["config_fields"][0]["type"] == "secret"
+    imgbb = next(a for a in body["adapters"] if a["adapter_type"] == "imgbb")
+    assert imgbb["plugin"] == "nazgarr-image-hosts" and imgbb["bundled"] is True
+    assert imgbb["config_fields"][0]["type"] == "secret"
+    # Il plugin incluso è nell'elenco, come caricato.
+    bundled = next(p for p in body["plugins"] if p["bundled"])
+    assert bundled["name"] == "nazgarr-image-hosts" and bundled["status"] == "loaded"
+    assert "image_host:imgbb" in bundled["adapters"]
 
 
 def test_a_local_plugin_folder_is_reinstalled_when_its_code_changes(tmp_path, monkeypatch):

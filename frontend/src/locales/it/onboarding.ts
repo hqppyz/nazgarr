@@ -179,7 +179,7 @@ export const onboarding = {
 
   'onboarding.tour.upload.hosts.title': 'Host di immagini',
   'onboarding.tour.upload.hosts.body':
-    'Dove finiscono gli screenshot dei tuoi upload, in quest’ordine: trascina per cambiarlo, rimuovi quelli che non vuoi. Imgbox e Pixhost non richiedono una chiave; per gli altri incolla la tua API key sulla destra.',
+    'Dove finiscono gli screenshot dei tuoi upload, in quest’ordine: trascina per cambiarlo, accendi o spegni ogni host e tocca un host per la sua API key. Altri host si aggiungono con un plugin.',
   'onboarding.tour.upload.screenshots.title': 'Screenshot',
   'onboarding.tour.upload.screenshots.body': 'Quanti per upload, e se applicare il tone mapping ai fotogrammi HDR perché non sembrino slavati.',
   'onboarding.tour.upload.description.title': 'Descrizione',

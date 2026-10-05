@@ -21,6 +21,7 @@ export const plugins = {
   'plugins.events': 'Eventi',
   'plugins.lastDelivery': 'Ultimo: {event}, {status}',
   'plugins.builtin': 'integrato',
+  'plugins.bundled': 'incluso',
   'plugins.kind.tracker': 'Tracker',
   'plugins.kind.torrent_client': 'Client torrent',
   'plugins.kind.media_resolver': 'Resolver media',

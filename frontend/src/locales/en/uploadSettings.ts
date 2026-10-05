@@ -17,17 +17,25 @@ export const uploadSettings = {
     'Text (e.g. BBCode) appended at the end of every description — leave empty to add nothing. A short "Uploaded with Nazgarr" line with the version always follows it.',
   'uploadSettings.signatureSaved': 'Signature saved.',
   'uploadSettings.saveSignatureButton': 'Save signature',
-  'uploadSettings.apiKeysLabel': 'API keys',
-  'uploadSettings.apiKeysHelp': 'Only the hosts that ask for one; the others upload anonymously.',
   'uploadSettings.imageHostsTitle': 'Image hosts',
+  'uploadSettings.hostPlugin':
+    'plugin',
+  'uploadSettings.hostStatus.ready':
+    'ready',
+  'uploadSettings.hostStatus.missing':
+    'API key missing',
+  'uploadSettings.hostStatus.off':
+    'off',
+  'uploadSettings.hostEnabledToggle':
+    'Use {host}',
+  'uploadSettings.hostsRemoved':
+    'These hosts are gone with the update: {hosts}. Enter the API key of at least one host below, or install a plugin for the one you used.',
+  'uploadSettings.morePlugins':
+    'More hosts come with a plugin (Settings › Plugins): a Chevereto host is a few lines.',
   'uploadSettings.imageHostsDescription':
-    "Priority and status on the left, API keys on the right — the first enabled host is tried, if it fails the next one is used. Imgbox and Pixhost don't require one.",
-  'uploadSettings.noApiKeyRequired': 'no api_key required',
-  'uploadSettings.priorityOrderLabel': 'Image host priority order',
-  'uploadSettings.priorityOrderHelp': 'Drag to reorder — the first one is tried, if it fails the next one is used.',
+    'The first host that is on and has its API key is tried first, then the next if it fails. Drag to change the order, tap a host for its key.',
   'uploadSettings.priorityOrderSaved': 'Priority order saved.',
   'uploadSettings.dragToReorder': 'Drag to reorder {label}',
-  'uploadSettings.disable': 'Disable',
   'uploadSettings.hostDisabled': '{host} disabled.',
   'uploadSettings.hostEnabled': '{host} enabled.',
   'uploadSettings.fileNamesTitle': 'File names in the torrent',

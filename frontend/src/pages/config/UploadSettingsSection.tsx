@@ -9,7 +9,7 @@ import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { t } from '@/lib/i18n'
 import { FileNamingCard } from '@/pages/config/FileNamingCard'
-import { ImageHostPriorityField, parseOrder } from '@/pages/config/ImageHostPriorityField'
+import { ImageHostsCard } from '@/pages/config/ImageHostsCard'
 import { autosaveFeedback } from '@/lib/autosave'
 
 function TonemapSwitch() {
@@ -77,54 +77,11 @@ function DescriptionTextField({
   )
 }
 
-// Gli host che vogliono una API key (gli altri caricano anonimi).
-const KEYED_HOSTS = [
-  { key: 'ptpimg', label: 'PTPImg', url: 'https://ptpimg.me' },
-  { key: 'imgbb', label: 'ImgBB', url: 'https://api.imgbb.com' },
-  { key: 'lensdump', label: 'Lensdump', url: 'https://lensdump.com' },
-  { key: 'ptscreens', label: 'PTScreens', url: 'https://ptscreens.com' },
-  { key: 'onlyimage', label: 'OnlyImage', url: 'https://onlyimage.org' },
-  { key: 'dalexni', label: 'Dalexni', url: 'https://dalexni.com' },
-  { key: 'utppm', label: 'utp.pm', url: 'https://utp.pm' },
-  { key: 'seedpool_cdn', label: 'Seedpool CDN', url: 'https://i.seedpool.org' },
-]
-
 // Settings > Upload > Images: dove vanno gli screenshot e come si fanno.
 export function UploadImagesSection() {
-  const { data: priority } = useSetting('image_host_priority')
-  const enabled = parseOrder(priority?.value)
   return (
     <>
-      {/* A tutta larghezza: priorità e API key affiancate. */}
-      <Card data-masonry="full" data-tour="upload.image-hosts">
-        <CardHeader>
-          <CardTitle>{t('uploadSettings.imageHostsTitle')}</CardTitle>
-          <CardDescription>{t('uploadSettings.imageHostsDescription')}</CardDescription>
-        </CardHeader>
-        {/* content-start: le chiavi restano in cima con la loro spaziatura,
-            non si allargano all'altezza della colonna delle priorità. */}
-        <CardContent className="grid items-start gap-6 xl:grid-cols-2">
-          <ImageHostPriorityField />
-          <div className="grid content-start gap-2">
-            <div className="grid gap-1.5">
-              <Label>{t('uploadSettings.apiKeysLabel')}</Label>
-              <p className="text-xs text-muted-foreground">{t('uploadSettings.apiKeysHelp')}</p>
-            </div>
-            {/* Solo gli host attivi nella priorità: una chiave di un host spento
-                resta salvata, solo nascosta finché non lo riattivi. */}
-            {KEYED_HOSTS.filter((host) => enabled.includes(host.key)).map((host) => (
-              <SettingField
-                key={host.key}
-                compact
-                settingKey={`image_host_${host.key}_api_key`}
-                label={host.label}
-                description={host.url}
-                type="password"
-              />
-            ))}
-          </div>
-        </CardContent>
-      </Card>
+      <ImageHostsCard />
 
       <Card data-tour="upload.screenshots">
         <CardHeader>

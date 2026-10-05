@@ -6,7 +6,7 @@ Nazgarr can be extended in three ways:
 - **Webhooks**: signed HTTP calls for the events you choose.
 - **API keys**: scripts and other services can use the same JSON API as the web UI.
 
-SDK version: **1.1.0** (`nazgarr.sdk.SDK_VERSION`, [semantic versioning](https://semver.org): a breaking change bumps the major version). 1.1 added `AdapterSpec.icon`: a plugin that uses it needs `REQUIRES_SDK = ">=1.1,<2"`.
+SDK version: **1.2.0** (`nazgarr.sdk.SDK_VERSION`, [semantic versioning](https://semver.org): a breaking change bumps the major version). 1.1 added `AdapterSpec.icon`, 1.2 `CheveretoImageHost` and `chevereto_image_url`: a plugin that uses them needs `REQUIRES_SDK = ">=1.1,<2"` or `">=1.2,<2"`.
 
 ## Rules that apply to everything here
 
@@ -35,7 +35,10 @@ Each line is a package (a name, `name==version`, or a `git+https://…` URL). Li
 
 - the plugins that were loaded, with their version and the adapters they add;
 - the plugins that failed to install or load, or that need another SDK version, with the error. They stay off and the rest of Nazgarr works as usual;
-- a form for the image hosts and media resolvers of plugins, which have no row of their own: their fields and an on/off switch.
+- the plugins bundled with Nazgarr (marked "bundled"), such as `nazgarr-image-hosts`: written like any plugin, but shipped in the image and loaded without installing anything;
+- a form for the media resolvers of plugins, which have no row of their own: their fields and an on/off switch.
+
+Image hosts, bundled or from a plugin, are all configured in **Settings > Upload > Images**: one list in priority order, with an on/off switch and the API key of each.
 
 Notification services from plugins appear under **Settings > Extensions > Notifications**, next to the built-in Discord and Telegram and the webhooks: "Add" lists every type, and each instance (there can be several per type, such as two ntfy topics) is a card with its own fields, events and a test.
 
@@ -88,7 +91,7 @@ Import only from `nazgarr.sdk`, never from the rest of `nazgarr`: `nazgarr.sdk` 
 | Field | Meaning |
 |---|---|
 | `kind` | `"tracker"`, `"torrent_client"`, `"media_resolver"`, `"image_host"` or `"notification"` |
-| `adapter_type` | Unique name for this kind. A plugin cannot replace a built-in adapter (`qbittorrent`, `qui`, `unit3d`, the built-in image hosts). |
+| `adapter_type` | Unique name for this kind. A plugin cannot replace a built-in adapter (`qbittorrent`, `qui`, `unit3d`) or one of a bundled plugin (the image hosts `ptscreens`, `passtheima`, `imageride`, `imgbb`). |
 | `label`, `description` | What the UI shows |
 | `icon` | Optional (SDK 1.1): an image as a `data:image/...` URI (a small SVG or PNG, at most 64 KB), shown next to the label. Built-in adapters have their own. |
 | `config_fields` | The settings your adapter needs (below) |
@@ -107,7 +110,7 @@ Import only from `nazgarr.sdk`, never from the rest of `nazgarr`: `nazgarr.sdk` 
 | `boolean` | switch | `bool` |
 | `choice` | select among `choices` | `str` |
 
-An adapter whose required fields are not all filled in is skipped, like a built-in image host without its API key.
+An adapter whose required fields are not all filled in is skipped, like an image host without its API key.
 
 ### `AdapterContext`
 
@@ -124,7 +127,7 @@ An adapter whose required fields are not all filled in is skipped, like a built-
 | `tracker` | on the tracker, in Settings > Trackers | search, reseeding, uploads |
 | `torrent_client` | on the client, in Settings > Clients | indexing torrents, reseeding, uploads |
 | `media_resolver` | Settings > Extensions > Plugins | recognizing files: plugin resolvers are tried **before** Radarr/Sonarr and TMDB, and the first that recognizes a file wins; they also work without a TMDB key |
-| `image_host` | Settings > Extensions > Plugins | upload screenshots: plugin hosts go at the end of the image host priority |
+| `image_host` | Settings > Upload > Images, with the bundled hosts | upload screenshots: a new host joins the end of the priority list, and the user can move it or switch it off |
 | `notification` | Settings > Extensions > Notifications: any number of instances, each with its fields and the events to send | the events below, as readable messages |
 
 ---
@@ -174,6 +177,25 @@ Set the class attribute `can_skip_recheck = False` if the client cannot add a to
 | Method | |
 |---|---|
 | `upload(image_path) -> str` | **required**: upload a screenshot and return the URL of the **full-size image**, not a thumbnail or a page. Raise `ImageHostError` on failure, and Nazgarr tries the next host. |
+
+Many image hosts run [Chevereto](https://chevereto.com), with the same API: `POST <site>/api/1/upload`, the key in the `X-API-Key` header, the file in the `source` field. For those, SDK 1.2 has `CheveretoImageHost(api_key, endpoint=..., name=...)`, a complete adapter, and `chevereto_image_url(response)`, which reads the image URL from the slightly different answers of each site. A plugin for a Chevereto host is then just its registration:
+
+```python
+import nazgarr.sdk as sdk
+
+REQUIRES_SDK = ">=1.2,<2"
+
+
+def setup():
+    sdk.register(sdk.AdapterSpec(
+        "image_host", "myhost", "My host",
+        lambda ctx: sdk.CheveretoImageHost(ctx.config["api_key"], endpoint="https://myhost.example/api/1/upload",
+                                           name="My host"),
+        config_fields=(sdk.ConfigField("api_key", "API key", type="secret", required=True),),
+    ))
+```
+
+[`examples/nazgarr-lensdump`](../examples/nazgarr-lensdump) is a complete one: Lensdump's API is paid, so it is not bundled.
 
 ### `NotificationAdapter`
 

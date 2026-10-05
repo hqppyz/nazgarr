@@ -49,6 +49,7 @@ nome che nessuno referenzia ancora non fa scattare alcuna riscrittura.
 repair_dangling_media_file_legacy_fk() ripara chi ha già subito il danno
 della prima versione."""
 
+import json
 import logging
 import os
 from pathlib import Path
@@ -557,6 +558,58 @@ def migrate_notification_services(engine: Engine) -> int:
 
 # Colonne diventate cifrate (EncryptedString) dopo che c'erano già dati.
 _NOW_ENCRYPTED = (("tracker", "announce_url"), ("tracker", "history_session_cookie"))
+
+
+# Gli host di immagini integrati fino alla 0.8: quelli che restano (ora un
+# plugin incluso, o Lensdump un plugin d'esempio) e quelli tolti.
+_IMAGE_HOSTS_KEPT = ("ptscreens", "imgbb", "lensdump")
+_IMAGE_HOSTS_REMOVED = ("ptpimg", "imgbox", "pixhost", "onlyimage", "dalexni", "utppm", "seedpool_cdn")
+_IMAGE_HOSTS_KEYLESS = ("imgbox", "pixhost")
+_IMAGE_HOSTS_OLD_DEFAULT = ("ptpimg", "imgbox", "imgbb", "pixhost", "lensdump", "ptscreens", "onlyimage", "dalexni",
+                            "utppm", "seedpool_cdn")
+
+
+def migrate_image_hosts_to_plugins(engine: Engine) -> int:
+    """Gli host di immagini diventano un plugin incluso (decisione
+    dell'utente, 2026-10-05): la API key di quelli che restano passa dalle
+    impostazioni (image_host_<host>_api_key) ad adapter_config, come per un
+    plugin; un host che la priorità salvata non nominava (spento) resta
+    spento. Gli host tolti perdono la chiave e spariscono dalla priorità;
+    quelli che l'utente usava finiscono in image_hosts_removed, per un
+    avviso nella UI. Idempotente. Restituisce le chiavi spostate."""
+    from sqlalchemy.orm import Session
+
+    from nazgarr.core import settings_repo
+    from nazgarr.core.models import AdapterConfig, AppSetting
+
+    moved = 0
+    with Session(engine) as session:
+        raw = settings_repo.get_setting(session, "image_host_priority")
+        enabled = [k.strip() for k in raw.split(",") if k.strip()] if raw else list(_IMAGE_HOSTS_OLD_DEFAULT)
+        keys = {host: settings_repo.get_setting(session, f"image_host_{host}_api_key")
+                for host in (*_IMAGE_HOSTS_KEPT, *_IMAGE_HOSTS_REMOVED)}
+        for host in _IMAGE_HOSTS_KEPT:
+            if not keys[host] or session.get(AdapterConfig, ("image_host", host)) is not None:
+                continue
+            session.add(AdapterConfig(kind="image_host", adapter_type=host, enabled=host in enabled,
+                                      config_json=json.dumps({"api_key": keys[host]})))
+            moved += 1
+        # Gli host anonimi li usava solo chi ha fatto upload senza un'altra
+        # chiave: un'installazione nuova non ha niente da sapere.
+        uploaded = session.execute(text("SELECT 1 FROM upload_job LIMIT 1")).first() is not None
+        kept_usable = any(keys[h] and h in enabled for h in _IMAGE_HOSTS_KEPT)
+        removed = [h for h in _IMAGE_HOSTS_REMOVED if h in enabled
+                   and (keys[h] or (h in _IMAGE_HOSTS_KEYLESS and uploaded and not kept_usable))]
+        if removed and not settings_repo.get_setting(session, "image_hosts_removed"):
+            settings_repo.set_setting(session, "image_hosts_removed", ",".join(removed))
+        if raw is not None:
+            settings_repo.set_setting(session, "image_host_priority",
+                                      ",".join(h for h in enabled if h not in _IMAGE_HOSTS_REMOVED))
+        session.query(AppSetting).filter(AppSetting.key.in_(
+            [f"image_host_{h}_api_key" for h in (*_IMAGE_HOSTS_KEPT, *_IMAGE_HOSTS_REMOVED)]
+        )).delete(synchronize_session=False)
+        session.commit()
+    return moved
 
 
 def encrypt_plaintext_secrets(engine: Engine) -> int:

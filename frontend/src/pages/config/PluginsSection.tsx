@@ -26,9 +26,10 @@ const STATUS_STYLE: Record<string, string> = {
   install_failed: 'border-red-500/40 bg-red-500/10 text-red-700 dark:text-red-300',
 }
 const KINDS = ['tracker', 'torrent_client', 'media_resolver', 'image_host', 'notification'] as const
-// Gli adapter senza una riga propria: si configurano qui. I servizi di
-// notifica stanno in Impostazioni › Notifiche, un'istanza per card.
-const GLOBAL_KINDS = ['image_host', 'media_resolver']
+// Gli adapter senza una riga propria: si configurano qui. Gli host di
+// immagini, inclusi o dei plugin, in Impostazioni › Upload › Immagini (col
+// loro ordine); i servizi di notifica in Impostazioni › Notifiche.
+const GLOBAL_KINDS = ['media_resolver']
 
 type Adapter = Schemas['AdapterResponse']
 
@@ -138,6 +139,7 @@ export function PluginsSection() {
                     <PuzzleIcon className="size-4 text-muted-foreground" />
                     <span className="font-medium">{plugin.distribution ?? plugin.name}</span>
                     {plugin.version && <span className="font-mono text-xs text-muted-foreground">{plugin.version}</span>}
+                    {plugin.bundled && <Badge variant="secondary">{t('plugins.bundled')}</Badge>}
                     <Badge variant="outline" className={cn(STATUS_STYLE[plugin.status])}>
                       {t(`plugins.status.${plugin.status}`)}
                     </Badge>

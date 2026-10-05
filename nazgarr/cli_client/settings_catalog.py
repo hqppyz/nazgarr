@@ -49,7 +49,7 @@ CATALOG = [
     Setting("upload_tonemap_hdr", "Tone map HDR screenshots (true/false).", "bool"),
     Setting("upload_description_header", "BBCode added on top of every description.", "lines"),
     Setting("upload_description_signature", "BBCode added at the bottom of every description.", "lines"),
-    Setting("image_host_priority", "Image hosts in order, comma separated (e.g. ptpimg,imgbox)."),
+    Setting("image_host_priority", "Image hosts in order, comma separated (e.g. ptscreens,imgbb)."),
     # Interfaccia
     Setting("size_units", "decimal (GB) or binary (GiB)."),
     Setting("ui_timezone", "Time zone of the dates in the UI (e.g. Europe/Rome)."),

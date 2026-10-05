@@ -7,8 +7,10 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from nazgarr.core.errors import coded_detail, from_coded_error
+from nazgarr.core.version import __version__
 from nazgarr.plugins import REGISTRY
 from nazgarr.plugins import config as plugin_config
+from nazgarr.plugins.builtin import BUNDLED
 from nazgarr.plugins.loader import ENV_VAR, STATE
 from nazgarr.sdk import SDK_VERSION
 from nazgarr.web.deps import get_session
@@ -32,6 +34,7 @@ class AdapterResponse(BaseModel):
     label: str
     description: str | None
     plugin: str | None  # None = integrato
+    bundled: bool = False  # di un plugin incluso in Nazgarr (nazgarr/bundled)
     config_fields: list[ConfigFieldResponse]
     icon: str | None = None  # un'immagine data: dichiarata dal plugin (gli integrati hanno la loro nella UI)
 
@@ -44,6 +47,7 @@ class PluginResponse(BaseModel):
     error: str | None
     requires_sdk: str | None
     adapters: list[str]
+    bundled: bool = False  # incluso in Nazgarr, non installato con pip
 
 
 class PluginsResponse(BaseModel):
@@ -59,7 +63,7 @@ class PluginsResponse(BaseModel):
 def _adapter(spec) -> AdapterResponse:
     return AdapterResponse(
         kind=spec.kind, adapter_type=spec.adapter_type, label=spec.label, description=spec.description,
-        plugin=spec.plugin, icon=spec.icon,
+        plugin=spec.plugin, bundled=spec.plugin in BUNDLED, icon=spec.icon,
         config_fields=[
             ConfigFieldResponse(key=f.key, label=f.label, type=f.type, required=f.required, default=f.default,
                                 help=f.help, choices=list(f.choices))
@@ -74,7 +78,13 @@ def list_plugins():
     return PluginsResponse(
         sdk_version=SDK_VERSION, env_var=ENV_VAR, source=STATE.source, requested=STATE.requested,
         install_error=STATE.install_error,
-        plugins=[PluginResponse(**vars(p)) for p in STATE.plugins],
+        plugins=[
+            *(PluginResponse(name=name, distribution=name, version=__version__, status="loaded", error=None,
+                             requires_sdk=None, bundled=True,
+                             adapters=[f"{spec.kind}:{spec.adapter_type}" for spec in REGISTRY.of_plugin(name)])
+              for name in BUNDLED),
+            *(PluginResponse(**vars(p)) for p in STATE.plugins),
+        ],
         adapters=[_adapter(spec) for spec in specs],
     )
 

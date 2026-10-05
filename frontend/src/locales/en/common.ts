@@ -4,6 +4,7 @@
 // traduzione locale della stessa parola.
 export const common = {
   'common.save': 'Save',
+  'common.close': 'Close',
   'common.saved': 'Saved.',
   'common.itemSaved': '{item} saved.',
   'common.delete': 'Delete',

@@ -1,10 +1,8 @@
 export const upload = {
   'upload.newUpload': 'Nuovo upload',
-  'upload.imageHostsNoKeyTitle': 'Nessuna API key configurata per gli host di immagini',
-  'upload.imageHostsNoKey':
-    'Gli screenshot andranno solo sugli host che funzionano senza key ({hosts}). Alcuni tracker non li accettano: per sicurezza aggiungi una API key.',
   'upload.imageHostsNoneTitle': 'Nessun host di immagini utilizzabile',
-  'upload.imageHostsNone': 'Gli screenshot non si possono caricare, quindi gli upload falliranno. I reseed funzionano comunque.',
+  'upload.imageHostsNone':
+    'Inserisci la API key di almeno un host (Impostazioni › Upload › Immagini): senza, gli screenshot non si caricano e gli upload falliscono. I reseed funzionano comunque.',
   'upload.imageHostsSettings': 'Apri le impostazioni degli host di immagini',
   'upload.newUploadDescription':
     'Scegli un film, un episodio, una cartella di stagione o una serie intera, e i tracker su cui pubblicarlo. Nazgarr lo identifica e ti chiede conferma prima di fare altro.',

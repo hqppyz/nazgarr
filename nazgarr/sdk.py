@@ -11,6 +11,7 @@ approvazione dell'utente.
 """
 
 from nazgarr.adapters.image_host.base import ImageHostAdapter, ImageHostError
+from nazgarr.adapters.image_host.chevereto import CheveretoImageHost, chevereto_image_url
 from nazgarr.adapters.media_resolver.base import MediaResolverAdapter, ResolvedMedia
 from nazgarr.adapters.notification.base import Notification, NotificationAdapter, NotificationError
 from nazgarr.adapters.torrent_client.base import (
@@ -33,13 +34,14 @@ from nazgarr.adapters.tracker.base import (
 )
 from nazgarr.plugins.registry import KINDS, AdapterContext, AdapterSpec, ConfigField, register
 
-SDK_VERSION = "1.1.0"  # 1.1: AdapterSpec.icon
+SDK_VERSION = "1.2.0"  # 1.1: AdapterSpec.icon; 1.2: CheveretoImageHost, chevereto_image_url
 
 __all__ = [
     "KINDS", "SDK_VERSION", "AdapterContext", "AdapterSpec", "ClientTorrentFileInfo", "ClientTorrentInfo",
-    "ConfigField", "ImageHostAdapter", "ImageHostError", "MediaResolverAdapter", "NotSupportedError",
+    "CheveretoImageHost", "ConfigField", "ImageHostAdapter", "ImageHostError", "MediaResolverAdapter",
+    "NotSupportedError",
     "Notification", "NotificationAdapter", "NotificationError",
     "ResolvedMedia", "TorrentAddTimeoutError", "TorrentAlreadyInClientError", "TorrentCandidate",
     "TorrentClientAdapter", "TorrentRecord", "TorrentStatus", "TrackerAdapter", "TrackerRateLimitedError",
-    "UploadError", "UploadFields", "UploadedTorrent", "register",
+    "UploadError", "UploadFields", "UploadedTorrent", "chevereto_image_url", "register",
 ]

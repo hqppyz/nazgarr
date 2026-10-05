@@ -2323,6 +2323,11 @@ export interface components {
             description: string | null;
             /** Plugin */
             plugin: string | null;
+            /**
+             * Bundled
+             * @default false
+             */
+            bundled: boolean;
             /** Config Fields */
             config_fields: components["schemas"]["ConfigFieldResponse"][];
             /** Icon */
@@ -3184,6 +3189,16 @@ export interface components {
             with_api_key: string[];
             /** Usable */
             usable: string[];
+            /**
+             * Removed
+             * @default []
+             */
+            removed: string[];
+            /**
+             * Order
+             * @default []
+             */
+            order: string[];
         };
         /** InstanceCreateRequest */
         InstanceCreateRequest: {
@@ -3792,6 +3807,11 @@ export interface components {
             requires_sdk: string | null;
             /** Adapters */
             adapters: string[];
+            /**
+             * Bundled
+             * @default false
+             */
+            bundled: boolean;
         };
         /** PluginsResponse */
         PluginsResponse: {

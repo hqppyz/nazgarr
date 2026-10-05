@@ -133,10 +133,8 @@ export const errors = {
   'errors.poster_not_available': 'No poster for this content.',
 
   'errors.tmdb_api_key_missing': 'tmdb_api_key not configured in app_settings (PUT /api/settings/tmdb_api_key).',
-  'errors.image_host_unknown': 'Unknown image host in image_host_priority: {key}',
   'errors.no_image_host_configured':
-    'No image host configured: set at least one api_key, or include Imgbox/Pixhost in image_host_priority '
-    + "— they're the only two that don't require one.",
+    'No usable image host: enter the API key of at least one host in Settings › Upload › Images.',
   'errors.bundled_profile_not_found': 'Bundled profile not found: {key}',
   'errors.upload_verify_in_progress': 'A full hash check is running: wait for it to finish.',
   'errors.watch_folder_not_found': "The folder '{path}' does not exist on this disk.",

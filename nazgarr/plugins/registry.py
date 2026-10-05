@@ -91,8 +91,20 @@ def registering_as(plugin: str) -> Iterator[None]:
 class Registry:
     def __init__(self) -> None:
         self._specs: dict[tuple[str, str], AdapterSpec] = {}
+        self._builtins_loaded = False
+
+    def _ensure_builtins(self) -> None:
+        """Gli adapter integrati e i plugin inclusi (nazgarr/plugins/builtin.py)
+        si registrano al primo uso del registro, non all'import del pacchetto:
+        un plugin incluso importa nazgarr.sdk, che importa questo modulo, e
+        caricarli all'import farebbe un giro di import a metà."""
+        if self._builtins_loaded:
+            return
+        self._builtins_loaded = True
+        import nazgarr.plugins.builtin  # noqa: F401
 
     def register(self, spec: AdapterSpec) -> AdapterSpec:
+        self._ensure_builtins()
         plugin = _current_plugin.get()
         if plugin is not None:
             spec = replace(spec, plugin=plugin)
@@ -112,15 +124,19 @@ class Registry:
         self._specs.pop((kind, adapter_type), None)
 
     def get(self, kind: str, adapter_type: str | None) -> AdapterSpec | None:
+        self._ensure_builtins()
         return self._specs.get((kind, adapter_type or ""))
 
     def all(self) -> list[AdapterSpec]:
+        self._ensure_builtins()
         return list(self._specs.values())
 
     def of_plugin(self, plugin: str) -> list[AdapterSpec]:
+        self._ensure_builtins()
         return [spec for spec in self._specs.values() if spec.plugin == plugin]
 
     def of_kind(self, kind: str) -> list[AdapterSpec]:
+        self._ensure_builtins()
         return [spec for (k, _t), spec in self._specs.items() if k == kind]
 
     def types(self, kind: str) -> set[str]:

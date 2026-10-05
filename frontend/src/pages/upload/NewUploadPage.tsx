@@ -14,32 +14,17 @@ import { EMPTY_IDS, parseNewUploadParams, toForcedIds } from '@/lib/upload'
 import { readPackState, type PackState } from '@/lib/pack'
 import { cn } from '@/lib/utils'
 
-const IMAGE_HOST_LABELS: Record<string, string> = { imgbox: 'Imgbox', pixhost: 'Pixhost' }
-
-// Prima di iniziare: senza una API key gli screenshot vanno solo sugli host
-// anonimi, senza nessun host utilizzabile un upload fallirebbe agli screenshot.
+// Prima di iniziare: senza un host di immagini utilizzabile (acceso e con la
+// sua API key) un upload fallirebbe agli screenshot.
 function ImageHostWarning() {
   const { data } = useImageHostStatus()
-  if (!data || data.with_api_key.length > 0) return null
-  const none = data.usable.length === 0
+  if (!data || data.usable.length > 0) return null
   return (
-    <div
-      role="alert"
-      className={cn(
-        'flex gap-3 rounded-lg border p-4 text-sm',
-        none ? 'border-red-500/40 bg-red-500/10' : 'border-amber-500/40 bg-amber-500/10',
-      )}
-    >
-      <TriangleAlertIcon
-        className={cn('mt-0.5 size-4 shrink-0', none ? 'text-red-600 dark:text-red-400' : 'text-amber-600 dark:text-amber-400')}
-      />
+    <div role="alert" className="flex gap-3 rounded-lg border border-red-500/40 bg-red-500/10 p-4 text-sm">
+      <TriangleAlertIcon className="mt-0.5 size-4 shrink-0 text-red-600 dark:text-red-400" />
       <div className="grid gap-1">
-        <p className="font-medium">{t(none ? 'upload.imageHostsNoneTitle' : 'upload.imageHostsNoKeyTitle')}</p>
-        <p className="text-muted-foreground">
-          {none
-            ? t('upload.imageHostsNone')
-            : t('upload.imageHostsNoKey', { hosts: data.usable.map((key) => IMAGE_HOST_LABELS[key] ?? key).join(', ') })}
-        </p>
+        <p className="font-medium">{t('upload.imageHostsNoneTitle')}</p>
+        <p className="text-muted-foreground">{t('upload.imageHostsNone')}</p>
         <Link to="/config?tab=images" className="w-fit font-medium text-primary underline-offset-4 hover:underline">
           {t('upload.imageHostsSettings')}
         </Link>

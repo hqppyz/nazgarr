@@ -21,6 +21,7 @@ export const plugins = {
   'plugins.events': 'Events',
   'plugins.lastDelivery': 'Last: {event}, {status}',
   'plugins.builtin': 'built-in',
+  'plugins.bundled': 'bundled',
   'plugins.kind.tracker': 'Trackers',
   'plugins.kind.torrent_client': 'Torrent clients',
   'plugins.kind.media_resolver': 'Media resolvers',
