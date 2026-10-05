@@ -63,7 +63,7 @@ function titleOf(order: EpisodeOrder, f: DetailFile): { code: string; title?: st
 
 function Section({ title, children, action }: { title: string; children: React.ReactNode; action?: React.ReactNode }) {
   return (
-    <section className="grid gap-2">
+    <section className="grid grid-cols-[minmax(0,1fr)] gap-2">
       <div className="flex items-center justify-between gap-2">
         <h3 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{title}</h3>
         {action}
@@ -125,7 +125,7 @@ function FileRow({
     // Componendo un pack tutta la riga sceglie l'episodio, come nell'albero:
     // sul telefono la casella da sola è un bersaglio minuscolo.
     <div
-      className={cn('grid gap-1 rounded-md border p-2.5', file.excluded && 'opacity-60', picking && 'cursor-pointer select-none')}
+      className={cn('grid grid-cols-[minmax(0,1fr)] gap-1 rounded-md border p-2.5', file.excluded && 'opacity-60', picking && 'cursor-pointer select-none')}
       onClick={picking && selection ? (e) => selection.pick(packFile(file), e.shiftKey, ordered) : undefined}
     >
       <div className="flex flex-wrap items-start gap-2 sm:flex-nowrap">
@@ -172,7 +172,7 @@ function FileRow({
         </div>
         {/* Sotto sm le azioni vanno a capo, sotto il nome, invece di stringerlo. */}
         {(orphan || !file.excluded) && (
-          <div className="flex shrink-0 items-center gap-2 max-sm:ml-5.5" onClick={(e) => e.stopPropagation()}>
+          <div className="flex shrink-0 items-center gap-2 max-sm:w-full max-sm:justify-end" onClick={(e) => e.stopPropagation()}>
             {orphan && (
               <Button
                 size="xs"
@@ -210,7 +210,7 @@ function FileRow({
           </div>
         )}
       </div>
-      <div className="grid gap-0.5 pl-5 text-xs text-muted-foreground">
+      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-0.5 pl-5 text-xs text-muted-foreground">
         {file.hardlinks.length === 0 ? (
           <p className="flex items-center gap-1">
             <CornerDownRightIcon className="size-3 shrink-0" />
@@ -227,7 +227,7 @@ function FileRow({
                 <p className="pl-4 text-destructive">{t('itemDetail.notInClient')}</p>
               ) : (
                 link.torrents.map((torrent) => (
-                  <p key={`${torrent.client}-${torrent.name}`} className="pl-4">
+                  <p key={`${torrent.client}-${torrent.name}`} className="pl-4 [overflow-wrap:anywhere]">
                     {[torrent.client, torrent.tracker, torrent.state].filter(Boolean).join(' · ')}
                     <span className="ml-1 opacity-70">({torrent.name})</span>
                   </p>
@@ -645,7 +645,10 @@ export function ItemDetailSheet({ item, onClose }: { item: OpenItem | null; onCl
                 <ExternalLinks detail={detail} />
               </div>
             </SheetHeader>
-            <div className="grid gap-6 px-4 pb-6">
+            {/* minmax(0,1fr): la colonna non si allarga fino al testo più lungo
+                che non si spezza (un nome di torrent), che sul telefono faceva
+                uscire tutte le card dallo schermo. */}
+            <div className="grid grid-cols-[minmax(0,1fr)] gap-6 px-4 pb-6">
               <Reviews detail={detail} />
               <Section title={t('itemDetail.trackers')}>
                 <TrackerOverview detail={detail} />

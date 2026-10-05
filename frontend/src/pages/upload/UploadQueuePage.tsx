@@ -69,7 +69,9 @@ function TargetOutcomes({ job, className }: { job: UploadJobSummary; className?:
 // Titolo, badge e sorgente: la parte che cresce, a sinistra.
 function JobHeading({ job, status }: { job: UploadJobSummary; status?: React.ReactNode }) {
   return (
-    <div className="grid min-w-0 flex-1 gap-1">
+    // Sotto lg tutta la prima riga accanto al poster (w-11 + gap-x-4): esiti e
+    // azioni vanno sulla seconda, invece di schiacciare il titolo.
+    <div className="grid min-w-0 flex-1 gap-1 max-lg:basis-[calc(100%-3.75rem)]">
       <div className="flex min-w-0 flex-wrap items-center gap-2">
         <span className="truncate font-medium">{title(job)}</span>
         {job.kind && <Badge variant="outline">{t(`upload.kind.${job.kind}`)}</Badge>}
@@ -121,8 +123,8 @@ function ActiveList({ jobs }: { jobs: UploadJobSummary[] }) {
                 </>
               }
             />
-            <TargetOutcomes job={job} className="lg:w-56 lg:shrink-0" />
-            <div className="w-full lg:w-40 lg:shrink-0">
+            <TargetOutcomes job={job} className="min-w-0 flex-1 basis-[60%] lg:w-56 lg:flex-none lg:shrink-0 lg:basis-auto" />
+            <div className="w-full max-lg:empty:hidden lg:w-40 lg:shrink-0">
               {job.status === 'running' && pct !== null && (
                 <div className="grid gap-1">
                   <Progress value={pct} />
@@ -238,7 +240,7 @@ function HistoryList({ jobs, onOpen }: { jobs: UploadJobSummary[]; onOpen: (id: 
         <li key={job.id} className={cn(ROW, job.status === 'cancelled' && 'opacity-60')} onClick={() => onOpen(job.id)}>
           <Poster job={job} />
           <JobHeading job={job} status={<UploadStatusBadge status={job.status} />} />
-          <TargetOutcomes job={job} className="lg:w-56 lg:shrink-0" />
+          <TargetOutcomes job={job} className="min-w-0 flex-1 basis-[60%] lg:w-56 lg:flex-none lg:shrink-0 lg:basis-auto" />
           <span className="text-xs text-muted-foreground tabular-nums lg:w-40 lg:shrink-0 lg:text-right">
             {job.finished_at && parseApiDate(job.finished_at).toLocaleString()}
           </span>

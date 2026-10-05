@@ -24,6 +24,7 @@ import { newUploadLink } from '@/lib/upload'
 import { cn } from '@/lib/utils'
 import { ItemDetailSheet, type OpenItem } from '@/pages/library/ItemDetailSheet'
 import { canRemove, RemoveTorrentDialog } from '@/pages/torrent/RemoveTorrentDialog'
+import { opensOnHover } from '@/lib/pointer'
 
 type Torrent = Schemas['NotImportedItem']
 
@@ -57,7 +58,7 @@ function WarningsPopover({ warnings }: { warnings: Warning[] }) {
   return (
     <Popover>
       <PopoverTrigger
-        openOnHover
+        openOnHover={opensOnHover()}
         delay={150}
         aria-label={title}
         onClick={(e) => e.stopPropagation()}
@@ -350,6 +351,13 @@ export function NotImportedView() {
                             {formatBytes(tor.total_bytes)}
                           </span>
                         </div>
+                        {/* Ratio e tempo in seed: sotto lg le loro colonne sono nascoste, ma
+                            sono proprio quello che dice se un torrent si può togliere. */}
+                        <p className="mt-0.5 font-mono text-[length:var(--text-xxs)] text-muted-foreground tabular-nums lg:hidden">
+                          {t('notImported.ratio')} {tor.ratio != null ? tor.ratio.toFixed(2) : '—'}
+                          {' · '}
+                          {formatSeedTime(tor.seeding_time_seconds)}
+                        </p>
                       </TableCell>
                       <TableCell className="hidden sm:table-cell" title={tor.detail ?? undefined}>
                         <div className="flex flex-wrap gap-1">

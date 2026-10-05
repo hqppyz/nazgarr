@@ -2,6 +2,7 @@ import { InfoIcon } from 'lucide-react'
 
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { t } from '@/lib/i18n'
+import { opensOnHover } from '@/lib/pointer'
 
 // Hover (o tocco) sull'icona per vedere con quali altri path questo file
 // condivide l'hardlink (relazione seed_file.media_file_id, già stabilita dal
@@ -13,7 +14,7 @@ export function HardlinkInfo({ linkedPaths }: { linkedPaths: string[] }) {
   return (
     <Popover>
       <PopoverTrigger
-        openOnHover
+        openOnHover={opensOnHover()}
         delay={150}
         // Su touch un'area più grande dell'icona: a 14 px il dito la manca.
         className="shrink-0 rounded text-muted-foreground hover:text-foreground pointer-coarse:-m-1.5 pointer-coarse:p-1.5"

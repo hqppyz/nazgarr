@@ -1,6 +1,7 @@
 import { Popover, PopoverContent, PopoverHeader, PopoverTitle, PopoverTrigger } from '@/components/ui/popover'
 import { t } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
+import { opensOnHover } from '@/lib/pointer'
 
 // Il numero di errori resta compatto nelle tabelle; il dettaglio si apre al
 // passaggio del mouse o al click (Popover e non Tooltip: funziona anche al
@@ -20,7 +21,7 @@ export function ErrorsPopover({
   return (
     <Popover>
       <PopoverTrigger
-        openOnHover
+        openOnHover={opensOnHover()}
         delay={150}
         className={cn(
           'inline-flex min-w-6 cursor-pointer items-center justify-center rounded-md bg-destructive/10 px-1.5 py-0.5 font-mono text-xs font-medium text-destructive tabular-nums hover:bg-destructive/20',

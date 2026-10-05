@@ -29,6 +29,7 @@ import { t } from '@/lib/i18n'
 import { episodeLabel, seasonCounts, sourceProblems, translateEpisode } from '@/lib/episodeOrders'
 import { fromForcedIds, missingEpisodes, toForcedIds, type UploadKind } from '@/lib/upload'
 import { cn } from '@/lib/utils'
+import { opensOnHover } from '@/lib/pointer'
 
 interface Layout {
   kind: UploadKind
@@ -130,7 +131,7 @@ function ConfidenceBadge({ candidate }: { candidate: MetadataCandidate }) {
   return (
     <Popover>
       <PopoverTrigger
-        openOnHover
+        openOnHover={opensOnHover()}
         delay={150}
         aria-label={t('upload.match.reliability', { confidence: percent(candidate.confidence) })}
         className={cn(

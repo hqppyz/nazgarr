@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { opensOnHover } from '@/lib/pointer'
 import { cn } from '@/lib/utils'
 
 // Una spiegazione che prima stava solo in un title (visibile solo al
@@ -20,10 +21,11 @@ export function InfoPopover({
   return (
     <Popover>
       <PopoverTrigger
-        openOnHover
+        openOnHover={opensOnHover()}
         delay={250}
         render={<span role="button" tabIndex={0} />}
-        className={cn('cursor-help', className)}
+        // Sul touch un bersaglio più grande del testo (spesso un "—" o un "OK").
+        className={cn('cursor-help pointer-coarse:-m-2 pointer-coarse:p-2', className)}
         onClick={(event) => event.stopPropagation()}
       >
         {children}
