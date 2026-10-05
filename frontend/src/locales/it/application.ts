@@ -31,4 +31,12 @@ export const application = {
     'Loghi di client, servizi e siti collegati (Apache-2.0), solo per riconoscerli: i marchi sono dei rispettivi proprietari, nessuna affiliazione.',
   'application.creditTwemoji': 'Bandiere dei paesi sui sistemi che non le hanno (CC-BY 4.0, Twitter, Inc. e altri contributori).',
   'application.creditGeist': 'Il carattere dell’interfaccia (SIL Open Font License 1.1).',
+  'updates.version': 'Versione {version}',
+  'updates.breaking': 'Da fare prima o dopo l’aggiornamento',
+  'updates.whatsNewTitle': 'Novità di Nazgarr {version}',
+  'updates.whatsNewDescription': 'Cosa è cambiato dalla versione che usavi.',
+  'updates.gotIt': 'Ho capito',
+  'updates.available': 'Disponibile la {version}',
+  'updates.autoLabel': 'Controlla gli aggiornamenti in automatico',
+  'updates.autoHelp': 'Ogni 12 ore chiede a GitHub se c’è una versione nuova e lo segnala sotto la versione nella barra laterale, con le novità e cosa fare prima di aggiornare. L’aggiornamento lo fai tu (Docker, Unraid o pipx).',
 } as const

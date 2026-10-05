@@ -1865,14 +1865,72 @@ export interface paths {
         };
         /**
          * Update Check
-         * @description Chiamata solo su richiesta esplicita dell'utente (bottone "Check for
-         *     updates" in UI), mai in automatico. Confronta con le GitHub Release: la
-         *     CI ne crea una (prerelease) a ogni push su main, il canale stable si
-         *     aggiorna a mano (nazgarr/core/version.py).
+         * @description Su richiesta dell'utente ("Controlla aggiornamenti"): chiama GitHub e
+         *     salva l'esito, lo stesso che il controllo automatico (se acceso) rinnova
+         *     ogni 12 ore (nazgarr/core/updates.py).
          */
         get: operations["update_check_api_system_update_check_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/system/update-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Update Status
+         * @description L'ultimo esito salvato, senza chiamare GitHub: per l'avviso nella
+         *     barra laterale. None se non c'è o riguardava un'altra versione.
+         */
+        get: operations["update_status_api_system_update_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/system/release-notes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Release Notes
+         * @description Le note delle versioni arrivate dall'ultima vista: la UI le mostra
+         *     una volta dopo un aggiornamento.
+         */
+        get: operations["release_notes_api_system_release_notes_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/system/release-notes/seen": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Release Notes Seen */
+        post: operations["release_notes_seen_api_system_release_notes_seen_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4035,6 +4093,37 @@ export interface components {
             errors: number;
         };
         /**
+         * ReleaseNote
+         * @description Una voce di nazgarr/release_notes.json: per lingua ("it", "en").
+         */
+        ReleaseNote: {
+            /** Version */
+            version: string;
+            /** Date */
+            date?: string | null;
+            /**
+             * Highlights
+             * @default {}
+             */
+            highlights: {
+                [key: string]: string[];
+            };
+            /**
+             * Breaking
+             * @default {}
+             */
+            breaking: {
+                [key: string]: string[];
+            };
+        };
+        /** ReleaseNotesResponse */
+        ReleaseNotesResponse: {
+            /** Current Version */
+            current_version: string;
+            /** Entries */
+            entries: components["schemas"]["ReleaseNote"][];
+        };
+        /**
          * RemovalWarning
          * @description Un motivo, oltre a seedtime e ratio, per pensarci prima di togliere il
          *     torrent: code ("shared_files", "client_error", "checking", "downloading")
@@ -4741,6 +4830,11 @@ export interface components {
             note?: string | null;
             /** Channel */
             channel?: string | null;
+            /**
+             * Notes
+             * @default []
+             */
+            notes: components["schemas"]["ReleaseNote"][];
         };
         /** UploadApproveRequest */
         UploadApproveRequest: {
@@ -8723,6 +8817,64 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["UpdateCheckResponse"];
                 };
+            };
+        };
+    };
+    update_status_api_system_update_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UpdateCheckResponse"] | null;
+                };
+            };
+        };
+    };
+    release_notes_api_system_release_notes_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReleaseNotesResponse"];
+                };
+            };
+        };
+    };
+    release_notes_seen_api_system_release_notes_seen_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

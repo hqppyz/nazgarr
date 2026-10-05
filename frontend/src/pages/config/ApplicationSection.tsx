@@ -1,13 +1,18 @@
 import { BugIcon, ExternalLinkIcon, GitPullRequestIcon, ImagesIcon, RefreshCwIcon, SmileIcon, TagIcon, TypeIcon } from 'lucide-react'
 import type { ReactNode } from 'react'
 
-import { useAppInfo, useUpdateCheck } from '@/api/hooks/system'
+import { useSetSetting, useSetting } from '@/api/hooks/settings'
+import { useAppInfo, useUpdateCheck, useUpdateStatus } from '@/api/hooks/system'
 import { GitHubMark } from '@/components/GitHubMark'
 import { RingLogo } from '@/components/RingLogo'
 import { ServiceLogo } from '@/components/ServiceLogo'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Label } from '@/components/ui/label'
+import { Switch } from '@/components/ui/switch'
+import { ReleaseNotesList } from '@/components/updates/ReleaseNotesList'
 import { RestartTourCard } from '@/onboarding/RestartTourCard'
+import { autosaveFeedback } from '@/lib/autosave'
 import { t } from '@/lib/i18n'
 import { GITHUB_REPO, GITHUB_URL, PROJECT_LICENSE } from '@/lib/project'
 import { cn } from '@/lib/utils'
@@ -115,9 +120,33 @@ function CreditsCard() {
   )
 }
 
+// Il controllo automatico degli aggiornamenti: spento di default, perché
+// contatta GitHub senza che l'utente lo chieda (nazgarr/core/updates.py).
+function AutoUpdateCheck() {
+  const { data } = useSetting('update_check_auto')
+  const setSetting = useSetSetting('update_check_auto')
+  return (
+    <div className="flex items-start justify-between gap-3" data-tour="application.update-auto">
+      <div className="grid gap-0.5">
+        <Label htmlFor="update-check-auto">{t('updates.autoLabel')}</Label>
+        <p className="text-xs text-muted-foreground">{t('updates.autoHelp')}</p>
+      </div>
+      <Switch
+        id="update-check-auto"
+        checked={data?.value === 'true'}
+        disabled={setSetting.isPending}
+        onCheckedChange={(on) => setSetting.mutate(on ? 'true' : 'false', autosaveFeedback(t('updates.autoLabel')))}
+      />
+    </div>
+  )
+}
+
 export function ApplicationSection() {
   const { data: info } = useAppInfo()
-  const { data: updateCheck, isFetching, refetch } = useUpdateCheck(false)
+  const { data: manualCheck, isFetching, refetch } = useUpdateCheck(false)
+  const { data: savedCheck } = useUpdateStatus()
+  // L'ultimo esito: quello appena chiesto, o quello salvato (anche automatico).
+  const updateCheck = manualCheck ?? savedCheck ?? undefined
 
   return (
     <>
@@ -155,9 +184,14 @@ export function ApplicationSection() {
                 {updateCheck.note ? (
                   <p className="text-muted-foreground">{updateCheck.note}</p>
                 ) : updateCheck.update_available ? (
-                  <p className="font-medium">
-                    {t('application.updateAvailable', { version: updateCheck.latest_version ?? '' })}
-                  </p>
+                  <div className="grid gap-3">
+                    <p className="font-medium">
+                      {t('application.updateAvailable', { version: updateCheck.latest_version ?? '' })}
+                    </p>
+                    {/* Prima di aggiornare: cosa cambia, e cosa chiede all'utente. Nazgarr non si
+                        aggiorna da solo (Docker, Unraid o pipx), quindi niente pulsante qui. */}
+                    {(updateCheck.notes?.length ?? 0) > 0 && <ReleaseNotesList notes={updateCheck.notes ?? []} />}
+                  </div>
                 ) : (
                   <p className="text-muted-foreground">{t('application.upToDate')}</p>
                 )}
@@ -168,6 +202,7 @@ export function ApplicationSection() {
                 )}
               </div>
             )}
+            <AutoUpdateCheck />
           </CardContent>
         </Card>
         <RestartTourCard />

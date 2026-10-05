@@ -18,6 +18,7 @@ import { RemoteBar, RemoteGate } from '@/components/instances/RemoteGate'
 import { isRemote } from '@/lib/instance'
 import { preloadPages } from '@/lib/lazyPages'
 import { UploadNotices } from '@/components/upload/UploadNotices'
+import { WhatsNewDialog } from '@/components/updates/WhatsNewDialog'
 import { WelcomeDialog } from '@/onboarding/WelcomeDialog'
 
 // Il tour (driver.js e il suo CSS) in un chunk a parte, fuori dal caricamento iniziale.
@@ -67,6 +68,7 @@ export function AppLayout() {
         <AppSidebar />
         {/* Il tour è dell'istanza su cui si è fatto il login, non di quella che si guarda. */}
         {!isRemote() && <WelcomeDialog />}
+        {!isRemote() && <WhatsNewDialog />}
         {!isRemote() && (
           <Suspense fallback={null}>
             <TourRunner />

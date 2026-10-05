@@ -1,0 +1,4 @@
+{
+  "_format": "One entry per stable version, newest first: version, date (YYYY-MM-DD), highlights and breaking, each as {\"it\": [...], \"en\": [...]}. Shown in the app after an update and before one (nazgarr/core/updates.py). Proposed before each promotion to stable, approved by the maintainer; the detailed notes are in CHANGELOG.md.",
+  "entries": []
+}

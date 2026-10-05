@@ -279,7 +279,10 @@ export const onboarding = {
   'onboarding.tour.extras.plugins.title':
     "Plugins",
   'onboarding.tour.extras.plugins.body':
-    "Packages that add trackers, clients, notifications or image hosts. List them in an environment variable and they install at the next restart. The path ends here: happy seeding.",
+    "Packages that add trackers, clients, notifications or image hosts. List them in an environment variable and they install at the next restart.",
+  'onboarding.tour.extras.updates.title': 'Updates',
+  'onboarding.tour.extras.updates.body':
+    'Nazgarr can check on its own every 12 hours whether there is a new version and show you what changes, and what to do, before updating. It is off: turn it on here if you want. The path ends here: happy seeding.',
   'onboarding.restart.extras':
     "The rest of Nazgarr",
 } as const

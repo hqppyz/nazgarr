@@ -4,6 +4,7 @@ import { Link, useLocation } from 'react-router-dom'
 
 import { useDashboard } from '@/api/hooks/dashboard'
 import { useHealth } from '@/api/hooks/health'
+import { useUpdateStatus } from '@/api/hooks/system'
 import { RingLogo } from '@/components/RingLogo'
 import { InstanceSwitcher } from '@/components/instances/InstanceSwitcher'
 import type { RingHandle } from '@/components/ring/types'
@@ -60,6 +61,7 @@ const COPYRIGHT_YEAR = new Date().getFullYear()
 function AppSidebarFooter() {
   const { data: dashboard } = useDashboard()
   const { data: health } = useHealth()
+  const { data: update } = useUpdateStatus()
   const { username, logout } = useAuth()
 
   return (
@@ -85,6 +87,12 @@ function AppSidebarFooter() {
           <span className="truncate font-medium" title={health?.commit ? `commit ${health.commit}` : undefined}>
             {t('layout.version', { version: health?.version ?? '…' })}
           </span>
+          {/* Dall'ultimo controllo salvato (manuale o automatico): nessuna chiamata a GitHub da qui. */}
+          {update?.update_available && (
+            <Link to="/config?tab=application" className="truncate font-medium text-primary underline-offset-4 hover:underline">
+              {t('updates.available', { version: (update.latest_version ?? '').replace(/^v/, '') })}
+            </Link>
+          )}
           <span className="truncate">© {COPYRIGHT_YEAR} lktorrentz</span>
         </div>
         <div className="flex shrink-0 items-center gap-0.5">

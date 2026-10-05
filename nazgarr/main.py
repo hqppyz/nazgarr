@@ -32,7 +32,7 @@ from nazgarr.api.torrents import router as torrents_router
 from nazgarr.api.trackers import router as trackers_router
 from nazgarr.api.uploads import router as uploads_router
 from nazgarr.api.webhooks import router as webhooks_router
-from nazgarr.core import db, migrations, startup_checks
+from nazgarr.core import db, migrations, startup_checks, updates
 from nazgarr.core.config import load_settings
 from nazgarr.core.logs import add_file_handler, configure_logging
 from nazgarr.core.version import __commit__, __version__
@@ -64,6 +64,7 @@ async def lifespan(app: FastAPI):
     session_factory = db.make_session_factory(engine)
     with session_factory() as session:
         plugin_switch.apply_disabled(session)  # i plugin spenti dall'utente, inclusi o installati
+        updates.init_seen(session)  # un'installazione nuova non mostra note di versioni mai usate
         startup_checks.verify_secret_key(session)
         # Senza account: tutto chiuso finché non lo si crea con questo codice.
         app.state.setup_code = None

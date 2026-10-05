@@ -279,7 +279,10 @@ export const onboarding = {
   'onboarding.tour.extras.plugins.title':
     "Plugin",
   'onboarding.tour.extras.plugins.body':
-    "Pacchetti che aggiungono tracker, client, notifiche o host di immagini. Si elencano in una variabile d'ambiente e si installano al riavvio. Il cammino finisce qui: buon seed.",
+    "Pacchetti che aggiungono tracker, client, notifiche o host di immagini. Si elencano in una variabile d'ambiente e si installano al riavvio.",
+  'onboarding.tour.extras.updates.title': 'Aggiornamenti',
+  'onboarding.tour.extras.updates.body':
+    'Nazgarr può controllare da solo ogni 12 ore se c’è una versione nuova e mostrarti cosa cambia, e cosa fare, prima di aggiornare. È spento: accendilo qui se vuoi. Il cammino finisce qui: buon seed.',
   'onboarding.restart.extras':
     "Il resto di Nazgarr",
 } as const

@@ -177,7 +177,8 @@ export const TOURS: Tour[] = [
 ]
 
 // "Il resto di Nazgarr" (decisione dell'utente, 2026-10-05): upload,
-// notifiche, istanze, API key e plugin, solo per farli conoscere. Nessun
+// notifiche, istanze, API key, plugin e controllo degli aggiornamenti, solo
+// per farli conoscere. Nessun
 // passo aspetta un'azione; l'upload si mostra con un upload di esempio
 // (src/lib/uploadDemo.ts) che non crea niente.
 TOURS.push({
@@ -198,6 +199,8 @@ TOURS.push({
       skipIf: { gone: 'instances.switcher' }, skipTo: 'api_keys' },
     { id: 'api_keys', anchor: 'api-keys.add', side: 'left', next: true, route: '/config?tab=api-keys' },
     { id: 'plugins', anchor: 'plugins.source', side: 'bottom', next: true, route: '/config?tab=plugins' },
+    // Il controllo automatico degli aggiornamenti, spento di default: il tour lo fa conoscere.
+    { id: 'updates', anchor: 'application.update-auto', side: 'top', next: true, route: '/config?tab=application' },
   ],
 })
 
