@@ -638,6 +638,27 @@ def migrate_image_hosts_disabled_to_plugins(engine: Engine) -> int:
         return len(rows)
 
 
+def migrate_new_default_exclusion_presets(engine: Engine) -> bool:
+    """I preset di esclusione nuovi attivi di default (file di sistema di
+    macOS e Windows, file .torrent; 2026-10-05) anche per chi aveva già
+    salvato le sue scelte: prima non esistevano, quindi non li aveva
+    spenti. Chi non ha mai salvato li ha già dai default. Idempotente."""
+    from sqlalchemy.orm import Session
+
+    from nazgarr.core import settings_repo
+
+    with Session(engine) as session:
+        raw = settings_repo.get_setting(session, "exclusion_presets")
+        if raw is None:
+            return False
+        keys = [key.strip() for key in raw.split(",") if key.strip()]
+        added = [key for key in ("system_files", "torrent_files") if key not in keys]
+        if not added:
+            return False
+        settings_repo.set_setting(session, "exclusion_presets", ",".join([*keys, *added]))
+        return True
+
+
 def encrypt_plaintext_secrets(engine: Engine) -> int:
     """All'avvio, una volta: cifra i segreti che erano in chiaro nel DB (la
     passkey negli announce, il cookie dello storico, le chiavi API nelle

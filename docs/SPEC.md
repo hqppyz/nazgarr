@@ -236,6 +236,7 @@ Default: filename parsing (guessit) → TMDB lookup. Optional Sonarr/Radarr adap
 
 Every candidate is evaluated as a whole torrent, file by file. This replaces the Phase 4 scope reduction ("more than one file = confidence 0"), which also excluded every movie released with an `.nfo` or subtitles next to it.
 - **The library scan records every file**, not only videos. Exclusions are a filter for views, counts and API lookups; an excluded file that is part of a torrent is still used to recreate it. Only videos get an identity and trigger matching.
+- **Default exclusion presets** (user decision, 2026-10-05): from the Plex ("Local Media Assets", "Local Files for Trailers and Extras") and Jellyfin naming docs. *Media server artwork and metadata* (on by default) excludes every image by extension (jpg, jpeg, png, tbn, webp), since Plex also takes artwork named like the video, numbered or as episode thumbnails, plus nfo, `theme.*`, `theme-music/` and `backdrops/`. *Extras* (off by default) covers the extras folders and suffixes of both (Featurettes, Behind The Scenes, `-trailer`, `-deleted`...). *macOS and Windows system files* (`._*`, `.DS_Store`, hidden volume folders, Thumbs.db) and *.torrent files* are on by default, also for who had already saved their presets (migration 9).
 - **Matching a pack's videos to local files**, most precise first:
   1. Sonarr history (`droppedPath` → `importedPath`);
   2. on the torrent side, the original names under the same root as the orphan;

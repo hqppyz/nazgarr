@@ -51,6 +51,8 @@ MIGRATIONS: tuple[Migration, ...] = (
     Migration(7, "host di immagini come plugin incluso", db.migrate_image_hosts_to_plugins, before_schema=False),
     Migration(8, "host di immagini spenti come plugin spenti", db.migrate_image_hosts_disabled_to_plugins,
               before_schema=False),
+    Migration(9, "preset di esclusione nuovi attivi di default", db.migrate_new_default_exclusion_presets,
+              before_schema=False),
 )
 
 LATEST = MIGRATIONS[-1].version

@@ -160,7 +160,7 @@ export const onboarding = {
   'onboarding.tour.trackers.profile.body': 'How uploads to this tracker are named and categorised. A known tracker already has one: change it only if needed.',
   'onboarding.tour.exclusions.presets.title': 'Ready-made exclusions',
   'onboarding.tour.exclusions.presets.body':
-    'Sets of files that never count: media server metadata (artwork, .nfo) is on by default; samples and scene leftovers can be added. Excluded files stay on disk, they are just left out of states, counts and searches.',
+    'Sets of files that never count: media server artwork and metadata, macOS and Windows system files and .torrent files are excluded by default; extras, samples and scene leftovers can be added. Excluded files stay on disk, they are just left out of states, counts and searches.',
   'onboarding.tour.exclusions.custom.title': 'Your own patterns',
   'onboarding.tour.exclusions.custom.body': 'Anything else to leave out, as patterns on the path (e.g. */Extras/*). You can also exclude a file or a folder by right-clicking it in the Library.',
 

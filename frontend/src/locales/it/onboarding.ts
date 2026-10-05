@@ -160,7 +160,7 @@ export const onboarding = {
   'onboarding.tour.trackers.profile.body': 'Come vengono nominati e categorizzati gli upload su questo tracker. Un tracker conosciuto ne ha già uno: cambialo solo se serve.',
   'onboarding.tour.exclusions.presets.title': 'Esclusioni pronte',
   'onboarding.tour.exclusions.presets.body':
-    'Gruppi di file che non contano mai: i metadati dei media server (artwork, .nfo) sono attivi di default; si possono aggiungere sample e residui della scene. I file esclusi restano sul disco, vengono solo lasciati fuori da stati, conteggi e ricerche.',
+    'Gruppi di file che non contano mai: artwork e metadati dei media server, i file di sistema di macOS e Windows e i .torrent sono esclusi di default; si possono aggiungere gli extra, i sample e i residui della scene. I file esclusi restano sul disco, vengono solo lasciati fuori da stati, conteggi e ricerche.',
   'onboarding.tour.exclusions.custom.title': 'I tuoi pattern',
   'onboarding.tour.exclusions.custom.body': 'Qualsiasi altra cosa da lasciare fuori, come pattern sul percorso (es. */Extras/*). Puoi anche escludere un file o una cartella con il tasto destro nella Libreria.',
 
