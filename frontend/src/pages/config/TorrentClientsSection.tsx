@@ -582,12 +582,14 @@ export function TorrentClientsSection() {
               <div className="flex flex-wrap items-center gap-1 border-t pt-3">
                 <TestButton id={tc.id} />
                 <PathCheckButton clientId={tc.id} clientLabel={tc.label} />
-                <span className="flex-1" />
-                <DisksDialog torrentClientId={tc.id} disks={tc.disks} />
-                <TorrentClientDialog tc={tc} />
-                <Button variant="ghost" size="icon-sm" title={t('common.delete')} onClick={() => deleteTorrentClient.mutate(tc.id)}>
-                  <TrashIcon className="size-4" />
-                </Button>
+                {/* Le icone restano insieme: se non c'è spazio vanno a capo tutte, a destra. */}
+                <div className="ml-auto flex shrink-0 items-center gap-1">
+                  <DisksDialog torrentClientId={tc.id} disks={tc.disks} />
+                  <TorrentClientDialog tc={tc} />
+                  <Button variant="ghost" size="icon-sm" title={t('common.delete')} onClick={() => deleteTorrentClient.mutate(tc.id)}>
+                    <TrashIcon className="size-4" />
+                  </Button>
+                </div>
               </div>
             </CardContent>
           </Card>
