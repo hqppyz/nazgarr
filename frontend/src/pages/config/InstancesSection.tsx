@@ -87,7 +87,7 @@ function InstanceDialog({ instance }: { instance?: Instance }) {
           </div>
           <div className="grid gap-1.5">
             <Label htmlFor="instance-url">{t('instances.url')}</Label>
-            <Input id="instance-url" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="http://nas:8080" />
+            <Input id="instance-url" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="http://nas:3019" />
             <p className="text-xs text-muted-foreground">{t('instances.urlHelp')}</p>
           </div>
           <div className="grid gap-1.5">

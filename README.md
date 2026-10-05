@@ -66,7 +66,7 @@ services:
     container_name: nazgarr
     restart: unless-stopped
     ports:
-      - "8080:8080"
+      - "3019:3019"
     environment:
       - PUID=1000            # the user that owns your media and torrent folders
       - PGID=1000
@@ -83,7 +83,7 @@ Generate `APP_SECRET_KEY` once and keep it with your backups. It encrypts the st
 openssl rand -base64 32 | tr '+/' '-_'
 ```
 
-Then `docker compose up -d` and open `http://<host>:8080`. Building from source instead: clone the repository and run `docker compose up -d` with the [`docker-compose.yml`](docker-compose.yml) in it, which reads the key from a `.env` file.
+Then `docker compose up -d` and open `http://<host>:3019`. Building from source instead: clone the repository and run `docker compose up -d` with the [`docker-compose.yml`](docker-compose.yml) in it, which reads the key from a `.env` file.
 
 ### Unraid
 
@@ -125,7 +125,7 @@ Configuration › Application › Check for updates follows the channel you're o
 
 Nazgarr needs very little up front. Disks, folders, clients, trackers and thresholds are set from the web UI and saved in its database, with no restart.
 
-**Port:** `8080`. Map it to whatever you like on the host (`"9000:8080"`). The Python package takes `nazgarr serve --host 0.0.0.0 --port 8080`.
+**Port:** `3019`. Map it to whatever you like on the host (`"9000:3019"`). The Python package takes `nazgarr serve --host 0.0.0.0 --port 3019`. Up to version 0.8.14 the port was `8080`: if you are updating a container created earlier, change its mapping to `"8080:3019"` (or `"3019:3019"`), and on Unraid set the WebUI Port's container port to 3019.
 
 **Environment**
 
@@ -197,11 +197,11 @@ Every torrent Nazgarr adds is rechecked by the client. Transmission and rTorrent
 
 ## Command line
 
-Besides running the server, the `nazgarr` command talks to a running instance: log in once with `nazgarr login --url http://HOST:8080`, then check the status, start scans, approve reviews and more from the terminal or a script (`--json`, `--yes`). Inside the container: `docker exec -it nazgarr nazgarr status`. Full guide: [docs/CLI.md](docs/CLI.md).
+Besides running the server, the `nazgarr` command talks to a running instance: log in once with `nazgarr login --url http://HOST:3019`, then check the status, start scans, approve reviews and more from the terminal or a script (`--json`, `--yes`). Inside the container: `docker exec -it nazgarr nazgarr status`. Full guide: [docs/CLI.md](docs/CLI.md).
 
 ## API and automation
 
-Everything the UI does goes through a JSON API under `/api`. The interactive reference is at `http://<host>:8080/docs`. Scripts authenticate with an API key created in Configuration › API keys. See [docs/SDK.md](docs/SDK.md) for plugins, webhooks and API keys, and [examples/nazgarr-ntfy](examples/nazgarr-ntfy) for a complete plugin.
+Everything the UI does goes through a JSON API under `/api`. The interactive reference is at `http://<host>:3019/docs`. Scripts authenticate with an API key created in Configuration › API keys. See [docs/SDK.md](docs/SDK.md) for plugins, webhooks and API keys, and [examples/nazgarr-ntfy](examples/nazgarr-ntfy) for a complete plugin.
 
 ## Development
 
@@ -210,7 +210,7 @@ python3 -m venv .venv
 ./.venv/bin/pip install -r requirements.txt -r requirements-dev.txt
 cp config.example.yaml config.yaml          # point data_dir (and disk_scan_root) at local folders
 export APP_SECRET_KEY=$(openssl rand -base64 32 | tr '+/' '-_')
-./.venv/bin/uvicorn nazgarr.main:app --reload --port 8080
+./.venv/bin/uvicorn nazgarr.main:app --reload --port 3019
 
 cd frontend && npm install && npm run dev   # http://localhost:5173, proxies /api to the backend
 ```

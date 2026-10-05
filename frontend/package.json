@@ -9,7 +9,7 @@
     "lint": "oxlint",
     "test": "vitest run",
     "preview": "vite preview",
-    "gen-types": "openapi-typescript http://localhost:8080/openapi.json -o ./src/api/schema.ts",
+    "gen-types": "openapi-typescript http://localhost:3019/openapi.json -o ./src/api/schema.ts",
     "render:ring": "node scripts/render-ring.mjs"
   },
   "dependencies": {

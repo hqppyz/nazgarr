@@ -11,13 +11,13 @@
   <Project>https://github.com/lktorrentz/nazgarr</Project>
   <Overview>Nazgarr manages your media library, torrent seeding folders, the hardlink correspondence between them, the real state of your configured torrent clients (multi-client, cross-seed included), and publishing new uploads to trackers - all in one place.&#13;
 &#13;
-Web UI on http://[IP]:[PORT:8080]: dashboard, library (poster and folder views), torrent files, reseeding review queue, uploads to your trackers (identification, dupe check, release names per tracker, queue and history) and configuration. This template uses the :stable image; switch the Repository to :nightly to follow every test build.&#13;
+Web UI on http://[IP]:[PORT:3019]: dashboard, library (poster and folder views), torrent files, reseeding review queue, uploads to your trackers (identification, dupe check, release names per tracker, queue and history) and configuration. This template uses the :stable image; switch the Repository to :nightly to follow every test build.&#13;
 &#13;
 Follows the TrashGuide layout: mount your combined torrents+media folder at /data, same as your download client and media manager - this is what makes hardlinks between them work. Only two paths are needed: Config (appdata) and Data (your library). No need to edit any file: every folder you mount is proposed as a disk in Settings › Storage. Separate disks instead of the share? Remove Data and add one Path per disk (/mnt/disk1 → /mnt/disk1, …), never next to the share.&#13;
 &#13;
 On first start, if config/config.yaml doesn't exist yet in the "Config" folder below, the container creates it from config.example.yaml with default values.</Overview>
   <Category>Tools: Downloaders:</Category>
-  <WebUI>http://[IP]:[PORT:8080]/</WebUI>
+  <WebUI>http://[IP]:[PORT:3019]/</WebUI>
   <TemplateURL>https://raw.githubusercontent.com/lktorrentz/nazgarr/main/unraid/nazgarr-template.xml</TemplateURL>
   <Icon>https://raw.githubusercontent.com/lktorrentz/nazgarr/main/frontend/public/ring.png</Icon>
   <ExtraParams/>
@@ -27,7 +27,7 @@ On first start, if config/config.yaml doesn't exist yet in the "Config" folder b
   <DonateText/>
   <DonateLink/>
   <Requires/>
-  <Config Name="WebUI Port" Target="8080" Default="8080" Mode="tcp" Description="Web UI and API port" Type="Port" Display="always" Required="true" Mask="false">8080</Config>
+  <Config Name="WebUI Port" Target="3019" Default="3019" Mode="tcp" Description="Web UI and API port" Type="Port" Display="always" Required="true" Mask="false">3019</Config>
   <Config Name="Config" Target="/app/config" Default="/mnt/user/appdata/nazgarr/config" Mode="rw" Description="Appdata: config.yaml (created from config.example.yaml on first start if missing) and the app's own SQLite database/cache" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/nazgarr/config</Config>
   <Config Name="Data" Target="/data" Default="/mnt/user/data" Mode="rw" Description="TrashGuide-style combined torrents+media folder - mount the SAME host path you use for your download client and media manager, so hardlinks between them work. Added as a disk from Configuration › Storage after the first start." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/data</Config>
   <Config Name="PUID" Target="PUID" Default="99" Mode="" Description="User ID the web process runs as (99 = nobody on Unraid, matching Sonarr/Radarr/qBittorrent)" Type="Variable" Display="always" Required="false" Mask="false">99</Config>

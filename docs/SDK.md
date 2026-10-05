@@ -434,7 +434,7 @@ A `2xx` answer (within 10 seconds) is a success. Anything else is retried after 
 Create them in **Settings > Extensions > API keys**. A key is shown once and Nazgarr keeps only its SHA-256 hash. Send it in the `X-Api-Key` header:
 
 ```sh
-curl -H "X-Api-Key: nzg_..." http://nazgarr:8080/api/dashboard
+curl -H "X-Api-Key: nzg_..." http://nazgarr:3019/api/dashboard
 ```
 
 | Level | Can |

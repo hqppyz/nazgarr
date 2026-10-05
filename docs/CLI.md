@@ -25,14 +25,14 @@ In a script, add `--yes` to confirm without a prompt. Without a terminal and wit
   docker exec -it nazgarr nazgarr status
   ```
 
-  Inside the container the address is already set (`NAZGARR_URL=http://127.0.0.1:8080`). The login is kept in the config folder (`/app/config/cli.toml`), so it survives updates.
+  Inside the container the address is already set (`NAZGARR_URL=http://127.0.0.1:3019`). The login is kept in the config folder (`/app/config/cli.toml`), so it survives updates.
 
 ## Connect
 
 ### A fresh installation
 
 ```bash
-nazgarr setup --url http://nas:8080
+nazgarr setup --url http://nas:3019
 ```
 
 The command asks for:
@@ -45,7 +45,7 @@ It then creates the account and logs in, the same way the web UI does.
 ### An existing installation
 
 ```bash
-nazgarr login --url http://nas:8080
+nazgarr login --url http://nas:3019
 ```
 
 The password is used once. With it, the CLI creates a dedicated API key named `cli-HOSTNAME`, with write access unless you pass `--read-only`.
@@ -58,7 +58,7 @@ The CLI keeps only that key, in a file readable by you alone:
 Passwords are always asked on screen, never passed as arguments. Arguments would end up in your shell history and in `ps`. In a script, pipe the password with `--password-stdin`:
 
 ```bash
-printf '%s\n' "$NAZGARR_PASSWORD" | nazgarr login --url http://nas:8080 -u admin --password-stdin
+printf '%s\n' "$NAZGARR_PASSWORD" | nazgarr login --url http://nas:3019 -u admin --password-stdin
 ```
 
 ### More instances
@@ -66,7 +66,7 @@ printf '%s\n' "$NAZGARR_PASSWORD" | nazgarr login --url http://nas:8080 -u admin
 Each login saves a **profile**. The first one is called `default`.
 
 ```bash
-nazgarr --profile seedbox login --url https://seedbox.example:8080
+nazgarr --profile seedbox login --url https://seedbox.example:3019
 nazgarr profile ls            # the saved instances, * marks the default
 nazgarr profile use seedbox   # make it the default
 nazgarr -P default status     # one command on another profile
@@ -205,7 +205,7 @@ The CLI then logs in for that single change and does not keep the token. Safety 
 The web UI of this instance can open other Nazgarr instances (Configuration › Instances). From the terminal:
 
 ```bash
-nazgarr instance add seedbox --url https://seedbox.example:8080   # its API key is asked
+nazgarr instance add seedbox --url https://seedbox.example:3019   # its API key is asked
 nazgarr instance ls                                               # with version, key level, compatibility
 nazgarr instance test seedbox
 nazgarr instance rm seedbox
@@ -318,7 +318,7 @@ nazgarr api POST /api/disks -d '{"label": "main", "root_path": "/data"}'
 nazgarr api PATCH /api/trackers/3 -d @tracker.json
 ```
 
-The full list of endpoints, with the exact request and answer of each, is at `http://HOST:8080/docs`.
+The full list of endpoints, with the exact request and answer of each, is at `http://HOST:3019/docs`.
 
 ## Exit codes
 
