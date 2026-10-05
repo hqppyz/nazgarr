@@ -39,4 +39,6 @@ export const application = {
   'updates.available': '{version} available',
   'updates.autoLabel': 'Check for updates automatically',
   'updates.autoHelp': 'Every 12 hours it asks GitHub whether there is a new version and shows it under the version in the sidebar, with what changes and what to do before updating. You update it yourself (Docker, Unraid or pipx).',
+  'updates.new': 'New',
+  'updates.fixes': 'Bug fixes',
 } as const

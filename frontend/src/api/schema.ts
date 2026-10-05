@@ -4102,6 +4102,13 @@ export interface components {
             /** Date */
             date?: string | null;
             /**
+             * Breaking
+             * @default {}
+             */
+            breaking: {
+                [key: string]: string[];
+            };
+            /**
              * Highlights
              * @default {}
              */
@@ -4109,10 +4116,10 @@ export interface components {
                 [key: string]: string[];
             };
             /**
-             * Breaking
+             * Fixes
              * @default {}
              */
-            breaking: {
+            fixes: {
                 [key: string]: string[];
             };
         };

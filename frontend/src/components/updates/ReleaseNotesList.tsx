@@ -23,6 +23,7 @@ export function ReleaseNotesList({ notes }: { notes: Note[] }) {
       {notes.map((note) => {
         const breaking = localized(note.breaking)
         const highlights = localized(note.highlights)
+        const fixes = localized(note.fixes)
         return (
           <section key={note.version} className="grid gap-2">
             <p className="text-sm font-medium">
@@ -40,11 +41,14 @@ export function ReleaseNotesList({ notes }: { notes: Note[] }) {
                 </ul>
               </div>
             )}
-            {highlights.length > 0 && (
-              <ul className="list-disc pl-5 text-sm">
-                {highlights.map((line) => <li key={line}>{line}</li>)}
-              </ul>
-            )}
+            {[['new', highlights], ['fixes', fixes]].map(([kind, lines]) => (lines as string[]).length > 0 && (
+              <div key={kind as string} className="grid gap-1">
+                <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{t(`updates.${kind}`)}</p>
+                <ul className="list-disc pl-5 text-sm">
+                  {(lines as string[]).map((line) => <li key={line}>{line}</li>)}
+                </ul>
+              </div>
+            ))}
           </section>
         )
       })}

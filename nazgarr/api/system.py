@@ -65,8 +65,9 @@ class ReleaseNote(BaseModel):
     """Una voce di nazgarr/release_notes.json: per lingua ("it", "en")."""
     version: str
     date: str | None = None
-    highlights: dict[str, list[str]] = {}
-    breaking: dict[str, list[str]] = {}
+    breaking: dict[str, list[str]] = {}  # cosa fare prima o dopo l'aggiornamento
+    highlights: dict[str, list[str]] = {}  # le novità
+    fixes: dict[str, list[str]] = {}  # i bug corretti (le chores solo in CHANGELOG.md)
 
 
 class UpdateCheckResponse(BaseModel):
