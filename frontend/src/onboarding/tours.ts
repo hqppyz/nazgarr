@@ -74,6 +74,7 @@ export const TOURS: Tour[] = [
       { id: 'create', anchor: 'clients.dialog.create', side: 'top', backTo: 'add',
         waitFor: { element: 'clients.card' } },
       { id: 'test', anchor: 'clients.test', side: 'top', next: true },
+      { id: 'paths', anchor: 'clients.path-check', side: 'top', next: true },
       // Facoltativo: senza dischi scelti il client vale per tutti (stessi percorsi).
       { id: 'disks', anchor: 'clients.disks', side: 'top', next: true },
       { id: 'labels', anchor: 'clients.labels', side: 'top', next: true, when: 'upload' },

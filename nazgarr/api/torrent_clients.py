@@ -19,6 +19,7 @@ from nazgarr.core.models import ClientTorrent, Disk, DiskTorrentClient, TorrentC
 from nazgarr.integrations import adapter_factory
 from nazgarr.plugins import REGISTRY
 from nazgarr.plugins import config as plugin_config
+from nazgarr.torrents import path_check
 from nazgarr.torrents.client_labels import split_tags
 from nazgarr.web.deps import get_or_404, get_session
 
@@ -186,6 +187,59 @@ def test_torrent_client(torrent_client_id: int, session: Session = Depends(get_s
     except Exception as exc:
         return TorrentClientTestResponse(status="error", error=safe_error(exc))
     return TorrentClientTestResponse(status="ok", torrents_found=len(torrents))
+
+
+class PathCheckExample(BaseModel):
+    status: str  # outside_seeding | missing | unmapped
+    client_path: str
+    local_path: str | None  # dove Nazgarr l'ha cercato (o trovato, fuori dalle cartelle dei torrent)
+
+
+class PathCheckSuggestion(BaseModel):
+    disk_id: int
+    disk_label: str
+    local_rel_path: str | None  # None = tutto il disco
+    client_root_path: str | None  # None = stessi percorsi di Nazgarr
+    matches: int
+
+
+class PathCheckResponse(BaseModel):
+    status: str  # "ok" | "error"
+    error: str | None = None
+    source: str | None = None  # "index" (ultima scansione) | "live" (chiesto ora al client)
+    verdict: str | None = None  # ok | partial | none | empty
+    checked: int = 0
+    ok: int = 0
+    outside_seeding: int = 0
+    missing: int = 0
+    unmapped: int = 0
+    examples: list[PathCheckExample] = []
+    suggestions: list[PathCheckSuggestion] = []
+
+
+@router.post("/{torrent_client_id}/path-check", response_model=PathCheckResponse)
+def check_client_paths(torrent_client_id: int, live: bool = False, session: Session = Depends(get_session)):
+    """Sola lettura (nazgarr/torrents/path_check.py): i file che il client
+    ha in seed si trovano sui dischi con la corrispondenza dei percorsi di
+    adesso? Con una proposta di corrispondenza se no. Usa l'ultima
+    indicizzazione; il client stesso con live=true o se non è mai stato
+    indicizzato."""
+    tc = _get_torrent_client_or_404(session, torrent_client_id)
+    samples = [] if live else path_check.samples_from_index(session, tc)
+    source = "index"
+    if not samples:
+        source = "live"
+        try:
+            with adapter_factory.torrent_client(tc) as adapter:
+                samples = path_check.samples_from_torrents(adapter.list_torrents())
+        except Exception as exc:
+            return PathCheckResponse(status="error", error=safe_error(exc))
+    result = path_check.check(session, tc, samples, source)
+    return PathCheckResponse(
+        status="ok", source=result.source, verdict=result.verdict, checked=result.checked, **result.counts,
+        examples=[PathCheckExample(**vars(e)) for e in result.examples],
+        suggestions=[PathCheckSuggestion(**vars(s)) for s in result.suggestions],
+    )
 
 
 @router.patch("/{torrent_client_id}", response_model=TorrentClientResponse)

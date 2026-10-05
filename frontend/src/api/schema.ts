@@ -550,6 +550,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/torrent-clients/{torrent_client_id}/path-check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Check Client Paths
+         * @description Sola lettura (nazgarr/torrents/path_check.py): i file che il client
+         *     ha in seed si trovano sui dischi con la corrispondenza dei percorsi di
+         *     adesso? Con una proposta di corrispondenza se no. Usa l'ultima
+         *     indicizzazione; il client stesso con live=true o se non è mai stato
+         *     indicizzato.
+         */
+        post: operations["check_client_paths_api_torrent_clients__torrent_client_id__path_check_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/torrent-clients/{torrent_client_id}": {
         parameters: {
             query?: never;
@@ -3557,6 +3581,74 @@ export interface components {
             /** Tvdb */
             tvdb: string;
         };
+        /** PathCheckExample */
+        PathCheckExample: {
+            /** Status */
+            status: string;
+            /** Client Path */
+            client_path: string;
+            /** Local Path */
+            local_path: string | null;
+        };
+        /** PathCheckResponse */
+        PathCheckResponse: {
+            /** Status */
+            status: string;
+            /** Error */
+            error?: string | null;
+            /** Source */
+            source?: string | null;
+            /** Verdict */
+            verdict?: string | null;
+            /**
+             * Checked
+             * @default 0
+             */
+            checked: number;
+            /**
+             * Ok
+             * @default 0
+             */
+            ok: number;
+            /**
+             * Outside Seeding
+             * @default 0
+             */
+            outside_seeding: number;
+            /**
+             * Missing
+             * @default 0
+             */
+            missing: number;
+            /**
+             * Unmapped
+             * @default 0
+             */
+            unmapped: number;
+            /**
+             * Examples
+             * @default []
+             */
+            examples: components["schemas"]["PathCheckExample"][];
+            /**
+             * Suggestions
+             * @default []
+             */
+            suggestions: components["schemas"]["PathCheckSuggestion"][];
+        };
+        /** PathCheckSuggestion */
+        PathCheckSuggestion: {
+            /** Disk Id */
+            disk_id: number;
+            /** Disk Label */
+            disk_label: string;
+            /** Local Rel Path */
+            local_rel_path: string | null;
+            /** Client Root Path */
+            client_root_path: string | null;
+            /** Matches */
+            matches: number;
+        };
         /**
          * PhaseProgressResponse
          * @description Una fase della run (nazgarr/core/run_progress.py): done include gli elementi
@@ -5877,6 +5969,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TorrentClientTestResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    check_client_paths_api_torrent_clients__torrent_client_id__path_check_post: {
+        parameters: {
+            query?: {
+                live?: boolean;
+            };
+            header?: never;
+            path: {
+                torrent_client_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PathCheckResponse"];
                 };
             };
             /** @description Validation Error */

@@ -69,4 +69,30 @@ export const torrentClients = {
   'torrentClients.tagsReseed': 'Reseed tags',
   'torrentClients.noTags': 'none, e.g. release',
   'torrentClients.sectionDescription': 'The clients Nazgarr reads to know what seeds, and where reseeds and uploads are added.',
+  // Path check (nazgarr/torrents/path_check.py)
+  'torrentClients.pathCheck.button': 'Check paths',
+  'torrentClients.pathCheck.title': 'Paths of {client}',
+  'torrentClients.pathCheck.description':
+    'For every torrent in the client, Nazgarr looks for its largest file on the disks with the current mapping: it must be there, with the same size, inside a seeding folder. Read only.',
+  'torrentClients.pathCheck.running': 'Checking…',
+  'torrentClients.pathCheck.verdict.ok': 'All good: the {count} torrents of the client are on the disks.',
+  'torrentClients.pathCheck.verdict.partial': 'Only {ok} of {count} torrents are on the disks: the others show up as orphans, and Nazgarr would search the trackers for them even though they are already seeding.',
+  'torrentClients.pathCheck.verdict.none': 'None of the {count} torrents is on the disks: Nazgarr does not know what this client is seeding.',
+  'torrentClients.pathCheck.verdict.empty': 'The client has no torrents to check.',
+  'torrentClients.pathCheck.problem.unmapped': 'with a path that matches no disk this client uses',
+  'torrentClients.pathCheck.problem.missing': 'translated to a disk path where the file is not there (or has another size)',
+  'torrentClients.pathCheck.problem.outside_seeding': 'found, but outside the seeding folders: add that folder to the disk in Storage',
+  'torrentClients.pathCheck.examples': 'Examples: the path in the client → where Nazgarr looked',
+  'torrentClients.pathCheck.noDisk': 'no disk',
+  'torrentClients.pathCheck.suggestionTitle': 'Suggested mapping',
+  'torrentClients.pathCheck.suggestionHelp':
+    'Found by looking for the end of the client paths on the disks. Disk folder = as the client sees it. Applying it enables that disk for the client.',
+  'torrentClients.pathCheck.samePaths': 'same paths as Nazgarr',
+  'torrentClients.pathCheck.wouldFind': 'finds {count} files',
+  'torrentClients.pathCheck.apply': 'Apply',
+  'torrentClients.pathCheck.noSuggestion':
+    'No mapping finds these files: they may be on a disk not added yet, or the folder is not mounted in this container.',
+  'torrentClients.pathCheck.source.index': 'Torrents from the last scan, with the current mapping.',
+  'torrentClients.pathCheck.source.live': 'Torrents just read from the client.',
+  'torrentClients.pathCheck.live': 'Read the client again',
 } as const

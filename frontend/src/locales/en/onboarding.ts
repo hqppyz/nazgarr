@@ -100,6 +100,9 @@ export const onboarding = {
   'onboarding.tour.clients.create.body': 'Then we test the connection.',
   'onboarding.tour.clients.test.title': 'Test the connection',
   'onboarding.tour.clients.test.body': 'Click "Test connection": it says how many torrents the client has. If it fails, check the address and the WebUI login.',
+  'onboarding.tour.clients.paths.title': 'Check the paths',
+  'onboarding.tour.clients.paths.body':
+    'The delicate part: the client and Nazgarr must find the same files, even if they see them from different folders. Click "Check paths": for every torrent Nazgarr looks for its file on the disks. If something is off it shows where it looked and suggests the right mapping, applied with one click. Run it again whenever you change the client mounts.',
   'onboarding.tour.clients.disks.title': 'Disks and paths (optional)',
   'onboarding.tour.clients.disks.body':
     'If the client sees your files at the same paths as Nazgarr (both use /data), nothing to do here. Use it to limit the client to some disks, or when it sees them elsewhere: set the disk folder and how the client sees it (e.g. /data/qbittorrent = /download).',

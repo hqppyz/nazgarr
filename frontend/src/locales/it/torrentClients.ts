@@ -69,4 +69,30 @@ export const torrentClients = {
   'torrentClients.tagsReseed': 'Tag dei reseed',
   'torrentClients.noTags': 'nessuno, es. release',
   'torrentClients.sectionDescription': 'I client che Nazgarr legge per sapere cosa è in seed, e dove vengono aggiunti reseed e upload.',
+  // Verifica percorsi (nazgarr/torrents/path_check.py)
+  'torrentClients.pathCheck.button': 'Verifica percorsi',
+  'torrentClients.pathCheck.title': 'Percorsi di {client}',
+  'torrentClients.pathCheck.description':
+    'Per ogni torrent del client, Nazgarr cerca il suo file più grande sui dischi con la corrispondenza di adesso: deve esserci, con la stessa dimensione, dentro una cartella dei torrent. Solo lettura.',
+  'torrentClients.pathCheck.running': 'Verifica in corso…',
+  'torrentClients.pathCheck.verdict.ok': 'Tutto a posto: i {count} torrent del client si trovano sui dischi.',
+  'torrentClients.pathCheck.verdict.partial': 'Solo {ok} torrent su {count} si trovano sui dischi: gli altri risultano orfani, e Nazgarr li cercherebbe sui tracker anche se sono già in seed.',
+  'torrentClients.pathCheck.verdict.none': 'Nessuno dei {count} torrent si trova sui dischi: Nazgarr non sa cosa ha in seed questo client.',
+  'torrentClients.pathCheck.verdict.empty': 'Il client non ha torrent da verificare.',
+  'torrentClients.pathCheck.problem.unmapped': 'con un percorso che non corrisponde a nessun disco usato da questo client',
+  'torrentClients.pathCheck.problem.missing': 'tradotti in un percorso del disco dove il file non c’è (o ha un’altra dimensione)',
+  'torrentClients.pathCheck.problem.outside_seeding': 'trovati, ma fuori dalle cartelle dei torrent: aggiungi quella cartella al disco in Archiviazione',
+  'torrentClients.pathCheck.examples': 'Esempi: il percorso nel client → dove l’ha cercato Nazgarr',
+  'torrentClients.pathCheck.noDisk': 'nessun disco',
+  'torrentClients.pathCheck.suggestionTitle': 'Corrispondenza proposta',
+  'torrentClients.pathCheck.suggestionHelp':
+    'Trovata cercando sui dischi la parte finale dei percorsi del client. Cartella del disco = come la vede il client. Applicarla attiva quel disco per il client.',
+  'torrentClients.pathCheck.samePaths': 'stessi percorsi di Nazgarr',
+  'torrentClients.pathCheck.wouldFind': 'ritrova {count} file',
+  'torrentClients.pathCheck.apply': 'Applica',
+  'torrentClients.pathCheck.noSuggestion':
+    'Nessuna corrispondenza ritrova questi file: forse sono su un disco non ancora aggiunto, o la cartella non è montata in questo container.',
+  'torrentClients.pathCheck.source.index': 'Torrent dell’ultima scansione, con la corrispondenza di adesso.',
+  'torrentClients.pathCheck.source.live': 'Torrent appena letti dal client.',
+  'torrentClients.pathCheck.live': 'Rileggi dal client',
 } as const

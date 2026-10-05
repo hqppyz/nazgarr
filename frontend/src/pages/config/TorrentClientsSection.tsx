@@ -47,6 +47,7 @@ import { autosaveFeedback } from '@/lib/autosave'
 import { PASSWORD_ONLY, torrentClientPayload, type TorrentClientForm } from '@/lib/torrentClientForm'
 import { CLIENT_NAMES } from '@/lib/services'
 import { ClientLogo } from '@/pages/config/ServiceIcons'
+import { PathCheckButton } from '@/pages/config/ClientPathCheck'
 import { DiskBrowserDialog } from '@/pages/config/DiskBrowserDialog'
 
 type TorrentClient = Schemas['TorrentClientResponse']
@@ -361,7 +362,7 @@ function DiskAssociationRow({
             <div className="grid gap-1">
               <Label className="text-xs text-muted-foreground">{t('torrentClients.mappingClientFolder')}</Label>
               <Input className="h-8 font-mono text-xs" value={clientRoot} onChange={(e) => setClientRoot(e.target.value)}
-                     placeholder="/download" />
+                     placeholder="/downloads" />
             </div>
           </div>
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -567,8 +568,9 @@ export function TorrentClientsSection() {
               <div data-tour="clients.labels">
                 <ClientLabels tc={tc} />
               </div>
-              <div className="flex items-center gap-1 border-t pt-3">
+              <div className="flex flex-wrap items-center gap-1 border-t pt-3">
                 <TestButton id={tc.id} />
+                <PathCheckButton clientId={tc.id} clientLabel={tc.label} />
                 <span className="flex-1" />
                 <DisksDialog torrentClientId={tc.id} disks={tc.disks} />
                 <TorrentClientDialog tc={tc} />

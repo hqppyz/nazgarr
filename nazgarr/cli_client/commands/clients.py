@@ -127,6 +127,54 @@ def test_client(ctx: typer.Context, ref: str = typer.Argument(..., help="Client 
         raise typer.Exit(1)
 
 
+VERDICTS = {"ok": "[green]All good[/green]", "partial": "[yellow]Partly[/yellow]",
+            "none": "[red]Nothing found[/red]", "empty": "No torrents"}
+PROBLEMS = (("unmapped", "match no disk enabled for the client"),
+            ("missing", "point to a disk path where the file is not there"),
+            ("outside_seeding", "are outside the seeding folders"))
+
+
+def _link_command(label: str, s: dict) -> str:
+    command = f"nazgarr client link {label} {s['disk_label']}"
+    if s["local_rel_path"]:
+        command += f" --folder {s['local_rel_path']}"
+    if s["client_root_path"]:
+        command += f" --client-root {s['client_root_path']}"
+    return command
+
+
+def _print_paths(label: str, result: dict) -> None:
+    if result["status"] != "ok":
+        err_console.print(f"[red]Check failed:[/red] {result.get('error')}")
+        return
+    source = "last scan" if result["source"] == "index" else "read from the client now"
+    console.print(f"{VERDICTS[result['verdict']]}: {result['ok']} of {result['checked']} torrents are on the disks "
+                  f"({source}).")
+    for key, text in PROBLEMS:
+        if result[key]:
+            console.print(f"  {result[key]} {text}")
+    for example in result["examples"]:
+        console.print(f"  {example['client_path']} -> {example['local_path'] or 'no disk'}")
+    for s in result["suggestions"]:
+        console.print(f"Suggested ({s['matches']} files): {_link_command(label, s)}")
+
+
+@app.command("check")
+def check_paths(
+    ctx: typer.Context,
+    ref: str = typer.Argument(..., help="Client name or ID."),
+    live: bool = typer.Option(False, "--live", help="Read the torrents from the client, not the last scan."),
+):
+    """Check that the files the client seeds are on the disks, and suggest a mapping if not."""
+    client = api(ctx)
+    found = _client(client, ref)
+    path = f"/api/torrent-clients/{found['id']}/path-check"
+    result = client.post(path + ("?live=true" if live else ""))
+    emit(state(ctx), result, lambda data: _print_paths(found["label"], data))
+    if result["status"] != "ok" or result["verdict"] in ("partial", "none"):
+        raise typer.Exit(1)
+
+
 @app.command("categories")
 def categories(ctx: typer.Context, ref: str = typer.Argument(..., help="Client name or ID.")):
     """The categories defined in the client."""
@@ -141,14 +189,15 @@ def link_disk(
     ref: str = typer.Argument(..., help="Client name or ID."),
     disk: str = typer.Argument(..., help="Disk name or ID."),
     client_root: str = typer.Option(None, "--client-root",
-                                    help="How the client sees the folder below (or the whole disk), e.g. /download."),
+                                    help="How the client sees the folder below (or the whole disk), e.g. /downloads."),
     folder: str = typer.Option(None, "--folder",
                                help="The disk folder the client sees as --client-root (default: the whole disk)."),
 ):
     """Use the client for a disk, and say where the client sees it if not at the same path.
 
-    E.g. Nazgarr /data/qbittorrent is qBittorrent /download:
-    nazgarr client link qbit main --folder qbittorrent --client-root /download
+    E.g. Nazgarr /data/torrents is qBittorrent /downloads:
+    nazgarr client link qbit main --folder torrents --client-root /downloads
+    "nazgarr client check" suggests the right values.
     """
     if folder and not client_root:
         raise fail("--folder needs --client-root (how the client sees that folder).", EXIT_USAGE)
