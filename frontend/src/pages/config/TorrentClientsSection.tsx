@@ -289,7 +289,11 @@ function TestButton({ id }: { id: number }) {
       onClick={() =>
         test.mutate(id, {
           onSuccess: (result) => {
-            if (result.status === 'ok') toast.success(t('torrentClients.connectedSuccess', { count: result.torrents_found }))
+            if (result.status === 'ok') {
+              const layout = result.content_layout === 'Subfolder' ? t('torrentClients.layoutSubfolder')
+                : result.content_layout === 'NoSubfolder' ? t('torrentClients.layoutNoSubfolder') : undefined
+              toast.success(t('torrentClients.connectedSuccess', { count: result.torrents_found }), { description: layout })
+            }
             else toast.error(result.error ?? t('torrentClients.connectionFailed'))
           },
           // La richiesta stessa fallita (rete, Nazgarr irraggiungibile): prima non si vedeva niente.

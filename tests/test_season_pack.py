@@ -217,6 +217,27 @@ def test_executing_a_pack_hardlinks_every_local_file_and_tolerates_missing_extra
     assert (seed_job.recheck_status, seed_job.final_status) == ("ok", "seeding")
 
 
+def test_a_pack_for_a_client_without_root_folders_is_hardlinked_without_it(db_session, tmp_path, monkeypatch):
+    _no_mediainfo(monkeypatch)
+    _disk, tracker, _ = _library(db_session, tmp_path)
+    matching.run_media_to_torrent_matching(db_session, tracker, PackTracker([_pack_candidate()]))
+
+    class NoSubfolderClient(FakeClient):
+        def content_layout(self):
+            return "NoSubfolder"
+
+        def add_torrent(self, url, save_path, force_recheck=True, expected_info_hash=None, content_layout="Original"):
+            self.added.append((url, save_path, content_layout))
+            return "packhash"
+
+    client = NoSubfolderClient()
+    executor.execute_review(db_session, db_session.query(MatchReview).one(), client)
+
+    assert (tmp_path / "torrents" / "Show.S01E01.1080p-GRP.mkv").read_bytes() == E01
+    assert not (tmp_path / "torrents" / FOLDER).exists()
+    assert client.added == [("https://t.example/torrent/download/900.pk", str(tmp_path / "torrents"), "NoSubfolder")]
+
+
 def test_recheck_missing_more_than_the_extras_still_fails(db_session, tmp_path, monkeypatch):
     _no_mediainfo(monkeypatch)
     _disk, tracker, _ = _library(db_session, tmp_path)

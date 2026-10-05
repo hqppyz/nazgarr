@@ -19,14 +19,17 @@ per le due direzioni di docs/SPEC.md sezione 3.
 import json
 import logging
 import os
+from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session
 
 from nazgarr.adapters.torrent_client.base import (
+    CONTENT_LAYOUTS,
     TorrentAddTimeoutError,
     TorrentAlreadyInClientError,
     TorrentClientAdapter,
+    layout_kwargs,
 )
 from nazgarr.core import settings_repo
 from nazgarr.core.errors import CodedError, english
@@ -113,18 +116,20 @@ def _labels(session: Session, torrent_client_id: int | None, candidate) -> dict:
 
 def _add_to_client(
     adapter: TorrentClientAdapter, candidate, save_path: str, seed_job: SeedJob, skip_recheck: bool,
-    labels: dict | None = None,
+    labels: dict | None = None, layout: str = "Original",
 ) -> str:
     """Aggiunge il torrent al client. Il recheck del client si salta solo se
     il chiamante l'ha verificato lui stesso al 100% (skip_recheck): resta
     scritto sul seed_job, così si vede quali esecuzioni sono passate così.
     labels: categoria e tag del client (_labels), solo se ce ne sono.
-    Un client che non sa saltarlo (can_skip_recheck) lo fa comunque."""
+    Un client che non sa saltarlo (can_skip_recheck) lo fa comunque.
+    layout: sempre esplicito (_Placement), "Original" per file già al loro
+    posto: la preferenza del client non li deve spostare."""
     skip_recheck = skip_recheck and getattr(adapter, "can_skip_recheck", True)
     extra = {"skip_check_verified": True} if skip_recheck else {}
     info_hash = adapter.add_torrent(
         candidate.download_link, save_path=save_path, force_recheck=True,
-        expected_info_hash=candidate.info_hash, **extra, **(labels or {}),
+        expected_info_hash=candidate.info_hash, **extra, **(labels or {}), **layout_kwargs(adapter, layout),
     )
     seed_job.recheck_skipped = skip_recheck or None
     return info_hash
@@ -163,6 +168,49 @@ def _adopt_after_add_error(
     seed_job.recheck_status = "pending"
     session.commit()
     return "adopted"
+
+
+@dataclass(frozen=True)
+class _Placement:
+    """Dove vanno i nuovi hardlink perché il torrent li trovi rispettando
+    il layout del contenuto scelto dall'utente nel client (qBittorrent:
+    Opzioni › Download): save_dir è la cartella di save_path dentro la
+    cartella dei nuovi torrent, folder la cartella radice dei file dentro
+    save_dir, layout quello da mandare al client."""
+
+    save_dir: str | None
+    folder: str | None
+    layout: str
+
+    def rel_path(self, torrent_path: str) -> str:
+        return "/".join(p for p in (self.save_dir, self.folder, torrent_path) if p)
+
+
+def _client_layout(adapter: TorrentClientAdapter) -> str:
+    try:
+        layout = adapter.content_layout()
+    except AttributeError:
+        return "Original"  # un adapter senza content_layout segue il .torrent
+    except Exception:
+        logger.warning("Layout del contenuto del client non letto: uso Original", exc_info=True)
+        return "Original"
+    return layout if layout in CONTENT_LAYOUTS else "Original"
+
+
+def _placement(adapter: TorrentClientAdapter, candidate, single_file_name: str | None) -> _Placement:
+    """"Crea sottocartella" su un torrent a file singolo: la cartella col
+    nome del file senza estensione la crea Nazgarr, e il torrent arriva con
+    save_path lì dentro e layout Original, così non serve indovinare come
+    il client sceglie quel nome. "Non creare sottocartella" su un torrent
+    con la cartella radice: gli hardlink senza quella cartella, e il client
+    riceve lo stesso layout. Negli altri casi il layout non cambia niente."""
+    layout = _client_layout(adapter)
+    if layout == "Subfolder" and not candidate.folder and single_file_name:
+        stem = os.path.splitext(single_file_name)[0] or single_file_name
+        return _Placement(save_dir=stem, folder=None, layout="Original")
+    if layout == "NoSubfolder" and candidate.folder:
+        return _Placement(save_dir=None, folder=None, layout="NoSubfolder")
+    return _Placement(save_dir=None, folder=candidate.folder, layout="Original")
 
 
 def _torrent_rel_path(candidate, torrent_path: str) -> str:
@@ -254,6 +302,7 @@ def _execute_layout_media_to_torrent(
     if not os.path.isdir(target_root):
         raise ExecutionError(f"Destination folder for new hardlinks not found: {target_root}")
 
+    placement = _placement(adapter, candidate, candidate.files[0].torrent_path if len(candidate.files) == 1 else None)
     links: list[tuple[str, str]] = []
     for f in candidate.files:
         if f.media_file is None:
@@ -262,7 +311,7 @@ def _execute_layout_media_to_torrent(
             raise ExecutionError(f"'{f.media_file.relative_path}' is on another disk: a hardlink cannot cross disks")
         source_path = _source_path(disk, f.media_file.relative_path)
         try:
-            target_path = resolve_scoped(target_root, _torrent_rel_path(candidate, f.torrent_path))
+            target_path = resolve_scoped(target_root, placement.rel_path(f.torrent_path))
         except ScopeViolation as exc:
             raise ExecutionError(f"Path outside the allowed scope: {exc.candidate}") from exc
         if _check_link(source_path, target_path, target_root):
@@ -287,10 +336,12 @@ def _execute_layout_media_to_torrent(
         session.commit()
         logger.info("Creati %d hardlink per candidate %s", len(created), candidate.id)
 
-        client_save_path = client_visible_path(session, disk, torrent_client_id, target_root)
+        save_root = resolve_scoped(target_root, placement.save_dir) if placement.save_dir else target_root
+        client_save_path = client_visible_path(session, disk, torrent_client_id, save_root)
         labels = _labels(session, torrent_client_id, candidate)
         add_sent = True
-        info_hash = _add_to_client(adapter, candidate, client_save_path, seed_job, skip_recheck, labels)
+        info_hash = _add_to_client(adapter, candidate, client_save_path, seed_job, skip_recheck, labels,
+                                   placement.layout)
         seed_job.info_hash = info_hash
         seed_job.torrent_added_at = datetime.now(UTC)
         seed_job.recheck_status = "pending"
@@ -409,9 +460,10 @@ def _execute_media_to_torrent(
     expected_filename = file_list[0] if file_list else os.path.basename(source_path)
     # Un torrent a file singolo può comunque avere una cartella contenitore
     # (candidate.folder) — molte release la usano anche per i film.
-    relative_target = os.path.join(candidate.folder, expected_filename) if candidate.folder else expected_filename
+    placement = _placement(adapter, candidate, expected_filename)
     try:
-        target_path = resolve_scoped(target_root, relative_target)
+        target_path = resolve_scoped(target_root, placement.rel_path(expected_filename))
+        save_root = resolve_scoped(target_root, placement.save_dir) if placement.save_dir else target_root
     except ScopeViolation as exc:
         raise ExecutionError(f"Path outside the allowed scope: {exc.candidate}") from exc
 
@@ -425,8 +477,8 @@ def _execute_media_to_torrent(
     session.commit()
 
     return _create_hardlink_then_seed(
-        session, seed_job, candidate, adapter, source_path, target_path, disk, target_root, torrent_client_id,
-        skip_recheck, reuse=reuse,
+        session, seed_job, candidate, adapter, source_path, target_path, disk, save_root, torrent_client_id,
+        skip_recheck, reuse=reuse, layout=placement.layout,
     )
 
 
@@ -442,6 +494,7 @@ def _create_hardlink_then_seed(
     torrent_client_id: int | None = None,
     skip_recheck: bool = False,
     reuse: bool = False,
+    layout: str = "Original",
 ) -> SeedJob:
     if not candidate.download_link:
         seed_job.final_status = "failed"
@@ -460,7 +513,7 @@ def _create_hardlink_then_seed(
         client_save_path = client_visible_path(session, disk, torrent_client_id, target_root)
         labels = _labels(session, torrent_client_id, candidate)
         add_sent = True
-        info_hash = _add_to_client(adapter, candidate, client_save_path, seed_job, skip_recheck, labels)
+        info_hash = _add_to_client(adapter, candidate, client_save_path, seed_job, skip_recheck, labels, layout)
         seed_job.info_hash = info_hash
         seed_job.torrent_added_at = datetime.now(UTC)
         seed_job.recheck_status = "pending"

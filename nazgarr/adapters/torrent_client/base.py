@@ -12,6 +12,7 @@ orphan_torrent/ignored (sezione 3, multi-client). Sola lettura — non
 aggiunge/modifica mai nulla sul client.
 """
 
+import inspect
 import logging
 import os
 import time
@@ -78,6 +79,12 @@ def seeders(value) -> int | None:
     return count if count >= 1 else None
 
 
+# Come qBittorrent: "Original" segue il .torrent, "Subfolder" mette un
+# torrent a file singolo in una cartella col nome del file senza estensione,
+# "NoSubfolder" toglie la cartella radice di un torrent con più file.
+CONTENT_LAYOUTS = ("Original", "Subfolder", "NoSubfolder")
+
+
 class TorrentAddTimeoutError(Exception):
     """Il torrent non è comparso nel client entro il timeout dopo l'aggiunta."""
 
@@ -112,7 +119,7 @@ class TorrentClientAdapter(ABC):
     def add_torrent(
         self, torrent_file_or_url: str, save_path: str, force_recheck: bool = True,
         expected_info_hash: str | None = None, skip_check_verified: bool = False,
-        category: str | None = None, tags: list[str] | None = None,
+        category: str | None = None, tags: list[str] | None = None, content_layout: str = "Original",
     ) -> str:
         """Aggiunge il torrent puntando a save_path (il file già hardlinkato,
         o già presente per la direzione torrent->client di SPEC.md sezione 3).
@@ -134,8 +141,21 @@ class TorrentClientAdapter(ABC):
         expected_info_hash (se noto: il .torrent è già stato scaricato e
         analizzato dal matching) rende l'attesa precisa — si aspetta proprio
         quel torrent, non "un torrent nuovo qualunque" — e trasforma un
-        duplicato in TorrentAlreadyInClientError invece di un timeout."""
+        duplicato in TorrentAlreadyInClientError invece di un timeout.
+
+        content_layout: dove il client mette i file rispetto a save_path
+        (CONTENT_LAYOUTS). Nazgarr lo passa sempre esplicito, così la
+        preferenza globale del client non sposta i file da dove li ha messi
+        lui; un client senza questa preferenza segue il .torrent, cioè
+        "Original", e può ignorarlo."""
         raise NotImplementedError
+
+    def content_layout(self) -> str:
+        """La preferenza dell'utente per la struttura dei torrent aggiunti
+        (qBittorrent: Opzioni › Download › Layout del contenuto), per
+        rispettarla nei nuovi hardlink (nazgarr/reseed/executor.py): uno
+        di CONTENT_LAYOUTS. Default: il client segue il .torrent."""
+        return "Original"
 
     @abstractmethod
     def get_torrent_status(self, info_hash: str) -> TorrentStatus:
@@ -208,6 +228,17 @@ def state_kind(state: str | None) -> StateKind:
         return "downloading"
     return "other"
 
+
+
+def layout_kwargs(adapter, layout: str) -> dict:
+    """content_layout per add_torrent, solo se l'adapter lo accetta: un
+    plugin scritto prima di content_layout non lo conosce (e per lui vale
+    comunque "Original", il default di content_layout())."""
+    try:
+        accepted = "content_layout" in inspect.signature(adapter.add_torrent).parameters
+    except (TypeError, ValueError):
+        accepted = False
+    return {"content_layout": layout} if accepted else {}
 
 
 def local_torrent_bytes(torrent_file_or_url: str) -> bytes | None:

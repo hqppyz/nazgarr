@@ -149,9 +149,10 @@ Raise `UploadError` when the tracker refuses an upload, and `TrackerRateLimitedE
 | Method | |
 |---|---|
 | `list_torrents(on_progress=None) -> list[ClientTorrentInfo]` | **required**: every torrent with its files, read only |
-| `add_torrent(torrent_file_or_url, save_path, force_recheck=True, expected_info_hash=None, skip_check_verified=False, category=None, tags=None) -> str` | **required**: add a torrent and return its info hash. Always recheck unless `skip_check_verified` is true (Nazgarr has just verified every piece itself). Never turn on the client's automatic torrent management: a category is only a label and must not move files. |
+| `add_torrent(torrent_file_or_url, save_path, force_recheck=True, expected_info_hash=None, skip_check_verified=False, category=None, tags=None, content_layout="Original") -> str` | **required**: add a torrent and return its info hash. Always recheck unless `skip_check_verified` is true (Nazgarr has just verified every piece itself). Never turn on the client's automatic torrent management: a category is only a label and must not move files. `content_layout` (`Original`, `Subfolder`, `NoSubfolder`) overrides the client's own layout preference for this torrent; a client without such a preference can ignore it. |
 | `get_torrent_status(info_hash) -> TorrentStatus` | **required**: the state of a torrent and of its recheck |
-| `get_torrent_info(info_hash) -> ClientTorrentInfo \| None` | one torrent with its files |
+| `get_torrent_info(info_hash) -> ClientTorrentInfo \| None` | one torrent with its files. Also asked after a failed add, to know whether the torrent reached the client anyway: return `None` only when the client really does not have it |
+| `content_layout() -> str` | the user's layout preference for added torrents (default `Original`): reseeds place their new hardlinks to match it |
 | `recheck(info_hash)` | ask the client to check a torrent again |
 | `list_categories() -> list[str]` | the client's categories, for the category pickers |
 | `remove_torrent(info_hash, delete_files)` | remove a torrent from the client; with `delete_files`, also its files (only the torrent's own). Only called on an explicit user request |

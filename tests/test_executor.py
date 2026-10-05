@@ -93,6 +93,80 @@ def test_execute_media_to_torrent_creates_hardlink_and_adds_torrent(db_session, 
     assert len(adapter.add_torrent_calls) == 1
 
 
+class LayoutAdapter(FakeAdapter):
+    """Un client con "Layout del contenuto" impostato dall'utente."""
+
+    def __init__(self, layout):
+        super().__init__()
+        self.layout = layout
+
+    def content_layout(self):
+        return self.layout
+
+    def add_torrent(self, torrent_file_or_url, save_path, force_recheck=True, expected_info_hash=None,
+                    content_layout="Original"):
+        self.add_torrent_calls.append({"url": torrent_file_or_url, "save_path": save_path, "layout": content_layout})
+        return self.info_hash
+
+
+def _movie_review(db_session, tmp_path, folder=None):
+    root, disk, tracker, item, run = _base_setup(db_session, tmp_path)
+    (root / "media" / "movies" / "Movie.2024.mkv").write_bytes(b"content")
+    media_file = MediaFile(
+        disk_id=disk.id, relative_path="media/movies/Movie.2024.mkv", size_bytes=7,
+        st_dev=1, inode=1, media_item_id=item.id, last_scan_id=run.id, last_seen_at=datetime.now(UTC),
+    )
+    db_session.add(media_file)
+    db_session.commit()
+    candidate = Candidate(
+        media_item_id=item.id, tracker_id=tracker.id, torrent_id_remote="1", name="Movie.2024.mkv",
+        size_bytes=7, source="catalog_search", direction="media_to_torrent", confidence=1.0,
+        download_link="https://t.example/dl/1", file_list_json='["Movie.2024.mkv"]', folder=folder,
+    )
+    db_session.add(candidate)
+    db_session.commit()
+    review = MatchReview(candidate_id=candidate.id, media_file_id=media_file.id, status="approved")
+    db_session.add(review)
+    db_session.commit()
+    return root, review
+
+
+def test_a_client_that_creates_subfolders_gets_the_file_inside_its_folder(db_session, tmp_path):
+    # Il caso segnalato: qBittorrent con "Crea sottocartella" cercava il file
+    # in torrents/Movie.2024/, l'hardlink era in torrents/ e partiva il download.
+    root, review = _movie_review(db_session, tmp_path)
+    adapter = LayoutAdapter("Subfolder")
+
+    executor.execute_review(db_session, review, adapter)
+
+    assert (root / "torrents" / "Movie.2024" / "Movie.2024.mkv").is_file()
+    assert not (root / "torrents" / "Movie.2024.mkv").exists()
+    assert adapter.add_torrent_calls[0]["save_path"] == str(root / "torrents" / "Movie.2024")
+    assert adapter.add_torrent_calls[0]["layout"] == "Original"
+
+
+def test_without_subfolders_the_root_folder_of_the_torrent_is_left_out(db_session, tmp_path):
+    root, review = _movie_review(db_session, tmp_path, folder="Release.Name")
+    adapter = LayoutAdapter("NoSubfolder")
+
+    executor.execute_review(db_session, review, adapter)
+
+    assert (root / "torrents" / "Movie.2024.mkv").is_file()
+    assert adapter.add_torrent_calls[0] == {
+        "url": "https://t.example/dl/1", "save_path": str(root / "torrents"), "layout": "NoSubfolder"}
+
+
+def test_a_torrent_with_its_own_folder_ignores_the_subfolder_preference(db_session, tmp_path):
+    root, review = _movie_review(db_session, tmp_path, folder="Release.Name")
+    adapter = LayoutAdapter("Subfolder")
+
+    executor.execute_review(db_session, review, adapter)
+
+    assert (root / "torrents" / "Release.Name" / "Movie.2024.mkv").is_file()
+    assert adapter.add_torrent_calls[0]["save_path"] == str(root / "torrents")
+    assert adapter.add_torrent_calls[0]["layout"] == "Original"
+
+
 def test_execute_media_to_torrent_respects_candidate_folder(db_session, tmp_path):
     root, disk, tracker, item, run = _base_setup(db_session, tmp_path)
     media_file_path = root / "media" / "movies" / "Movie.2024.mkv"

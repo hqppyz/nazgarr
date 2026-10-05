@@ -28,6 +28,10 @@ export const torrentClients = {
   'torrentClients.leaveEmptyToKeep': 'Leave empty to keep unchanged.',
   'torrentClients.testConnection': 'Test connection',
   'torrentClients.connectedSuccess': 'Connected — {count} torrents found.',
+  'torrentClients.layoutSubfolder':
+    'The client creates a subfolder for single-file torrents: reseeds put their hardlinks inside it.',
+  'torrentClients.layoutNoSubfolder':
+    "The client strips the torrents' root folder: reseeds create their hardlinks without it.",
   'torrentClients.connectionFailed': 'Connection failed.',
   'torrentClients.enabledDisks': 'Enabled disks',
   'torrentClients.enabledDisksForClient': 'Disks enabled for this client',

@@ -3,6 +3,7 @@ sezione 5) — un disco può avere più client abilitati contemporaneamente,
 gestito dalla tabella ponte disk_torrent_client.
 """
 
+import contextlib
 import os
 from datetime import datetime
 
@@ -64,6 +65,9 @@ class TorrentClientTestResponse(BaseModel):
     status: str  # "ok" | "error"
     torrents_found: int | None = None
     error: str | None = None
+    # Il layout del contenuto scelto nel client (Original | Subfolder |
+    # NoSubfolder): i reseed lo rispettano, la UI lo dice se non è Original.
+    content_layout: str | None = None
 
 
 class DiskAssociationResponse(BaseModel):
@@ -222,12 +226,15 @@ def test_torrent_client(torrent_client_id: int, session: Session = Depends(get_s
     utile per verificare le credenziali subito dopo aver creato/modificato
     un client (docs/SPEC.md sezione 5)."""
     tc = _get_torrent_client_or_404(session, torrent_client_id)
+    layout = None
     try:
         with adapter_factory.torrent_client(tc) as adapter:
             torrents = adapter.list_torrents()
+            with contextlib.suppress(Exception):
+                layout = adapter.content_layout()
     except Exception as exc:
         return TorrentClientTestResponse(status="error", error=safe_error(exc))
-    return TorrentClientTestResponse(status="ok", torrents_found=len(torrents))
+    return TorrentClientTestResponse(status="ok", torrents_found=len(torrents), content_layout=layout)
 
 
 class PathCheckExample(BaseModel):

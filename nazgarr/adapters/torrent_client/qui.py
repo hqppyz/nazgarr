@@ -42,6 +42,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from nazgarr.adapters.torrent_client.base import (
     CHECKING_STATES,
+    CONTENT_LAYOUTS,
     ERROR_STATES,
     ClientTorrentFileInfo,
     ClientTorrentInfo,
@@ -127,7 +128,7 @@ class QuiTorrentClientAdapter(TorrentClientAdapter):
     def add_torrent(
         self, torrent_file_or_url: str, save_path: str, force_recheck: bool = True,
         expected_info_hash: str | None = None, skip_check_verified: bool = False,
-        category: str | None = None, tags: list[str] | None = None,
+        category: str | None = None, tags: list[str] | None = None, content_layout: str = "Original",
     ) -> str:
         if not force_recheck:
             raise ValueError(
@@ -150,6 +151,7 @@ class QuiTorrentClientAdapter(TorrentClientAdapter):
         files: dict = {
             "savepath": (None, save_path),
             "skip_checking": (None, "true" if skip_check_verified else "false"),
+            "contentLayout": (None, content_layout),
         }
         if category:
             files["category"] = (None, category)
@@ -188,6 +190,13 @@ class QuiTorrentClientAdapter(TorrentClientAdapter):
             f"Nessun nuovo torrent rilevato sull'istanza qui {self.instance_id} "
             f"entro {self.poll_timeout}s dall'aggiunta"
         )
+
+    def content_layout(self) -> str:
+        """La preferenza del qBittorrent dietro questa istanza di qui."""
+        response = self._client.get(f"/api/instances/{self.instance_id}/preferences")
+        response.raise_for_status()
+        layout = response.json().get("torrent_content_layout")
+        return layout if layout in CONTENT_LAYOUTS else "Original"
 
     def _bulk_action(self, hashes: list[str], action: str, **extra) -> None:
         response = self._client.post(

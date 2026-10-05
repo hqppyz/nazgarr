@@ -4409,6 +4409,8 @@ export interface components {
             torrents_found?: number | null;
             /** Error */
             error?: string | null;
+            /** Content Layout */
+            content_layout?: string | null;
         };
         /** TorrentClientUpdateRequest */
         TorrentClientUpdateRequest: {

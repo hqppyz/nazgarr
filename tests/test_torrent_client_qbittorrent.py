@@ -44,9 +44,9 @@ class FakeQbtClient:
         return self._files_by_hash.get(torrent_hash, [])
 
     def torrents_add(self, save_path, is_skip_checking, use_auto_torrent_management, urls=None, torrent_files=None,
-                     category=None, tags=None):
+                     category=None, tags=None, content_layout=None):
         self.added_calls.append({"urls": urls, "torrent_files": torrent_files, "save_path": save_path,
-                                 "is_skip_checking": is_skip_checking,
+                                 "is_skip_checking": is_skip_checking, "layout": content_layout,
                                  "category": category, "tags": tags, "auto": use_auto_torrent_management})
         self._torrents.append(FakeTorrent(hash="new-hash", save_path=save_path))
 
@@ -174,6 +174,29 @@ def test_category_and_tags_are_only_labels():
     # La gestione automatica resta spenta: la categoria non sposta i file.
     assert (call["category"], call["tags"], call["auto"]) == ("movie", "release,nzg", False)
     assert adapter.list_categories() == ["anime", "Movie", "tv"]
+
+
+def test_the_content_layout_is_always_explicit():
+    # "Original" anche se nessuno lo chiede: la preferenza globale del
+    # client non deve spostare i file da dove li ha messi Nazgarr.
+    plain, stripped = FakeQbtClient(), FakeQbtClient()
+    _adapter(plain).add_torrent("magnet:?xt=...", save_path="/torrents/movie")
+    _adapter(stripped).add_torrent("magnet:?xt=...", save_path="/torrents", content_layout="NoSubfolder")
+    assert (plain.added_calls[0]["layout"], stripped.added_calls[0]["layout"]) == ("Original", "NoSubfolder")
+
+
+@pytest.mark.parametrize(("prefs", "expected"), [
+    ({"torrent_content_layout": "Subfolder"}, "Subfolder"),
+    ({"torrent_content_layout": "NoSubfolder"}, "NoSubfolder"),
+    ({"torrent_content_layout": "Original"}, "Original"),
+    ({"create_subfolder_enabled": False}, "NoSubfolder"),  # prima della 4.3.2
+    ({"create_subfolder_enabled": True}, "Original"),
+    ({}, "Original"),
+])
+def test_content_layout_reads_the_client_preference(prefs, expected):
+    client = FakeQbtClient()
+    client.app_preferences = lambda: prefs
+    assert _adapter(client).content_layout() == expected
 
 
 @pytest.mark.parametrize("delete_files", [False, True])

@@ -23,6 +23,8 @@ class _QuiMock:
         self.added_calls: list[dict] = []
         self.bulk_actions: list[dict] = []
         self.next_hash = "new-hash"
+        self.preferences = {}
+        self.bodies: list[bytes] = []
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         assert request.headers["X-API-Key"] == "tok123"
@@ -39,6 +41,7 @@ class _QuiMock:
             is_file_upload = b'name="torrent"' in request.content
             is_url = b'name="urls"' in request.content
             self.added_calls.append({"is_file_upload": is_file_upload, "is_url": is_url})
+            self.bodies.append(request.content)
             self.pages[0] = self.pages[0] + [
                 {"hash": self.next_hash, "name": "x", "savePath": "/torrents/x", "state": "uploading", "progress": 0.0}
             ]
@@ -47,6 +50,9 @@ class _QuiMock:
         if method == "POST" and path == f"{base}/torrents/bulk-action":
             self.bulk_actions.append(json.loads(request.content))
             return httpx.Response(200)
+
+        if method == "GET" and path == f"{base}/preferences":
+            return httpx.Response(200, json=self.preferences)
 
         if method == "GET" and path.endswith("/files"):
             h = path.rsplit("/", 2)[1]
@@ -93,6 +99,23 @@ def test_add_torrent_via_local_file_sends_torrent_field(tmp_path):
 
     assert info_hash == "new-hash"
     assert mock.added_calls[0] == {"is_file_upload": True, "is_url": False}
+
+
+def test_add_torrent_sends_the_content_layout():
+    mock = _QuiMock()
+    _adapter(mock).add_torrent("magnet:?xt=...", save_path="/torrents/movie")
+    assert b'name="contentLayout"\r\n\r\nOriginal' in mock.bodies[0]
+
+
+@pytest.mark.parametrize(("prefs", "expected"), [
+    ({"torrent_content_layout": "Subfolder"}, "Subfolder"),
+    ({"torrent_content_layout": "x"}, "Original"),
+    ({}, "Original"),
+])
+def test_content_layout_reads_the_preferences_of_the_instance(prefs, expected):
+    mock = _QuiMock()
+    mock.preferences = prefs
+    assert _adapter(mock).content_layout() == expected
 
 
 def test_add_torrent_rejects_force_recheck_false():
