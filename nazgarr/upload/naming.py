@@ -45,7 +45,7 @@ DETECTED_FIELDS = (
     "audio_languages", "group",
 )
 
-DEFAULT_TEMPLATE = "{title} ({year}) {season} {edition} {resolution} {source} {video_codec} {audio} {group}"
+DEFAULT_TEMPLATE = "{title} ({year}) {season} {resolution} {source} {video_codec} {audio} {group}"
 # Come si scrive {type} nel nome: la chiave del profilo (REMUX, WEBDL, ...)
 # resta per scegliere il type_id, nel nome va la sua etichetta. Un profilo
 # può ridefinirla (rules.type_labels), anche con variabili dentro, es.
@@ -344,8 +344,8 @@ hdr_full = _mi_hdr_full
 
 _HYBRID = re.compile(r"(?:^|[ ._\-\[(])HYBRID(?:$|[ ._\-\])])", re.IGNORECASE)
 # Un upscale (decisione dell'utente, 2026-10-05): un'edizione a tutti gli
-# effetti, che resta nel nome del torrent quando c'è. guessit non lo
-# riconosce: "AI Upscaled", "AI.Upscale", "Upscaled", in qualunque forma.
+# effetti, nel nome dove il modello del tracker mette {edition}. guessit
+# non lo riconosce: "AI Upscaled", "AI.Upscale", "Upscaled", in qualunque forma.
 _UPSCALE = re.compile(r"(?<![a-z0-9])(AI[ ._-]?)?upscal(?:ed|e)?(?![a-z0-9])", re.IGNORECASE)
 
 
@@ -651,12 +651,6 @@ def build_name(rules: dict | None, values: dict) -> str:
     if values.get("season") and "{season}" not in template:
         anchor = "({year})" if "({year})" in template else "{year}" if "{year}" in template else "{title}"
         template = template.replace(anchor, f"{anchor} {{season}}", 1)
-    # Un'edizione (Extended, Director's Cut, AI Upscaled...) non sparisce mai
-    # dal nome (decisione dell'utente, 2026-10-05): un modello che non la
-    # prevede la riceve dopo la stagione o l'anno, come la stagione.
-    if values.get("edition") and "{edition}" not in template:
-        anchor = next((a for a in ("{season}", "({year})", "{year}", "{title}") if a in template), None)
-        template = template.replace(anchor, f"{anchor} {{edition}}", 1) if anchor else f"{{edition}} {template}"
     group = values.get("group")
     rendered = _render(template, values)
     rendered = re.sub(r"\(\s*\)|\[\s*\]", "", rendered)

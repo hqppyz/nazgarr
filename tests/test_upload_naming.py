@@ -407,12 +407,12 @@ def test_the_video_codec_follows_the_release_type_with_or_without_mediainfo():
     assert codec_label("VC-1", "REMUX") == "VC-1" and codec_label("MPEG Video", "REMUX") == "MPEG-2"
 
 
-def test_an_upscale_is_an_edition_and_never_leaves_the_name():
+def test_an_upscale_is_an_edition():
     """Decisione dell'utente, 2026-10-05: "AI Upscaled" (e varianti) è
-    un'edizione, e un'edizione presente resta nel nome anche se il modello
-    del tracker non la prevede."""
+    un'edizione, nel nome dove il modello del tracker mette {edition} (i
+    modelli di ITT, film e serie)."""
     cases = {
-        "Hackers.1995.2160p.AI.Upscaled.BluRay.x265-MaTiTa.mkv": "AI Upscaled",
+        "Absolute.Cinema.1895.2160p.AI.Upscaled.BluRay.x265-MaTiTa.mkv": "AI Upscaled",
         "Movie.2001.Extended.AI-Upscale.1080p.WEB-DL.x264-GRP": "Extended AI Upscaled",
         "Film.1999.1080p.Upscaled.BluRay.x264-X": "Upscaled",
         "The.Upscalers.2020.1080p.WEB-DL-G": None,  # nel titolo, non un upscale
@@ -420,10 +420,11 @@ def test_an_upscale_is_an_edition_and_never_leaves_the_name():
     for name, edition in cases.items():
         assert detect(name)["edition"] == edition, name
 
-    job = SimpleNamespace(title="Hackers", year=1995, content_type="movie", kind="movie", seasons_json="[]",
+    job = SimpleNamespace(title="Absolute Cinema", year=1895, content_type="movie", kind="movie", seasons_json="[]",
                           episode=None)
-    values = release_values(job,
-                            detect("Hackers.1995.2160p.AI.Upscaled.BluRay.x265-MaTiTa.mkv"), None, {}, None)
-    assert build_name(None, values) == "Hackers (1995) AI Upscaled 2160p BluRay x265-MaTiTa"
-    without = {"templates": {"default": "{title} {year} {resolution} {group}"}}
-    assert build_name(without, values) == "Hackers 1995 AI Upscaled 2160p-MaTiTa"
+    values = release_values(job, detect("Absolute.Cinema.1895.2160p.AI.Upscaled.BluRay.x265-MaTiTa.mkv"), None, {},
+                            None)
+    with_edition = {"templates": {"default": "{title} {year} {edition} {resolution} {group}"}}
+    assert build_name(with_edition, values) == "Absolute Cinema 1895 AI Upscaled 2160p-MaTiTa"
+    # Un modello senza {edition} non la mette: decide il profilo del tracker.
+    assert build_name(None, values) == "Absolute Cinema (1895) 2160p BluRay x265-MaTiTa"

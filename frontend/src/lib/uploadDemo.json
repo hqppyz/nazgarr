@@ -283,19 +283,19 @@
      "generated": {
       "count": 1,
       "files": [
-       "Hackers.1995.AI.Upscaled.2160p.BluRay.x265-MaTiTa.mkv"
+       "Absolute.Cinema.1895.AI.Upscaled.2160p.BluRay.x265-MaTiTa.mkv"
       ],
       "folder": null,
-      "name": "Hackers.1995.AI.Upscaled.2160p.BluRay.x265-MaTiTa.mkv",
+      "name": "Absolute.Cinema.1895.AI.Upscaled.2160p.BluRay.x265-MaTiTa.mkv",
       "single_file": false
      },
      "original": {
       "count": 1,
       "files": [
-       "Hackers.1995.2160p.AI.Upscaled.BluRay.x265-MaTiTa.mkv"
+       "Absolute.Cinema.1895.2160p.AI.Upscaled.BluRay.x265-MaTiTa.mkv"
       ],
       "folder": null,
-      "name": "Hackers.1995.2160p.AI.Upscaled.BluRay.x265-MaTiTa.mkv",
+      "name": "Absolute.Cinema.1895.2160p.AI.Upscaled.BluRay.x265-MaTiTa.mkv",
       "single_file": false
      }
     }
@@ -303,7 +303,7 @@
    "languages": {},
    "mediainfo": {
     "audio": [],
-    "file_name": "Hackers.1995.2160p.AI.Upscaled.BluRay.x265-MaTiTa.mkv",
+    "file_name": "Absolute.Cinema.1895.2160p.AI.Upscaled.BluRay.x265-MaTiTa.mkv",
     "general": {
      "duration_ms": null,
      "file_size": 21474836480,
@@ -314,7 +314,7 @@
     "video": null
    },
    "name_source": {
-    "name": "Hackers.1995.2160p.AI.Upscaled.BluRay.x265-MaTiTa.mkv",
+    "name": "Absolute.Cinema.1895.2160p.AI.Upscaled.BluRay.x265-MaTiTa.mkv",
     "origin": "source"
    },
    "seeding_here": {},
@@ -322,27 +322,27 @@
   },
   "candidates": [
    {
-    "confidence": 1.0,
+    "confidence": 0.51,
     "confidence_parts": {
      "basis": "name",
      "title": 1.0,
-     "title_guess": "Hackers",
-     "title_matched": "Hackers",
-     "type": 1.0,
+     "title_guess": "Absolute Cinema",
+     "title_matched": "Absolute Cinema",
+     "type": 0.6,
      "type_candidate": "movie",
-     "type_guess": "movie",
-     "year": 1.0,
-     "year_candidate": 1995,
-     "year_guess": 1995
+     "type_guess": "tv",
+     "year": 0.85,
+     "year_candidate": 1895,
+     "year_guess": null
     },
     "content_type": "movie",
     "original_title": null,
     "overview": null,
     "poster_path": null,
     "source": "filename_parser",
-    "title": "Hackers",
-    "tmdb_id": 10428,
-    "year": 1995
+    "title": "Absolute Cinema",
+    "tmdb_id": 99999999,
+    "year": 1895
    }
   ],
   "content_type": "movie",
@@ -360,7 +360,7 @@
     "id": 1,
     "level": "info",
     "params": {
-     "path": "releases/Hackers.1995.2160p.AI.Upscaled.BluRay.x265-MaTiTa.mkv",
+     "path": "releases/Absolute.Cinema.1895.2160p.AI.Upscaled.BluRay.x265-MaTiTa.mkv",
      "trackers": [
       "t",
       "ITT"
@@ -383,7 +383,7 @@
     "level": "info",
     "params": {
      "candidates": 1,
-     "kind": "movie",
+     "kind": "episode",
      "videos": 1
     },
     "target_id": null
@@ -397,9 +397,9 @@
      "episode": null,
      "kind": "movie",
      "seasons": [],
-     "title": "Hackers",
-     "tmdb_id": 10428,
-     "year": 1995
+     "title": "Absolute Cinema",
+     "tmdb_id": 99999999,
+     "year": 1895
     },
     "target_id": null
    },
@@ -449,28 +449,36 @@
   "finished_at": null,
   "forced_ids": {},
   "id": 0,
-  "imdb_id": "tt0113243",
+  "imdb_id": null,
   "is_dir": false,
   "kind": "movie",
   "layout": {
-   "content_type": "movie",
-   "episodes_by_season": {},
-   "kind": "movie",
-   "main_video": "/data/releases/Hackers.1995.2160p.AI.Upscaled.BluRay.x265-MaTiTa.mkv",
+   "content_type": "tv",
+   "episodes_by_season": {
+    "18": [
+     95
+    ]
+   },
+   "kind": "episode",
+   "main_video": "/data/releases/Absolute.Cinema.1895.2160p.AI.Upscaled.BluRay.x265-MaTiTa.mkv",
    "other_files": 0,
    "release_group": "MaTiTa",
-   "seasons": [],
-   "title": "Hackers",
+   "seasons": [
+    18
+   ],
+   "title": "Absolute Cinema",
    "total_size_bytes": 21474836480,
    "videos": [
     {
-     "episodes": [],
+     "episodes": [
+      95
+     ],
      "relative_path": "",
-     "season": null,
+     "season": 18,
      "size_bytes": 21474836480
     }
    ],
-   "year": 1995
+   "year": null
   },
   "mal_id": null,
   "mediainfo_text": "MI",
@@ -482,10 +490,10 @@
   "progress_done": null,
   "progress_total": null,
   "queue_position": null,
-  "relative_path": "releases/Hackers.1995.2160p.AI.Upscaled.BluRay.x265-MaTiTa.mkv",
+  "relative_path": "releases/Absolute.Cinema.1895.2160p.AI.Upscaled.BluRay.x265-MaTiTa.mkv",
   "screenshot_urls": [],
   "seasons": [],
-  "source_path": "/data/releases/Hackers.1995.2160p.AI.Upscaled.BluRay.x265-MaTiTa.mkv",
+  "source_path": "/data/releases/Absolute.Cinema.1895.2160p.AI.Upscaled.BluRay.x265-MaTiTa.mkv",
   "stage": null,
   "status": "awaiting_decision",
   "targets": [
@@ -514,7 +522,7 @@
     "freeleech_options": [],
     "id": 1,
     "info_hash": null,
-    "proposed_name": "Hackers (1995) AI Upscaled 2160p BluRay x265-MaTiTa",
+    "proposed_name": "Absolute Cinema (1895) 2160p BluRay x265-MaTiTa",
     "remote_url": null,
     "reseed_torrent_id": null,
     "resolution_id": null,
@@ -555,7 +563,7 @@
     "freeleech_options": [],
     "id": 2,
     "info_hash": null,
-    "proposed_name": "Hackers (1995) AI Upscaled 2160p BluRay x265-MaTiTa",
+    "proposed_name": "Absolute Cinema (1895) 2160p BluRay x265-MaTiTa",
     "remote_url": null,
     "reseed_torrent_id": null,
     "resolution_id": null,
@@ -572,44 +580,44 @@
     "type_id_map": {}
    }
   ],
-  "title": "Hackers",
-  "tmdb_id": 10428,
+  "title": "Absolute Cinema",
+  "tmdb_id": 99999999,
   "tvdb_id": null,
   "updated_at": "2026-10-05T12:00:00Z",
-  "year": 1995
+  "year": 1895
  },
  "match": {
   "analysis": null,
   "candidates": [
    {
-    "confidence": 1.0,
+    "confidence": 0.51,
     "confidence_parts": {
      "basis": "name",
      "title": 1.0,
-     "title_guess": "Hackers",
-     "title_matched": "Hackers",
-     "type": 1.0,
+     "title_guess": "Absolute Cinema",
+     "title_matched": "Absolute Cinema",
+     "type": 0.6,
      "type_candidate": "movie",
-     "type_guess": "movie",
-     "year": 1.0,
-     "year_candidate": 1995,
-     "year_guess": 1995
+     "type_guess": "tv",
+     "year": 0.85,
+     "year_candidate": 1895,
+     "year_guess": null
     },
     "content_type": "movie",
     "original_title": null,
     "overview": null,
     "poster_path": null,
     "source": "filename_parser",
-    "title": "Hackers",
-    "tmdb_id": 10428,
-    "year": 1995
+    "title": "Absolute Cinema",
+    "tmdb_id": 99999999,
+    "year": 1895
    }
   ],
-  "content_type": "movie",
+  "content_type": "tv",
   "created_at": "2026-10-05T12:00:00Z",
   "descriptions": {},
   "disk_id": 1,
-  "episode": null,
+  "episode": 95,
   "episode_order": null,
   "episode_order_label": null,
   "error_message": null,
@@ -620,7 +628,7 @@
     "id": 1,
     "level": "info",
     "params": {
-     "path": "releases/Hackers.1995.2160p.AI.Upscaled.BluRay.x265-MaTiTa.mkv",
+     "path": "releases/Absolute.Cinema.1895.2160p.AI.Upscaled.BluRay.x265-MaTiTa.mkv",
      "trackers": [
       "t",
       "ITT"
@@ -643,7 +651,7 @@
     "level": "info",
     "params": {
      "candidates": 1,
-     "kind": "movie",
+     "kind": "episode",
      "videos": 1
     },
     "target_id": null
@@ -654,26 +662,34 @@
   "id": 0,
   "imdb_id": null,
   "is_dir": false,
-  "kind": "movie",
+  "kind": "episode",
   "layout": {
-   "content_type": "movie",
-   "episodes_by_season": {},
-   "kind": "movie",
-   "main_video": "/data/releases/Hackers.1995.2160p.AI.Upscaled.BluRay.x265-MaTiTa.mkv",
+   "content_type": "tv",
+   "episodes_by_season": {
+    "18": [
+     95
+    ]
+   },
+   "kind": "episode",
+   "main_video": "/data/releases/Absolute.Cinema.1895.2160p.AI.Upscaled.BluRay.x265-MaTiTa.mkv",
    "other_files": 0,
    "release_group": "MaTiTa",
-   "seasons": [],
-   "title": "Hackers",
+   "seasons": [
+    18
+   ],
+   "title": "Absolute Cinema",
    "total_size_bytes": 21474836480,
    "videos": [
     {
-     "episodes": [],
+     "episodes": [
+      95
+     ],
      "relative_path": "",
-     "season": null,
+     "season": 18,
      "size_bytes": 21474836480
     }
    ],
-   "year": 1995
+   "year": null
   },
   "mal_id": null,
   "mediainfo_text": null,
@@ -685,10 +701,12 @@
   "progress_done": null,
   "progress_total": null,
   "queue_position": null,
-  "relative_path": "releases/Hackers.1995.2160p.AI.Upscaled.BluRay.x265-MaTiTa.mkv",
+  "relative_path": "releases/Absolute.Cinema.1895.2160p.AI.Upscaled.BluRay.x265-MaTiTa.mkv",
   "screenshot_urls": [],
-  "seasons": [],
-  "source_path": "/data/releases/Hackers.1995.2160p.AI.Upscaled.BluRay.x265-MaTiTa.mkv",
+  "seasons": [
+   18
+  ],
+  "source_path": "/data/releases/Absolute.Cinema.1895.2160p.AI.Upscaled.BluRay.x265-MaTiTa.mkv",
   "stage": null,
   "status": "awaiting_match",
   "targets": [
@@ -763,30 +781,27 @@
     "type_id_map": {}
    }
   ],
-  "title": "Hackers",
+  "title": "Absolute Cinema",
   "tmdb_id": null,
   "tvdb_id": null,
   "updated_at": "2026-10-05T12:00:00Z",
-  "year": 1995
+  "year": null
  },
  "metadata": {
   "cast": [],
   "content_type": "movie",
   "genres": [
-   "Action",
-   "Crime",
-   "Thriller",
-   "Drama"
+   "Documentary"
   ],
-  "imdb_id": "tt0113243",
-  "original_language": "en",
-  "original_title": "Hackers",
-  "overview": "Teenage hackers stumble on a plot to frame them for a crime they did not commit.",
+  "imdb_id": null,
+  "original_language": "fr",
+  "original_title": "Absolute Cinema",
+  "overview": "A made-up film, here only to show how an upload works.",
   "poster_path": null,
-  "runtime": 105,
-  "title": "Hackers",
-  "tmdb_id": 10428,
+  "runtime": 1,
+  "title": "Absolute Cinema",
+  "tmdb_id": 99999999,
   "tvdb_id": null,
-  "year": 1995
+  "year": 1895
  }
 }

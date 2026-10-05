@@ -21,8 +21,10 @@ from tests.test_api_uploads import setup  # noqa: F401  (fixture)
 from tests.upload_helpers import FakeTMDB, make_tracker, tmdb_result, write_video
 
 DEMO = Path(__file__).resolve().parents[1] / "frontend" / "src" / "lib" / "uploadDemo.json"
-TITLE, YEAR, TMDB_ID, IMDB_ID = "Hackers", 1995, 10428, "tt0113243"
-NAME = "Hackers.1995.2160p.AI.Upscaled.BluRay.x265-MaTiTa.mkv"
+# Un film inventato: nessun titolo vero, e un id TMDB che non esiste (i link
+# dell'esempio non portano a nessun film).
+TITLE, YEAR, TMDB_ID, IMDB_ID = "Absolute Cinema", 1895, 99_999_999, None
+NAME = "Absolute.Cinema.1895.2160p.AI.Upscaled.BluRay.x265-MaTiTa.mkv"
 # I file dei test sono piccoli: nei dati salvati, la dimensione di un 2160p vero.
 TEST_SIZE, SHOWN_SIZE = 300_123, 21_474_836_480
 DEMO_ID = 0  # mai l'id di un job vero: il frontend serve da sé tutto quello che lo riguarda
@@ -35,9 +37,9 @@ def _build(client, tmp_path, setup, monkeypatch) -> dict:  # noqa: F811
     write_video(tmp_path / "releases" / NAME, TEST_SIZE)
     setup["resolver"].resolved = ResolvedMedia(tmdb_id=TMDB_ID, content_type="movie", title=TITLE, year=YEAR,
                                                poster_path=None)
-    details = {**tmdb_result(TMDB_ID, TITLE, YEAR), "genres": ["Action", "Crime", "Thriller", "Drama"],
-               "runtime": 105, "imdb_id": IMDB_ID, "tvdb_id": None, "cast": [], "original_language": "en",
-               "overview": "Teenage hackers stumble on a plot to frame them for a crime they did not commit."}
+    details = {**tmdb_result(TMDB_ID, TITLE, YEAR), "genres": ["Documentary"],
+               "runtime": 1, "imdb_id": IMDB_ID, "tvdb_id": None, "cast": [], "original_language": "fr",
+               "overview": "A made-up film, here only to show how an upload works."}
     fake = FakeTMDB(search={("movie", TITLE, YEAR): [tmdb_result(TMDB_ID, TITLE, YEAR)]},
                     details={("movie", TMDB_ID): details})
     monkeypatch.setattr(upload_identify, "tmdb_client", lambda session: fake)
