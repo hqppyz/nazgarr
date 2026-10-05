@@ -61,6 +61,28 @@ def validate(disk: Disk, kind: str, relative: str) -> str:
     return normalized
 
 
+def validate_target(disk: Disk, relative: str) -> str:
+    """La cartella dei nuovi hardlink di un reseed o quella degli upload:
+    esistente, sullo stesso filesystem del disco e dentro (o uguale a) una
+    cartella dei torrent, se no i file che il client mette in seed lì non
+    si collegherebbero a niente. Prima si salvava qualunque valore e
+    l'errore arrivava solo all'esecuzione."""
+    try:
+        path = resolve_scoped(disk.root_path, relative)
+    except ScopeViolation as exc:
+        raise FolderError("path_outside_scope", path=relative) from exc
+    root = os.path.realpath(disk.root_path)
+    if not os.path.isdir(path):
+        raise FolderError("folder_not_found", path=relative)
+    if os.stat(path).st_dev != os.stat(root).st_dev:
+        raise FolderError("folder_other_filesystem", path=relative)
+    normalized = os.path.relpath(path, root)
+    seeding = [os.path.realpath(os.path.join(root, f)) for f in disk.seeding_folders]
+    if not any(_inside_or_same(path, folder) for folder in seeding):
+        raise FolderError("folder_not_in_seeding", path=normalized)
+    return normalized
+
+
 def add(session: Session, disk: Disk, kind: str, relative: str) -> DiskFolder:
     _materialize_legacy(disk)
     normalized = validate(disk, kind, relative)
@@ -129,9 +151,11 @@ def _check(code: str, level: str = "ok", **params) -> dict:
 
 def _link_test(anchor_relative: str, anchor: str, targets: list[tuple[str, str]]) -> list[dict]:
     """Un file vuoto nella prima cartella e un hardlink verso ogni altra:
-    la prova che gli hardlink funzionano davvero fra quelle cartelle (su uno
-    share FUSE come /mnt/user di Unraid falliscono fra dischi fisici diversi,
-    anche con lo stesso st_dev). File nascosti, tolti subito."""
+    la prova che gli hardlink funzionano davvero fra quelle cartelle (uno
+    stesso st_dev da solo non lo garantisce: un mount di rete o un bind di
+    un'altra cartella). Sulla user share di Unraid (/mnt/user, shfs)
+    funzionano: shfs crea il link sullo stesso disco fisico del file. File
+    nascosti, tolti subito."""
     name = TEST_PREFIX + secrets.token_hex(4)
     source = os.path.join(anchor, name)
     checks = []

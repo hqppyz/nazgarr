@@ -45,7 +45,7 @@ DETECTED_FIELDS = (
     "audio_languages", "group",
 )
 
-DEFAULT_TEMPLATE = "{title} ({year}) {season} {resolution} {source} {video_codec} {audio} {group}"
+DEFAULT_TEMPLATE = "{title} ({year}) {season} {edition} {resolution} {source} {video_codec} {audio} {group}"
 # Come si scrive {type} nel nome: la chiave del profilo (REMUX, WEBDL, ...)
 # resta per scegliere il type_id, nel nome va la sua etichetta. Un profilo
 # può ridefinirla (rules.type_labels), anche con variabili dentro, es.
@@ -100,13 +100,24 @@ LANG3 = {
 # "VU" (video untouched, la convenzione dei remux su ITT) e "UNTOUCHED": un
 # remux anche se il nome non dice REMUX. guessit non li conosce.
 _UNTOUCHED = re.compile(r"(?:^|[ ._\-\[(])(?:VU|UNTOUCHED)(?:$|[ ._\-\])])")
+# "BDRemux", "UHDRemux", "DVDRemux" attaccati: guessit li riconosce solo
+# separati (BD-Remux, BluRay.Remux), ma nelle release italiane sono comuni.
+_JOINED_REMUX = re.compile(r"(?:^|[ ._\-\[(])(BD|UHD|BluRay|Blu-?Ray|HDDVD|DVD)Remux(?:$|[ ._\-\])])", re.IGNORECASE)
+
+
+def _joined_remux_source(name: str) -> str | None:
+    match = _JOINED_REMUX.search(name)
+    if not match:
+        return None
+    disc = match.group(1).upper().replace("-", "")
+    return {"DVD": "DVD", "HDDVD": "HDDVD"}.get(disc, "BluRay")
 
 
 def release_type(guess: dict, name: str = "") -> str:
     """Chiave type_id dei profili (REMUX, ENCODE, WEBDL, ...)."""
     others = {str(o) for o in as_list(guess.get("other"))}
     source = str(guess.get("source") or "").lower()
-    if "Remux" in others or _UNTOUCHED.search(name):
+    if "Remux" in others or _UNTOUCHED.search(name) or _JOINED_REMUX.search(name):
         return "REMUX"
     if source == "web":
         if "Mux" in others:  # guessit non distingue WEBMux da DLMux
@@ -232,8 +243,8 @@ def detect(source_name: str) -> dict:
     return {
         "type": release,
         "resolution": guess.get("screen_size"),
-        "source": _source_label(guess),
-        "edition": " ".join(str(e) for e in as_list(guess.get("edition"))) or None,
+        "source": _source_label(guess) or _joined_remux_source(source_name),
+        "edition": _edition(guess, source_name),
         "repack": "REPACK" if traits.repack else None,
         "hybrid": "HYBRID" if _HYBRID.search(source_name) else None,
         "service": service or None,
@@ -343,6 +354,20 @@ hdr_full = _mi_hdr_full
 
 
 _HYBRID = re.compile(r"(?:^|[ ._\-\[(])HYBRID(?:$|[ ._\-\])])", re.IGNORECASE)
+# Un upscale (decisione dell'utente, 2026-10-05): un'edizione a tutti gli
+# effetti, nel nome dove il modello del tracker mette {edition}. guessit
+# non lo riconosce: "AI Upscaled", "AI.Upscale", "Upscaled", in qualunque forma.
+_UPSCALE = re.compile(r"(?<![a-z0-9])(AI[ ._-]?)?upscal(?:ed|e)?(?![a-z0-9])", re.IGNORECASE)
+
+
+def _edition(guess: dict, name: str) -> str | None:
+    parts = [str(e) for e in as_list(guess.get("edition"))]
+    upscale = _UPSCALE.search(name)
+    if upscale:
+        label = "AI Upscaled" if upscale.group(1) else "Upscaled"
+        if label.lower() not in " ".join(parts).lower():
+            parts.append(label)
+    return " ".join(parts) or None
 
 # Le sorgenti da disco: un video da lì senza un encoder è un remux.
 _DISC_LABELS = ("BluRay", "3D BluRay", "HDDVD", "PAL DVD", "NTSC DVD", "DVD")
@@ -355,6 +380,73 @@ def has_encoder(video: dict) -> bool:
     return bool(video.get("encoding_settings")) or any(
         name in library for name in ("x264", "x265", "nvenc", "qsv", "svt", "aomenc", "rav1e", "xvid", "divx")
     )
+
+
+# Il bitrate video sotto cui un 2160p o un 1080p non è un remux (un encode o
+# una release web di solito ci sta molto sotto), in bit/s.
+_REMUX_BITRATE = {"2160": 40_000_000, "1080": 18_000_000}
+
+
+def disc_evidence(video: dict, tracks: list[dict], subtitles: list[dict]) -> list[str]:
+    """I segni nel MediaInfo che il file viene da un disco, per quando il
+    nome non dice la sorgente (un file rinominato, "film.mkv"):
+    origin   il MediaInfo lo dice: "Original source medium" del video (MakeMKV
+             lo scrive su ogni traccia estratta da un disco);
+    dv_el    Dolby Vision profilo 7 con l'enhancement layer: solo sui UHD Blu-ray;
+    vc1      video VC-1: solo Blu-ray e HD DVD;
+    lossless audio TrueHD, DTS-HD MA/DTS:X o LPCM;
+    pgs      sottotitoli PGS, quelli dei Blu-ray;
+    bitrate  un bitrate video da remux per la risoluzione."""
+    found = []
+    if origin_source(video):
+        found.append("origin")
+    hdr = str(video.get("hdr_format_string") or video.get("hdr_format") or "")
+    if dv_profile(video) == 7 and "EL" in re.split(r"[^A-Z]+", hdr):
+        found.append("dv_el")
+    if str(video.get("format") or "").upper() == "VC-1":
+        found.append("vc1")
+    for track in tracks:
+        name = f"{track.get('format') or ''} {track.get('commercial_name') or ''}"
+        if "MLP FBA" in name or "TrueHD" in name or _audio_codec_key(track) in ("DTS-HD MA", "DTS:X") \
+                or str(track.get("format") or "") == "PCM":
+            found.append("lossless")
+            break
+    if any(str(sub.get("format") or "") == "PGS" for sub in subtitles):
+        found.append("pgs")
+    threshold = _REMUX_BITRATE.get(str(mi_resolution(video) or "")[:4])
+    if threshold and (video.get("bit_rate") or 0) >= threshold:
+        found.append("bitrate")
+    return found
+
+
+# "Original source medium" del MediaInfo -> la sorgente nei nomi.
+_ORIGIN_SOURCES = (("blu-ray", "BluRay"), ("bd", "BluRay"), ("hd dvd", "HDDVD"), ("dvd", "DVD"))
+
+
+def origin_source(video: dict) -> str | None:
+    """La sorgente dal campo "Original source medium" del video, se c'è e
+    dice un disco (Blu-ray, HD DVD, DVD-Video)."""
+    medium = str(video.get("original_source_medium") or "").strip().lower()
+    if not medium:
+        return None
+    return next((label for key, label in _ORIGIN_SOURCES if medium.startswith(key)), None)
+
+
+def _disc_source(evidence: list[str], encoded: bool) -> bool:
+    """Basta per dire disco il video (DV a doppio strato, VC-1). Audio
+    lossless e PGS insieme solo se il video è un encode o ha un bitrate da
+    remux: un mux con video web (DLMux, WEBMux) può prendere audio e
+    sottotitoli da un Blu-ray, e il suo video non ha né l'uno né l'altro."""
+    if "origin" in evidence or "dv_el" in evidence or "vc1" in evidence:
+        return True
+    return {"lossless", "pgs"} <= set(evidence) and (encoded or "bitrate" in evidence)
+
+
+def _disc_video(evidence: list[str]) -> bool:
+    """Il video stesso è quello del disco, non solo audio e sottotitoli. Un
+    encode di solito perde "Original source medium" della traccia video; se
+    lo tiene, la traccia dell'encoder lo tiene comunque encode."""
+    return "origin" in evidence or "dv_el" in evidence or "vc1" in evidence or "bitrate" in evidence
 
 
 def _audio_codec_key(track: dict) -> str | None:
@@ -522,12 +614,28 @@ def release_values(
     video = (mediainfo or {}).get("video") or {}
     tracks = (mediainfo or {}).get("audio") or []
     subtitles = (mediainfo or {}).get("subtitles") or []
+    evidence = disc_evidence(video, tracks, subtitles) if video else []
+    named_encode = str(detected.get("video_codec") or "").lower() in ("x264", "x265")
+    basis = {"type": "name" if values["type"] not in (None, "ENCODE") or named_encode else None,
+             "source": "name" if values.get("source") else None, "evidence": evidence}
+    # Il nome non dice la sorgente, il MediaInfo sì: un disco (decisione
+    # dell'utente, 2026-10-05). Prima del remux qui sotto, che ne ha bisogno.
+    if video and not values.get("source") and _disc_source(evidence, has_encoder(video)):
+        disc = origin_source(video) or "BluRay"
+        values["source"] = "DVD" if disc == "DVD" or 0 < int(video.get("height") or 0) <= 576 else disc
+        basis["source"] = "mediainfo"
     # Il nome dice encode (o niente), ma è un disco senza traccia di encoder:
     # è un remux (decisione dell'utente, 2026-10-02). Prima del codec, che
-    # per un remux si scrive AVC/HEVC e non x264/x265.
+    # per un remux si scrive AVC/HEVC e non x264/x265. Con la sorgente letta
+    # dal MediaInfo anche il video deve essere quello del disco.
     if (video and not overrides.get("type") and values["type"] in (None, "ENCODE")
-            and values.get("source") in _DISC_LABELS and not has_encoder(video)):
+            and values.get("source") in _DISC_LABELS and not has_encoder(video)
+            and (basis["source"] != "mediainfo" or _disc_video(evidence))):
         values["type"] = "REMUX"
+        basis["type"] = "disc_no_encoder"
+    if basis["type"] is None:
+        basis["type"] = "encoder" if video and has_encoder(video) else "default"
+    basis["encoder"] = str(video.get("writing_library") or "") or None if video and has_encoder(video) else None
     release = overrides.get("type") or values["type"] or "ENCODE"
     # Un remux con Dolby Vision profilo 8: il DV è stato aggiunto a un altro
     # video (un remux puro ha profilo 7 o 5), quindi è un ibrido.
@@ -577,6 +685,10 @@ def release_values(
     if values.get("type") == "REMUX" and not values.get("source"):
         height = int(video.get("height") or 0) if video else 0
         values["source"] = "DVD" if 0 < height <= 576 else "BluRay"
+        basis["source"] = "remux"
+    # Perché tipo e sorgente sono questi (analysis.type_basis): nel popover
+    # del tipo fra i valori rilevati.
+    values["type_basis"] = basis
     # Dopo gli override: seguono la risoluzione, il tipo e la sorgente scelti.
     if values.get("source") == "DVD" and values.get("resolution"):
         standard = {"576": "PAL", "480": "NTSC"}.get(str(values["resolution"])[:3])

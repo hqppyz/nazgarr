@@ -4,6 +4,7 @@ import { Link, useLocation } from 'react-router-dom'
 
 import { useDashboard } from '@/api/hooks/dashboard'
 import { useHealth } from '@/api/hooks/health'
+import { useUpdateStatus } from '@/api/hooks/system'
 import { RingLogo } from '@/components/RingLogo'
 import { InstanceSwitcher } from '@/components/instances/InstanceSwitcher'
 import type { RingHandle } from '@/components/ring/types'
@@ -60,6 +61,7 @@ const COPYRIGHT_YEAR = new Date().getFullYear()
 function AppSidebarFooter() {
   const { data: dashboard } = useDashboard()
   const { data: health } = useHealth()
+  const { data: update } = useUpdateStatus()
   const { username, logout } = useAuth()
 
   return (
@@ -85,6 +87,12 @@ function AppSidebarFooter() {
           <span className="truncate font-medium" title={health?.commit ? `commit ${health.commit}` : undefined}>
             {t('layout.version', { version: health?.version ?? '…' })}
           </span>
+          {/* Dall'ultimo controllo salvato (manuale o automatico): nessuna chiamata a GitHub da qui. */}
+          {update?.update_available && (
+            <Link to="/config?tab=application" className="truncate font-medium text-primary underline-offset-4 hover:underline">
+              {t('updates.available', { version: (update.latest_version ?? '').replace(/^v/, '') })}
+            </Link>
+          )}
           <span className="truncate">© {COPYRIGHT_YEAR} lktorrentz</span>
         </div>
         <div className="flex shrink-0 items-center gap-0.5">
@@ -97,7 +105,8 @@ function AppSidebarFooter() {
             <PaletteIcon className="size-4" />
           </Link>
           {username && (
-            <Button variant="ghost" size="icon-sm" title={t('layout.logout', { username })} onClick={logout}>
+            <Button variant="ghost" size="icon-sm" title={t('layout.logout', { username })}
+                    aria-label={t('layout.logout', { username })} onClick={logout}>
               <LogOutIcon className="size-4" />
             </Button>
           )}
@@ -121,6 +130,12 @@ function SidebarRing() {
 
 export function AppSidebar() {
   const location = useLocation()
+  // Sul telefono il menu è un pannello sopra la pagina: toccata una voce si
+  // chiude, se no si navigava dietro il pannello ancora aperto.
+  const { isMobile, setOpenMobile } = useSidebar()
+  useEffect(() => {
+    if (isMobile) setOpenMobile(false)
+  }, [location.pathname, location.search]) // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <Sidebar collapsible="icon">
       {/* L'anello resta visibile anche a sidebar chiusa; sparisce solo il nome.

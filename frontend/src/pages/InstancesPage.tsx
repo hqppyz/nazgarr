@@ -30,9 +30,10 @@ function InstanceCard({ instance }: { instance: Instance | null }) {
           <ServerIcon className="size-4.5 text-muted-foreground" />
         </span>
         <div className="grid min-w-0 flex-1 gap-0.5">
-          <CardTitle className="flex items-center gap-2 truncate text-base">
+          {/* truncate su un flex non tronca il testo: va sullo span del nome. */}
+          <CardTitle className="flex min-w-0 items-center gap-2 text-base">
             <span className={cn('size-2 shrink-0 rounded-full', instanceDot(instance))} />
-            {instance?.label ?? localName}
+            <span className="truncate">{instance?.label ?? localName}</span>
           </CardTitle>
           <span className="text-xs text-muted-foreground">
             {data?.version ? t('instances.version', { version: data.version }) : status?.version ?? ''}

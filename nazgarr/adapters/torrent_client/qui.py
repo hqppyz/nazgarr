@@ -42,6 +42,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from nazgarr.adapters.torrent_client.base import (
     CHECKING_STATES,
+    CONTENT_LAYOUTS,
     ERROR_STATES,
     ClientTorrentFileInfo,
     ClientTorrentInfo,
@@ -90,10 +91,44 @@ class QuiTorrentClientAdapter(TorrentClientAdapter):
                 base_url=self.base_url, headers={"X-API-Key": api_token}, timeout=30.0
             )
 
+    @staticmethod
+    def list_instances(base_url: str, api_token: str, http_client=None) -> list[dict]:
+        """Le istanze di qBittorrent che quel qui gestisce (GET /api/instances,
+        con la stessa X-API-Key): id, nome e host, in ordine. Per scegliere
+        l'istanza da un elenco invece di scriverne il numero."""
+        client = http_client
+        if client is None:
+            import httpx
+
+            client = httpx.Client(base_url=base_url.rstrip("/"), headers={"X-API-Key": api_token}, timeout=15.0)
+        try:
+            response = client.get("/api/instances")
+            response.raise_for_status()
+            data = response.json()
+        finally:
+            if http_client is None:
+                client.close()
+        if not isinstance(data, list):
+            raise ValueError("qui: unexpected answer from /api/instances")
+        out = []
+        for item in data:
+            if not isinstance(item, dict) or not isinstance(item.get("id"), int):
+                continue
+            active = item.get("isActive", True) is not False
+            out.append({
+                "id": item["id"], "name": str(item.get("name") or f"#{item['id']}"), "host": item.get("host"),
+                "active": active, "connected": bool(item.get("connected")) and active,
+                "sort": item.get("sortOrder") if isinstance(item.get("sortOrder"), int) else 0,
+            })
+        out.sort(key=lambda i: (i["sort"], i["name"].lower()))
+        for item in out:
+            del item["sort"]
+        return out
+
     def add_torrent(
         self, torrent_file_or_url: str, save_path: str, force_recheck: bool = True,
         expected_info_hash: str | None = None, skip_check_verified: bool = False,
-        category: str | None = None, tags: list[str] | None = None,
+        category: str | None = None, tags: list[str] | None = None, content_layout: str = "Original",
     ) -> str:
         if not force_recheck:
             raise ValueError(
@@ -116,6 +151,10 @@ class QuiTorrentClientAdapter(TorrentClientAdapter):
         files: dict = {
             "savepath": (None, save_path),
             "skip_checking": (None, "true" if skip_check_verified else "false"),
+            "contentLayout": (None, content_layout),
+            # Avviato anche con "non avviare automaticamente" nelle preferenze
+            # del qBittorrent dietro (qui le confronta e lo forza se serve).
+            "paused": (None, "false"),
         }
         if category:
             files["category"] = (None, category)
@@ -134,7 +173,11 @@ class QuiTorrentClientAdapter(TorrentClientAdapter):
         info_hash = self._wait_for_new_hash(before_hashes, expected)
         if not skip_check_verified:
             self._bulk_action([info_hash], "recheck")
+        self.start(info_hash)
         return info_hash
+
+    def start(self, info_hash: str) -> None:
+        self._bulk_action([info_hash], "resume")
 
     def _wait_for_new_hash(self, before_hashes: set[str], expected: str | None = None) -> str:
         deadline = time.monotonic() + self.poll_timeout
@@ -154,6 +197,13 @@ class QuiTorrentClientAdapter(TorrentClientAdapter):
             f"Nessun nuovo torrent rilevato sull'istanza qui {self.instance_id} "
             f"entro {self.poll_timeout}s dall'aggiunta"
         )
+
+    def content_layout(self) -> str:
+        """La preferenza del qBittorrent dietro questa istanza di qui."""
+        response = self._client.get(f"/api/instances/{self.instance_id}/preferences")
+        response.raise_for_status()
+        layout = response.json().get("torrent_content_layout")
+        return layout if layout in CONTENT_LAYOUTS else "Original"
 
     def _bulk_action(self, hashes: list[str], action: str, **extra) -> None:
         response = self._client.post(

@@ -291,3 +291,11 @@ export function executionSteps(job: ExecutionJob): ExecutionStep[] {
 export function sourceLabel(job: { relative_path: string; pack_name?: string | null }) {
   return job.pack_name ? t('pack.label', { name: job.pack_name }) : job.relative_path
 }
+
+// La sorgente (BluRay, WEB-DL...) non sta in MediaInfo: senza un torrent in
+// hardlink o un nome di release da cui leggerla, e senza un valore scritto
+// a mano, il nome proposto non ce l'ha.
+export function sourceMissing(job: { analysis?: unknown; overrides: Record<string, unknown> }): boolean {
+  const detected = ((job.analysis as Record<string, unknown> | null)?.detected ?? {}) as Record<string, unknown>
+  return !detected.source && !job.overrides.source
+}

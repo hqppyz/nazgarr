@@ -2,11 +2,10 @@ export const disks = {
   'disks.createDiskFailed': 'Failed to create disk: {message}',
   'disks.addDisk': 'Add disk',
   'disks.label': 'Label',
-  'disks.rootPathHelp':
-    'Pre-filled with disk_scan_root — leave it as-is with a single mount (e.g. /data), otherwise enter the specific disk path.',
-  'disks.chooseSubfolder': 'Or choose from subfolders not yet registered',
+  'disks.rootPathHelp': 'The disk folder inside this container, not on your host: one of the mounted ones (e.g. /data with a single mount, /mnt/disk1 with several disks).',
+  'disks.chooseSubfolder': 'Or pick one of the proposed folders',
   'disks.subfolderPlaceholder': 'Subfolder of disk_scan_root…',
-  'disks.multiDiskHelp': 'Only useful for the multi-disk case (one mount per physical disk, e.g. /mnt/disk1).',
+  'disks.multiDiskHelp': 'The folders mounted in the container that are not a disk yet.',
   'disks.create': 'Create',
   'disks.verifyHardlink': 'Verify hardlink (st_dev)',
   'disks.diskConsistent': 'Disk consistent.',
@@ -25,7 +24,6 @@ export const disks = {
     'Where a NEW hardlink is created (and the save path handed to the client). It never narrows the "already seeding" search, which always covers every seeding folder. Empty = the first seeding folder.',
   'disks.mediaFolder': 'Media folder',
   'disks.seedingFolder': 'Seeding folder',
-  'disks.seedingFolderDialogTitle': 'Seeding folder (torrents_rel_path)',
   'disks.noDisksConfigured': 'No disks configured.',
   'disks.createFolderFailed': 'Failed to create folder: {message}',
   'disks.navigateToFile': 'Browse to the file and select it.',
@@ -63,4 +61,25 @@ export const disks = {
   'disks.check.no_folders': 'No folder to test: add one.',
   'disks.check.st_dev_changed': 'The filesystem id changed ({old} → {new}): it happens after a remount, and is normal on FUSE (e.g. Unraid /mnt/user). Hardlinks work, the reference is updated.',
   'disks.check.st_dev_changed_kept': "The filesystem id changed ({old} → {new}): the reference stays as it was until hardlinks work.",
+  'disks.noLibraryTitle': 'No media folder',
+  'disks.noLibrary':
+    'Nazgarr works like this too (torrents, Triage, uploads, packs), but reseeding finds nothing: today it recognizes content only from library files. Add a media folder to a disk to look for what you can seed again.',
+  // Folders mounted in the container (nazgarr/core/mounts.py)
+  'disks.mounts.title': 'Folders mounted in the container',
+  'disks.mounts.scopeMounts': 'Disks can only be in these folders, the ones you mounted in the Docker template. Each one is a disk of its own.',
+  'disks.mounts.scopeConfig': 'Disks are restricted to {root} (disk_scan_root in config.yaml).',
+  'disks.mounts.unraidShare': 'Unraid share',
+  'disks.mounts.registered': 'already a disk',
+  'disks.mounts.add': 'Add as a disk',
+  'disks.mounts.warning.split_mounts':
+    '{paths} are the same filesystem mounted at different points: Linux refuses hardlinks between two mounts, even on the same disk. Mount the folder that holds them (e.g. /data with media/ and torrents/ inside) instead of each one.',
+  'disks.mounts.warning.share_and_disks':
+    'Both the Unraid user share ({share}) and single disks ({disks}) are mounted: the same files would be seen twice. Keep only the share, or only the disks.',
+  'disks.mounts.warning.mounts_outside_scan_root':
+    '{paths} is mounted but outside disk_scan_root ({root}): it cannot become a disk. Remove disk_scan_root from config.yaml (Docker does not need it) and restart.',
+  'disks.deleteTitle': 'Delete the disk {label}?',
+  'disks.deleteDescription': 'Nazgarr forgets this disk and its folders. No file on the disk is touched.',
+  'disks.removeFolderTitle': 'Remove the folder {path}?',
+  'disks.removeFolderDescription': 'Nazgarr stops using it. The files inside stay where they are.',
+  'disks.removeFolderConfirm': 'Remove',
 } as const

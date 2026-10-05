@@ -1,0 +1,53 @@
+{
+  "_format": "One entry per stable version, newest first: version, date (YYYY-MM-DD), breaking, highlights (new things) and fixes, each a list per language (it, en). Shown in the app after an update and before one (nazgarr/core/updates.py). Proposed before each promotion to stable, approved by the maintainer; the detailed notes, chores included, are in CHANGELOG.md.",
+  "entries": [
+    {
+      "version": "0.9.0",
+      "date": "2026-10-05",
+      "breaking": {
+        "it": [
+          "La porta predefinita ora è 3019, anche dentro il container: cambia la mappatura in \"8080:3019\" per tenere l'indirizzo di prima, o in \"3019:3019\". Su Unraid imposta 3019 come porta del container.",
+          "Host di immagini: PTPImg, Imgbox, Pixhost, OnlyImage, Dalexni, utp.pm e Seedpool CDN non ci sono più, e non ci sono più host anonimi. Inserisci la API key di almeno un host (PTScreens, Passtheima, imageride o ImgBB) in Impostazioni › Upload › Immagini, o gli upload con screenshot si fermano."
+        ],
+        "en": [
+          "The default port is now 3019, inside the container too: change the mapping to \"8080:3019\" to keep the old address, or \"3019:3019\". On Unraid set 3019 as the container port.",
+          "Image hosts: PTPImg, Imgbox, Pixhost, OnlyImage, Dalexni, utp.pm and Seedpool CDN are gone, and there are no anonymous hosts any more. Enter the API key of at least one host (PTScreens, Passtheima, imageride or ImgBB) in Settings › Upload › Images, or uploads with screenshots stop."
+        ]
+      },
+      "highlights": {
+        "it": [
+          "Reseed: categoria e tag scelti a mano come per un upload, ed esecuzioni bloccate che si possono eliminare.",
+          "Setup: verifica dei percorsi dei client, dischi dalle cartelle montate, nuovo tour \"Il resto di Nazgarr\".",
+          "Upload: remux e sorgente letti dal MediaInfo quando il nome non li dice, e un avviso se manca la sorgente.",
+          "Esclusioni di default come le nominano Plex e Jellyfin, più extra, file di sistema di macOS e Windows e .torrent.",
+          "Controllo automatico degli aggiornamenti, facoltativo, con le novità prima e dopo l'aggiornamento."
+        ],
+        "en": [
+          "Reseeding: category and tags chosen by hand like for an upload, and stuck executions that can be deleted.",
+          "Setup: client path check, disks from the mounted folders, a new \"The rest of Nazgarr\" tour.",
+          "Uploads: remux and source read from MediaInfo when the name does not say them, and a warning when the source is missing.",
+          "Default exclusions as Plex and Jellyfin name things, plus extras, macOS and Windows system files and .torrent files.",
+          "Optional automatic update check, with what is new before and after updating."
+        ]
+      },
+      "fixes": {
+        "it": [
+          "I reseed e gli upload restavano fermi con qBittorrent impostato per non avviarli o per fermarsi dopo il controllo dei file.",
+          "Con \"Crea sottocartella\" in qBittorrent un reseed a file singolo riscaricava il file invece di seedare.",
+          "Un'aggiunta al client che falliva ma arrivava lo stesso toglieva gli hardlink, e il client riscaricava.",
+          "Un remux rinominato o con \"BDRemux\" nel nome usciva come encode, senza HYBRID per il Dolby Vision profilo 8.",
+          "Poster e copertine con nomi diversi e i file \"._\" di macOS comparivano fra i file della libreria.",
+          "Interfaccia ottimizzata per telefono e tablet."
+        ],
+        "en": [
+          "Reseeds and uploads stayed stopped with qBittorrent set not to start them or to stop after checking files.",
+          "With qBittorrent's \"create subfolder\" a single-file reseed downloaded the file again instead of seeding.",
+          "A client add that failed but arrived anyway removed the hardlinks, and the client downloaded again.",
+          "A renamed remux, or one with \"BDRemux\" in its name, came out as an encode, with no HYBRID for Dolby Vision profile 8.",
+          "Posters and covers with other names and macOS \"._\" files showed up among the library files.",
+          "The interface is optimized for phones and tablets."
+        ]
+      }
+    }
+  ]
+}

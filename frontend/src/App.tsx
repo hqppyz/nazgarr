@@ -20,6 +20,7 @@ const ReseedingPage = lazyPage(() => import('@/pages/reseeding/ReseedingPage'), 
 const UploadQueuePage = lazyPage(() => import('@/pages/upload/UploadQueuePage'), (m) => m.UploadQueuePage)
 const NewUploadPage = lazyPage(() => import('@/pages/upload/NewUploadPage'), (m) => m.NewUploadPage)
 const UploadJobPage = lazyPage(() => import('@/pages/upload/UploadJobPage'), (m) => m.UploadJobPage)
+const UploadDemoPage = lazyPage(() => import('@/pages/upload/UploadDemoPage'), (m) => m.UploadDemoPage)
 const ConfigurationPage = lazyPage(() => import('@/pages/config/ConfigurationPage'), (m) => m.ConfigurationPage)
 const InstancesPage = lazyPage(() => import('@/pages/InstancesPage'), (m) => m.InstancesPage)
 // Il laboratorio del logo porta Three.js: mai precaricato.
@@ -59,6 +60,7 @@ function App() {
         ))}
         <Route path="/instances" element={<InstancesPage />} />
         <Route path="/upload/new" element={<NewUploadPage />} />
+        <Route path="/upload/demo" element={<UploadDemoPage />} />
         <Route path="/upload/:uploadId" element={<UploadJobPage />} />
       </Route>
     </Routes>

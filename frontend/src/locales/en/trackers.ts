@@ -85,4 +85,9 @@ export const trackers = {
   'trackers.restoreHelpCustom': "Custom profile. You can replace it with one of the bundled ones, for example after changing it too much.",
   'trackers.restoreConfirm': "Replace this profile with the bundled \"{profile}\"? Category, type and resolution ids, naming rules, description and defaults go back to the bundled ones: your changes are lost.",
   'trackers.restored': "Profile \"{profile}\" restored.",
+  'trackers.announceUrlWhere': 'You find it here, on the tracker’s upload page:',
+  'trackers.deleteTitle': 'Delete the tracker {label}?',
+  'trackers.deleteDescription': 'Nazgarr forgets this tracker, its key and its upload profile. Nothing changes on the tracker itself.',
+  'trackers.deleteProfileTitle': 'Delete the upload profile of {trackerLabel}?',
+  'trackers.deleteProfileDescription': 'The naming, description and defaults of this profile are lost. You can create a new one from scratch or from a bundled profile.',
 } as const

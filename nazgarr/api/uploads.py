@@ -354,6 +354,8 @@ def list_upload_trackers(session: Session = Depends(get_session)):
 class ImageHostStatusResponse(BaseModel):
     with_api_key: list[str]
     usable: list[str]
+    removed: list[str] = []  # tolti da un aggiornamento, finché l'avviso non si chiude
+    order: list[str] = []  # tutti gli host registrati, nell'ordine in cui si provano
 
 
 class UploadNotice(BaseModel):

@@ -17,19 +17,21 @@ export const uploadSettings = {
     'Testo (es. BBCode) aggiunto alla fine di ogni descrizione — lascia vuoto per non aggiungere niente. Dopo segue sempre una breve riga "Uploaded with Nazgarr" con la versione.',
   'uploadSettings.signatureSaved': 'Firma salvata.',
   'uploadSettings.saveSignatureButton': 'Salva firma',
-  'uploadSettings.apiKeysLabel': 'API key',
-  'uploadSettings.apiKeysHelp': 'Solo gli host che la chiedono; gli altri caricano in modo anonimo.',
   'uploadSettings.imageHostsTitle': 'Host di immagini',
+  'uploadSettings.hostPlugin':
+    'plugin',
+  'uploadSettings.hostStatus.ready':
+    'pronto',
+  'uploadSettings.hostStatus.missing':
+    'manca la API key',
+  'uploadSettings.hostsRemoved':
+    'Con l’aggiornamento questi host non ci sono più: {hosts}. Inserisci la API key di almeno uno degli host qui sotto, o installa un plugin per quello che usavi.',
+  'uploadSettings.morePlugins':
+    'Ogni host è un plugin: si spegne, o se ne aggiungono altri, in Impostazioni › Plugin. Un host Chevereto è poche righe.',
   'uploadSettings.imageHostsDescription':
-    'Priorità e stato a sinistra, API key a destra — si prova il primo host attivo, se fallisce si usa il successivo. Imgbox e Pixhost non ne richiedono una.',
-  'uploadSettings.noApiKeyRequired': 'nessuna api_key richiesta',
-  'uploadSettings.priorityOrderLabel': 'Ordine di priorità degli host di immagini',
-  'uploadSettings.priorityOrderHelp': 'Trascina per riordinare — si prova il primo, se fallisce si usa il successivo.',
+    'Si prova il primo host acceso e con la API key, se fallisce il successivo. Trascina per cambiare l’ordine, tocca un host per la sua chiave.',
   'uploadSettings.priorityOrderSaved': 'Ordine di priorità salvato.',
   'uploadSettings.dragToReorder': 'Trascina per riordinare {label}',
-  'uploadSettings.disable': 'Disattiva',
-  'uploadSettings.hostDisabled': '{host} disattivato.',
-  'uploadSettings.hostEnabled': '{host} attivato.',
   'uploadSettings.fileNamesTitle': 'Nomi dei file nel torrent',
   'uploadSettings.fileNamesDescription':
     'Quando su un client non c’è un torrent con gli stessi file (hardlink), i file di un nuovo upload prendono un nome costruito da questo pattern, separato da punti come una release: niente ":" né accenti. Ogni upload può comunque tenere i nomi originali.',

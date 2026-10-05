@@ -25,6 +25,8 @@ import {
 import { ClientCategorySelect } from '@/components/ClientCategorySelect'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { ConfirmButton } from '@/components/ConfirmButton'
+import { InfoPopover } from '@/components/InfoPopover'
 import { SettingsHeader } from '@/components/SettingsHeader'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
@@ -47,6 +49,8 @@ import { autosaveFeedback } from '@/lib/autosave'
 import { PASSWORD_ONLY, torrentClientPayload, type TorrentClientForm } from '@/lib/torrentClientForm'
 import { CLIENT_NAMES } from '@/lib/services'
 import { ClientLogo } from '@/pages/config/ServiceIcons'
+import { PathCheckButton } from '@/pages/config/ClientPathCheck'
+import { QuiInstanceField } from '@/pages/config/QuiInstanceField'
 import { DiskBrowserDialog } from '@/pages/config/DiskBrowserDialog'
 
 type TorrentClient = Schemas['TorrentClientResponse']
@@ -233,17 +237,15 @@ function TorrentClientDialog({ tc }: { tc?: TorrentClient }) {
                   placeholder={keepPlaceholder ?? t('torrentClients.apiKeyPlaceholder')}
                 />
               </div>
-              <div className="grid gap-1.5">
-                <Label htmlFor={`${idPrefix}-qui-instance-id`}>{t('torrentClients.instance')}</Label>
-                <Input
-                  id={`${idPrefix}-qui-instance-id`}
-                  type="number"
-                  value={form.quiInstanceId}
-                  onChange={(e) => set('quiInstanceId')(e.target.value)}
-                  placeholder={editing ? undefined : t('torrentClients.instanceIdPlaceholder')}
-                />
-                {!editing && <p className="text-xs text-muted-foreground">{t('torrentClients.instanceHelp')}</p>}
-              </div>
+              <QuiInstanceField
+                idPrefix={idPrefix}
+                baseUrl={form.baseUrl}
+                apiToken={form.apiToken}
+                clientId={tc?.id}
+                value={form.quiInstanceId}
+                onChange={set('quiInstanceId')}
+                editing={editing}
+              />
             </div>
           ) : (
             <div className="grid gap-3" data-tour="clients.dialog.credentials">
@@ -328,11 +330,12 @@ function DiskAssociationRow({
   const nazgarrSide = `${disk.root_path.replace(/\/$/, '')}${localRel ? `/${localRel}` : ''}`
 
   return (
-    <div className="grid gap-3 rounded-md border px-3 py-2.5">
-      <div className="flex items-center justify-between gap-2">
-        <span className="font-medium">{disk.label}</span>
-        <span className="truncate font-mono text-xs text-muted-foreground">{disk.root_path}</span>
-        <span className="flex-1" />
+    <div className="grid min-w-0 gap-3 rounded-md border px-3 py-2.5">
+      <div className="flex min-w-0 items-center justify-between gap-2">
+        <span className="max-w-[50%] truncate font-medium">{disk.label}</span>
+        <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground" title={disk.root_path}>
+          {disk.root_path}
+        </span>
         <Switch
           checked={enabled}
           onCheckedChange={(checked) => {
@@ -361,7 +364,7 @@ function DiskAssociationRow({
             <div className="grid gap-1">
               <Label className="text-xs text-muted-foreground">{t('torrentClients.mappingClientFolder')}</Label>
               <Input className="h-8 font-mono text-xs" value={clientRoot} onChange={(e) => setClientRoot(e.target.value)}
-                     placeholder="/download" />
+                     placeholder="/downloads" />
             </div>
           </div>
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -411,7 +414,18 @@ function DisksDialog({ torrentClientId, disks: associations }: { torrentClientId
           <DialogTitle>{t('torrentClients.enabledDisksForClient')}</DialogTitle>
           <DialogDescription>{t('torrentClients.rootPathOverrideHelp')}</DialogDescription>
         </DialogHeader>
-        <div className="grid gap-2">
+        {/* I tre casi tipici (retrospettiva del tutorial, 2026-10-05): cartella del disco = come la vede il client. */}
+        <div className="grid gap-1.5 rounded-md bg-muted/40 p-3 text-xs">
+          <p className="font-medium">{t('torrentClients.mappingExamples.title')}</p>
+          {(['same', 'subfolder', 'unraid'] as const).map((key) => (
+            <div key={key} className="grid gap-0.5 sm:grid-cols-[1fr_auto]">
+              <span className="text-muted-foreground">{t(`torrentClients.mappingExamples.${key}`)}</span>
+              <code className="font-mono">{t(`torrentClients.mappingExamples.${key}Value`)}</code>
+            </div>
+          ))}
+          <p className="text-muted-foreground">{t('torrentClients.mappingExamples.check')}</p>
+        </div>
+        <div className="grid min-w-0 gap-2">
           {disks?.map((disk) => (
             <DiskAssociationRow
               key={disk.id}
@@ -441,7 +455,7 @@ function TagsField({ tc, field, label }: { tc: TorrentClient; field: LabelField;
       </Label>
       <Input
         id={`tc-${tc.id}-${field}`}
-        className="h-7 w-44 text-xs"
+        className="h-7 w-full max-w-44 text-xs"
         value={value}
         placeholder={t('torrentClients.noTags')}
         onChange={(e) => setValue(e.target.value)}
@@ -470,9 +484,13 @@ function ClientLabels({ tc }: { tc: TorrentClient }) {
   ]
   return (
     <div className="grid gap-2 border-t pt-3">
-      <p className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase" title={t('torrentClients.labelsHelp')}>
+      {/* La spiegazione si apre anche al tocco (prima solo nel title). */}
+      <InfoPopover
+        content={t('torrentClients.labelsHelp')}
+        className="w-fit text-[11px] font-medium tracking-wide text-muted-foreground uppercase"
+      >
         {t('torrentClients.labelsTitle')}
-      </p>
+      </InfoPopover>
       <div className="grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-1.5 text-xs">
         {categories.length > 0 || rows.some(([field]) => tc[field]) ? (
           rows.map(([field, label, noneLabel]) => (
@@ -522,7 +540,7 @@ export function TorrentClientsSection() {
       )}
       {/* Una scheda per client: tipo con il suo logo, indirizzo, dischi, quanti
           torrent ha nell'indice dell'ultima scan, e le azioni. */}
-      <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
+      <div className="grid gap-4 xl:grid-cols-2 2xl:grid-cols-3">
         {torrentClients?.map((tc) => (
           <Card key={tc.id} data-tour="clients.card" className={cn('min-w-0', !tc.enabled && 'opacity-70')}>
             <CardHeader className="flex flex-row items-center gap-3">
@@ -567,14 +585,25 @@ export function TorrentClientsSection() {
               <div data-tour="clients.labels">
                 <ClientLabels tc={tc} />
               </div>
-              <div className="flex items-center gap-1 border-t pt-3">
+              <div className="flex flex-wrap items-center gap-1 border-t pt-3">
                 <TestButton id={tc.id} />
-                <span className="flex-1" />
-                <DisksDialog torrentClientId={tc.id} disks={tc.disks} />
-                <TorrentClientDialog tc={tc} />
-                <Button variant="ghost" size="icon-sm" title={t('common.delete')} onClick={() => deleteTorrentClient.mutate(tc.id)}>
-                  <TrashIcon className="size-4" />
-                </Button>
+                <PathCheckButton clientId={tc.id} clientLabel={tc.label} />
+                {/* Le icone restano insieme: se non c'è spazio vanno a capo tutte, a destra. */}
+                <div className="ml-auto flex shrink-0 items-center gap-1">
+                  <DisksDialog torrentClientId={tc.id} disks={tc.disks} />
+                  <TorrentClientDialog tc={tc} />
+                  <ConfirmButton
+                    trigger={
+                      <Button variant="ghost" size="icon-sm" title={t('common.delete')}>
+                        <TrashIcon className="size-4" />
+                      </Button>
+                    }
+                    title={t('torrentClients.deleteTitle', { label: tc.label })}
+                    description={t('torrentClients.deleteDescription')}
+                    pending={deleteTorrentClient.isPending}
+                    onConfirm={() => deleteTorrentClient.mutate(tc.id)}
+                  />
+                </div>
               </div>
             </CardContent>
           </Card>

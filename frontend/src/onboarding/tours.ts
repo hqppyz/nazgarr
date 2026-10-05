@@ -20,8 +20,9 @@ export interface TourStep {
   skipTo?: string
   // Se l'ancora sparisce (es. il dialog chiuso a metà), torna a questo passo.
   backTo?: string
-  // Solo con questa risposta del benvenuto.
+  // Solo con questa risposta del benvenuto, o solo senza.
   when?: keyof OnboardingState['answers']
+  unless?: keyof OnboardingState['answers']
   // La schermata del passo, se non è quella del tour (tour delle viste).
   route?: string
 }
@@ -46,6 +47,10 @@ export const TOURS: Tour[] = [
     route: '/config?tab=storage',
     steps: [
       { id: 'intro', anchor: 'storage.card', side: 'bottom', next: true },
+      // Una cartella montata e non ancora un disco: si parte da lì, già
+      // compilata, invece di un disco da zero.
+      { id: 'suggested', anchor: 'storage.mount-add', side: 'bottom', next: true,
+        waitFor: { element: 'storage.dialog' }, skipIf: { gone: 'storage.mount-add' }, skipTo: 'add' },
       { id: 'add', anchor: 'storage.add', side: 'left', waitFor: { element: 'storage.dialog' },
         skipIf: { element: 'storage.row' }, skipTo: 'seeding' },
       dialogStep('storage', 'label', 'add'),
@@ -56,9 +61,9 @@ export const TOURS: Tour[] = [
         waitFor: { filled: 'storage.seeding-folder' } },
       { id: 'media', anchor: 'storage.media-folder', side: 'bottom', next: true,
         waitFor: { filled: 'storage.media-folder' } },
-      { id: 'new', anchor: 'storage.new-folder', side: 'bottom', next: true },
-      { id: 'upload', anchor: 'storage.upload-folder', side: 'bottom', next: true, when: 'upload' },
-      { id: 'watch', anchor: 'storage.watch-folder', side: 'bottom', next: true, when: 'upload' },
+      { id: 'new', anchor: 'storage.new-folder', side: 'bottom', next: true, waitFor: { filled: 'storage.new-folder' } },
+      { id: 'upload', anchor: 'storage.upload-folder', side: 'bottom', next: true, waitFor: { filled: 'storage.upload-folder' }, when: 'upload' },
+      { id: 'watch', anchor: 'storage.watch-folder', side: 'bottom', next: true, waitFor: { filled: 'storage.watch-folder' }, when: 'upload' },
       { id: 'verify', anchor: 'storage.verify', side: 'left', next: true },
     ],
   },
@@ -74,8 +79,9 @@ export const TOURS: Tour[] = [
       { id: 'create', anchor: 'clients.dialog.create', side: 'top', backTo: 'add',
         waitFor: { element: 'clients.card' } },
       { id: 'test', anchor: 'clients.test', side: 'top', next: true },
+      { id: 'paths', anchor: 'clients.path-check', side: 'top', next: true, waitFor: { filled: 'clients.path-check' } },
       // Facoltativo: senza dischi scelti il client vale per tutti (stessi percorsi).
-      { id: 'disks', anchor: 'clients.disks', side: 'top', next: true },
+      { id: 'disks', anchor: 'clients.disks', side: 'top', next: true, waitFor: { filled: 'clients.disks' } },
       { id: 'labels', anchor: 'clients.labels', side: 'top', next: true, when: 'upload' },
     ],
   },
@@ -84,9 +90,11 @@ export const TOURS: Tour[] = [
     route: '/config?tab=integrations',
     steps: [
       { id: 'tmdb', anchor: 'metadata.tmdb', side: 'bottom', next: true, waitFor: { status: 'metadata' } },
-      { id: 'tvdb', anchor: 'metadata.tvdb', side: 'bottom', next: true },
-      { id: 'radarr', anchor: 'integrations.radarr', side: 'top', next: true, when: 'arr' },
-      { id: 'sonarr', anchor: 'integrations.sonarr', side: 'top', next: true, when: 'arr' },
+      { id: 'tvdb', anchor: 'metadata.tvdb', side: 'bottom', next: true, waitFor: { filled: 'metadata.tvdb' } },
+      { id: 'radarr', anchor: 'integrations.radarr', side: 'top', next: true, when: 'arr',
+        waitFor: { filled: 'integrations.radarr' } },
+      { id: 'sonarr', anchor: 'integrations.sonarr', side: 'top', next: true, when: 'arr',
+        waitFor: { filled: 'integrations.sonarr' } },
     ],
   },
   {
@@ -101,9 +109,9 @@ export const TOURS: Tour[] = [
       dialogStep('trackers', 'announce', 'add'),
       { id: 'create', anchor: 'trackers.dialog.create', side: 'top', backTo: 'add',
         waitFor: { element: 'trackers.card' } },
-      { id: 'client', anchor: 'trackers.card.client', side: 'right', next: true },
-      { id: 'language', anchor: 'trackers.card.language', side: 'right', next: true },
-      { id: 'seed', anchor: 'trackers.card.seed', side: 'right', next: true },
+      { id: 'client', anchor: 'trackers.card.client', side: 'left', next: true },
+      { id: 'language', anchor: 'trackers.card.language', side: 'left', next: true },
+      { id: 'seed', anchor: 'trackers.card.seed', side: 'left', next: true },
       { id: 'profile', anchor: 'trackers.card.profile', side: 'top', next: true, when: 'upload' },
     ],
   },
@@ -151,7 +159,7 @@ export const TOURS: Tour[] = [
     // Il giro delle viste, dopo la prima scansione: non è un passo della checklist.
     key: 'views',
     route: '/dashboard',
-    last: true,
+    then: 'extras',
     steps: [
       { id: 'intro', next: true },
       { id: 'health', anchor: 'views.health', side: 'right', next: true },
@@ -163,11 +171,38 @@ export const TOURS: Tour[] = [
       { id: 'pack', anchor: 'views.pack', side: 'left', next: true, route: '/library/folder', when: 'upload' },
       { id: 'torrents', anchor: 'views.torrent-switch', side: 'bottom', next: true, route: '/torrent/folder' },
       { id: 'not_imported', anchor: 'views.summary', side: 'bottom', next: true, route: '/torrent/triage' },
-      { id: 'uploads', anchor: 'views.uploads', side: 'bottom', next: true, route: '/upload', when: 'upload' },
       { id: 'review', anchor: 'views.review', side: 'top', next: true, route: '/reseeding' },
     ],
   },
 ]
+
+// "Il resto di Nazgarr" (decisione dell'utente, 2026-10-05): upload,
+// notifiche, istanze, API key, plugin e controllo degli aggiornamenti, solo
+// per farli conoscere. Nessun
+// passo aspetta un'azione; l'upload si mostra con un upload di esempio
+// (src/lib/uploadDemo.ts) che non crea niente.
+TOURS.push({
+  key: 'extras',
+  route: '/upload',
+  last: true,
+  steps: [
+    { id: 'upload_off', next: true, route: '/upload', unless: 'upload' },
+    { id: 'new', anchor: 'upload.new', side: 'left', next: true, route: '/upload', when: 'upload' },
+    { id: 'demo_match', anchor: 'demo.match', side: 'top', next: true, route: '/upload/demo', when: 'upload' },
+    { id: 'demo_decision', anchor: 'demo.decision', side: 'top', next: true, route: '/upload/demo?step=decision',
+      when: 'upload' },
+    { id: 'queue', anchor: 'views.uploads', side: 'bottom', next: true, route: '/upload', when: 'upload' },
+    { id: 'notifications', anchor: 'notifications.add', side: 'left', next: true, route: '/config?tab=notifications' },
+    { id: 'instances', anchor: 'instances.add', side: 'left', next: true, route: '/config?tab=instances' },
+    // Il selettore c'è solo con almeno un'altra istanza: senza, lo dice il passo prima.
+    { id: 'switcher', anchor: 'instances.switcher', side: 'right', next: true,
+      skipIf: { gone: 'instances.switcher' }, skipTo: 'api_keys' },
+    { id: 'api_keys', anchor: 'api-keys.add', side: 'left', next: true, route: '/config?tab=api-keys' },
+    { id: 'plugins', anchor: 'plugins.source', side: 'bottom', next: true, route: '/config?tab=plugins' },
+    // Il controllo automatico degli aggiornamenti, spento di default: il tour lo fa conoscere.
+    { id: 'updates', anchor: 'application.update-auto', side: 'top', next: true, route: '/config?tab=application' },
+  ],
+})
 
 export function tourFor(key: string): Tour | undefined {
   return TOURS.find((tour) => tour.key === key)
@@ -175,7 +210,7 @@ export function tourFor(key: string): Tour | undefined {
 
 // I passi di un tour per queste risposte del benvenuto.
 export function stepsFor(tour: Tour, answers: OnboardingState['answers']): TourStep[] {
-  return tour.steps.filter((step) => !step.when || answers[step.when])
+  return tour.steps.filter((step) => (!step.when || answers[step.when]) && (!step.unless || !answers[step.unless]))
 }
 
 export const selector = (anchor: string) => `[data-tour="${anchor}"]`

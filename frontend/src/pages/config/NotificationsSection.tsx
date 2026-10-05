@@ -94,7 +94,7 @@ function ServiceDialog({ adapter, service, defaultName, onClose }: {
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-h-[90dvh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <NotificationLogo type={adapter.adapter_type} icon={adapter.icon} />
@@ -155,7 +155,8 @@ function ConfigRecap({ adapter, service }: { adapter: Adapter | undefined; servi
       {rows.map(([label, value]) => (
         <div key={label} className="contents">
           <dt className="text-muted-foreground">{label}</dt>
-          <dd className="truncate font-mono" title={value}>{value}</dd>
+          {/* Al tocco il title non si vede: il valore va a capo invece di troncarsi. */}
+          <dd className="truncate font-mono pointer-coarse:break-all pointer-coarse:whitespace-normal" title={value}>{value}</dd>
         </div>
       ))}
     </dl>
@@ -217,7 +218,7 @@ function AddMenu({ adapters, onPick }: { adapters: Adapter[]; onPick: (type: Ada
   const item = 'flex items-center gap-3 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted'
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger render={<Button><PlusIcon className="size-4" />{t('notifications.add')}</Button>} />
+      <PopoverTrigger render={<Button data-tour="notifications.add"><PlusIcon className="size-4" />{t('notifications.add')}</Button>} />
       <PopoverContent align="end" className="w-72 gap-0.5 p-1.5">
         {adapters.map((adapter) => (
           <button key={adapter.adapter_type} type="button" className={item} onClick={() => pick(adapter)}>
@@ -293,7 +294,7 @@ export function NotificationsSection() {
           <CardContent className="py-6 text-center text-sm text-muted-foreground">{t('notifications.none')}</CardContent>
         </Card>
       )}
-      <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
+      <div className="grid gap-4 xl:grid-cols-2 2xl:grid-cols-3">
         {services?.map((service) => {
           const adapter = adapterOf(service.adapter_type)
           return (

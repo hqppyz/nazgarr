@@ -36,7 +36,7 @@ const job = {
 
 describe('DecisionStep', () => {
   it('starts from the suggestions and sends every decision after the confirmation', () => {
-    render(<DecisionStep job={job} />)
+    render(<DecisionStep job={{ ...job, overrides: { source: 'WEB-DL' } } as UploadJob} />)
 
     expect(screen.getByText('Every tracker has a decision.')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Approve' }))
@@ -56,7 +56,8 @@ describe('DecisionStep', () => {
 
     fireEvent.change(screen.getByLabelText('Release name'), { target: { value: ' ' } })
 
-    expect(screen.getByText('the release name is empty')).toBeTruthy()
+    // Due volte: nell'elenco per telefono e nella tabella (una delle due nascosta via CSS).
+    expect(screen.getAllByText('the release name is empty')).toHaveLength(2)
     expect(screen.getByText('1 tracker(s) still need something before approving.')).toBeTruthy()
     expect((screen.getByRole('button', { name: 'Approve' }) as HTMLButtonElement).disabled).toBe(true)
   })
@@ -73,6 +74,32 @@ describe('DecisionStep', () => {
     const detected = { ...job.analysis, detected: { group: 'GRP', source: 'WEB-DL' } }
     render(<DecisionStep job={{ ...job, analysis: detected } as UploadJob} />)
     expect(screen.queryByText(/Source not found/)).toBeNull()
+  })
+
+  it('warns above the name and in the confirmation without blocking the upload', () => {
+    const before = approve.mock.calls.length
+    render(<DecisionStep job={job} />)
+
+    expect(screen.getByText(/The name has no source/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Approve' }))
+    expect(screen.getByText(/No source was found/)).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Add the source' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Queue anyway' }))
+
+    expect(approve.mock.calls.length).toBe(before + 1)
+  })
+
+  it('explains the detected type in a popover on its tag', async () => {
+    const analysis = {
+      ...job.analysis, detected: { type: 'REMUX', source: 'BluRay', group: 'GRP' },
+      type_basis: { type: 'disc_no_encoder', source: 'mediainfo', evidence: ['dv_el', 'pgs'], encoder: null },
+    }
+    render(<DecisionStep job={{ ...job, analysis } as UploadJob} />)
+
+    fireEvent.click(screen.getByText('REMUX'))
+
+    expect(await screen.findByText(/the video carries no trace of an encoder/)).toBeTruthy()
+    expect(screen.getByText(/Dolby Vision profile 7/)).toBeTruthy()
   })
 
   it('suggests the values the trackers accept in the detected details, still free to write', () => {

@@ -31,12 +31,6 @@ from nazgarr.plugins import config as plugin_config
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_IMAGE_HOST_PRIORITY = [
-    "ptpimg", "imgbox", "imgbb", "pixhost",
-    "lensdump", "ptscreens", "onlyimage", "dalexni", "utppm", "seedpool_cdn",
-]
-
-
 def _row_config(spec, row) -> dict:
     """I campi di un adapter di un plugin, dalla riga di tracker o client."""
     return plugin_config.with_defaults(spec, plugin_config.loads(getattr(row, "adapter_config_json", None)))
@@ -144,80 +138,40 @@ class ImageHostConfigError(CodedError):
     pass
 
 
-def _image_host_config(session: Session, spec) -> dict | None:
-    """I valori dei campi di un host dalle impostazioni
-    (image_host_<host>_<campo>, es. image_host_ptpimg_api_key); None se ne
-    manca uno obbligatorio."""
-    config = {}
-    for field in spec.config_fields:
-        value = settings_repo.get_setting(session, f"image_host_{spec.adapter_type}_{field.key}")
-        if value in (None, "") and field.required:
-            return None
-        config[field.key] = value if value not in (None, "") else field.default
-    return config
-
-
-def _build_image_host_adapter(session: Session, key: str) -> ImageHostAdapter | None:
-    """None = host valido ma non configurato (nessuna api_key impostata),
-    saltato in silenzio dalla catena — non un errore finché almeno un
-    host della priorità configurata resta utilizzabile."""
-    spec = REGISTRY.get("image_host", key)
-    if spec is None:
-        raise ImageHostConfigError("image_host_unknown", key=key)
-    # Integrati: la loro chiave nelle impostazioni; plugin: adapter_config.
-    config = plugin_config.usable_global(session, spec) if spec.plugin else _image_host_config(session, spec)
+def _build_image_host_adapter(session: Session, spec) -> ImageHostAdapter | None:
+    """None = host spento o senza la sua api_key: la catena lo salta."""
+    config = plugin_config.usable_global(session, spec)
     if config is None:
         return None
     return spec.build(AdapterContext(config=config, session=session))
 
 
-def keyed_image_hosts() -> list[str]:
-    """Gli host che funzionano solo con una api_key (gli altri: upload anonimi)."""
-    return [spec.adapter_type for spec in REGISTRY.of_kind("image_host") if spec.required_fields]
-
-
-def _has_key(session: Session, key: str) -> bool:
-    spec = REGISTRY.get("image_host", key)
-    if spec is not None and spec.plugin:
-        return plugin_config.usable_global(session, spec) is not None
-    return bool(settings_repo.get_setting(session, f"image_host_{key}_api_key"))
+def image_host_priority(session: Session) -> list[str]:
+    """Gli host registrati nell'ordine scelto (image_host_priority, CSV):
+    quelli che l'ordine non nomina ancora (un plugin appena installato) in
+    coda, quelli che nomina ma non esistono più (un host tolto, un plugin
+    disinstallato) saltati. Acceso o spento lo dice adapter_config."""
+    registered = [spec.adapter_type for spec in REGISTRY.of_kind("image_host")]
+    raw = settings_repo.get_setting(session, "image_host_priority") or ""
+    saved = [key.strip() for key in raw.split(",") if key.strip() in registered]
+    return [*dict.fromkeys(saved), *(key for key in registered if key not in saved)]
 
 
 def image_host_status(session: Session) -> dict:
-    """Per l'avviso prima di un upload: quali host hanno una api_key e quali
-    della priorità configurata sono utilizzabili."""
-    priority = image_host_priority(session)
-    usable = []
-    for key in priority:
-        try:
-            if _build_image_host_adapter(session, key) is not None:
-                usable.append(key)
-        except ImageHostConfigError:
-            continue
-    keyed = [key for key in keyed_image_hosts() if _has_key(session, key)]
-    return {"with_api_key": keyed, "usable": usable}
-
-
-def image_host_priority(session: Session) -> list[str]:
-    """La priorità salvata (o quella di default), con in coda gli host dei
-    plugin che non ci sono ancora."""
-    raw_priority = settings_repo.get_setting(session, "image_host_priority")
-    priority = (
-        [k.strip() for k in raw_priority.split(",") if k.strip()] if raw_priority else DEFAULT_IMAGE_HOST_PRIORITY
-    )
-    extra = [spec.adapter_type for spec in REGISTRY.of_kind("image_host") if spec.plugin]
-    return [*priority, *(key for key in extra if key not in priority)]
+    """Per l'avviso prima di un upload: gli host utilizzabili (accesi e con
+    la chiave), e quelli tolti da un aggiornamento che l'utente usava."""
+    order = image_host_priority(session)
+    usable = [key for key in order if plugin_config.usable_global(session, REGISTRY.get("image_host", key)) is not None]
+    removed = settings_repo.get_setting(session, "image_hosts_removed") or ""
+    return {"with_api_key": usable, "usable": usable, "removed": [k for k in removed.split(",") if k], "order": order}
 
 
 def build_image_host_chain(session: Session) -> ImageHostChain:
-    """Ordine di priorità configurabile via app_settings.image_host_priority
-    (CSV, es. 'ptpimg,imgbox,imgbb') — default docs/SPEC.md §9/§17: prova
-    PTPImg, poi Imgbox, poi ImgBB. Un host senza api_key configurata viene
-    saltato; se la catena risultante è vuota, errore esplicito invece di
-    scoprirlo solo al primo upload fallito."""
-    priority = image_host_priority(session)
-
-    adapters = [a for a in (_build_image_host_adapter(session, key) for key in priority) if a is not None]
+    """Gli host accesi e con la chiave, nell'ordine di image_host_priority.
+    Se non ne resta nessuno, errore esplicito invece di scoprirlo solo al
+    primo upload fallito."""
+    specs = [REGISTRY.get("image_host", key) for key in image_host_priority(session)]
+    adapters = [a for a in (_build_image_host_adapter(session, spec) for spec in specs) if a is not None]
     if not adapters:
         raise ImageHostConfigError("no_image_host_configured")
     return ImageHostChain(adapters)

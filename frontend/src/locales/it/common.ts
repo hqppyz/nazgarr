@@ -4,9 +4,11 @@
 // traduzione locale della stessa parola.
 export const common = {
   'common.save': 'Salva',
+  'common.close': 'Chiudi',
   'common.saved': 'Salvato.',
   'common.itemSaved': '{item} salvato.',
   'common.delete': 'Elimina',
+  'common.moreActions': 'Altre azioni',
   'common.edit': 'Modifica',
   'common.cancel': 'Annulla',
   'common.loading': 'Caricamento…',

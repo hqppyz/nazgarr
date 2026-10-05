@@ -147,7 +147,9 @@
   border-radius: var(--radius);
   box-shadow: 0 10px 30px -10px rgb(0 0 0 / 0.35);
   font-family: inherit;
-  max-width: 340px;
+  /* Mai più largo dello schermo, anche sul telefono. */
+  max-width: min(340px, calc(100vw - 24px));
+  min-width: 0;
   padding: 16px;
 }
 .driver-popover.nazgarr-tour .driver-popover-title {
@@ -165,6 +167,27 @@
 .driver-popover.nazgarr-tour .driver-popover-progress-text {
   font-size: 0.7rem;
   color: var(--muted-foreground);
+}
+/* Il piede del fumetto: l'avanzamento su una riga sua, sopra, e i pulsanti
+   a destra senza andare a capo (prima "Esclusioni · 2/2" si schiacciava
+   accanto a pulsanti spezzati su due righe). */
+.driver-popover.nazgarr-tour .driver-popover-footer {
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+.driver-popover.nazgarr-tour .driver-popover-footer .driver-popover-progress-text {
+  flex-basis: 100%;
+}
+.driver-popover.nazgarr-tour .driver-popover-navigation-btns {
+  margin-left: auto;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.driver-popover.nazgarr-tour .driver-popover-navigation-btns button {
+  white-space: nowrap;
+  margin: 0;
 }
 .driver-popover.nazgarr-tour .driver-popover-navigation-btns button {
   text-shadow: none;
@@ -192,4 +215,21 @@
   margin-top: 8px;
   font-size: 0.75rem;
   color: var(--primary);
+}
+
+/* Su touch un campo con testo sotto i 16px fa zoomare iOS a ogni tocco: lì
+   il testo dei campi è almeno 16px (2026-10-05). Fuori dai layer, perché
+   vinca anche sulle utility text-xs dei singoli campi. */
+@media (pointer: coarse) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  textarea {
+    font-size: max(16px, 1em) !important;
+  }
+}
+
+/* Il fumetto del tour sul telefono: pulsanti da toccare comodamente. */
+@media (pointer: coarse) {
+  .driver-popover.nazgarr-tour .driver-popover-navigation-btns button {
+    padding: 8px 14px;
+  }
 }

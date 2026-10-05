@@ -19,14 +19,23 @@ per le due direzioni di docs/SPEC.md sezione 3.
 import json
 import logging
 import os
+from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session
 
-from nazgarr.adapters.torrent_client.base import TorrentClientAdapter
+from nazgarr.adapters.torrent_client.base import (
+    CONTENT_LAYOUTS,
+    TorrentAddTimeoutError,
+    TorrentAlreadyInClientError,
+    TorrentClientAdapter,
+    is_stopped_state,
+    layout_kwargs,
+)
 from nazgarr.core import settings_repo
+from nazgarr.core.errors import CodedError, english
 from nazgarr.core.fs_scope import ScopeViolation, resolve_scoped
-from nazgarr.core.models import Disk, DiskTorrentClient, MatchReview, SeedJob, TorrentClient
+from nazgarr.core.models import Candidate, Disk, DiskTorrentClient, MatchReview, SeedJob, TorrentClient
 from nazgarr.library import hardlinks
 from nazgarr.library.tmdb_client import TMDBClient
 from nazgarr.torrents import client_labels, client_paths
@@ -37,6 +46,13 @@ logger = logging.getLogger(__name__)
 
 class ExecutionError(Exception):
     """Errore esplicito che impedisce l'esecuzione — mai un fallimento silente."""
+
+
+def _error_text(exc: Exception) -> str:
+    """Il messaggio salvato sul seed_job e mostrato nella pagina Reseeding:
+    per un errore con codice il suo testo inglese con i parametri (prima
+    solo il codice, es. "client_cannot_see_path" senza dire quale percorso)."""
+    return english(exc.code, exc.params) if isinstance(exc, CodedError) else str(exc)
 
 
 def client_visible_path(session: Session, disk: Disk, torrent_client_id: int | None, local_path: str) -> str:
@@ -76,13 +92,19 @@ def execute_review(
     return _execute_torrent_to_client(session, review, adapter, torrent_client_id, skip_recheck)
 
 
-def _labels(session: Session, torrent_client_id: int | None, candidate) -> dict:
+def _labels(session: Session, torrent_client_id: int | None, candidate, review: MatchReview | None = None) -> dict:
     """Categoria (per tipo di contenuto) e tag per i reseed del client
     (nazgarr/torrents/client_labels.py). TMDB, per sapere se è un anime, solo se il
-    client ha una categoria per gli anime; senza TMDB non lo è."""
+    client ha una categoria per gli anime; senza TMDB non lo è. Quelli scelti
+    a mano sulla review vincono (NULL = default, "" = nessuno)."""
     client = session.get(TorrentClient, torrent_client_id) if torrent_client_id is not None else None
     if client is None:
         return {}
+    chosen_category = review.client_category if review is not None else None
+    chosen_tags = review.client_tags if review is not None else None
+    tags = chosen_tags if chosen_tags is not None else client_labels.default_tags(client, "reseed")
+    if chosen_category is not None:
+        return client_labels.add_kwargs(chosen_category or None, tags)
     item = candidate.media_item
     content_type = item.content_type if item is not None else None
     anime = False
@@ -94,28 +116,106 @@ def _labels(session: Session, torrent_client_id: int | None, candidate) -> dict:
             )
         except Exception:
             logger.warning("TMDB non disponibile per il riconoscimento anime di %s", item.tmdb_id, exc_info=True)
-    return client_labels.add_kwargs(
-        client_labels.default_category(client, content_type, anime), client_labels.default_tags(client, "reseed"),
-    )
+    return client_labels.add_kwargs(client_labels.default_category(client, content_type, anime), tags)
 
 
 def _add_to_client(
     adapter: TorrentClientAdapter, candidate, save_path: str, seed_job: SeedJob, skip_recheck: bool,
-    labels: dict | None = None,
+    labels: dict | None = None, layout: str = "Original",
 ) -> str:
     """Aggiunge il torrent al client. Il recheck del client si salta solo se
     il chiamante l'ha verificato lui stesso al 100% (skip_recheck): resta
     scritto sul seed_job, così si vede quali esecuzioni sono passate così.
     labels: categoria e tag del client (_labels), solo se ce ne sono.
-    Un client che non sa saltarlo (can_skip_recheck) lo fa comunque."""
+    Un client che non sa saltarlo (can_skip_recheck) lo fa comunque.
+    layout: sempre esplicito (_Placement), "Original" per file già al loro
+    posto: la preferenza del client non li deve spostare."""
     skip_recheck = skip_recheck and getattr(adapter, "can_skip_recheck", True)
     extra = {"skip_check_verified": True} if skip_recheck else {}
     info_hash = adapter.add_torrent(
         candidate.download_link, save_path=save_path, force_recheck=True,
-        expected_info_hash=candidate.info_hash, **extra, **(labels or {}),
+        expected_info_hash=candidate.info_hash, **extra, **(labels or {}), **layout_kwargs(adapter, layout),
     )
     seed_job.recheck_skipped = skip_recheck or None
     return info_hash
+
+
+def _adopt_after_add_error(
+    session: Session, adapter: TorrentClientAdapter, candidate, seed_job: SeedJob, exc: Exception,
+) -> str:
+    """Dopo un errore di add_torrent, cosa sa il client del torrent:
+    "adopted" se ce l'ha (il client l'ha accettato e poi qualcosa è andato
+    storto, tipicamente l'attesa del suo hash scaduta mentre scaricava il
+    .torrent dal tracker): il seed_job lo segue come un'aggiunta riuscita;
+    "absent" se il client risponde e non ce l'ha; "unknown" se non si può
+    sapere. Prima gli hardlink si toglievano a ogni errore: il torrent
+    arrivava lo stesso, non trovava i file e partiva in download."""
+    if isinstance(exc, TorrentAlreadyInClientError) or not candidate.info_hash:
+        return "absent" if isinstance(exc, TorrentAlreadyInClientError) else "unknown"
+    try:
+        info = adapter.get_torrent_info(candidate.info_hash)
+    except Exception:
+        logger.warning("Impossibile chiedere al client se ha %s dopo l'errore", candidate.info_hash, exc_info=True)
+        return "unknown"
+    if info is None:
+        return "absent"
+    logger.warning(
+        "Il client ha il torrent %s nonostante l'errore (%s): seed job %s lo segue",
+        info.info_hash, _error_text(exc), seed_job.id,
+    )
+    if not seed_job.recheck_skipped:
+        try:  # l'errore può essere arrivato prima del recheck forzato
+            adapter.recheck(info.info_hash)
+        except Exception:
+            logger.warning("Recheck di %s non richiesto al client", info.info_hash, exc_info=True)
+    seed_job.info_hash = info.info_hash
+    seed_job.torrent_added_at = datetime.now(UTC)
+    seed_job.recheck_status = "pending"
+    session.commit()
+    return "adopted"
+
+
+@dataclass(frozen=True)
+class _Placement:
+    """Dove vanno i nuovi hardlink perché il torrent li trovi rispettando
+    il layout del contenuto scelto dall'utente nel client (qBittorrent:
+    Opzioni › Download): save_dir è la cartella di save_path dentro la
+    cartella dei nuovi torrent, folder la cartella radice dei file dentro
+    save_dir, layout quello da mandare al client."""
+
+    save_dir: str | None
+    folder: str | None
+    layout: str
+
+    def rel_path(self, torrent_path: str) -> str:
+        return "/".join(p for p in (self.save_dir, self.folder, torrent_path) if p)
+
+
+def _client_layout(adapter: TorrentClientAdapter) -> str:
+    try:
+        layout = adapter.content_layout()
+    except AttributeError:
+        return "Original"  # un adapter senza content_layout segue il .torrent
+    except Exception:
+        logger.warning("Layout del contenuto del client non letto: uso Original", exc_info=True)
+        return "Original"
+    return layout if layout in CONTENT_LAYOUTS else "Original"
+
+
+def _placement(adapter: TorrentClientAdapter, candidate, single_file_name: str | None) -> _Placement:
+    """"Crea sottocartella" su un torrent a file singolo: la cartella col
+    nome del file senza estensione la crea Nazgarr, e il torrent arriva con
+    save_path lì dentro e layout Original, così non serve indovinare come
+    il client sceglie quel nome. "Non creare sottocartella" su un torrent
+    con la cartella radice: gli hardlink senza quella cartella, e il client
+    riceve lo stesso layout. Negli altri casi il layout non cambia niente."""
+    layout = _client_layout(adapter)
+    if layout == "Subfolder" and not candidate.folder and single_file_name:
+        stem = os.path.splitext(single_file_name)[0] or single_file_name
+        return _Placement(save_dir=stem, folder=None, layout="Original")
+    if layout == "NoSubfolder" and candidate.folder:
+        return _Placement(save_dir=None, folder=None, layout="NoSubfolder")
+    return _Placement(save_dir=None, folder=candidate.folder, layout="Original")
 
 
 def _torrent_rel_path(candidate, torrent_path: str) -> str:
@@ -207,6 +307,7 @@ def _execute_layout_media_to_torrent(
     if not os.path.isdir(target_root):
         raise ExecutionError(f"Destination folder for new hardlinks not found: {target_root}")
 
+    placement = _placement(adapter, candidate, candidate.files[0].torrent_path if len(candidate.files) == 1 else None)
     links: list[tuple[str, str]] = []
     for f in candidate.files:
         if f.media_file is None:
@@ -215,7 +316,7 @@ def _execute_layout_media_to_torrent(
             raise ExecutionError(f"'{f.media_file.relative_path}' is on another disk: a hardlink cannot cross disks")
         source_path = _source_path(disk, f.media_file.relative_path)
         try:
-            target_path = resolve_scoped(target_root, _torrent_rel_path(candidate, f.torrent_path))
+            target_path = resolve_scoped(target_root, placement.rel_path(f.torrent_path))
         except ScopeViolation as exc:
             raise ExecutionError(f"Path outside the allowed scope: {exc.candidate}") from exc
         if _check_link(source_path, target_path, target_root):
@@ -233,27 +334,39 @@ def _execute_layout_media_to_torrent(
     session.commit()
 
     created: list[str] = []
+    add_sent = False
     try:
         created = hardlinks.create_links(links)  # se uno fallisce, toglie quelli appena creati
         seed_job.hardlink_created_at = datetime.now(UTC)
         session.commit()
         logger.info("Creati %d hardlink per candidate %s", len(created), candidate.id)
 
-        client_save_path = client_visible_path(session, disk, torrent_client_id, target_root)
-        info_hash = _add_to_client(adapter, candidate, client_save_path, seed_job, skip_recheck,
-                                   _labels(session, torrent_client_id, candidate))
+        save_root = resolve_scoped(target_root, placement.save_dir) if placement.save_dir else target_root
+        client_save_path = client_visible_path(session, disk, torrent_client_id, save_root)
+        labels = _labels(session, torrent_client_id, candidate, review)
+        add_sent = True
+        info_hash = _add_to_client(adapter, candidate, client_save_path, seed_job, skip_recheck, labels,
+                                   placement.layout)
         seed_job.info_hash = info_hash
         seed_job.torrent_added_at = datetime.now(UTC)
         seed_job.recheck_status = "pending"
         session.commit()
         logger.info("Torrent aggiunto al client (info_hash=%s), recheck in corso", info_hash)
     except Exception as exc:
-        # Solo gli hardlink appena creati da QUESTA esecuzione: i file
-        # sorgente in libreria non vengono mai toccati.
-        if seed_job.info_hash is None:
+        known = _adopt_after_add_error(session, adapter, candidate, seed_job, exc) if add_sent else "absent"
+        if known == "adopted":
+            return seed_job
+        # Solo gli hardlink appena creati da QUESTA esecuzione (i file
+        # sorgente in libreria non vengono mai toccati), e solo se il
+        # client non ha il torrent: un timeout può voler dire che lo sta
+        # ancora scaricando dal tracker, e senza i file partirebbe in download.
+        if known == "absent" and not isinstance(exc, TorrentAddTimeoutError):
             hardlinks.remove_links(created)
+        elif created:
+            logger.warning("Hardlink di candidate %s lasciati al loro posto: il client potrebbe avere il torrent",
+                           candidate.id)
         seed_job.final_status = "failed"
-        seed_job.error_message = str(exc)
+        seed_job.error_message = _error_text(exc)
         session.commit()
         raise ExecutionError(str(exc)) from exc
     return seed_job
@@ -304,18 +417,22 @@ def _execute_layout_torrent_to_client(
     )
     session.add(seed_job)
     session.commit()
+    add_sent = False
     try:
         client_save_path = client_visible_path(session, disk, torrent_client_id, save_path_local)
-        info_hash = _add_to_client(adapter, candidate, client_save_path, seed_job, skip_recheck,
-                                   _labels(session, torrent_client_id, candidate))
+        labels = _labels(session, torrent_client_id, candidate, review)
+        add_sent = True
+        info_hash = _add_to_client(adapter, candidate, client_save_path, seed_job, skip_recheck, labels)
         seed_job.info_hash = info_hash
         seed_job.torrent_added_at = datetime.now(UTC)
         seed_job.recheck_status = "pending"
         session.commit()
         logger.info("Torrent aggiunto al client (info_hash=%s) per file già presenti, recheck in corso", info_hash)
     except Exception as exc:
+        if add_sent and _adopt_after_add_error(session, adapter, candidate, seed_job, exc) == "adopted":
+            return seed_job
         seed_job.final_status = "failed"
-        seed_job.error_message = str(exc)
+        seed_job.error_message = _error_text(exc)
         session.commit()
         raise ExecutionError(str(exc)) from exc
     return seed_job
@@ -348,9 +465,10 @@ def _execute_media_to_torrent(
     expected_filename = file_list[0] if file_list else os.path.basename(source_path)
     # Un torrent a file singolo può comunque avere una cartella contenitore
     # (candidate.folder) — molte release la usano anche per i film.
-    relative_target = os.path.join(candidate.folder, expected_filename) if candidate.folder else expected_filename
+    placement = _placement(adapter, candidate, expected_filename)
     try:
-        target_path = resolve_scoped(target_root, relative_target)
+        target_path = resolve_scoped(target_root, placement.rel_path(expected_filename))
+        save_root = resolve_scoped(target_root, placement.save_dir) if placement.save_dir else target_root
     except ScopeViolation as exc:
         raise ExecutionError(f"Path outside the allowed scope: {exc.candidate}") from exc
 
@@ -364,8 +482,8 @@ def _execute_media_to_torrent(
     session.commit()
 
     return _create_hardlink_then_seed(
-        session, seed_job, candidate, adapter, source_path, target_path, disk, target_root, torrent_client_id,
-        skip_recheck, reuse=reuse,
+        session, seed_job, candidate, adapter, source_path, target_path, disk, save_root, torrent_client_id,
+        skip_recheck, reuse=reuse, layout=placement.layout, review=review,
     )
 
 
@@ -381,6 +499,8 @@ def _create_hardlink_then_seed(
     torrent_client_id: int | None = None,
     skip_recheck: bool = False,
     reuse: bool = False,
+    layout: str = "Original",
+    review: MatchReview | None = None,
 ) -> SeedJob:
     if not candidate.download_link:
         seed_job.final_status = "failed"
@@ -388,6 +508,7 @@ def _create_hardlink_then_seed(
         session.commit()
         raise ExecutionError(seed_job.error_message)
 
+    add_sent = False
     try:
         if not reuse:  # già lì con lo stesso inode (_check_link): un cross-seed
             hardlinks.create_links([(source_path, target_path)])
@@ -396,16 +517,19 @@ def _create_hardlink_then_seed(
         logger.info("Hardlink %s per candidate %s: %s", "riusato" if reuse else "creato", candidate.id, target_path)
 
         client_save_path = client_visible_path(session, disk, torrent_client_id, target_root)
-        info_hash = _add_to_client(adapter, candidate, client_save_path, seed_job, skip_recheck,
-                                   _labels(session, torrent_client_id, candidate))
+        labels = _labels(session, torrent_client_id, candidate, review)
+        add_sent = True
+        info_hash = _add_to_client(adapter, candidate, client_save_path, seed_job, skip_recheck, labels, layout)
         seed_job.info_hash = info_hash
         seed_job.torrent_added_at = datetime.now(UTC)
         seed_job.recheck_status = "pending"
         session.commit()
         logger.info("Torrent aggiunto al client (info_hash=%s), recheck in corso", info_hash)
     except Exception as exc:
+        if add_sent and _adopt_after_add_error(session, adapter, candidate, seed_job, exc) == "adopted":
+            return seed_job
         seed_job.final_status = "failed"
-        seed_job.error_message = str(exc)
+        seed_job.error_message = _error_text(exc)
         session.commit()
         raise ExecutionError(str(exc)) from exc
 
@@ -440,10 +564,12 @@ def _execute_torrent_to_client(
     session.commit()
 
     save_path_local = os.path.dirname(source_path)
+    add_sent = False
     try:
         client_save_path = client_visible_path(session, disk, torrent_client_id, save_path_local)
-        info_hash = _add_to_client(adapter, candidate, client_save_path, seed_job, skip_recheck,
-                                   _labels(session, torrent_client_id, candidate))
+        labels = _labels(session, torrent_client_id, candidate, review)
+        add_sent = True
+        info_hash = _add_to_client(adapter, candidate, client_save_path, seed_job, skip_recheck, labels)
         seed_job.info_hash = info_hash
         seed_job.torrent_added_at = datetime.now(UTC)
         seed_job.recheck_status = "pending"
@@ -452,8 +578,10 @@ def _execute_torrent_to_client(
             "Torrent aggiunto al client (info_hash=%s) per file già presente, recheck in corso", info_hash
         )
     except Exception as exc:
+        if add_sent and _adopt_after_add_error(session, adapter, candidate, seed_job, exc) == "adopted":
+            return seed_job
         seed_job.final_status = "failed"
-        seed_job.error_message = str(exc)
+        seed_job.error_message = _error_text(exc)
         session.commit()
         raise ExecutionError(str(exc)) from exc
 
@@ -482,6 +610,14 @@ def reconcile_seed_job(session: Session, seed_job: SeedJob, adapter: TorrentClie
             seed_job.id, status.amount_left,
         )
     seed_job.recheck_status = recheck_status
+    if recheck_status == "ok" and is_stopped_state(status.state):
+        # Recheck riuscito ma fermo: la condizione di arresto "file
+        # controllati" del client (qui non la lascia cambiare all'aggiunta).
+        try:
+            adapter.start(seed_job.info_hash)
+            logger.info("Seed_job %s: torrent fermo dopo il recheck, avviato", seed_job.id)
+        except Exception:
+            logger.warning("Seed_job %s: torrent fermo dopo il recheck, avvio fallito", seed_job.id, exc_info=True)
     if recheck_status == "ok":
         seed_job.final_status = "seeding"
         logger.info("Recheck ok, seed_job %s in seeding (info_hash=%s)", seed_job.id, seed_job.info_hash)
@@ -507,6 +643,20 @@ def retry_seed_job(
         seed_job.final_status = "in_progress"
         session.commit()
         return reconcile_seed_job(session, seed_job, adapter)
+    candidate = session.get(Candidate, seed_job.candidate_id)
+    if candidate is not None and candidate.info_hash:
+        try:  # l'aggiunta fallita può essere arrivata al client lo stesso
+            info = adapter.get_torrent_info(candidate.info_hash)
+        except Exception:
+            info = None
+        if info is not None:
+            logger.info("Retry seed_job %s: il client ha già il torrent %s, lo seguo", seed_job.id, info.info_hash)
+            seed_job.info_hash = info.info_hash
+            seed_job.torrent_added_at = seed_job.torrent_added_at or datetime.now(UTC)
+            seed_job.final_status = "in_progress"
+            seed_job.recheck_status = "pending"
+            session.commit()
+            return reconcile_seed_job(session, seed_job, adapter)
 
     review = (
         session.query(MatchReview)

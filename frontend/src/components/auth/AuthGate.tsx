@@ -61,13 +61,14 @@ function SetupScreen() {
         </div>
         <div className="grid gap-1.5">
           <Label htmlFor="setup-username">{t('auth.username')}</Label>
-          <Input id="setup-username" value={username} onChange={(e) => setUsername(e.target.value)} />
+          <Input id="setup-username" autoComplete="username" value={username} onChange={(e) => setUsername(e.target.value)} />
         </div>
         <div className="grid gap-1.5">
           <Label htmlFor="setup-password">{t('auth.password')}</Label>
           <Input
             id="setup-password"
             type="password"
+            autoComplete="new-password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             placeholder={t('auth.passwordMinChars')}
@@ -100,11 +101,11 @@ function LoginScreen() {
       >
         <div className="grid gap-1.5">
           <Label htmlFor="login-username">{t('auth.username')}</Label>
-          <Input id="login-username" value={username} onChange={(e) => setUsername(e.target.value)} autoFocus />
+          <Input id="login-username" autoComplete="username" value={username} onChange={(e) => setUsername(e.target.value)} autoFocus />
         </div>
         <div className="grid gap-1.5">
           <Label htmlFor="login-password">{t('auth.password')}</Label>
-          <Input id="login-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
+          <Input id="login-password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} />
         </div>
         <Button type="submit" disabled={!username || !password || login.isPending}>
           {t('auth.signIn')}

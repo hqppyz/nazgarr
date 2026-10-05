@@ -41,7 +41,7 @@ def _save(name: str, url: str, created: dict) -> None:
 
 def setup(
     ctx: typer.Context,
-    url: str = typer.Option(..., "--url", help="Address of the instance, e.g. http://nas:8080."),
+    url: str = typer.Option(..., "--url", help="Address of the instance, e.g. http://nas:3019."),
     username: str = typer.Option(None, "--username", "-u", help="The account name (asked if missing)."),
     setup_code: str = typer.Option(None, "--setup-code", help="The one-time code from the log (asked if missing)."),
     password_stdin: bool = typer.Option(False, "--password-stdin", help="Read the password from stdin."),
@@ -64,7 +64,7 @@ def setup(
 
 def login(
     ctx: typer.Context,
-    url: str = typer.Option(None, "--url", help="Address of the instance, e.g. http://nas:8080."),
+    url: str = typer.Option(None, "--url", help="Address of the instance, e.g. http://nas:3019."),
     username: str = typer.Option(None, "--username", "-u", help="The account name (asked if missing)."),
     password_stdin: bool = typer.Option(False, "--password-stdin", help="Read the password from stdin."),
     key_name: str = typer.Option(None, "--key-name", help="Name of the API key to create (default cli-HOSTNAME)."),
@@ -79,7 +79,7 @@ def login(
     name = current.profile or profiles.DEFAULT_PROFILE
     url = url or current.url or (profiles.resolve(name, None) or profiles.Profile(name, "")).url
     if not url:
-        raise fail("Which instance? Pass --url http://HOST:8080", EXIT_USAGE)
+        raise fail("Which instance? Pass --url http://HOST:3019", EXIT_USAGE)
     username = username or typer.prompt("Username")
     token = Api(url).post("/api/auth/login", {"username": username,
                                                 "password": _password(password_stdin)})["access_token"]

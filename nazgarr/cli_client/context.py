@@ -19,7 +19,7 @@ def api(ctx: typer.Context) -> Api:
     current = state(ctx)
     profile = profiles.resolve(current.profile, current.url)
     if profile is None or not profile.url:
-        raise fail("No Nazgarr instance configured. Run: nazgarr login --url http://HOST:8080", EXIT_UNAUTHORIZED)
+        raise fail("No Nazgarr instance configured. Run: nazgarr login --url http://HOST:3019", EXIT_UNAUTHORIZED)
     if not profile.api_key:
         raise fail(f"Not logged in to {profile.url}. Run: nazgarr login", EXIT_UNAUTHORIZED)
     return Api(profile.url, api_key=profile.api_key)

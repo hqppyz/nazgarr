@@ -3,60 +3,12 @@ import pytest
 
 from nazgarr.adapters.image_host.base import ImageHostError
 from nazgarr.adapters.image_host.chain import ImageHostChain
-from nazgarr.adapters.image_host.chevereto import chevereto_image_url
-from nazgarr.adapters.image_host.dalexni import DalexniAdapter
-from nazgarr.adapters.image_host.imgbb import ImgbbAdapter
-from nazgarr.adapters.image_host.lensdump import LensdumpAdapter
-from nazgarr.adapters.image_host.onlyimage import OnlyimageAdapter
-from nazgarr.adapters.image_host.pixhost import PixhostAdapter
-from nazgarr.adapters.image_host.ptpimg import PtpimgAdapter
-from nazgarr.adapters.image_host.ptscreens import PtscreensAdapter
-from nazgarr.adapters.image_host.seedpool_cdn import SeedpoolCdnAdapter
-from nazgarr.adapters.image_host.utppm import UtppmAdapter
+from nazgarr.adapters.image_host.chevereto import CheveretoImageHost, chevereto_image_url
+from nazgarr.bundled.imgbb import ImgbbAdapter
 
 
 def _client(handler):
     return httpx.Client(transport=httpx.MockTransport(handler))
-
-
-def test_ptpimg_upload_returns_public_url(tmp_path):
-    image = tmp_path / "shot.png"
-    image.write_bytes(b"fake png bytes")
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.host == "ptpimg.me"
-        return httpx.Response(200, json=[{"code": "abc123", "ext": "png"}])
-
-    adapter = PtpimgAdapter(api_key="key123", client=_client(handler))
-    url = adapter.upload(str(image))
-
-    assert url == "https://ptpimg.me/abc123.png"
-
-
-def test_ptpimg_upload_raises_on_bad_response(tmp_path):
-    image = tmp_path / "shot.png"
-    image.write_bytes(b"fake png bytes")
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json=[{"unexpected": "shape"}])
-
-    adapter = PtpimgAdapter(api_key="key123", client=_client(handler))
-
-    with pytest.raises(ImageHostError):
-        adapter.upload(str(image))
-
-
-def test_ptpimg_upload_raises_on_http_error(tmp_path):
-    image = tmp_path / "shot.png"
-    image.write_bytes(b"fake png bytes")
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(500)
-
-    adapter = PtpimgAdapter(api_key="key123", client=_client(handler))
-
-    with pytest.raises(ImageHostError):
-        adapter.upload(str(image))
 
 
 def test_imgbb_upload_returns_public_url(tmp_path):
@@ -83,37 +35,6 @@ def test_imgbb_upload_raises_on_failure_response(tmp_path):
     adapter = ImgbbAdapter(api_key="bad", client=_client(handler))
 
     with pytest.raises(ImageHostError, match="invalid key"):
-        adapter.upload(str(image))
-
-
-def test_pixhost_upload_returns_public_url(tmp_path):
-    image = tmp_path / "shot.png"
-    image.write_bytes(b"fake png bytes")
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.host == "api.pixhost.to"
-        return httpx.Response(
-            200,
-            json={"show_url": "https://pixhost.to/show/1/x.png", "th_url": "https://t77.pixhost.to/thumbs/1/x.png"},
-        )
-
-    adapter = PixhostAdapter(client=_client(handler))
-    url = adapter.upload(str(image))
-
-    # L'immagine vera, non la pagina HTML di show_url.
-    assert url == "https://img77.pixhost.to/images/1/x.png"
-
-
-def test_pixhost_upload_raises_on_missing_show_url(tmp_path):
-    image = tmp_path / "shot.png"
-    image.write_bytes(b"fake png bytes")
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json={"unexpected": "shape"})
-
-    adapter = PixhostAdapter(client=_client(handler))
-
-    with pytest.raises(ImageHostError):
         adapter.upload(str(image))
 
 
@@ -177,122 +98,39 @@ def test_chevereto_image_url_tries_multiple_shapes():
     assert chevereto_image_url({"nothing": "here"}) is None
 
 
-def test_lensdump_upload_returns_public_url(tmp_path):
+def _image(tmp_path):
     image = tmp_path / "shot.png"
     image.write_bytes(b"fake png bytes")
+    return str(image)
 
+
+def test_a_chevereto_host_sends_the_file_as_source_with_its_key(tmp_path):
     def handler(request: httpx.Request) -> httpx.Response:
+        assert str(request.url) == "https://passtheima.ge/api/1/upload"
         assert request.headers["X-API-Key"] == "key123"
-        return httpx.Response(200, json={"data": {"image": {"url": "https://lensdump.com/x.png"}}})
+        assert b'name="source"; filename="shot.png"' in request.content
+        return httpx.Response(200, json={"status_code": 200, "image": {"url": "https://passtheima.ge/i/x.png"}})
 
-    adapter = LensdumpAdapter(api_key="key123", client=_client(handler))
-    assert adapter.upload(str(image)) == "https://lensdump.com/x.png"
+    host = CheveretoImageHost("key123", endpoint="https://passtheima.ge/api/1/upload", name="Passtheima",
+                              client=_client(handler))
+
+    assert host.upload(_image(tmp_path)) == "https://passtheima.ge/i/x.png"
 
 
-def test_ptscreens_upload_returns_public_url(tmp_path):
-    image = tmp_path / "shot.png"
-    image.write_bytes(b"fake png bytes")
-
+def test_a_chevereto_error_carries_the_host_message(tmp_path):
     def handler(request: httpx.Request) -> httpx.Response:
-        assert request.headers["X-API-Key"] == "key123"
-        return httpx.Response(200, json={"image": {"medium": {"url": "https://ptscreens.com/x.png"}}})
+        return httpx.Response(400, json={"status_code": 400, "error": {"message": "Invalid API v1 key."}})
 
-    adapter = PtscreensAdapter(api_key="key123", client=_client(handler))
-    assert adapter.upload(str(image)) == "https://ptscreens.com/x.png"
+    host = CheveretoImageHost("bad", endpoint="https://www.imageride.net/api/1/upload", name="imageride",
+                              client=_client(handler))
 
-
-def test_onlyimage_upload_returns_public_url(tmp_path):
-    image = tmp_path / "shot.png"
-    image.write_bytes(b"fake png bytes")
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json={"image": {"url": "https://onlyimage.org/x.png"}})
-
-    adapter = OnlyimageAdapter(api_key="key123", client=_client(handler))
-    assert adapter.upload(str(image)) == "https://onlyimage.org/x.png"
+    with pytest.raises(ImageHostError, match="imageride.*Invalid API v1 key"):
+        host.upload(_image(tmp_path))
 
 
-def test_utppm_upload_returns_public_url(tmp_path):
-    image = tmp_path / "shot.png"
-    image.write_bytes(b"fake png bytes")
+def test_a_chevereto_answer_without_an_url_is_an_error(tmp_path):
+    host = CheveretoImageHost("k", endpoint="https://ptscreens.com/api/1/upload", name="PTScreens",
+                              client=_client(lambda request: httpx.Response(200, json={"status_code": 200})))
 
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json={"data": {"image": {"url": "https://utp.pm/x.png"}}})
-
-    adapter = UtppmAdapter(api_key="key123", client=_client(handler))
-    assert adapter.upload(str(image)) == "https://utp.pm/x.png"
-
-
-def test_dalexni_upload_prefers_the_full_image(tmp_path):
-    image = tmp_path / "shot.png"
-    image.write_bytes(b"fake png bytes")
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json={"success": True, "data": {
-            "url": "https://dalexni.com/full.png", "medium": {"url": "https://dalexni.com/x.png"},
-        }})
-
-    adapter = DalexniAdapter(api_key="key123", client=_client(handler))
-    assert adapter.upload(str(image)) == "https://dalexni.com/full.png"
-
-
-def test_dalexni_upload_returns_medium_url(tmp_path):
-    image = tmp_path / "shot.png"
-    image.write_bytes(b"fake png bytes")
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(
-            200, json={"success": True, "data": {"medium": {"url": "https://dalexni.com/x.png"}, "thumb": {"url": "t"}}}
-        )
-
-    adapter = DalexniAdapter(api_key="key123", client=_client(handler))
-    assert adapter.upload(str(image)) == "https://dalexni.com/x.png"
-
-
-def test_dalexni_falls_back_to_thumb_url(tmp_path):
-    image = tmp_path / "shot.png"
-    image.write_bytes(b"fake png bytes")
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json={"success": True, "data": {"thumb": {"url": "https://dalexni.com/t.png"}}})
-
-    adapter = DalexniAdapter(api_key="key123", client=_client(handler))
-    assert adapter.upload(str(image)) == "https://dalexni.com/t.png"
-
-
-def test_dalexni_raises_on_unsuccessful_response(tmp_path):
-    image = tmp_path / "shot.png"
-    image.write_bytes(b"fake png bytes")
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json={"success": False})
-
-    adapter = DalexniAdapter(api_key="key123", client=_client(handler))
-    with pytest.raises(ImageHostError):
-        adapter.upload(str(image))
-
-
-def test_seedpool_cdn_upload_prefers_the_full_image(tmp_path):
-    image = tmp_path / "shot.png"
-    image.write_bytes(b"fake png bytes")
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        assert request.headers["authorization"] == "Bearer key123"
-        return httpx.Response(
-            200,
-            json={"files": [{"url": "https://i.seedpool.org/full.png", "thumbnail_url": "https://i.seedpool.org/t.png"}]},
-        )
-
-    adapter = SeedpoolCdnAdapter(api_key="key123", client=_client(handler))
-    assert adapter.upload(str(image)) == "https://i.seedpool.org/full.png"
-
-
-def test_seedpool_cdn_falls_back_to_base_url(tmp_path):
-    image = tmp_path / "shot.png"
-    image.write_bytes(b"fake png bytes")
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json={"files": [{"url": "https://i.seedpool.org/full.png"}]})
-
-    adapter = SeedpoolCdnAdapter(api_key="key123", client=_client(handler))
-    assert adapter.upload(str(image)) == "https://i.seedpool.org/full.png"
+    with pytest.raises(ImageHostError, match="PTScreens"):
+        host.upload(_image(tmp_path))

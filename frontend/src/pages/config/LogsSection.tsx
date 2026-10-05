@@ -37,7 +37,7 @@ export function LogsSection() {
         description={t('logs.description')}
         action={
           <Select value={minLevel} onValueChange={(v) => v && setMinLevel(v)}>
-            <SelectTrigger className="w-40" aria-label={t('logs.level')}>
+            <SelectTrigger className="w-full sm:w-40" aria-label={t('logs.level')}>
               <SelectValue>{(v: string | null) => LEVEL_LABEL[v ?? 'INFO'] ?? v}</SelectValue>
             </SelectTrigger>
             <SelectContent>
@@ -67,13 +67,16 @@ export function LogsSection() {
                     {day}
                   </div>
                 )}
-                <div className="grid grid-cols-[4.5rem_2rem_8rem_minmax(0,1fr)] gap-2 whitespace-pre-wrap">
+                {/* Da telefono quattro colonne lasciano al messaggio pochi
+                    pixel: ora, livello e logger sulla prima riga, il
+                    messaggio sotto a tutta larghezza. */}
+                <div className="grid grid-cols-[4.5rem_2rem_minmax(0,1fr)] gap-x-2 whitespace-pre-wrap sm:grid-cols-[4.5rem_2rem_8rem_minmax(0,1fr)] sm:gap-2">
                   <span className="text-muted-foreground tabular-nums">{time ?? entry.timestamp}</span>
                   <span className={cn('font-semibold', LEVEL_COLOR[entry.level])} title={entry.level}>
                     {LEVEL_TAG[entry.level] ?? entry.level}
                   </span>
                   <span className="truncate text-muted-foreground" title={entry.logger}>{shortLogger(entry.logger)}</span>
-                  <span className="break-words">{entry.message}</span>
+                  <span className="col-span-full break-words sm:col-span-1">{entry.message}</span>
                 </div>
               </div>
             )

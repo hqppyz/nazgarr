@@ -14,10 +14,10 @@ from nazgarr.plugins.registry import AdapterAlreadyRegisteredError
 def test_the_builtin_adapters_are_registered():
     assert REGISTRY.types("torrent_client") >= {"qbittorrent", "qui"}
     assert REGISTRY.types("tracker") >= {"unit3d"}
-    assert {"ptpimg", "imgbox", "pixhost"} <= REGISTRY.types("image_host")
+    assert {"ptscreens", "passtheima", "imageride", "imgbb"} <= REGISTRY.types("image_host")
     assert all(spec.plugin is None for spec in REGISTRY.of_kind("tracker"))
-    # Imgbox e Pixhost non chiedono chiavi.
-    assert set(adapter_factory.keyed_image_hosts()).isdisjoint({"imgbox", "pixhost"})
+    # Gli host di immagini sono un plugin incluso, non integrati.
+    assert {spec.plugin for spec in REGISTRY.of_kind("image_host")} >= {"nazgarr-ptscreens", "nazgarr-imgbb"}
 
 
 def test_a_plugin_cannot_replace_a_builtin_adapter():
@@ -82,17 +82,16 @@ def test_a_plugin_image_host_takes_its_fields_from_its_config(db_session):
     ))
     try:
         # Senza il campo obbligatorio: host saltato, come un integrato senza chiave.
-        assert adapter_factory._build_image_host_adapter(db_session, "fakehost") is None
         spec = REGISTRY.get("image_host", "fakehost")
+        assert adapter_factory._build_image_host_adapter(db_session, spec) is None
         plugin_config.save_global(db_session, spec, {"token": "t0k"}, enabled=True)
-        host = adapter_factory._build_image_host_adapter(db_session, "fakehost")
+        host = adapter_factory._build_image_host_adapter(db_session, spec)
         assert (host.token, host.album) == ("t0k", "nazgarr")
-        assert "fakehost" in adapter_factory.keyed_image_hosts()
         # In coda alla priorità, senza doverla salvare di nuovo.
         assert adapter_factory.image_host_priority(db_session)[-1] == "fakehost"
         assert adapter_factory.image_host_status(db_session)["with_api_key"] == ["fakehost"]
         # Spento: si salta.
         plugin_config.save_global(db_session, spec, None, enabled=False)
-        assert adapter_factory._build_image_host_adapter(db_session, "fakehost") is None
+        assert adapter_factory._build_image_host_adapter(db_session, spec) is None
     finally:
         REGISTRY.unregister("image_host", "fakehost")

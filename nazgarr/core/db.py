@@ -49,6 +49,7 @@ nome che nessuno referenzia ancora non fa scattare alcuna riscrittura.
 repair_dangling_media_file_legacy_fk() ripara chi ha già subito il danno
 della prima versione."""
 
+import json
 import logging
 import os
 from pathlib import Path
@@ -557,6 +558,105 @@ def migrate_notification_services(engine: Engine) -> int:
 
 # Colonne diventate cifrate (EncryptedString) dopo che c'erano già dati.
 _NOW_ENCRYPTED = (("tracker", "announce_url"), ("tracker", "history_session_cookie"))
+
+
+# Gli host di immagini integrati fino alla 0.8: quelli che restano (ora un
+# plugin incluso, o Lensdump un plugin d'esempio) e quelli tolti.
+_IMAGE_HOSTS_KEPT = ("ptscreens", "imgbb", "lensdump")
+_IMAGE_HOSTS_REMOVED = ("ptpimg", "imgbox", "pixhost", "onlyimage", "dalexni", "utppm", "seedpool_cdn")
+_IMAGE_HOSTS_KEYLESS = ("imgbox", "pixhost")
+_IMAGE_HOSTS_OLD_DEFAULT = ("ptpimg", "imgbox", "imgbb", "pixhost", "lensdump", "ptscreens", "onlyimage", "dalexni",
+                            "utppm", "seedpool_cdn")
+
+
+def migrate_image_hosts_to_plugins(engine: Engine) -> int:
+    """Gli host di immagini diventano un plugin incluso (decisione
+    dell'utente, 2026-10-05): la API key di quelli che restano passa dalle
+    impostazioni (image_host_<host>_api_key) ad adapter_config, come per un
+    plugin; un host che la priorità salvata non nominava (spento) resta
+    spento: il suo plugin incluso in plugins_disabled. Gli host tolti perdono la chiave e spariscono dalla priorità;
+    quelli che l'utente usava finiscono in image_hosts_removed, per un
+    avviso nella UI. Idempotente. Restituisce le chiavi spostate."""
+    from sqlalchemy.orm import Session
+
+    from nazgarr.core import settings_repo
+    from nazgarr.core.models import AdapterConfig, AppSetting
+
+    moved = 0
+    with Session(engine) as session:
+        raw = settings_repo.get_setting(session, "image_host_priority")
+        enabled = [k.strip() for k in raw.split(",") if k.strip()] if raw else list(_IMAGE_HOSTS_OLD_DEFAULT)
+        keys = {host: settings_repo.get_setting(session, f"image_host_{host}_api_key")
+                for host in (*_IMAGE_HOSTS_KEPT, *_IMAGE_HOSTS_REMOVED)}
+        for host in _IMAGE_HOSTS_KEPT:
+            if not keys[host] or session.get(AdapterConfig, ("image_host", host)) is not None:
+                continue
+            session.add(AdapterConfig(kind="image_host", adapter_type=host, enabled=True,
+                                      config_json=json.dumps({"api_key": keys[host]})))
+            moved += 1
+        off = {f"nazgarr-{h}" for h in _IMAGE_HOSTS_KEPT if raw is not None and h not in enabled}
+        if off:
+            current = set(filter(None, (settings_repo.get_setting(session, "plugins_disabled") or "").split(",")))
+            settings_repo.set_setting(session, "plugins_disabled", ",".join(sorted(current | off)))
+        # Gli host anonimi li usava solo chi ha fatto upload senza un'altra
+        # chiave: un'installazione nuova non ha niente da sapere.
+        uploaded = session.execute(text("SELECT 1 FROM upload_job LIMIT 1")).first() is not None
+        kept_usable = any(keys[h] and h in enabled for h in _IMAGE_HOSTS_KEPT)
+        removed = [h for h in _IMAGE_HOSTS_REMOVED if h in enabled
+                   and (keys[h] or (h in _IMAGE_HOSTS_KEYLESS and uploaded and not kept_usable))]
+        if removed and not settings_repo.get_setting(session, "image_hosts_removed"):
+            settings_repo.set_setting(session, "image_hosts_removed", ",".join(removed))
+        if raw is not None:
+            settings_repo.set_setting(session, "image_host_priority",
+                                      ",".join(h for h in enabled if h not in _IMAGE_HOSTS_REMOVED))
+        session.query(AppSetting).filter(AppSetting.key.in_(
+            [f"image_host_{h}_api_key" for h in (*_IMAGE_HOSTS_KEPT, *_IMAGE_HOSTS_REMOVED)]
+        )).delete(synchronize_session=False)
+        session.commit()
+    return moved
+
+
+def migrate_image_hosts_disabled_to_plugins(engine: Engine) -> int:
+    """Un host di immagini spento in adapter_config (la prima versione del
+    passo 7, solo nelle build di prova) si spegne come plugin: ogni host è
+    un plugin incluso con il suo interruttore. Idempotente."""
+    from sqlalchemy.orm import Session
+
+    from nazgarr.core import settings_repo
+    from nazgarr.core.models import AdapterConfig
+
+    with Session(engine) as session:
+        rows = session.query(AdapterConfig).filter_by(kind="image_host", enabled=False).all()
+        if not rows:
+            return 0
+        current = set(filter(None, (settings_repo.get_setting(session, "plugins_disabled") or "").split(",")))
+        for row in rows:
+            current.add(f"nazgarr-{row.adapter_type}")
+            row.enabled = True
+        settings_repo.set_setting(session, "plugins_disabled", ",".join(sorted(current)))
+        session.commit()
+        return len(rows)
+
+
+def migrate_new_default_exclusion_presets(engine: Engine) -> bool:
+    """I preset di esclusione nuovi attivi di default (file di sistema di
+    macOS e Windows, file .torrent; 2026-10-05) anche per chi aveva già
+    salvato le sue scelte: prima non esistevano, quindi non li aveva
+    spenti. Chi non ha mai salvato li ha già dai default. Idempotente."""
+    from sqlalchemy.orm import Session
+
+    from nazgarr.core import settings_repo
+
+    with Session(engine) as session:
+        raw = settings_repo.get_setting(session, "exclusion_presets")
+        if raw is None:
+            return False
+        keys = [key.strip() for key in raw.split(",") if key.strip()]
+        added = [key for key in ("system_files", "torrent_files") if key not in keys]
+        if not added:
+            return False
+        settings_repo.set_setting(session, "exclusion_presets", ",".join([*keys, *added]))
+        return True
 
 
 def encrypt_plaintext_secrets(engine: Engine) -> int:

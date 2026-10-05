@@ -9,7 +9,7 @@ npm install
 npm run dev
 ```
 
-Il dev server (`http://localhost:5173`) fa da proxy per `/api/*` verso `http://localhost:8080` (vedi `vite.config.ts`) — avvia il backend separatamente (`uvicorn nazgarr.main:app --reload --port 8080` dalla root del repo, vedi il README principale).
+Il dev server (`http://localhost:5173`) fa da proxy per `/api/*` verso `http://localhost:3019` (vedi `vite.config.ts`) — avvia il backend separatamente (`uvicorn nazgarr.main:app --reload --port 3019` dalla root del repo, vedi il README principale).
 
 Dopo ogni modifica agli endpoint del backend, rigenera i tipi TypeScript dallo schema OpenAPI (il backend deve essere in esecuzione):
 

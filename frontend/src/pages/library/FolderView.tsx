@@ -38,7 +38,9 @@ export function FolderView() {
         header={
           <>
             <LibraryViewSwitch />
-            <p className="text-xs text-muted-foreground">{t('library.mediaRightClickHint')}</p>
+            {/* Clic destro col mouse, pressione lunga o ⋯ su touch. */}
+            <p className="text-xs text-muted-foreground pointer-coarse:hidden">{t('library.mediaRightClickHint')}</p>
+            <p className="hidden text-xs text-muted-foreground pointer-coarse:block">{t('library.mediaTouchHint')}</p>
           </>
         }
         actions={menu.actions}

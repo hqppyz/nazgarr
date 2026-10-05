@@ -93,3 +93,24 @@ export function useTorrentClientCategories(id: number | null) {
     staleTime: 60_000,
   })
 }
+
+// Sola lettura: i file in seed nel client si trovano sui dischi con la
+// corrispondenza di adesso? Con una proposta se no (nazgarr/torrents/path_check.py).
+export function useClientPathCheck() {
+  return useMutation({
+    mutationFn: ({ id, live = false }: { id: number; live?: boolean }) =>
+      unwrap(
+        api.POST('/api/torrent-clients/{torrent_client_id}/path-check', {
+          params: { path: { torrent_client_id: id }, query: { live } },
+        }),
+      ),
+  })
+}
+
+// Le istanze di un qui (GET /api/instances di qui, tramite Nazgarr): per
+// sceglierne una da un elenco. Senza token, quello del client salvato.
+export function useQuiInstances() {
+  return useMutation({
+    mutationFn: (body: Schemas['QuiInstancesRequest']) => unwrap(api.POST('/api/torrent-clients/qui-instances', { body })),
+  })
+}

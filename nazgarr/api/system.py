@@ -5,14 +5,14 @@ richiesta esplicita, non collegata a nessuna fase del roadmap)."""
 
 import platform
 import re
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 
-import httpx
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from nazgarr.core import updates
 from nazgarr.core.config import Settings
 from nazgarr.core.version import __commit__, __version__
 from nazgarr.library import setup_status as setup_status_module
@@ -20,7 +20,6 @@ from nazgarr.web.deps import get_session, get_settings
 
 router = APIRouter(prefix="/api/system", tags=["system"])
 
-GITHUB_REPO = "lktorrentz/nazgarr"
 
 
 class AppInfoResponse(BaseModel):
@@ -62,6 +61,15 @@ def app_info(request: Request):
     )
 
 
+class ReleaseNote(BaseModel):
+    """Una voce di nazgarr/release_notes.json: per lingua ("it", "en")."""
+    version: str
+    date: str | None = None
+    breaking: dict[str, list[str]] = {}  # cosa fare prima o dopo l'aggiornamento
+    highlights: dict[str, list[str]] = {}  # le novità
+    fixes: dict[str, list[str]] = {}  # i bug corretti (le chores solo in CHANGELOG.md)
+
+
 class UpdateCheckResponse(BaseModel):
     current_version: str
     latest_version: str | None
@@ -69,70 +77,42 @@ class UpdateCheckResponse(BaseModel):
     checked_at: datetime
     note: str | None = None
     channel: str | None = None  # "stable" | "test": con quali release si è confrontato
-
-
-def _parse_version(version: str) -> tuple[int, ...]:
-    """Confronto minimale X.Y.Z, senza dipendenza da una libreria semver —
-    unico schema che questo progetto usa (nazgarr/core/version.py)."""
-    parts = []
-    for chunk in version.lstrip("vV").split("."):
-        digits = "".join(ch for ch in chunk if ch.isdigit())
-        parts.append(int(digits) if digits else 0)
-    return tuple(parts) or (0,)
-
-
-def _channel_and_latest(releases: list[dict], current: str) -> tuple[str, str | None]:
-    """Canale dedotto dalla versione in uso: se è una release stable (non
-    prerelease) si confronta solo con le stable, così chi prova l'app su
-    :stable non viene avvisato di ogni build di test; altrimenti (build di
-    test, :nightly) con la più recente in assoluto."""
-    published = [r for r in releases if not r.get("draft") and r.get("tag_name")]
-    stable = [r for r in published if not r.get("prerelease")]
-    # Uguaglianza esatta del tag: "0.3.0-dev" (sviluppo locale) non è la stable 0.3.0.
-    on_stable = any(r["tag_name"].lstrip("vV") == current.lstrip("vV") for r in stable)
-    pool = stable if on_stable else published
-    newest = max(pool, key=lambda r: _parse_version(r["tag_name"]), default=None)
-    return ("stable" if on_stable else "test"), (newest["tag_name"] if newest else None)
+    # Le note delle versioni più nuove di quella in uso, fino all'ultima:
+    # i cambiamenti che rompono qualcosa si vedono prima di aggiornare.
+    notes: list[ReleaseNote] = []
 
 
 @router.get("/update-check", response_model=UpdateCheckResponse)
-def update_check():
-    """Chiamata solo su richiesta esplicita dell'utente (bottone "Check for
-    updates" in UI), mai in automatico. Confronta con le GitHub Release: la
-    CI ne crea una (prerelease) a ogni push su main, il canale stable si
-    aggiorna a mano (nazgarr/core/version.py)."""
-    now = datetime.now(UTC)
-    try:
-        response = httpx.get(
-            f"https://api.github.com/repos/{GITHUB_REPO}/releases",
-            params={"per_page": 50},
-            headers={"Accept": "application/vnd.github+json", "User-Agent": "nazgarr"},
-            timeout=5,
-            follow_redirects=True,  # un repo rinominato risponde con un redirect
-        )
-    except httpx.HTTPError as exc:
-        return UpdateCheckResponse(
-            current_version=__version__, latest_version=None, update_available=False,
-            checked_at=now, note=f"Could not reach GitHub: {exc}",
-        )
+def update_check(session: Session = Depends(get_session)):
+    """Su richiesta dell'utente ("Controlla aggiornamenti"): chiama GitHub e
+    salva l'esito, lo stesso che il controllo automatico (se acceso) rinnova
+    ogni 12 ore (nazgarr/core/updates.py)."""
+    return UpdateCheckResponse(**updates.check(session))
 
-    if response.status_code != 200:
-        return UpdateCheckResponse(
-            current_version=__version__, latest_version=None, update_available=False,
-            checked_at=now, note=f"GitHub returned HTTP {response.status_code}.",
-        )
 
-    channel, latest = _channel_and_latest(response.json(), __version__)
-    if latest is None:
-        return UpdateCheckResponse(
-            current_version=__version__, latest_version=None, update_available=False,
-            checked_at=now, note="No releases published yet.", channel=channel,
-        )
-    update_available = _parse_version(latest) > _parse_version(__version__)
-    return UpdateCheckResponse(
-        current_version=__version__, latest_version=latest,
-        update_available=update_available, checked_at=now, channel=channel,
-    )
+@router.get("/update-status", response_model=UpdateCheckResponse | None)
+def update_status(session: Session = Depends(get_session)):
+    """L'ultimo esito salvato, senza chiamare GitHub: per l'avviso nella
+    barra laterale. None se non c'è o riguardava un'altra versione."""
+    last = updates.last_check(session)
+    return UpdateCheckResponse(**last) if last else None
+
+
+class ReleaseNotesResponse(BaseModel):
+    current_version: str
+    entries: list[ReleaseNote]  # quelle non ancora viste, dalla più nuova
+
+
+@router.get("/release-notes", response_model=ReleaseNotesResponse)
+def release_notes(session: Session = Depends(get_session)):
+    """Le note delle versioni arrivate dall'ultima vista: la UI le mostra
+    una volta dopo un aggiornamento."""
+    return ReleaseNotesResponse(current_version=__version__, entries=updates.unseen_notes(session))
+
+
+@router.post("/release-notes/seen", status_code=204)
+def release_notes_seen(session: Session = Depends(get_session)):
+    updates.mark_seen(session)
 
 
 _LOG_LINE_RE = re.compile(r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) (\S+)\s+([^:]+): (.*)$")

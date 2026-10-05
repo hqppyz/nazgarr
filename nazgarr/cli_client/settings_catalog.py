@@ -21,7 +21,7 @@ class Setting:
 CATALOG = [
     # Metadati
     Setting("tmdb_api_key", "TMDB API key (v3): identifies every file. Free at themoviedb.org.", "secret"),
-    Setting("tvdb_api_key", "TVDB API key (not used yet).", "secret"),
+    Setting("tvdb_api_key", "TVDB API key: optional, a last resort for episode orders.", "secret"),
     # Esclusioni
     Setting("exclusion_patterns", "Your exclusion patterns, one per line (e.g. */Extras/*).", "lines"),
     Setting("exclusion_presets", "Enabled exclusion presets, comma separated (see the web UI for the list)."),
@@ -49,7 +49,7 @@ CATALOG = [
     Setting("upload_tonemap_hdr", "Tone map HDR screenshots (true/false).", "bool"),
     Setting("upload_description_header", "BBCode added on top of every description.", "lines"),
     Setting("upload_description_signature", "BBCode added at the bottom of every description.", "lines"),
-    Setting("image_host_priority", "Image hosts in order, comma separated (e.g. ptpimg,imgbox)."),
+    Setting("image_host_priority", "Image hosts in order, comma separated (e.g. ptscreens,imgbb)."),
     # Interfaccia
     Setting("size_units", "decimal (GB) or binary (GiB)."),
     Setting("ui_timezone", "Time zone of the dates in the UI (e.g. Europe/Rome)."),

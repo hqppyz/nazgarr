@@ -14,32 +14,17 @@ import { EMPTY_IDS, parseNewUploadParams, toForcedIds } from '@/lib/upload'
 import { readPackState, type PackState } from '@/lib/pack'
 import { cn } from '@/lib/utils'
 
-const IMAGE_HOST_LABELS: Record<string, string> = { imgbox: 'Imgbox', pixhost: 'Pixhost' }
-
-// Prima di iniziare: senza una API key gli screenshot vanno solo sugli host
-// anonimi, senza nessun host utilizzabile un upload fallirebbe agli screenshot.
+// Prima di iniziare: senza un host di immagini utilizzabile (acceso e con la
+// sua API key) un upload fallirebbe agli screenshot.
 function ImageHostWarning() {
   const { data } = useImageHostStatus()
-  if (!data || data.with_api_key.length > 0) return null
-  const none = data.usable.length === 0
+  if (!data || data.usable.length > 0) return null
   return (
-    <div
-      role="alert"
-      className={cn(
-        'flex gap-3 rounded-lg border p-4 text-sm',
-        none ? 'border-red-500/40 bg-red-500/10' : 'border-amber-500/40 bg-amber-500/10',
-      )}
-    >
-      <TriangleAlertIcon
-        className={cn('mt-0.5 size-4 shrink-0', none ? 'text-red-600 dark:text-red-400' : 'text-amber-600 dark:text-amber-400')}
-      />
+    <div role="alert" className="flex gap-3 rounded-lg border border-red-500/40 bg-red-500/10 p-4 text-sm">
+      <TriangleAlertIcon className="mt-0.5 size-4 shrink-0 text-red-600 dark:text-red-400" />
       <div className="grid gap-1">
-        <p className="font-medium">{t(none ? 'upload.imageHostsNoneTitle' : 'upload.imageHostsNoKeyTitle')}</p>
-        <p className="text-muted-foreground">
-          {none
-            ? t('upload.imageHostsNone')
-            : t('upload.imageHostsNoKey', { hosts: data.usable.map((key) => IMAGE_HOST_LABELS[key] ?? key).join(', ') })}
-        </p>
+        <p className="font-medium">{t('upload.imageHostsNoneTitle')}</p>
+        <p className="text-muted-foreground">{t('upload.imageHostsNone')}</p>
         <Link to="/config?tab=images" className="w-fit font-medium text-primary underline-offset-4 hover:underline">
           {t('upload.imageHostsSettings')}
         </Link>
@@ -182,56 +167,65 @@ export function NewUploadPage() {
             <div className="flex flex-wrap gap-2">
               {trackers?.map((tracker) => {
                 const active = selectedTrackers?.has(tracker.id) ?? false
+                // Il freeleech sta fuori dal pulsante del tracker (prima erano
+                // span cliccabili dentro un button, minuscoli al tocco): stessa
+                // scheda, pulsanti veri da 32px come nella decisione.
                 return (
-                  <button
+                  <div
                     key={tracker.id}
-                    type="button"
-                    aria-pressed={active}
-                    onClick={() => toggleTracker(tracker.id)}
                     className={cn(
-                      'flex items-center gap-2 rounded-md border px-3 py-2 text-left text-sm transition',
+                      'grid gap-2 rounded-md border px-3 py-2 text-sm transition',
                       active ? 'border-primary bg-primary/10' : 'text-muted-foreground hover:bg-muted',
                     )}
                   >
-                    <span
-                      className={cn(
-                        'flex size-4 items-center justify-center rounded-sm border',
-                        active && 'border-primary bg-primary text-primary-foreground',
-                      )}
+                    <button
+                      type="button"
+                      aria-pressed={active}
+                      onClick={() => toggleTracker(tracker.id)}
+                      className="flex items-center gap-2 text-left"
                     >
-                      {active && <CheckIcon className="size-3" />}
-                    </span>
-                    <span className="grid">
-                      <span className="font-medium text-foreground">{tracker.label}</span>
-                      <span className="text-xs text-muted-foreground">
-                        {tracker.torrent_client_label
-                          ? t('upload.seedsOn', { client: tracker.torrent_client_label })
-                          : t('upload.noClient')}
+                      <span
+                        className={cn(
+                          'flex size-4 items-center justify-center rounded-sm border',
+                          active && 'border-primary bg-primary text-primary-foreground',
+                        )}
+                      >
+                        {active && <CheckIcon className="size-3" />}
                       </span>
-                      {active && tracker.freeleech_options.length > 0 && (
-                        <span className="mt-1 flex flex-wrap gap-1" onClick={(e) => e.stopPropagation()}>
-                          {[0, ...tracker.freeleech_options].map((value) => (
-                            <span
-                              key={value}
-                              role="radio"
-                              aria-checked={freeleechOf(tracker.id) === value}
-                              tabIndex={0}
-                              onClick={() => setFreeleech((prev) => ({ ...prev, [tracker.id]: value }))}
-                              onKeyDown={(e) => e.key === 'Enter' && setFreeleech((prev) => ({ ...prev, [tracker.id]: value }))}
-                              className={cn(
-                                'cursor-pointer rounded border px-1.5 text-[11px] tabular-nums',
-                                freeleechOf(tracker.id) === value
-                                  ? 'border-primary bg-primary/10 text-primary'
-                                  : 'text-muted-foreground hover:bg-muted',
-                              )}
-                            >
-                              {value === 0 ? t('upload.noFreeleech') : `FL ${value}%`}
-                            </span>
-                          ))}
+                      <span className="grid">
+                        <span className="font-medium text-foreground">{tracker.label}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {tracker.torrent_client_label
+                            ? t('upload.seedsOn', { client: tracker.torrent_client_label })
+                            : t('upload.noClient')}
                         </span>
-                      )}
-                    </span>
-                  </button>
+                      </span>
+                    </button>
+                    {active && tracker.freeleech_options.length > 0 && (
+                      <div
+                        role="group"
+                        aria-label={t('upload.decision.freeleech')}
+                        className="inline-flex w-fit flex-wrap overflow-hidden rounded-md border bg-background"
+                      >
+                        {[0, ...tracker.freeleech_options].map((value) => (
+                          <button
+                            key={value}
+                            type="button"
+                            aria-pressed={freeleechOf(tracker.id) === value}
+                            onClick={() => setFreeleech((prev) => ({ ...prev, [tracker.id]: value }))}
+                            className={cn(
+                              'h-8 border-r px-3 text-xs tabular-nums last:border-r-0',
+                              freeleechOf(tracker.id) === value
+                                ? 'bg-primary/15 text-primary'
+                                : 'text-muted-foreground hover:bg-muted',
+                            )}
+                          >
+                            {value === 0 ? t('upload.noFreeleech') : `FL ${value}%`}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 )
               })}
             </div>

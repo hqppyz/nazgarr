@@ -7,8 +7,10 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from nazgarr.core.errors import coded_detail, from_coded_error
-from nazgarr.plugins import REGISTRY
+from nazgarr.core.version import __version__
+from nazgarr.plugins import REGISTRY, switch
 from nazgarr.plugins import config as plugin_config
+from nazgarr.plugins.builtin import BUNDLED
 from nazgarr.plugins.loader import ENV_VAR, STATE
 from nazgarr.sdk import SDK_VERSION
 from nazgarr.web.deps import get_session
@@ -32,18 +34,26 @@ class AdapterResponse(BaseModel):
     label: str
     description: str | None
     plugin: str | None  # None = integrato
+    bundled: bool = False  # di un plugin incluso in Nazgarr (nazgarr/bundled)
     config_fields: list[ConfigFieldResponse]
     icon: str | None = None  # un'immagine data: dichiarata dal plugin (gli integrati hanno la loro nella UI)
 
 
 class PluginResponse(BaseModel):
-    name: str
+    name: str  # il nome con cui si registra (il pacchetto, per uno installato)
+    label: str  # come si chiama nella UI: l'adapter, se ne ha uno solo
     distribution: str | None
     version: str | None
-    status: str
+    status: str  # loaded | disabled | failed | incompatible
     error: str | None
     requires_sdk: str | None
     adapters: list[str]
+    bundled: bool = False  # nativo, incluso in Nazgarr, non installato con pip
+    enabled: bool = True
+    description: str | None = None
+    categories: list[str] = []  # i kind dei suoi adapter, per raggruppare
+    settings: list[str] = []  # gli adapter con una configurazione propria qui: "kind:adapter_type"
+    icon: str | None = None
 
 
 class PluginsResponse(BaseModel):
@@ -59,7 +69,7 @@ class PluginsResponse(BaseModel):
 def _adapter(spec) -> AdapterResponse:
     return AdapterResponse(
         kind=spec.kind, adapter_type=spec.adapter_type, label=spec.label, description=spec.description,
-        plugin=spec.plugin, icon=spec.icon,
+        plugin=spec.plugin, bundled=spec.plugin in BUNDLED, icon=spec.icon,
         config_fields=[
             ConfigFieldResponse(key=f.key, label=f.label, type=f.type, required=f.required, default=f.default,
                                 help=f.help, choices=list(f.choices))
@@ -68,13 +78,39 @@ def _adapter(spec) -> AdapterResponse:
     )
 
 
+def _plugin(session: Session, off: set[str], **fields) -> PluginResponse:
+    """Un plugin per la sua card: i suoi adapter (anche da spento), il nome
+    da mostrare e cosa si configura qui (gli adapter globali con dei campi)."""
+    owner = fields.get("distribution") or fields["name"]
+    specs = switch.specs_of(owner)
+    enabled = owner not in off
+    status = fields.pop("status")
+    if status == "loaded" and not enabled:
+        status = "disabled"
+    return PluginResponse(
+        **fields, status=status, enabled=enabled,
+        label=specs[0].label if len(specs) == 1 else owner,
+        adapters=[f"{spec.kind}:{spec.adapter_type}" for spec in specs],
+        categories=sorted({spec.kind for spec in specs}),
+        settings=[f"{spec.kind}:{spec.adapter_type}" for spec in specs
+                  if spec.kind in GLOBAL_KINDS and spec.config_fields],
+        icon=next((spec.icon for spec in specs if spec.icon), None),
+    )
+
+
 @router.get("", response_model=PluginsResponse)
-def list_plugins():
+def list_plugins(session: Session = Depends(get_session)):
+    off = switch.disabled(session)
     specs = sorted(REGISTRY.all(), key=lambda s: (s.kind, s.plugin is not None, s.label.lower()))
     return PluginsResponse(
         sdk_version=SDK_VERSION, env_var=ENV_VAR, source=STATE.source, requested=STATE.requested,
         install_error=STATE.install_error,
-        plugins=[PluginResponse(**vars(p)) for p in STATE.plugins],
+        plugins=[
+            *(_plugin(session, off, name=name, distribution=None, version=__version__, status="loaded", error=None,
+                      requires_sdk=module.REQUIRES_SDK, bundled=True, description=module.DESCRIPTION)
+              for name, module in BUNDLED.items()),
+            *(_plugin(session, off, **{k: v for k, v in vars(p).items() if k != "adapters"}) for p in STATE.plugins),
+        ],
         adapters=[_adapter(spec) for spec in specs],
     )
 
@@ -129,3 +165,16 @@ def put_adapter_config(
     except plugin_config.AdapterConfigError as exc:
         raise HTTPException(status_code=400, detail=from_coded_error(exc)) from exc
     return _config_response(session, spec)
+
+
+class PluginEnabledRequest(BaseModel):
+    enabled: bool
+
+
+@router.put("/{name}/enabled", status_code=204)
+def set_plugin_enabled(name: str, body: PluginEnabledRequest, session: Session = Depends(get_session)):
+    """Accende o spegne un plugin, incluso o installato, senza riavviare."""
+    try:
+        switch.set_enabled(session, name, body.enabled)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=coded_detail("plugin_not_found", name=name)) from exc

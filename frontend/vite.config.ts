@@ -15,10 +15,10 @@ export default defineConfig({
     },
   },
   server: {
-    // Backend avviato separatamente con `uvicorn nazgarr.main:app --reload --port 8080`
+    // Backend avviato separatamente con `uvicorn nazgarr.main:app --reload --port 3019`
     // (vedi README) - nessun bisogno di CORS lato backend, nemmeno in dev.
     proxy: {
-      '/api': 'http://localhost:8080',
+      '/api': 'http://localhost:3019',
     },
   },
   test: {

@@ -148,7 +148,10 @@ def prepare_content(session: Session, job: UploadJob, ctx: dict) -> str:
                           **({"single_file": True, "folder": plan.folder} if plan.single_file else {}))
     session.commit()
     # Un pack di file scelti a mano non ha una cartella sua: sempre hardlink.
-    if not plan.renamed and not plan.single_file and not upload_pack.is_pack(job):
+    # Dalla cartella osservata la release se ne va anche con i nomi originali
+    # (decisione dell'utente, 2026-10-05): hardlink con quei nomi nella
+    # cartella di seed, prima di pubblicare, come per i nomi nuovi.
+    if not plan.renamed and not plan.single_file and not upload_pack.is_pack(job) and job.origin != "watch":
         refresh_mediainfo(session, job, plan, None)
         return job.source_path
     if not plan.renamed and _seeds_in_place(job, ctx):
@@ -500,6 +503,7 @@ def run_upload(session: Session, job: UploadJob, target: UploadTarget, ctx: dict
                 pairs = _upload_pairs(job, torrent, root)
                 link_files(pairs, root)
                 save_path = root if pairs else os.path.dirname(job.source_path.rstrip(os.sep))
+            _remember_seeded(ctx, [os.path.join(save_path, *file.parts) for file in torrent.files])
             seed_path, same_content = _tracker_copy(adapter, uploaded, torrent, ctx["dir"], tracker.id)
             target.torrent_path = seed_path
             target.info_hash = torf.Torrent.read(seed_path).infohash
@@ -556,7 +560,9 @@ def run_reseed(session: Session, job: UploadJob, target: UploadTarget, ctx: dict
     # Sul posto se la sorgente, dentro la cartella di seeding, ha già il nome
     # e il layout del torrent del tracker; altrimenti hardlink.
     parent = os.path.dirname(job.source_path.rstrip(os.sep))
-    in_place = not upload_pack.is_pack(job) and _inside(job.source_path, seeding_area(job)) and all(
+    # Mai dalla cartella osservata: da lì la release se ne va.
+    in_place = job.origin != "watch" and not upload_pack.is_pack(job) and _inside(
+        job.source_path, seeding_area(job)) and all(
         os.path.exists(dst) and os.path.samefile(src, dst) for src, dst in destinations(parent)
     )
     if in_place:
@@ -564,8 +570,20 @@ def run_reseed(session: Session, job: UploadJob, target: UploadTarget, ctx: dict
     else:
         save_path = ctx["seed_root"]()
         link_files(destinations(save_path), save_path)
+    _remember_seeded(ctx, [dst for _src, dst in destinations(save_path)])
     target.info_hash = _add_to_client(session, job, target, torrent_path, save_path)
     upload_jobs.log_event(session, job, "reseeded", target=target, torrent=target.reseed_torrent_id)
+
+
+def _remember_seeded(ctx: dict, paths: list[str]) -> None:
+    """I file che questo job ha messo in seed (dispositivo, inode, percorso):
+    dalla cartella osservata si toglie solo un file la cui copia è fra questi
+    (_clear_watch_source)."""
+    seeded = ctx.setdefault("seeded", {})
+    for path in paths:
+        with contextlib.suppress(OSError):
+            st = os.stat(path)
+            seeded[(st.st_dev, st.st_ino)] = os.path.realpath(path)
 
 
 class _Cancelled(Exception):
@@ -610,18 +628,21 @@ def _is_system_junk(name: str) -> bool:
     return name in _SYSTEM_JUNK or name.startswith("._")
 
 
-def _clear_watch_source(session: Session, job: UploadJob, overrides: dict) -> None:
+def _clear_watch_source(session: Session, job: UploadJob, overrides: dict, ctx: dict | None = None) -> None:
     """La cartella osservata è solo di passaggio (decisione dell'utente,
     2026-10-02): a upload fatto la release resta solo nella cartella delle
     release, dove seeda con i nomi del torrent (gli hardlink di questo job),
     e dalla cartella osservata si toglie. Un "move" fatto con un hardlink e
     poi la rimozione, mai prima: se qualcosa va storto la release resta lì.
 
-    Si tolgono i file che hanno un altro link (la copia che seeda) e i file
-    di sistema (Thumbs.db, .DS_Store...); quello che il torrent non ha preso
-    (es. un sample) resta, elencato nel registro del job, e le cartelle vuote
-    spariscono. Solo se almeno un tracker è andato, se si mette in seed e se
-    la sorgente è davvero dentro la cartella osservata."""
+    Si tolgono solo i file la cui copia in seed l'ha messa questo job (stesso
+    inode, altro percorso: _remember_seeded), e i file di sistema
+    (Thumbs.db, .DS_Store...). Prima bastava un secondo link qualunque: un
+    file già collegato altrove (es. dalla cartella dei download) si
+    cancellava anche se a seedare era proprio lui. Quello che il torrent non
+    ha preso (es. un sample) resta, elencato nel registro del job, e le
+    cartelle vuote spariscono. Solo se almeno un tracker è andato, se si
+    mette in seed e se la sorgente è davvero dentro la cartella osservata."""
     if job.origin != "watch" or overrides.get("no_seed") or job.disk is None:
         return
     if not any(t.status == "done" and t.action != "skip" for t in job.targets):
@@ -630,12 +651,15 @@ def _clear_watch_source(session: Session, job: UploadJob, overrides: dict) -> No
     source = os.path.realpath(job.source_path)
     if watch is None or not source.startswith(os.path.realpath(watch) + os.sep):
         return
+    seeded = (ctx or {}).get("seeded") or {}
     moved, kept = [], []
     for path in _source_files(source):
         try:
-            linked = not os.path.islink(path) and os.stat(path, follow_symlinks=False).st_nlink >= 2
+            st = os.stat(path, follow_symlinks=False)
         except OSError:
             continue
+        copy = seeded.get((st.st_dev, st.st_ino))
+        linked = not os.path.islink(path) and copy is not None and copy != os.path.realpath(path)
         if linked or _is_system_junk(os.path.basename(path)):
             with contextlib.suppress(OSError):
                 os.unlink(path)
@@ -721,7 +745,7 @@ def handle(session: Session, job: UploadJob, worker) -> None:
         session.commit()
 
     _cleanup_unused_links(session, job, ctx, overrides)
-    _clear_watch_source(session, job, overrides)
+    _clear_watch_source(session, job, overrides, ctx)
     outcomes = [t.status for t in job.targets if t.action != "skip"]
     if all(s == "done" for s in outcomes):
         final = "done"

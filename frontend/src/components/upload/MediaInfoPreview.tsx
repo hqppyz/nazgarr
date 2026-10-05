@@ -67,7 +67,13 @@ export function MediaInfoPreview({ summary, fullText }: { summary: MediaInfoSumm
         </CardTitle>
         <div className="flex gap-1">
           {fullText && (
-            <Button variant="ghost" size="sm" title={t('upload.mediainfo.expand')} onClick={() => setFullOpen(true)}>
+            <Button
+              variant="ghost"
+              size="sm"
+              title={t('upload.mediainfo.expand')}
+              aria-label={t('upload.mediainfo.expand')}
+              onClick={() => setFullOpen(true)}
+            >
               <PlusIcon className="size-4" />
             </Button>
           )}

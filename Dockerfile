@@ -49,12 +49,16 @@ RUN chmod +x docker/entrypoint.sh \
     && chmod +x /usr/local/bin/nazgarr
 # Il CLI dentro il container parla con il server dello stesso container, e
 # ricorda la sua API key nella cartella di configurazione (persistente).
-ENV NAZGARR_URL=http://127.0.0.1:8080 \
+ENV NAZGARR_URL=http://127.0.0.1:3019 \
     NAZGARR_CLI_CONFIG=/app/config/cli.toml
 
 # /app/config va montato come cartella (mai un file), vedi docker/entrypoint.sh:
 # se manca config.yaml al suo interno viene seminato da config.example.yaml.
 ENV CONFIG_PATH=/app/config/config.yaml
+
+# Dentro un container il confine dei dischi sono le cartelle montate
+# (nazgarr/core/mounts.py): niente disk_scan_root da scrivere.
+ENV NAZGARR_CONTAINER=1
 
 # Versione e commit decisi dalla CI (.github/workflows/docker-publish.yml,
 # nazgarr/core/version.py): vuoti in una build locale, che si mostra come "-dev".
@@ -63,11 +67,11 @@ ARG NAZGARR_COMMIT=""
 ENV NAZGARR_VERSION=${NAZGARR_VERSION} \
     NAZGARR_COMMIT=${NAZGARR_COMMIT}
 
-EXPOSE 8080
+EXPOSE 3019
 
 # /api/health non richiede il login. Python c'è già: niente curl da aggiungere.
 HEALTHCHECK --interval=60s --timeout=10s --start-period=60s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/api/health', timeout=5)"
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3019/api/health', timeout=5)"
 
 ENTRYPOINT ["docker/entrypoint.sh"]
 CMD ["supervisord", "-c", "docker/supervisord.conf"]

@@ -68,7 +68,8 @@ export function InstanceSwitcher() {
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
-        className="flex min-w-0 items-center gap-1.5 rounded text-xs text-muted-foreground hover:text-foreground"
+        data-tour="instances.switcher"
+        className="-mx-1 flex min-w-0 items-center gap-1.5 rounded px-1 py-1 text-xs text-muted-foreground hover:text-foreground pointer-coarse:py-2"
         aria-label={t('instances.title')}
       >
         <span className={cn('size-1.5 shrink-0 rounded-full', instanceDot(active))} />

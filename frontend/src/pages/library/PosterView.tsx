@@ -198,7 +198,8 @@ export function PosterView() {
   if (loader) return loader
 
   return (
-    <div className="grid gap-4">
+    // Una colonna larga quanto lo schermo: niente figli che allargano la pagina.
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-4">
       <div className="flex flex-wrap items-center gap-3">
         <LibraryViewSwitch />
         <Tabs
@@ -224,14 +225,16 @@ export function PosterView() {
         }}
       />
       <div className="flex flex-wrap items-center gap-3">
+        {/* Come nella vista a cartelle: sotto sm filtrano le card, le tab scorrono. */}
         <Tabs
           value={status}
           onValueChange={(v) => {
             setStatus(v as string)
             setVisibleCount(PAGE_SIZE)
           }}
+          className="hidden max-w-full min-w-0 sm:flex"
         >
-          <TabsList>
+          <TabsList className="max-w-full justify-start overflow-x-auto">
             {STATUS_OPTIONS.map((option) => (
               <TabsTrigger key={option.value} value={option.value}>
                 {option.label} ({summary[option.value]?.count ?? 0})
@@ -257,7 +260,7 @@ export function PosterView() {
           {allCards.length === 0 ? t('library.noResolvedContent') : t('library.noFilesMatchFilters')}
         </p>
       ) : (
-        <div className="grid grid-cols-3 gap-4 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8">
+        <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 sm:gap-4 md:grid-cols-6 lg:grid-cols-8">
           {cards.slice(0, visibleCount).map((card) => (
             <GridCard
               key={card.key}

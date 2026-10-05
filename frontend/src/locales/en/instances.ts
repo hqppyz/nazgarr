@@ -18,7 +18,6 @@ export const instances = {
   'instances.none': 'No other instance yet.',
   'instances.overview': 'Overview of all instances',
   'instances.manage': 'Manage instances',
-  'instances.removeConfirm': 'Remove {label}? Nothing changes on that instance; revoke its key there if you no longer need it.',
   'instances.status.ok': 'Connected',
   'instances.status.unreachable': 'Unreachable',
   'instances.status.bad_key': 'Key refused',
@@ -51,4 +50,6 @@ export const instances = {
     'The login, password and API keys of an instance are managed only from its own interface: the API key this instance uses to reach it cannot change them, on purpose.',
   'instances.localName': 'Name of this instance',
   'instances.localNameHelp': 'Shown instead of “This instance” in the switcher and the overview.',
+  'instances.removeTitle': 'Remove {label}?',
+  'instances.removeDescription': 'Nothing changes on that instance; revoke its key there if you no longer need it.',
 } as const

@@ -2,7 +2,7 @@ export const pack = {
   'pack.select': 'Compose a pack',
   'pack.selectStop': 'Stop composing',
   'pack.selectHelp':
-    'Pick episodes one by one, even ones already seeding with their own torrent, and make a season pack or a complete pack of them. Their subtitles come along on their own. Shift-click picks every video between two.',
+    'Pick episodes one by one, even ones already seeding with their own torrent, and make a season pack or a complete pack of them. Their subtitles come along on their own. Shift-click picks every video between two, or "Pick all shown" the ones of the current filters.',
   'pack.selected': '{count} videos picked',
   'pack.ready': 'Ready: the upload starts with these files, in a new folder made of hardlinks.',
   'pack.problem.tooFew': 'Pick at least two videos.',

@@ -527,6 +527,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/torrent-clients/qui-instances": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Qui Instances
+         * @description Le istanze di un qui, per sceglierne una da un elenco (sola lettura).
+         *     Senza api_token si usa quello del client salvato, ma solo verso lo
+         *     stesso host: mai mandare un token salvato a un indirizzo nuovo.
+         */
+        post: operations["qui_instances_api_torrent_clients_qui_instances_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/torrent-clients/{torrent_client_id}/test": {
         parameters: {
             query?: never;
@@ -544,6 +566,30 @@ export interface paths {
          *     un client (docs/SPEC.md sezione 5).
          */
         post: operations["test_torrent_client_api_torrent_clients__torrent_client_id__test_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/torrent-clients/{torrent_client_id}/path-check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Check Client Paths
+         * @description Sola lettura (nazgarr/torrents/path_check.py): i file che il client
+         *     ha in seed si trovano sui dischi con la corrispondenza dei percorsi di
+         *     adesso? Con una proposta di corrispondenza se no. Usa l'ultima
+         *     indicizzazione; il client stesso con live=true o se non è mai stato
+         *     indicizzato.
+         */
+        post: operations["check_client_paths_api_torrent_clients__torrent_client_id__path_check_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -997,6 +1043,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/reviews/{review_id}/client-labels": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set Client Labels
+         * @description Categoria e tag nel client per questo reseed, scelti a mano come per un
+         *     upload: valgono quando parte. Solo finché la review è in coda.
+         */
+        put: operations["set_client_labels_api_reviews__review_id__client_labels_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/reviews/{review_id}/reject": {
         parameters: {
             query?: never;
@@ -1052,6 +1119,27 @@ export interface paths {
          */
         post: operations["reconcile_now_api_reviews_seed_jobs_reconcile_post"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/reviews/seed-jobs/{seed_job_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Seed Job
+         * @description Elimina un'esecuzione fallita o rimasta in corso: il prossimo scan
+         *     ripropone il torrent. Niente cambia nel client né sul disco.
+         */
+        delete: operations["delete_seed_job_api_reviews_seed_jobs__seed_job_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1777,14 +1865,72 @@ export interface paths {
         };
         /**
          * Update Check
-         * @description Chiamata solo su richiesta esplicita dell'utente (bottone "Check for
-         *     updates" in UI), mai in automatico. Confronta con le GitHub Release: la
-         *     CI ne crea una (prerelease) a ogni push su main, il canale stable si
-         *     aggiorna a mano (nazgarr/core/version.py).
+         * @description Su richiesta dell'utente ("Controlla aggiornamenti"): chiama GitHub e
+         *     salva l'esito, lo stesso che il controllo automatico (se acceso) rinnova
+         *     ogni 12 ore (nazgarr/core/updates.py).
          */
         get: operations["update_check_api_system_update_check_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/system/update-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Update Status
+         * @description L'ultimo esito salvato, senza chiamare GitHub: per l'avviso nella
+         *     barra laterale. None se non c'è o riguardava un'altra versione.
+         */
+        get: operations["update_status_api_system_update_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/system/release-notes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Release Notes
+         * @description Le note delle versioni arrivate dall'ultima vista: la UI le mostra
+         *     una volta dopo un aggiornamento.
+         */
+        get: operations["release_notes_api_system_release_notes_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/system/release-notes/seen": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Release Notes Seen */
+        post: operations["release_notes_seen_api_system_release_notes_seen_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1857,6 +2003,26 @@ export interface paths {
         get: operations["get_adapter_config_api_plugins_config__kind___adapter_type__get"];
         /** Put Adapter Config */
         put: operations["put_adapter_config_api_plugins_config__kind___adapter_type__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/plugins/{name}/enabled": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set Plugin Enabled
+         * @description Accende o spegne un plugin, incluso o installato, senza riavviare.
+         */
+        put: operations["set_plugin_enabled_api_plugins__name__enabled_put"];
         post?: never;
         delete?: never;
         options?: never;
@@ -2256,6 +2422,11 @@ export interface components {
             description: string | null;
             /** Plugin */
             plugin: string | null;
+            /**
+             * Bundled
+             * @default false
+             */
+            bundled: boolean;
             /** Config Fields */
             config_fields: components["schemas"]["ConfigFieldResponse"][];
             /** Icon */
@@ -2342,8 +2513,28 @@ export interface components {
         AvailableMountsResponse: {
             /** Scan Root */
             scan_root: string;
+            /**
+             * Scan Roots
+             * @default []
+             */
+            scan_roots: string[];
+            /**
+             * Scope Source
+             * @default default
+             */
+            scope_source: string;
             /** Mounts */
             mounts: string[];
+            /**
+             * Detected
+             * @default []
+             */
+            detected: components["schemas"]["DetectedMount"][];
+            /**
+             * Warnings
+             * @default []
+             */
+            warnings: components["schemas"]["MountWarning"][];
         };
         /** BrowseEntry */
         BrowseEntry: {
@@ -2373,6 +2564,8 @@ export interface components {
             adapter_type: string;
             /** Base Url */
             base_url: string | null;
+            /** Announce Url Page */
+            announce_url_page?: string | null;
         };
         /** CandidateAuditResponse */
         CandidateAuditResponse: {
@@ -2472,6 +2665,13 @@ export interface components {
             bad_pieces: number[];
             /** Files */
             files: components["schemas"]["FileCheckResponse"][];
+        };
+        /** ClientLabelsRequest */
+        ClientLabelsRequest: {
+            /** Client Category */
+            client_category?: string | null;
+            /** Client Tags */
+            client_tags?: string | null;
         };
         /** ConfigFieldResponse */
         ConfigFieldResponse: {
@@ -2733,6 +2933,19 @@ export interface components {
             state: string;
             /** Torrent */
             torrent: string;
+        };
+        /** DetectedMount */
+        DetectedMount: {
+            /** Path */
+            path: string;
+            /** Fstype */
+            fstype: string;
+            /** Source */
+            source: string;
+            /** Unraid Share */
+            unraid_share: boolean;
+            /** Registered */
+            registered: boolean;
         };
         /** DiskAssociationResponse */
         DiskAssociationResponse: {
@@ -3082,6 +3295,16 @@ export interface components {
             with_api_key: string[];
             /** Usable */
             usable: string[];
+            /**
+             * Removed
+             * @default []
+             */
+            removed: string[];
+            /**
+             * Order
+             * @default []
+             */
+            order: string[];
         };
         /** InstanceCreateRequest */
         InstanceCreateRequest: {
@@ -3348,6 +3571,28 @@ export interface components {
             /** Created */
             created: boolean;
         };
+        /** MountWarning */
+        MountWarning: {
+            /** Code */
+            code: string;
+            /**
+             * Paths
+             * @default []
+             */
+            paths: string[];
+            /**
+             * Share
+             * @default []
+             */
+            share: string[];
+            /**
+             * Disks
+             * @default []
+             */
+            disks: string[];
+            /** Scan Root */
+            scan_root?: string | null;
+        };
         /** NamingPreviewRequest */
         NamingPreviewRequest: {
             /** Naming Rules */
@@ -3429,6 +3674,11 @@ export interface components {
             skipped_at?: string | null;
             /** Skipped Reason */
             skipped_reason?: string | null;
+            /**
+             * No Library
+             * @default false
+             */
+            no_library: boolean;
             /** Summary */
             summary: {
                 [key: string]: components["schemas"]["CategorySummary"];
@@ -3557,6 +3807,74 @@ export interface components {
             /** Tvdb */
             tvdb: string;
         };
+        /** PathCheckExample */
+        PathCheckExample: {
+            /** Status */
+            status: string;
+            /** Client Path */
+            client_path: string;
+            /** Local Path */
+            local_path: string | null;
+        };
+        /** PathCheckResponse */
+        PathCheckResponse: {
+            /** Status */
+            status: string;
+            /** Error */
+            error?: string | null;
+            /** Source */
+            source?: string | null;
+            /** Verdict */
+            verdict?: string | null;
+            /**
+             * Checked
+             * @default 0
+             */
+            checked: number;
+            /**
+             * Ok
+             * @default 0
+             */
+            ok: number;
+            /**
+             * Outside Seeding
+             * @default 0
+             */
+            outside_seeding: number;
+            /**
+             * Missing
+             * @default 0
+             */
+            missing: number;
+            /**
+             * Unmapped
+             * @default 0
+             */
+            unmapped: number;
+            /**
+             * Examples
+             * @default []
+             */
+            examples: components["schemas"]["PathCheckExample"][];
+            /**
+             * Suggestions
+             * @default []
+             */
+            suggestions: components["schemas"]["PathCheckSuggestion"][];
+        };
+        /** PathCheckSuggestion */
+        PathCheckSuggestion: {
+            /** Disk Id */
+            disk_id: number;
+            /** Disk Label */
+            disk_label: string;
+            /** Local Rel Path */
+            local_rel_path: string | null;
+            /** Client Root Path */
+            client_root_path: string | null;
+            /** Matches */
+            matches: number;
+        };
         /**
          * PhaseProgressResponse
          * @description Una fase della run (nazgarr/core/run_progress.py): done include gli elementi
@@ -3579,10 +3897,17 @@ export interface components {
             /** Finished At */
             finished_at?: string | null;
         };
+        /** PluginEnabledRequest */
+        PluginEnabledRequest: {
+            /** Enabled */
+            enabled: boolean;
+        };
         /** PluginResponse */
         PluginResponse: {
             /** Name */
             name: string;
+            /** Label */
+            label: string;
             /** Distribution */
             distribution: string | null;
             /** Version */
@@ -3595,6 +3920,30 @@ export interface components {
             requires_sdk: string | null;
             /** Adapters */
             adapters: string[];
+            /**
+             * Bundled
+             * @default false
+             */
+            bundled: boolean;
+            /**
+             * Enabled
+             * @default true
+             */
+            enabled: boolean;
+            /** Description */
+            description?: string | null;
+            /**
+             * Categories
+             * @default []
+             */
+            categories: string[];
+            /**
+             * Settings
+             * @default []
+             */
+            settings: string[];
+            /** Icon */
+            icon?: string | null;
         };
         /** PluginsResponse */
         PluginsResponse: {
@@ -3617,6 +3966,40 @@ export interface components {
         QueueOrderRequest: {
             /** Job Ids */
             job_ids: number[];
+        };
+        /** QuiInstance */
+        QuiInstance: {
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
+            /** Host */
+            host: string | null;
+            /** Active */
+            active: boolean;
+            /** Connected */
+            connected: boolean;
+        };
+        /** QuiInstancesRequest */
+        QuiInstancesRequest: {
+            /** Base Url */
+            base_url: string;
+            /** Api Token */
+            api_token?: string | null;
+            /** Torrent Client Id */
+            torrent_client_id?: number | null;
+        };
+        /** QuiInstancesResponse */
+        QuiInstancesResponse: {
+            /** Status */
+            status: string;
+            /**
+             * Instances
+             * @default []
+             */
+            instances: components["schemas"]["QuiInstance"][];
+            /** Error */
+            error?: string | null;
         };
         /** RadarrConnectionTestRequest */
         RadarrConnectionTestRequest: {
@@ -3710,6 +4093,44 @@ export interface components {
             errors: number;
         };
         /**
+         * ReleaseNote
+         * @description Una voce di nazgarr/release_notes.json: per lingua ("it", "en").
+         */
+        ReleaseNote: {
+            /** Version */
+            version: string;
+            /** Date */
+            date?: string | null;
+            /**
+             * Breaking
+             * @default {}
+             */
+            breaking: {
+                [key: string]: string[];
+            };
+            /**
+             * Highlights
+             * @default {}
+             */
+            highlights: {
+                [key: string]: string[];
+            };
+            /**
+             * Fixes
+             * @default {}
+             */
+            fixes: {
+                [key: string]: string[];
+            };
+        };
+        /** ReleaseNotesResponse */
+        ReleaseNotesResponse: {
+            /** Current Version */
+            current_version: string;
+            /** Entries */
+            entries: components["schemas"]["ReleaseNote"][];
+        };
+        /**
          * RemovalWarning
          * @description Un motivo, oltre a seedtime e ratio, per pensarci prima di togliere il
          *     torrent: code ("shared_files", "client_error", "checking", "downloading")
@@ -3775,6 +4196,16 @@ export interface components {
              * @default []
              */
             seeding_on: string[];
+            /** Torrent Client Id */
+            torrent_client_id?: number | null;
+            /** Default Client Category */
+            default_client_category?: string | null;
+            /** Default Client Tags */
+            default_client_tags?: string | null;
+            /** Client Category */
+            client_category?: string | null;
+            /** Client Tags */
+            client_tags?: string | null;
         };
         /** RunResponse */
         RunResponse: {
@@ -4406,6 +4837,11 @@ export interface components {
             note?: string | null;
             /** Channel */
             channel?: string | null;
+            /**
+             * Notes
+             * @default []
+             */
+            notes: components["schemas"]["ReleaseNote"][];
         };
         /** UploadApproveRequest */
         UploadApproveRequest: {
@@ -5859,6 +6295,39 @@ export interface operations {
             };
         };
     };
+    qui_instances_api_torrent_clients_qui_instances_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["QuiInstancesRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuiInstancesResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     test_torrent_client_api_torrent_clients__torrent_client_id__test_post: {
         parameters: {
             query?: never;
@@ -5877,6 +6346,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TorrentClientTestResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    check_client_paths_api_torrent_clients__torrent_client_id__path_check_post: {
+        parameters: {
+            query?: {
+                live?: boolean;
+            };
+            header?: never;
+            path: {
+                torrent_client_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PathCheckResponse"];
                 };
             };
             /** @description Validation Error */
@@ -6949,6 +7451,41 @@ export interface operations {
             };
         };
     };
+    set_client_labels_api_reviews__review_id__client_labels_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                review_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ClientLabelsRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     reject_review_api_reviews__review_id__reject_post: {
         parameters: {
             query?: never;
@@ -7027,6 +7564,35 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ReconcileResponse"];
+                };
+            };
+        };
+    };
+    delete_seed_job_api_reviews_seed_jobs__seed_job_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                seed_job_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -8261,6 +8827,64 @@ export interface operations {
             };
         };
     };
+    update_status_api_system_update_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UpdateCheckResponse"] | null;
+                };
+            };
+        };
+    };
+    release_notes_api_system_release_notes_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReleaseNotesResponse"];
+                };
+            };
+        };
+    };
+    release_notes_seen_api_system_release_notes_seen_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     logs_api_system_logs_get: {
         parameters: {
             query?: {
@@ -8388,6 +9012,39 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["AdapterConfigResponse"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_plugin_enabled_api_plugins__name__enabled_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PluginEnabledRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

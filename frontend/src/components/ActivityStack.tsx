@@ -143,7 +143,7 @@ export function ActivityStack() {
   return (
     // minmax(0,1fr): senza, la colonna della griglia si allarga fino alla
     // parola più lunga (un nome di file senza spazi) e la card sborda.
-    <div className="grid w-80 max-w-[calc(100vw-2rem)] grid-cols-[minmax(0,1fr)] gap-2">
+    <div className="grid w-80 max-w-[calc(100vw-2rem)] grid-cols-[minmax(0,1fr)] gap-2 max-sm:w-full">
       {activities.map((activity) => (
         <div
           key={activity.id}
@@ -172,7 +172,7 @@ export function ActivityStack() {
             <button
               type="button"
               onClick={() => dismissActivity(activity.id)}
-              className="shrink-0 text-muted-foreground hover:text-foreground"
+              className="-my-1.5 inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:text-foreground pointer-coarse:size-9"
               aria-label={t('runStatus.dismiss')}
             >
               <XIcon className="size-4" />

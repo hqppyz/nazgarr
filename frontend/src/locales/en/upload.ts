@@ -1,10 +1,8 @@
 export const upload = {
   'upload.newUpload': 'New upload',
-  'upload.imageHostsNoKeyTitle': 'No image host API key configured',
-  'upload.imageHostsNoKey':
-    'Screenshots will only go to hosts that work without a key ({hosts}). Some trackers do not accept them: add an API key to be safe.',
   'upload.imageHostsNoneTitle': 'No usable image host',
-  'upload.imageHostsNone': 'Screenshots cannot be uploaded, so uploads will fail. Reseeds still work.',
+  'upload.imageHostsNone':
+    'Enter the API key of at least one host (Settings › Upload › Images): without one, screenshots cannot be uploaded and uploads fail. Reseeds still work.',
   'upload.imageHostsSettings': 'Open image host settings',
   'upload.newUploadDescription':
     'Pick a movie, an episode, a season folder or a whole series, and the trackers to publish it on. Nazgarr identifies it and asks you to confirm before doing anything else.',
@@ -45,7 +43,7 @@ export const upload = {
 
   'upload.picker.title': 'Choose the source',
   'upload.picker.description':
-    'Click a file or a folder to select it, the arrow (or a double click) opens a folder.',
+    'Click a file or a folder to select it; the arrow, a double click or a second tap opens a folder.',
   'upload.picker.noDisks': 'No disk configured yet.',
   'upload.picker.nothingSelected': 'Nothing selected',
   'upload.picker.useFile': 'Use this file',
@@ -242,6 +240,14 @@ export const upload = {
   'upload.decision.confirmDescription':
     'This is the final confirmation: from here Nazgarr creates the torrents and publishes them on its own, without asking again.',
   'upload.decision.confirm': 'Confirm and queue',
+  'upload.decision.nameWithoutSource':
+    'The name has no source (BluRay, WEB-DL…): none was found.',
+  'upload.decision.confirmWithoutSource':
+    'No source was found, so the proposed names have none. Unless you wrote it in the name yourself, add it before confirming.',
+  'upload.decision.addSource':
+    'Add the source',
+  'upload.decision.confirmAnyway':
+    'Queue anyway',
   'upload.decision.approveFailed': 'Could not approve: {message}',
 
   'upload.progress.stepsLabel': 'Steps',
@@ -369,6 +375,36 @@ export const upload = {
   'upload.overrides.missingSource':
     'Source not found: no hardlinked torrent or release name says where this comes from (BluRay, WEB-DL, HDTV…), so the name has none. Write it in the Source field.',
   'upload.overrides.setSource': 'Set it',
+  'upload.typeBasis.type.name':
+    'Type read from the release name.',
+  'upload.typeBasis.type.disc_no_encoder':
+    'Remux: the source is a disc and the video carries no trace of an encoder.',
+  'upload.typeBasis.type.encoder':
+    'Encode: the video carries the trace of an encoder ({encoder}).',
+  'upload.typeBasis.type.encoderSettings':
+    'Encode: the video carries the settings of an encoder.',
+  'upload.typeBasis.type.default':
+    'Encode by elimination: neither the name nor the MediaInfo say otherwise.',
+  'upload.typeBasis.source.name':
+    'Source read from the release name.',
+  'upload.typeBasis.source.mediainfo':
+    'Source from the MediaInfo: the file comes from a disc.',
+  'upload.typeBasis.source.remux':
+    'Source inferred: a remux comes from a Blu-ray (or a DVD, if standard definition).',
+  'upload.typeBasis.evidence':
+    'Signs of a disc in the MediaInfo:',
+  'upload.typeBasis.signal.origin':
+    'the MediaInfo says which disc it comes from (Original source medium)',
+  'upload.typeBasis.signal.dv_el':
+    'Dolby Vision profile 7 with an enhancement layer (UHD Blu-ray only)',
+  'upload.typeBasis.signal.vc1':
+    'VC-1 video (Blu-ray and HD DVD only)',
+  'upload.typeBasis.signal.lossless':
+    'lossless audio (TrueHD, DTS-HD MA, LPCM)',
+  'upload.typeBasis.signal.pgs':
+    'PGS subtitles',
+  'upload.typeBasis.signal.bitrate':
+    'remux-level video bitrate for the resolution',
   'upload.overrides.sourcePlaceholder': 'e.g. BluRay, WEB-DL',
   'upload.history.delete': 'Remove from the history (nothing changes on trackers, clients or disk)',
   'upload.history.cancelRunning': "Cancel the upload (it moves to the history)",
@@ -419,4 +455,7 @@ export const upload = {
   'upload.match.factor.product': '{factors} = {confidence}',
   'upload.match.identifyAgainHelp': 'Search TMDB again, also in the trackers’ languages.',
   'upload.overrides.field.hybrid': 'Hybrid',
+  'upload.demo.title': 'Example upload',
+  'upload.demo.description': 'The real screens of an upload, with an example movie. Nothing is created, searched or published: feel free to click everything.',
+  'upload.demo.approved': 'A real upload would start here: torrent and screenshots, publishing on the chosen trackers and seeding in the client. This was only an example, and nothing happened.',
 } as const

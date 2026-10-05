@@ -18,6 +18,7 @@ import {
   useUpdateSonarrInstance,
 } from '@/api/hooks/arrInstances'
 import { Button } from '@/components/ui/button'
+import { ConfirmButton } from '@/components/ConfirmButton'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   Dialog,
@@ -128,8 +129,8 @@ function BasicAuthFields({
 }) {
   return (
     <div className="grid gap-3 rounded-md border p-3">
-      <div className="flex items-center justify-between">
-        <div>
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
           <Label>{t('integrations.basicAuth')}</Label>
           <p className="text-xs text-muted-foreground">{t('integrations.basicAuthDescription')}</p>
         </div>
@@ -324,8 +325,30 @@ function ArrInstancesCard({
   testConnectionMutation: UseMutationResult<ArrInstanceTestResult, Error, ArrConnectionTestBody>
   testInstanceMutation: UseMutationResult<ArrInstanceTestResult, Error, number>
 }) {
+  const actions = (instance: ArrInstance) => (
+    <>
+      <ArrInstanceDialog
+        serviceName={title}
+        instance={instance}
+        updateMutation={updateMutation}
+        testConnectionMutation={testConnectionMutation}
+        testInstanceMutation={testInstanceMutation}
+      />
+      <ConfirmButton
+        trigger={
+          <Button variant="ghost" size="icon-sm" title={t('common.delete')}>
+            <TrashIcon className="size-4" />
+          </Button>
+        }
+        title={t('integrations.deleteInstanceTitle', { label: instance.label })}
+        description={t('integrations.deleteInstanceDescription', { name: title })}
+        pending={deleteMutation.isPending}
+        onConfirm={() => deleteMutation.mutate(instance.id)}
+      />
+    </>
+  )
   return (
-    <Card data-tour={tour}>
+    <Card data-tour={tour} data-tour-filled={instances?.length ? 'true' : undefined}>
       <CardHeader>
         <div className="flex w-full items-center justify-between gap-3">
           <div className="flex items-center gap-3">
@@ -342,6 +365,33 @@ function ArrInstancesCard({
         <CardDescription>{t('integrations.arrUsageDescription')}</CardDescription>
       </CardHeader>
       <CardContent>
+        {/* Da telefono cinque colonne non ci stanno (URL intero, azioni fuori
+            schermo): una riga per istanza, URL sotto il nome. */}
+        <ul className="divide-y sm:hidden">
+          {isPending && <li className="py-2 text-center text-sm text-muted-foreground">{t('common.loading')}</li>}
+          {instances?.map((instance) => (
+            <li key={instance.id} className="grid gap-1 py-2">
+              <div className="flex items-center gap-2">
+                <span className="min-w-0 flex-1 truncate font-medium">{instance.label}</span>
+                <Switch
+                  checked={instance.enabled}
+                  aria-label={t('integrations.instanceEnabled')}
+                  onCheckedChange={(enabled) =>
+                    updateMutation.mutate({ id: instance.id, body: { enabled } }, autosaveFeedback(instance.label))
+                  }
+                />
+                {actions(instance)}
+              </div>
+              <p className="font-mono text-xs break-all text-muted-foreground">
+                {instance.base_url} · {t('integrations.priority')} {instance.priority}
+              </p>
+            </li>
+          ))}
+          {instances?.length === 0 && (
+            <li className="py-2 text-center text-sm text-muted-foreground">{t('integrations.noInstances')}</li>
+          )}
+        </ul>
+        <div className="hidden sm:block">
         <Table>
           <TableHeader>
             <TableRow>
@@ -363,7 +413,9 @@ function ArrInstancesCard({
             {instances?.map((instance) => (
               <TableRow key={instance.id}>
                 <TableCell className="font-medium">{instance.label}</TableCell>
-                <TableCell className="font-mono text-xs">{instance.base_url}</TableCell>
+                <TableCell className="max-w-64 truncate font-mono text-xs" title={instance.base_url}>
+                  {instance.base_url}
+                </TableCell>
                 <TableCell className="font-mono text-xs">{instance.priority}</TableCell>
                 <TableCell>
                   <Switch
@@ -373,22 +425,10 @@ function ArrInstancesCard({
                     }
                   />
                 </TableCell>
-                <TableCell className="flex justify-end gap-1">
-                  <ArrInstanceDialog
-                    serviceName={title}
-                    instance={instance}
-                    updateMutation={updateMutation}
-                    testConnectionMutation={testConnectionMutation}
-                    testInstanceMutation={testInstanceMutation}
-                  />
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    title={t('common.delete')}
-                    onClick={() => deleteMutation.mutate(instance.id)}
-                  >
-                    <TrashIcon className="size-4" />
-                  </Button>
+                {/* I pulsanti in un div: un TableCell flex non è più una cella
+                    e scompagina la riga. */}
+                <TableCell>
+                  <div className="flex justify-end gap-1">{actions(instance)}</div>
                 </TableCell>
               </TableRow>
             ))}
@@ -401,6 +441,7 @@ function ArrInstancesCard({
             )}
           </TableBody>
         </Table>
+        </div>
       </CardContent>
     </Card>
   )

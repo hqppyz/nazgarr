@@ -1,18 +1,10 @@
 """Gli adapter integrati, iscritti al registro come farebbe un plugin
 (nazgarr/plugins/registry.py). Tracker e client leggono le colonne che hanno
-sempre avuto (ctx.row); gli host di immagini la loro api_key dalle
-impostazioni (nazgarr/integrations/adapter_factory.py)."""
+sempre avuto (ctx.row). Gli host di immagini sono plugin inclusi
+(nazgarr/bundled/), caricati qui a nome loro: si configurano, si accendono e
+si spengono come quelli installati.
+"""
 
-from nazgarr.adapters.image_host.dalexni import DalexniAdapter
-from nazgarr.adapters.image_host.imgbb import ImgbbAdapter
-from nazgarr.adapters.image_host.imgbox import ImgboxAdapter
-from nazgarr.adapters.image_host.lensdump import LensdumpAdapter
-from nazgarr.adapters.image_host.onlyimage import OnlyimageAdapter
-from nazgarr.adapters.image_host.pixhost import PixhostAdapter
-from nazgarr.adapters.image_host.ptpimg import PtpimgAdapter
-from nazgarr.adapters.image_host.ptscreens import PtscreensAdapter
-from nazgarr.adapters.image_host.seedpool_cdn import SeedpoolCdnAdapter
-from nazgarr.adapters.image_host.utppm import UtppmAdapter
 from nazgarr.adapters.notification.discord import DiscordNotificationAdapter
 from nazgarr.adapters.notification.telegram import TelegramNotificationAdapter
 from nazgarr.adapters.torrent_client.deluge import DelugeAdapter
@@ -21,9 +13,13 @@ from nazgarr.adapters.torrent_client.qui import QuiTorrentClientAdapter
 from nazgarr.adapters.torrent_client.rtorrent import RTorrentAdapter
 from nazgarr.adapters.torrent_client.transmission import TransmissionAdapter
 from nazgarr.adapters.tracker.base import Unit3dTrackerAdapter
-from nazgarr.plugins.registry import AdapterContext, AdapterSpec, ConfigField, register
+from nazgarr.bundled import imageride, imgbb, passtheima, ptscreens
+from nazgarr.plugins import switch
+from nazgarr.plugins.registry import AdapterContext, AdapterSpec, ConfigField, register, registering_as
 
-API_KEY = ConfigField("api_key", "API key", type="secret", required=True)
+# I plugin inclusi, uno per host (Impostazioni › Plugin li accende e spegne
+# uno per uno): il nome con cui si registrano e il loro modulo.
+BUNDLED = {module.PLUGIN_NAME: module for module in (ptscreens, passtheima, imageride, imgbb)}
 
 
 def _qbittorrent(ctx: AdapterContext) -> QBittorrentAdapter:
@@ -63,10 +59,6 @@ def _unit3d(ctx: AdapterContext) -> Unit3dTrackerAdapter:
     )
 
 
-def _keyed(cls):
-    return lambda ctx: cls(api_key=ctx.config["api_key"])
-
-
 register(AdapterSpec("torrent_client", "qbittorrent", "qBittorrent", _qbittorrent))
 register(AdapterSpec("torrent_client", "qui", "qui", _qui))
 register(AdapterSpec("torrent_client", "deluge", "Deluge", _deluge))
@@ -74,16 +66,10 @@ register(AdapterSpec("torrent_client", "transmission", "Transmission", _transmis
 register(AdapterSpec("torrent_client", "rutorrent", "rTorrent / ruTorrent", _rtorrent))
 register(AdapterSpec("tracker", "unit3d", "UNIT3D", _unit3d))
 
-for adapter_type, label, cls in (
-    ("ptpimg", "PTPImg", PtpimgAdapter), ("imgbb", "ImgBB", ImgbbAdapter), ("lensdump", "Lensdump", LensdumpAdapter),
-    ("ptscreens", "PTScreens", PtscreensAdapter), ("onlyimage", "OnlyImage", OnlyimageAdapter),
-    ("dalexni", "Dalexni", DalexniAdapter), ("utppm", "utp.pm", UtppmAdapter),
-    ("seedpool_cdn", "Seedpool CDN", SeedpoolCdnAdapter),
-):
-    register(AdapterSpec("image_host", adapter_type, label, _keyed(cls), config_fields=(API_KEY,)))
-# Upload anonimi: nessuna chiave.
-register(AdapterSpec("image_host", "imgbox", "Imgbox", lambda ctx: ImgboxAdapter()))
-register(AdapterSpec("image_host", "pixhost", "Pixhost", lambda ctx: PixhostAdapter()))
+for _name, _module in BUNDLED.items():
+    with registering_as(_name):
+        _module.setup()
+    switch.remember(_name, _module.setup)
 
 # Notifiche: ogni istanza ha la sua riga in notification_service (cifrata), come per i plugin.
 register(AdapterSpec(

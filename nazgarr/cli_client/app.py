@@ -29,7 +29,7 @@ HELP = """Nazgarr from the command line.
 
 Server commands (init, serve, install-service) run Nazgarr on this machine.
 Every other command talks to a running instance through its API: log in once
-with `nazgarr login --url http://HOST:8080`, then use it like the web UI.
+with `nazgarr login --url http://HOST:3019`, then use it like the web UI.
 
 Full guide: https://github.com/lktorrentz/nazgarr/blob/main/docs/CLI.md
 """
@@ -68,7 +68,7 @@ def build() -> typer.Typer:
     def serve(
         config: str = typer.Option(None, "--config", help="Path of config.yaml."),
         host: str = typer.Option("0.0.0.0", "--host"),
-        port: int = typer.Option(8080, "--port"),
+        port: int = typer.Option(3019, "--port"),
     ):
         """Start the server (always one process)."""
         return server.cmd_serve(SimpleNamespace(config=config, host=host, port=port))
@@ -77,7 +77,7 @@ def build() -> typer.Typer:
     def install_service(
         config: str = typer.Option(None, "--config", help="Path of config.yaml."),
         host: str = typer.Option("0.0.0.0", "--host"),
-        port: int = typer.Option(8080, "--port"),
+        port: int = typer.Option(3019, "--port"),
         print_only: bool = typer.Option(False, "--print", help="Print the file instead of writing it."),
     ):
         """Write the systemd (Linux) or launchd (macOS) service file."""

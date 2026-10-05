@@ -36,6 +36,7 @@ export const notImported = {
   'notImported.days': '{count}g',
   'notImported.hours': '{count}h',
   'notImported.rightClickHint': 'Fai clic destro su un torrent per caricarlo o fare il reseed sui tuoi tracker.',
+  'notImported.touchHint': 'Tieni premuto un torrent, o tocca ⋯, per caricarlo o fare il reseed sui tuoi tracker.',
   'notImported.removable.column': 'Rimovibile',
   'notImported.removable.columnHelp':
     'Se il torrent ha già soddisfatto il requisito di seed del suo tracker (seedtime minimo e/o ratio, impostati sul tracker) e si può rimuovere senza un hit and run.',
@@ -65,4 +66,7 @@ export const notImported = {
   'notImported.remove.irreversible': "Non si può annullare. La libreria non viene toccata: questo torrent non ha hardlink lì.",
   'notImported.remove.confirm': "Rimuovi e cancella i file",
   'notImported.remove.done': "{name} rimosso dal client, file cancellati.",
+  'notImported.noLibraryTitle': 'Nessuna libreria da confrontare',
+  'notImported.noLibrary':
+    'Il Triage mostra i torrent che non sono mai arrivati nella libreria, ma nessun disco ha una cartella media: ogni torrent risulterebbe "mai importato". Aggiungi una cartella media in Impostazioni › Archiviazione per vedere il perché di ognuno.',
 } as const

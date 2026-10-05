@@ -32,7 +32,9 @@ export function TorrentFolderView() {
         header={
           <>
             <TorrentViewSwitch />
-            <p className="text-xs text-muted-foreground">{t('library.torrentRightClickHint')}</p>
+            {/* Clic destro col mouse, pressione lunga o ⋯ su touch. */}
+            <p className="text-xs text-muted-foreground pointer-coarse:hidden">{t('library.torrentRightClickHint')}</p>
+            <p className="hidden text-xs text-muted-foreground pointer-coarse:block">{t('library.torrentTouchHint')}</p>
           </>
         }
         actions={menu.actions}

@@ -26,6 +26,8 @@ export const CHECKLIST: ChecklistStep[] = [
   { key: 'reseeding', to: '/config?tab=matching', optional: true, from: 'seen' },
   { key: 'upload', to: '/config?tab=images', optional: true, from: 'status', when: 'upload' },
   { key: 'first_scan', to: '/dashboard', optional: false, from: 'status' },
+  // Solo per far conoscere il resto: upload, notifiche, istanze, API key, plugin.
+  { key: 'extras', to: '/upload', optional: true, from: 'seen' },
 ]
 
 export function visibleSteps(state: OnboardingState): ChecklistStep[] {

@@ -16,7 +16,7 @@ export function FloatingActivity({ job }: { job: UploadJob }) {
   const slot = useFloatingSlot()
   const last = job.events[job.events.length - 1]
   const panel = (
-    <div className="w-96 max-w-[calc(100vw-2rem)] rounded-lg border bg-card text-sm shadow-lg">
+    <div className="w-96 max-w-[calc(100vw-2rem)] rounded-lg border bg-card text-sm shadow-lg max-sm:w-full">
       <button
         type="button"
         aria-expanded={open}
@@ -36,7 +36,7 @@ export function FloatingActivity({ job }: { job: UploadJob }) {
         </span>
       </button>
       {open && (
-        <div className="max-h-[50vh] overflow-y-auto border-t px-4 py-3">
+        <div className="max-h-[40svh] overflow-y-auto border-t px-4 py-3 sm:max-h-[50vh]">
           <UploadEventLog events={job.events} targets={job.targets} />
         </div>
       )}

@@ -1,23 +1,18 @@
 # Nazgarr - static configuration
 #
 # Physical disks are NOT listed here: just mount them into the container
-# under disk_scan_root, and they'll show up on their own via the API
-# ("Add disk") ready to register, no need to touch this file or restart
-# (see docs/SPEC.md SS4).
+# (Docker volumes or the Unraid template) and they show up in
+# Settings > Storage, ready to add as disks (see docs/SPEC.md SS4).
 #
-# disk_scan_root: default "/data" - matches the TrashGuide convention
-# (a single unified data mount shared with your download client and
-# media manager, so hardlinks between them work). Change it only if your
-# setup mounts things elsewhere inside the container. A single-mount
-# setup like this registers disk_scan_root itself as its one Disk; a
-# multi-disk Unraid setup (mounting each physical disk directly, e.g.
-# /mnt/disk1) instead sets this to /mnt and registers each subfolder as
-# its own Disk - both are supported, see docs/SPEC.md SS2/SS4.
+# disk_scan_root: optional. In Docker you don't need it: the folders you
+# mount are where disks can be (a single /data, TRaSH Guides style, or
+# /mnt/disk1 and /mnt/disk2 for separate disks). Set it only to restrict
+# disks to one folder; outside Docker (pipx) `nazgarr init` writes it.
+#
+# disk_scan_root: /data
 #
 # data_dir: the app's own persistent state (SQLite database, poster
 # cache) - lives under the config mount by default so a single appdata
 # volume covers both config.yaml and this.
-
-disk_scan_root: /data
 
 data_dir: /app/config/data

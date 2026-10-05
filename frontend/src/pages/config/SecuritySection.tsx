@@ -47,19 +47,21 @@ export function SecuritySection() {
             <Input
               id="sec-current"
               type="password"
+              autoComplete="current-password"
               value={currentPassword}
               onChange={(e) => setCurrentPassword(e.target.value)}
             />
           </div>
           <div className="grid gap-1.5">
             <Label htmlFor="sec-new">{t('security.newPassword')}</Label>
-            <Input id="sec-new" type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
+            <Input id="sec-new" type="password" autoComplete="new-password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
           </div>
           <div className="grid gap-1.5">
             <Label htmlFor="sec-confirm">{t('security.confirmPassword')}</Label>
             <Input
               id="sec-confirm"
               type="password"
+              autoComplete="new-password"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
             />

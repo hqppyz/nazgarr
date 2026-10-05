@@ -87,11 +87,11 @@ export function GettingStartedCard() {
                     <span className="text-xs text-muted-foreground">{t(`onboarding.step.${step.key}.summary`)}</span>
                   </span>
                   {tourFor(step.key) ? (
-                    <span className="mt-0.5 shrink-0 text-xs text-primary opacity-0 group-hover:opacity-100">
+                    <span className="mt-0.5 shrink-0 text-xs text-primary pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100">
                       {t('onboarding.checklist.guide')}
                     </span>
                   ) : (
-                    <ArrowRightIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground opacity-0 group-hover:opacity-100" />
+                    <ArrowRightIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100" />
                   )}
                 </Link>
               </li>

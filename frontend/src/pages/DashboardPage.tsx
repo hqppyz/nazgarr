@@ -74,7 +74,7 @@ function HealthCard({ data, history }: { data: Dashboard; history: HistoryPoint[
       </CardHeader>
       <CardContent className="grid gap-4">
         <HealthGauge value={data.health_pct} color={color}>
-          <span className="text-5xl font-semibold tabular-nums">{Math.round(data.health_pct)}</span>
+          <span className="text-4xl font-semibold tabular-nums sm:text-5xl">{Math.round(data.health_pct)}</span>
           <span className="font-mono text-xs text-muted-foreground">/ 100</span>
           <span className="mt-1 flex items-center gap-1.5 text-sm font-medium">
             <span className={cn('size-2 rounded-full', dot)} />
@@ -165,8 +165,10 @@ function MetricCard({
         {value}
         <p className="text-xs text-muted-foreground">{subline}</p>
         <TrendLine trend={trend} />
-        <p className="flex-1 text-sm text-muted-foreground">{description}</p>
-        <Button variant="outline" className="mt-2 justify-start" render={<Link to={action.to} />}>
+        {/* Sul telefono la descrizione allungava la pagina di un'altra schermata. */}
+        <p className="hidden flex-1 text-sm text-muted-foreground sm:block">{description}</p>
+        <Button variant="outline" className="mt-2 h-auto min-h-8 justify-start text-left whitespace-normal"
+                render={<Link to={action.to} />}>
           <action.icon className="size-4" />
           {action.label}
         </Button>

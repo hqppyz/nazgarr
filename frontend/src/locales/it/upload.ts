@@ -1,10 +1,8 @@
 export const upload = {
   'upload.newUpload': 'Nuovo upload',
-  'upload.imageHostsNoKeyTitle': 'Nessuna API key configurata per gli host di immagini',
-  'upload.imageHostsNoKey':
-    'Gli screenshot andranno solo sugli host che funzionano senza key ({hosts}). Alcuni tracker non li accettano: per sicurezza aggiungi una API key.',
   'upload.imageHostsNoneTitle': 'Nessun host di immagini utilizzabile',
-  'upload.imageHostsNone': 'Gli screenshot non si possono caricare, quindi gli upload falliranno. I reseed funzionano comunque.',
+  'upload.imageHostsNone':
+    'Inserisci la API key di almeno un host (Impostazioni › Upload › Immagini): senza, gli screenshot non si caricano e gli upload falliscono. I reseed funzionano comunque.',
   'upload.imageHostsSettings': 'Apri le impostazioni degli host di immagini',
   'upload.newUploadDescription':
     'Scegli un film, un episodio, una cartella di stagione o una serie intera, e i tracker su cui pubblicarlo. Nazgarr lo identifica e ti chiede conferma prima di fare altro.',
@@ -45,7 +43,7 @@ export const upload = {
 
   'upload.picker.title': 'Scegli la sorgente',
   'upload.picker.description':
-    'Clicca un file o una cartella per selezionarlo, la freccia (o un doppio clic) apre una cartella.',
+    'Clicca un file o una cartella per selezionarlo; la freccia, un doppio clic o un secondo tocco aprono una cartella.',
   'upload.picker.noDisks': 'Ancora nessun disco configurato.',
   'upload.picker.nothingSelected': 'Niente di selezionato',
   'upload.picker.useFile': 'Usa questo file',
@@ -242,6 +240,14 @@ export const upload = {
   'upload.decision.confirmDescription':
     'Questa è la conferma finale: da qui Nazgarr crea i torrent e li pubblica da solo, senza chiedere di nuovo.',
   'upload.decision.confirm': 'Conferma e metti in coda',
+  'upload.decision.nameWithoutSource':
+    'Il nome non ha la sorgente (BluRay, WEB-DL…): non è stata trovata.',
+  'upload.decision.confirmWithoutSource':
+    'La sorgente non è stata trovata, quindi i nomi proposti non ce l’hanno. Se non l’hai scritta a mano nel nome, aggiungila prima di confermare.',
+  'upload.decision.addSource':
+    'Inserisci la sorgente',
+  'upload.decision.confirmAnyway':
+    'Metti in coda comunque',
   'upload.decision.approveFailed': 'Impossibile approvare: {message}',
 
   'upload.progress.stepsLabel': 'Passaggi',
@@ -369,6 +375,36 @@ export const upload = {
   'upload.overrides.missingSource':
     'Sorgente non trovata: nessun torrent in hardlink o nome di release dice da dove viene (BluRay, WEB-DL, HDTV…), quindi il nome non ce l’ha. Scrivila nel campo Sorgente.',
   'upload.overrides.setSource': 'Impostala',
+  'upload.typeBasis.type.name':
+    'Tipo letto dal nome della release.',
+  'upload.typeBasis.type.disc_no_encoder':
+    'Remux: la sorgente è un disco e il video non porta traccia di un encoder.',
+  'upload.typeBasis.type.encoder':
+    'Encode: il video porta la traccia di un encoder ({encoder}).',
+  'upload.typeBasis.type.encoderSettings':
+    'Encode: il video porta le impostazioni di un encoder.',
+  'upload.typeBasis.type.default':
+    'Encode per esclusione: né il nome né il MediaInfo dicono altro.',
+  'upload.typeBasis.source.name':
+    'Sorgente letta dal nome della release.',
+  'upload.typeBasis.source.mediainfo':
+    'Sorgente dal MediaInfo: il file viene da un disco.',
+  'upload.typeBasis.source.remux':
+    'Sorgente dedotta: un remux viene da un Blu-ray (o da un DVD, se a definizione standard).',
+  'upload.typeBasis.evidence':
+    'Segni di un disco nel MediaInfo:',
+  'upload.typeBasis.signal.origin':
+    'il MediaInfo dice da quale disco viene (Original source medium)',
+  'upload.typeBasis.signal.dv_el':
+    'Dolby Vision profilo 7 con enhancement layer (solo UHD Blu-ray)',
+  'upload.typeBasis.signal.vc1':
+    'video VC-1 (solo Blu-ray e HD DVD)',
+  'upload.typeBasis.signal.lossless':
+    'audio lossless (TrueHD, DTS-HD MA, LPCM)',
+  'upload.typeBasis.signal.pgs':
+    'sottotitoli PGS',
+  'upload.typeBasis.signal.bitrate':
+    'bitrate video da remux per la risoluzione',
   'upload.overrides.sourcePlaceholder': 'es. BluRay, WEB-DL',
   'upload.history.delete': 'Rimuovi dallo storico (non cambia niente su tracker, client o disco)',
   'upload.history.cancelRunning': "Annulla l'upload (passa nello storico)",
@@ -419,4 +455,7 @@ export const upload = {
   'upload.match.factor.product': '{factors} = {confidence}',
   'upload.match.identifyAgainHelp': 'Cerca di nuovo su TMDB, anche nelle lingue dei tracker.',
   'upload.overrides.field.hybrid': 'Ibrido',
+  'upload.demo.title': 'Upload di esempio',
+  'upload.demo.description': 'Le schermate vere di un upload, con un film di esempio. Niente viene creato, cercato o pubblicato: puoi cliccare tutto.',
+  'upload.demo.approved': 'Qui un upload vero partirebbe: torrent e screenshot, pubblicazione sui tracker scelti e seed nel client. Questo era solo un esempio, e non è successo niente.',
 } as const

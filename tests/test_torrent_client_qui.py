@@ -23,6 +23,8 @@ class _QuiMock:
         self.added_calls: list[dict] = []
         self.bulk_actions: list[dict] = []
         self.next_hash = "new-hash"
+        self.preferences = {}
+        self.bodies: list[bytes] = []
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         assert request.headers["X-API-Key"] == "tok123"
@@ -39,6 +41,7 @@ class _QuiMock:
             is_file_upload = b'name="torrent"' in request.content
             is_url = b'name="urls"' in request.content
             self.added_calls.append({"is_file_upload": is_file_upload, "is_url": is_url})
+            self.bodies.append(request.content)
             self.pages[0] = self.pages[0] + [
                 {"hash": self.next_hash, "name": "x", "savePath": "/torrents/x", "state": "uploading", "progress": 0.0}
             ]
@@ -47,6 +50,9 @@ class _QuiMock:
         if method == "POST" and path == f"{base}/torrents/bulk-action":
             self.bulk_actions.append(json.loads(request.content))
             return httpx.Response(200)
+
+        if method == "GET" and path == f"{base}/preferences":
+            return httpx.Response(200, json=self.preferences)
 
         if method == "GET" and path.endswith("/files"):
             h = path.rsplit("/", 2)[1]
@@ -80,7 +86,10 @@ def test_add_torrent_via_url_sends_urls_field_and_forces_recheck():
 
     assert info_hash == "new-hash"
     assert mock.added_calls[0] == {"is_file_upload": False, "is_url": True}
-    assert mock.bulk_actions == [{"hashes": ["new-hash"], "action": "recheck"}]
+    # Il recheck e poi l'avvio: un reseed deve seedare anche con le preferenze
+    # "non avviare automaticamente" del qBittorrent dietro.
+    assert mock.bulk_actions == [{"hashes": ["new-hash"], "action": "recheck"},
+                                 {"hashes": ["new-hash"], "action": "resume"}]
 
 
 def test_add_torrent_via_local_file_sends_torrent_field(tmp_path):
@@ -93,6 +102,24 @@ def test_add_torrent_via_local_file_sends_torrent_field(tmp_path):
 
     assert info_hash == "new-hash"
     assert mock.added_calls[0] == {"is_file_upload": True, "is_url": False}
+
+
+def test_add_torrent_sends_the_content_layout():
+    mock = _QuiMock()
+    _adapter(mock).add_torrent("magnet:?xt=...", save_path="/torrents/movie")
+    assert b'name="contentLayout"\r\n\r\nOriginal' in mock.bodies[0]
+    assert b'name="paused"\r\n\r\nfalse' in mock.bodies[0]
+
+
+@pytest.mark.parametrize(("prefs", "expected"), [
+    ({"torrent_content_layout": "Subfolder"}, "Subfolder"),
+    ({"torrent_content_layout": "x"}, "Original"),
+    ({}, "Original"),
+])
+def test_content_layout_reads_the_preferences_of_the_instance(prefs, expected):
+    mock = _QuiMock()
+    mock.preferences = prefs
+    assert _adapter(mock).content_layout() == expected
 
 
 def test_add_torrent_rejects_force_recheck_false():
@@ -247,3 +274,40 @@ def test_remove_torrent_uses_the_bulk_delete_with_delete_files(delete_files):
     _adapter(mock).remove_torrent("h1", delete_files=delete_files)
 
     assert mock.bulk_actions == [{"hashes": ["h1"], "action": "delete", "deleteFiles": delete_files}]
+
+
+def test_the_instances_are_listed_in_qui_order():
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert (request.url.path, request.headers["X-API-Key"]) == ("/api/instances", "tok123")
+        return httpx.Response(200, json=[
+            {"id": 3, "name": "seedbox", "host": "http://qb2:8080", "connected": True, "isActive": True,
+             "sortOrder": 2},
+            {"id": 1, "name": "home", "host": "http://qb1:8080", "connected": True, "isActive": True,
+             "sortOrder": 1},
+            {"id": 9, "name": "old", "host": "http://qb3", "connected": True, "isActive": False, "sortOrder": 3},
+            {"name": "no id"},
+        ])
+
+    client = httpx.Client(base_url="http://qui:7476", headers={"X-API-Key": "tok123"},
+                          transport=httpx.MockTransport(handler))
+    instances = QuiTorrentClientAdapter.list_instances("http://qui:7476", "tok123", http_client=client)
+
+    assert [(i["id"], i["name"], i["active"], i["connected"]) for i in instances] == [
+        (1, "home", True, True), (3, "seedbox", True, True), (9, "old", False, False)]
+
+
+def test_the_api_lists_qui_instances_and_never_sends_a_saved_token_to_a_new_host(client, monkeypatch):
+    seen = []
+    monkeypatch.setattr(QuiTorrentClientAdapter, "list_instances",
+                        staticmethod(lambda base_url, token, http_client=None: seen.append((base_url, token))
+                                     or [{"id": 1, "name": "home", "host": None, "active": True, "connected": True}]))
+    listed = client.post("/api/torrent-clients/qui-instances", json={"base_url": "http://qui:7476", "api_token": "k"})
+    assert listed.json()["instances"][0]["name"] == "home"
+
+    tc = client.post("/api/torrent-clients", json={"label": "qui", "adapter_type": "qui", "base_url": "http://qui:7476",
+                                                   "api_token": "saved", "qui_instance_id": 1}).json()["id"]
+    client.post("/api/torrent-clients/qui-instances", json={"base_url": "http://qui:7476", "torrent_client_id": tc})
+    assert seen[-1] == ("http://qui:7476", "saved")
+    moved = client.post("/api/torrent-clients/qui-instances",
+                        json={"base_url": "http://evil:1", "torrent_client_id": tc})
+    assert moved.status_code == 400 and seen[-1][1] == "saved" and len(seen) == 2

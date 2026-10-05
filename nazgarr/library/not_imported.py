@@ -163,6 +163,17 @@ def mark_skipped(session: Session, reason: str) -> None:
 
 
 def classify_not_imported(session: Session, arr_index, run: RunLog | None = None) -> dict[str, int]:
+    # Senza cartelle media non c'è una libreria in cui un torrent possa
+    # essere importato: ogni torrent sarebbe "mai importato", solo rumore.
+    # Niente classificazione, e la vista spiega perché (decisione
+    # dell'utente, 2026-10-05).
+    if not any(disk.media_folders for disk in session.query(Disk).all()):
+        session.query(NotImportedTorrent).delete(synchronize_session=False)
+        session.commit()
+        _save_status(session, computed_at=datetime.now(UTC).isoformat(), with_arr=arr_index is not None,
+                     skipped_at=None, skipped_reason=None, no_library=True)
+        logger.info("Not imported: nessuna cartella media, classificazione saltata")
+        return dict.fromkeys(CATEGORIES, 0)
     library = _Library(session)
     exclusions = load_exclusions(session)
     linked_seed_ids = {sf_id for sfs in media_links(session).values() for sf_id, _ in sfs}
@@ -217,6 +228,6 @@ def classify_not_imported(session: Session, arr_index, run: RunLog | None = None
     bulk_insert(session, NotImportedTorrent.__table__, rows)
     session.commit()
     _save_status(session, computed_at=datetime.now(UTC).isoformat(), with_arr=arr_index is not None,
-                 skipped_at=None, skipped_reason=None)
+                 skipped_at=None, skipped_reason=None, no_library=False)
     logger.info("Not imported: %d torrent (%s)", len(rows), ", ".join(f"{k} {v}" for k, v in counts.items() if v))
     return counts

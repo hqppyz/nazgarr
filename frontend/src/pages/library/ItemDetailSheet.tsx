@@ -9,6 +9,7 @@ import {
   Loader2Icon,
   RefreshCwIcon,
   SearchIcon,
+  XIcon,
 } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -18,6 +19,7 @@ import { useExcludeFile, useItemDetail, useLibraryEpisodeOrders, useSearchNow } 
 import type { EpisodeOrder } from '@/api/hooks/uploads'
 import { useApproveReview, useReconcileNow, useRejectReview } from '@/api/hooks/reviews'
 import { AuthedPoster } from '@/components/AuthedPoster'
+import { ConfirmButton } from '@/components/ConfirmButton'
 import { FullCheckButton } from '@/components/FullCheckButton'
 import { StateBadge, StatusBadge, StoppedBadge } from '@/components/StateBadge'
 import { VerifyStatus } from '@/components/VerifyStatus'
@@ -25,7 +27,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
+import { Sheet, SheetClose, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { episodeLabel, seasonCounts, sourceProblems, translateEpisode } from '@/lib/episodeOrders'
 import { t } from '@/lib/i18n'
 import { formatBytes } from '@/lib/library-filters'
@@ -61,7 +63,7 @@ function titleOf(order: EpisodeOrder, f: DetailFile): { code: string; title?: st
 
 function Section({ title, children, action }: { title: string; children: React.ReactNode; action?: React.ReactNode }) {
   return (
-    <section className="grid gap-2">
+    <section className="grid grid-cols-[minmax(0,1fr)] gap-2">
       <div className="flex items-center justify-between gap-2">
         <h3 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{title}</h3>
         {action}
@@ -120,15 +122,23 @@ function FileRow({
   const orphan = file.is_video && !file.excluded && file.state !== 'seeding'
   const code = showEpisode ? episode?.code ?? episodeCode(file) : null
   return (
-    <div className={cn('grid gap-1 rounded-md border p-2.5', file.excluded && 'opacity-60')}>
-      <div className="flex items-start gap-2">
+    // Componendo un pack tutta la riga sceglie l'episodio, come nell'albero:
+    // sul telefono la casella da sola è un bersaglio minuscolo.
+    <div
+      className={cn('grid grid-cols-[minmax(0,1fr)] gap-1 rounded-md border p-2.5', file.excluded && 'opacity-60', picking && 'cursor-pointer select-none')}
+      onClick={picking && selection ? (e) => selection.pick(packFile(file), e.shiftKey, ordered) : undefined}
+    >
+      <div className="flex flex-wrap items-start gap-2 sm:flex-nowrap">
         {picking && selection && (
           <input
             type="checkbox"
             aria-label={file.relative_path}
-            className="mt-0.5 size-3.5 shrink-0 accent-primary"
+            className="mt-0.5 size-3.5 shrink-0 accent-primary pointer-coarse:size-5"
             checked={selection.has(packFile(file))}
-            onClick={(e) => selection.pick(packFile(file), e.shiftKey, ordered)}
+            onClick={(e) => {
+              e.stopPropagation()
+              selection.pick(packFile(file), e.shiftKey, ordered)
+            }}
             onChange={() => {}}
           />
         )}
@@ -137,7 +147,7 @@ function FileRow({
         ) : (
           <FileIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
         )}
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 flex-1 basis-[calc(100%-2rem)] sm:basis-auto">
           <p className="font-mono text-xs break-all">
             {code && <span className="mr-1.5 font-sans font-medium">{code}</span>}
             {file.relative_path}
@@ -160,34 +170,47 @@ function FileRow({
             <span className="text-xs text-muted-foreground tabular-nums">{formatBytes(file.size_bytes)}</span>
           </div>
         </div>
-        {orphan && (
-          <Button
-            size="xs"
-            variant="outline"
-            title={t('itemDetail.uploadOrReseedHelp')}
-            onClick={() =>
-              navigate(newUploadLink({ diskId: file.disk_id, path: file.relative_path, isDir: false }, uploadTmdb))
-            }
-          >
-            <UploadIcon className="size-3.5" />
-            {t('itemDetail.uploadOrReseed')}
-          </Button>
-        )}
-        {!file.excluded && (
-          <Button
-            size="icon-xs"
-            variant="ghost"
-            title={t('itemDetail.exclude')}
-            disabled={exclude.isPending}
-            onClick={() =>
-              exclude.mutate(file.relative_path)
-            }
-          >
-            <EyeOffIcon className="size-3.5" />
-          </Button>
+        {/* Sotto sm le azioni vanno a capo, sotto il nome, invece di stringerlo. */}
+        {(orphan || !file.excluded) && (
+          <div className="flex shrink-0 items-center gap-2 max-sm:w-full max-sm:justify-end" onClick={(e) => e.stopPropagation()}>
+            {orphan && (
+              <Button
+                size="xs"
+                variant="outline"
+                title={t('itemDetail.uploadOrReseedHelp')}
+                onClick={() =>
+                  navigate(newUploadLink({ diskId: file.disk_id, path: file.relative_path, isDir: false }, uploadTmdb))
+                }
+              >
+                <UploadIcon className="size-3.5" />
+                {t('itemDetail.uploadOrReseed')}
+              </Button>
+            )}
+            {!file.excluded && (
+              // Con una conferma: sul telefono un tocco sbagliato escludeva il file.
+              <ConfirmButton
+                trigger={
+                  <Button
+                    size="icon-xs"
+                    variant="ghost"
+                    title={t('itemDetail.exclude')}
+                    aria-label={t('itemDetail.exclude')}
+                    disabled={exclude.isPending}
+                  >
+                    <EyeOffIcon className="size-3.5" />
+                  </Button>
+                }
+                title={t('library.menu.excludeFileTitle')}
+                description={t('library.menu.excludeFileDescription')}
+                confirmLabel={t('library.menu.excludeConfirm')}
+                pending={exclude.isPending}
+                onConfirm={() => exclude.mutate(file.relative_path)}
+              />
+            )}
+          </div>
         )}
       </div>
-      <div className="grid gap-0.5 pl-5 text-xs text-muted-foreground">
+      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-0.5 pl-5 text-xs text-muted-foreground">
         {file.hardlinks.length === 0 ? (
           <p className="flex items-center gap-1">
             <CornerDownRightIcon className="size-3 shrink-0" />
@@ -204,7 +227,7 @@ function FileRow({
                 <p className="pl-4 text-destructive">{t('itemDetail.notInClient')}</p>
               ) : (
                 link.torrents.map((torrent) => (
-                  <p key={`${torrent.client}-${torrent.name}`} className="pl-4">
+                  <p key={`${torrent.client}-${torrent.name}`} className="pl-4 [overflow-wrap:anywhere]">
                     {[torrent.client, torrent.tracker, torrent.state].filter(Boolean).join(' · ')}
                     <span className="ml-1 opacity-70">({torrent.name})</span>
                   </p>
@@ -471,12 +494,13 @@ function Matching({ detail }: { detail: Detail }) {
           </CollapsibleTrigger>
           <CollapsibleContent className="mt-1.5 grid gap-1">
             {detail.candidates.map((c) => (
-              <div key={c.id} className="flex items-start justify-between gap-2 text-xs">
+              // Sotto sm il tracker e il controllo vanno sotto il nome, che altrimenti si riduceva a una colonna.
+              <div key={c.id} className="flex items-start justify-between gap-2 text-xs max-sm:flex-col">
                 <span className="min-w-0 font-mono break-all">
                   {c.name}
                   {c.videos > 1 && <span className="ml-1 font-sans text-muted-foreground">({c.videos} videos)</span>}
                 </span>
-                <span className="grid shrink-0 justify-items-end gap-1 text-right text-muted-foreground tabular-nums">
+                <span className="grid shrink-0 justify-items-end gap-1 text-right text-muted-foreground tabular-nums max-sm:justify-items-start max-sm:text-left sm:max-w-[45%]">
                   <span>
                     {c.tracker} · {(c.confidence * 100).toFixed(0)}%
                     {c.ambiguity_reason && <span className="block">{c.ambiguity_reason}</span>}
@@ -558,7 +582,24 @@ export function ItemDetailSheet({ item, onClose }: { item: OpenItem | null; onCl
         onClose()
       }}
     >
-      <SheetContent className="w-full overflow-y-auto data-[side=right]:sm:max-w-2xl">
+      {/* Sul telefono a tutta larghezza: la base del Sheet (w-3/4) lasciava 270 px. */}
+      <SheetContent showCloseButton={false} className="overflow-y-auto data-[side=right]:w-full data-[side=right]:sm:max-w-2xl">
+        {/* La X del Sheet è assoluta e sparisce scorrendo una scheda lunga:
+            questa resta fissa in cima (h-0 e -mb-4: non sposta il contenuto). */}
+        <div className="sticky top-0 z-10 -mb-4 h-0 shrink-0">
+          <SheetClose
+            render={
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="absolute top-3 right-3 bg-popover/80 backdrop-blur-sm"
+                aria-label={t('library.closeSheet')}
+              />
+            }
+          >
+            <XIcon />
+          </SheetClose>
+        </div>
         {isPending || !detail ? (
           <div className="grid h-full place-items-center text-sm text-muted-foreground">
             {error ? error.message : <Loader2Icon className="size-5 animate-spin" />}
@@ -570,7 +611,7 @@ export function ItemDetailSheet({ item, onClose }: { item: OpenItem | null; onCl
                 contentType={detail.content_type}
                 tmdbId={detail.tmdb_id}
                 hasPoster={detail.has_poster}
-                className="aspect-[2/3] w-24 shrink-0 overflow-hidden rounded-md border"
+                className="aspect-[2/3] w-16 shrink-0 overflow-hidden rounded-md border sm:w-24"
               />
               <div className="grid min-w-0 content-start gap-1.5 pr-8">
                 <SheetTitle className="text-lg">
@@ -604,7 +645,10 @@ export function ItemDetailSheet({ item, onClose }: { item: OpenItem | null; onCl
                 <ExternalLinks detail={detail} />
               </div>
             </SheetHeader>
-            <div className="grid gap-6 px-4 pb-6">
+            {/* minmax(0,1fr): la colonna non si allarga fino al testo più lungo
+                che non si spezza (un nome di torrent), che sul telefono faceva
+                uscire tutte le card dallo schermo. */}
+            <div className="grid grid-cols-[minmax(0,1fr)] gap-6 px-4 pb-6">
               <Reviews detail={detail} />
               <Section title={t('itemDetail.trackers')}>
                 <TrackerOverview detail={detail} />
@@ -633,7 +677,11 @@ export function ItemDetailSheet({ item, onClose }: { item: OpenItem | null; onCl
               </Section>
               <Matching detail={detail} />
               <History detail={detail} />
-              <PackBar selection={selection} tmdb={`${detail.content_type}/${detail.tmdb_id}`} />
+              <PackBar
+                selection={selection}
+                tmdb={`${detail.content_type}/${detail.tmdb_id}`}
+                shown={detail.files.filter(packable).map(packFile)}
+              />
             </div>
           </>
         )}

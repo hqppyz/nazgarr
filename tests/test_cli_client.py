@@ -118,9 +118,10 @@ def test_profiles_and_environment(cli_env, client, capsys, monkeypatch):
 
 
 def test_the_cli_messages_match_the_web_ui():
+    from nazgarr.core.errors import _english_messages
     from scripts.export_cli_messages import messages
 
-    assert json.loads((http.resources.files("nazgarr.cli_client") / "messages_en.json").read_text()) == messages()
+    assert _english_messages() == messages()
 
 
 # --- fase 2: configurazione -----------------------------------------------------

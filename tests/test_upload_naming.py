@@ -405,3 +405,113 @@ def test_the_video_codec_follows_the_release_type_with_or_without_mediainfo():
     rules = {"video_codecs": {"H.265": "H265"}}
     assert codec("Dune.2021.2160p.WEB-DL.H.265-GRP.mkv", {"format": "HEVC"}, rules=rules) == "H265"
     assert codec_label("VC-1", "REMUX") == "VC-1" and codec_label("MPEG Video", "REMUX") == "MPEG-2"
+
+
+def test_an_upscale_is_an_edition():
+    """Decisione dell'utente, 2026-10-05: "AI Upscaled" (e varianti) è
+    un'edizione, nel nome dove il modello del tracker mette {edition} (i
+    modelli di ITT, film e serie)."""
+    cases = {
+        "Absolute.Cinema.1895.2160p.AI.Upscaled.BluRay.x265-MaTiTa.mkv": "AI Upscaled",
+        "Movie.2001.Extended.AI-Upscale.1080p.WEB-DL.x264-GRP": "Extended AI Upscaled",
+        "Film.1999.1080p.Upscaled.BluRay.x264-X": "Upscaled",
+        "The.Upscalers.2020.1080p.WEB-DL-G": None,  # nel titolo, non un upscale
+    }
+    for name, edition in cases.items():
+        assert detect(name)["edition"] == edition, name
+
+    job = SimpleNamespace(title="Absolute Cinema", year=1895, content_type="movie", kind="movie", seasons_json="[]",
+                          episode=None)
+    values = release_values(job, detect("Absolute.Cinema.1895.2160p.AI.Upscaled.BluRay.x265-MaTiTa.mkv"), None, {},
+                            None)
+    with_edition = {"templates": {"default": "{title} {year} {edition} {resolution} {group}"}}
+    assert build_name(with_edition, values) == "Absolute Cinema 1895 AI Upscaled 2160p-MaTiTa"
+    # Il modello predefinito la prevede; uno senza {edition} non la mette: decide il profilo.
+    assert build_name(None, values) == "Absolute Cinema (1895) AI Upscaled 2160p BluRay x265-MaTiTa"
+    without = {"templates": {"default": "{title} {year} {resolution} {group}"}}
+    assert build_name(without, values) == "Absolute Cinema 1895 2160p-MaTiTa"
+
+
+# Il file segnalato (2026-10-05): "ballerina.mkv", un remux UHD che il nome non
+# descrive. MediaInfo ridotto ai campi che contano.
+_UHD_DISC_VIDEO = {
+    "format": "HEVC", "height": 2160, "width": 3840, "bit_rate": 74_400_000, "writing_library": None,
+    "encoding_settings": False, "hdr_format": "Dolby Vision / SMPTE ST 2086", "hdr_format_profile": "dvhe.07.06",
+    "hdr_format_string": "Dolby Vision, Version 1.0, Profile 7.6, dvhe.07.06, BL+EL+RPU, no metadata compression",
+}
+_TRUEHD = {"format": "MLP FBA 16-ch", "commercial_name": "Dolby TrueHD with Dolby Atmos", "channels": 8,
+           "language": "en"}
+_PGS = {"format": "PGS", "language": "en"}
+
+
+def test_a_renamed_uhd_remux_is_recognized_from_its_mediainfo():
+    from nazgarr.upload.naming import detect, release_values
+
+    mediainfo = {"video": _UHD_DISC_VIDEO, "audio": [_TRUEHD], "subtitles": [_PGS]}
+    values = release_values(_job(), detect("ballerina.mkv"), mediainfo, {}, None)
+
+    assert (values["type"], values["source"], values["video_codec"]) == ("REMUX", "BluRay", "HEVC")
+    assert values["type_basis"]["type"] == "disc_no_encoder"
+    assert values["type_basis"]["source"] == "mediainfo"
+    assert values["type_basis"]["evidence"] == ["dv_el", "lossless", "pgs", "bitrate"]
+
+
+def test_a_mux_with_web_video_and_disc_audio_gets_no_disc_source():
+    # DLMux: video web (niente encoder, bitrate basso), audio e sub dal Blu-ray.
+    from nazgarr.upload.naming import detect, release_values
+
+    video = {"format": "HEVC", "height": 2160, "width": 3840, "bit_rate": 16_000_000, "writing_library": None}
+    values = release_values(_job(), detect("film.mkv"), {"video": video, "audio": [_TRUEHD], "subtitles": [_PGS]},
+                            {}, None)
+
+    assert values["type"] == "ENCODE" and not values["source"]
+    assert values["type_basis"] == {"type": "default", "source": None, "evidence": ["lossless", "pgs"],
+                                    "encoder": None}
+
+
+def test_a_disc_encode_gets_its_source_and_stays_an_encode():
+    from nazgarr.upload.naming import detect, release_values
+
+    video = {"format": "HEVC", "height": 1080, "width": 1920, "bit_rate": 9_000_000, "writing_library": "x265 3.5",
+             "encoding_settings": True}
+    values = release_values(_job(), detect("film.mkv"), {"video": video, "audio": [_TRUEHD], "subtitles": [_PGS]},
+                            {}, None)
+
+    assert (values["type"], values["source"], values["video_codec"]) == ("ENCODE", "BluRay", "x265")
+    assert (values["type_basis"]["type"], values["type_basis"]["encoder"]) == ("encoder", "x265 3.5")
+
+
+def test_the_original_source_medium_of_mediainfo_names_the_disc():
+    # MakeMKV scrive da quale disco viene ogni traccia: basta da solo.
+    from nazgarr.upload.naming import detect, release_values
+
+    video = {"format": "AVC", "height": 1080, "width": 1920, "bit_rate": 9_000_000, "writing_library": None,
+             "original_source_medium": "Blu-ray"}
+    remux = release_values(_job(), detect("film.mkv"), {"video": video}, {}, None)
+    assert (remux["type"], remux["source"], remux["video_codec"]) == ("REMUX", "BluRay", "AVC")
+    assert remux["type_basis"]["evidence"] == ["origin"]
+
+    hd_dvd = release_values(_job(), detect("film.mkv"), {"video": {**video, "original_source_medium": "HD DVD"}},
+                            {}, None)
+    assert hd_dvd["source"] == "HDDVD"
+    # Encodato da quel disco: la sorgente sì, il remux no.
+    encode = release_values(_job(), detect("film.mkv"),
+                            {"video": {**video, "writing_library": "x264 core 164"}}, {}, None)
+    assert (encode["type"], encode["source"]) == ("ENCODE", "BluRay")
+
+
+def test_a_joined_bdremux_is_a_remux_and_profile_8_makes_it_hybrid():
+    # Segnalato (2026-10-05): guessit legge "BD-Remux" ma non "BDRemux" attaccato,
+    # e senza REMUX il controllo del Dolby Vision profilo 8 non partiva.
+    from nazgarr.upload.naming import detect, release_values
+
+    p8 = {"video": {"format": "HEVC", "height": 2160, "width": 3840, "bit_rate": 43_300_000, "writing_library": None,
+                    "hdr_format": "Dolby Vision / SMPTE ST 2086", "hdr_format_profile": "dvhe.08.06",
+                    "hdr_format_string": "Dolby Vision, Version 1.0, dvhe.08.06, BL+RPU, HDR10 compatible"}}
+    values = release_values(_job(), detect("The.Movie.2004.4K.HDR.DV.2160p.BDRemux Ita Eng x265-GRP"), p8, {}, None)
+    assert (values["type"], values["source"], values["video_codec"], values["hybrid"]) == (
+        "REMUX", "BluRay", "HEVC", "HYBRID")
+
+    assert (detect("Movie.2004.2160p.UHDRemux-GRP")["type"], detect("Movie.2004.2160p.UHDRemux-GRP")["source"]) == (
+        "REMUX", "BluRay")
+    assert detect("Movie.2004.576p.DVDRemux-GRP")["source"] == "DVD"

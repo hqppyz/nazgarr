@@ -46,9 +46,9 @@ export function ScanHistoryCard({ className }: { className?: string }) {
           <TableHeader>
             <TableRow>
               <TableHead>{t('scans.started')}</TableHead>
-              <TableHead>{t('scans.type')}</TableHead>
+              <TableHead className="hidden sm:table-cell">{t('scans.type')}</TableHead>
               <TableHead className="text-right">{t('scans.files')}</TableHead>
-              <TableHead className="text-right">{t('scans.matches')}</TableHead>
+              <TableHead className="hidden text-right sm:table-cell">{t('scans.matches')}</TableHead>
               <TableHead className="text-right">{t('scans.errors')}</TableHead>
             </TableRow>
           </TableHeader>
@@ -66,11 +66,11 @@ export function ScanHistoryCard({ className }: { className?: string }) {
                   <span className="font-mono text-xs tabular-nums">{formatStarted(run.started_at)}</span>
                   <StatusNote run={run} />
                 </TableCell>
-                <TableCell className="text-xs text-muted-foreground">
+                <TableCell className="hidden text-xs text-muted-foreground sm:table-cell">
                   {isScheduled(run) ? t('scans.scheduled') : t('scans.manual')}
                 </TableCell>
                 <TableCell className="text-right font-mono text-xs tabular-nums">{run.items_scanned.toLocaleString()}</TableCell>
-                <TableCell className="text-right font-mono text-xs tabular-nums">{run.matches_found.toLocaleString()}</TableCell>
+                <TableCell className="hidden text-right font-mono text-xs tabular-nums sm:table-cell">{run.matches_found.toLocaleString()}</TableCell>
                 <TableCell className="text-right">
                   <ErrorsPopover count={run.errors} messages={run.error_messages} />
                 </TableCell>

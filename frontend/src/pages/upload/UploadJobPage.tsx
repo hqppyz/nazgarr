@@ -75,16 +75,23 @@ function JobBody({ job }: { job: UploadJob }) {
 export function UploadJobPage() {
   const { uploadId } = useParams()
   const id = Number(uploadId)
-  const { data: job, isPending, isError, error } = useUpload(Number.isFinite(id) ? id : null)
+  return <UploadJobView id={Number.isFinite(id) ? id : null} />
+}
+
+// La pagina di un upload; anche quella di esempio del tour (UploadDemoPage).
+export function UploadJobView({ id }: { id: number | null }) {
+  const { data: job, isPending, isError, error } = useUpload(id)
 
   if (isPending) return <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
   if (isError || !job) return <p className="text-sm text-destructive">{error?.message}</p>
 
   // Dopo il match la testata è la scheda del contenuto (con poster); la
   // pagina di decisione la mette nella sua griglia.
+  // Spazio in fondo per la barra delle attività fluttuante: sul telefono è
+  // più alta (va a capo) e copriva il pulsante Approva.
   const matched = job.tmdb_id != null && !['identifying', 'awaiting_match'].includes(job.status)
   return (
-    <div className="grid min-w-0 gap-4 pb-16 [&>*]:min-w-0">
+    <div className="grid min-w-0 gap-4 pb-28 lg:pb-16 [&>*]:min-w-0">
       <JobToolbar job={job} />
       {!matched && <JobHeader job={job} />}
       {matched && !['analyzing', 'awaiting_decision'].includes(job.status) && <MatchSummaryCard job={job} />}

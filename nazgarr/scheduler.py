@@ -96,6 +96,25 @@ def _deliver_events(session_factory: sessionmaker) -> None:
         session.close()
 
 
+UPDATE_JOB_ID = "update_check"
+UPDATE_INTERVAL_SECONDS = 3600
+
+
+def _check_updates(session_factory: sessionmaker) -> None:
+    """Ogni ora, ma chiama GitHub solo se l'utente ha acceso il controllo
+    automatico e sono passate 12 ore dall'ultimo (nazgarr/core/updates.py):
+    accenderlo o spegnerlo non deve riprogrammare niente."""
+    from nazgarr.core import updates
+
+    session = session_factory()
+    try:
+        updates.check_if_due(session)
+    except Exception:
+        logger.exception("Controllo automatico degli aggiornamenti fallito")
+    finally:
+        session.close()
+
+
 WATCH_JOB_ID = "upload_watch"
 
 
@@ -136,6 +155,10 @@ def build_scheduler(session_factory: sessionmaker, data_dir: str) -> BackgroundS
     scheduler.add_job(
         _deliver_events, IntervalTrigger(seconds=EVENTS_INTERVAL_SECONDS),
         args=[session_factory], id=EVENTS_JOB_ID, replace_existing=True, max_instances=1, coalesce=True,
+    )
+    scheduler.add_job(
+        _check_updates, IntervalTrigger(seconds=UPDATE_INTERVAL_SECONDS),
+        args=[session_factory], id=UPDATE_JOB_ID, replace_existing=True, max_instances=1, coalesce=True,
     )
     return scheduler
 

@@ -65,19 +65,27 @@ def test_update_disk_label(client):
 
 def test_update_disk_media_rel_path_and_new_torrent_rel_path(client):
     (client.scan_root / "disk1" / "media").mkdir(parents=True)
+    (client.scan_root / "disk1" / "torrents" / "new").mkdir(parents=True)
+    (client.scan_root / "disk1" / "elsewhere").mkdir(parents=True)
     created = client.post("/api/disks", json={"label": "Disk 1", "root_path": str(client.scan_root / "disk1")}).json()
     assert created["media_rel_path"] is None
     assert created["new_torrent_rel_path"] is None
 
     response = client.patch(
         f"/api/disks/{created['id']}",
-        json={"media_rel_path": "media", "new_torrent_rel_path": "torrents/new"},
+        json={"media_rel_path": "media", "torrents_rel_path": "torrents", "new_torrent_rel_path": "torrents/new"},
     )
 
     assert response.status_code == 200
     body = response.json()
     assert body["media_rel_path"] == "media"
     assert body["new_torrent_rel_path"] == "torrents/new"
+    # La cartella dei nuovi hardlink (e degli upload) deve esistere, dentro una cartella dei torrent.
+    for field, value, code in (("new_torrent_rel_path", "torrents/missing", "folder_not_found"),
+                               ("new_torrent_rel_path", "elsewhere", "folder_not_in_seeding"),
+                               ("upload_rel_path", "../x", "path_outside_scope")):
+        refused = client.patch(f"/api/disks/{created['id']}", json={field: value})
+        assert refused.status_code == 400 and refused.json()["detail"]["code"] == code, (field, value)
 
 
 def test_browse_lists_file_sizes(client):

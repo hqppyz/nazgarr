@@ -36,6 +36,7 @@ export const notImported = {
   'notImported.days': '{count}d',
   'notImported.hours': '{count}h',
   'notImported.rightClickHint': 'Right-click a torrent to upload or reseed it on your trackers.',
+  'notImported.touchHint': 'Long-press a torrent, or tap ⋯, to upload or reseed it on your trackers.',
   'notImported.removable.column': 'Removable',
   'notImported.removable.columnHelp':
     "Whether the torrent already met its tracker's seeding requirement (minimum seed time and/or ratio, set on the tracker) and can be removed without a hit and run.",
@@ -65,4 +66,7 @@ export const notImported = {
   'notImported.remove.irreversible': "This cannot be undone. The library is not touched: this torrent has no hardlink there.",
   'notImported.remove.confirm': "Remove and delete the files",
   'notImported.remove.done': "{name} removed from the client, files deleted.",
+  'notImported.noLibraryTitle': 'No library to compare with',
+  'notImported.noLibrary':
+    'Triage shows the torrents that never made it into the library, but no disk has a media folder: every torrent would be "never imported". Add a media folder in Settings › Storage to see why each one is there.',
 } as const

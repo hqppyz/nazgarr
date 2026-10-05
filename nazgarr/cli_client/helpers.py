@@ -52,7 +52,7 @@ def login_api(ctx: typer.Context, password_stdin: bool = False) -> Api:
     current = state(ctx)
     profile = profiles.resolve(current.profile, current.url)
     if profile is None or not profile.url:
-        raise fail("Which instance? Run nazgarr login --url http://HOST:8080 first.", EXIT_USAGE)
+        raise fail("Which instance? Run nazgarr login --url http://HOST:3019 first.", EXIT_USAGE)
     username = os.environ.get("NAZGARR_USERNAME") or typer.prompt("Username (this needs your password)")
     password = sys.stdin.readline().rstrip("\n") if password_stdin else typer.prompt("Password", hide_input=True)
     token = Api(profile.url).post("/api/auth/login", {"username": username, "password": password})["access_token"]

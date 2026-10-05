@@ -24,6 +24,9 @@ export function RestartTourCard() {
             <Button variant="ghost" size="sm" onClick={() => tourStore.start('views')}>
               {t('onboarding.step.views.title')}
             </Button>
+            <Button variant="ghost" size="sm" onClick={() => tourStore.start('extras')}>
+              {t('onboarding.restart.extras')}
+            </Button>
             <Button
               variant="outline"
               size="sm"

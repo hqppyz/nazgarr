@@ -9,7 +9,8 @@ import { DEFAULT_STATE, useOnboarding, useSetupStatus } from '@/onboarding/state
 import { tourStore } from '@/onboarding/tourStore'
 
 // Il benvenuto del primo accesso: si apre da solo su un'istanza ancora da
-// configurare (nessun tour mai visto e nessun disco). Due domande adattano il
+// configurare (nessun tour mai visto e nessun disco con una cartella dei
+// torrent, il passo Archiviazione). Due domande adattano il
 // percorso; "Later" lo chiude e lo lascia rilanciabile dalle impostazioni.
 export function WelcomeDialog() {
   const { state, isPending, save } = useOnboarding()

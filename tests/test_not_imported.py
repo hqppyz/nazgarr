@@ -311,3 +311,24 @@ def test_removal_warnings_understand_every_client_state_vocabulary():
     # rTorrent
     assert codes("downloading") == ["downloading"] and codes("paused") == [] and codes("seeding") == []
     assert codes(None) == []
+
+
+def test_without_media_folders_nothing_is_classified_and_the_view_says_why(db_session, tmp_path):
+    """Senza libreria ogni torrent sarebbe "mai importato": rumore. Niente
+    classificazione (decisione dell'utente, 2026-10-05), e la vista lo dice."""
+    from nazgarr.api.torrents import list_not_imported
+    from nazgarr.core.models import DiskFolder
+
+    index = _setup(db_session, tmp_path)
+    not_imported.classify_not_imported(db_session, index)
+    assert db_session.query(NotImportedTorrent).count() > 0
+    assert list_not_imported(session=db_session).no_library is False
+
+    db_session.query(DiskFolder).filter_by(kind="media").delete()
+    db_session.query(Disk).update({Disk.media_rel_path: None})
+    db_session.commit()
+    db_session.expire_all()
+    not_imported.classify_not_imported(db_session, index)
+
+    view = list_not_imported(session=db_session)
+    assert (view.no_library, view.torrents, view.summary) == (True, [], {})

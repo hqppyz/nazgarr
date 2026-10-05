@@ -1,21 +1,27 @@
-import { ChevronRightIcon, Loader2Icon, RotateCcwIcon } from 'lucide-react'
+import { ChevronRightIcon, Loader2Icon, RotateCcwIcon, TrashIcon } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 
 import {
   useApproveReview,
   useCandidateAudit,
+  useDeleteSeedJob,
   useRecentSeedJobs,
   useRejectReview,
   useRetryFailed,
   useReviews,
+  useSetReviewClientLabels,
 } from '@/api/hooks/reviews'
+import { useTorrentClientCategories } from '@/api/hooks/torrentClients'
+import { ClientCategorySelect } from '@/components/ClientCategorySelect'
+import { ConfirmButton } from '@/components/ConfirmButton'
 import { ErrorsPopover } from '@/components/ErrorsPopover'
 import { FullCheckButton } from '@/components/FullCheckButton'
 import { StateBadge } from '@/components/StateBadge'
 import { VerifyStatus } from '@/components/VerifyStatus'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -58,34 +64,40 @@ function LayoutFiles({ layout }: { layout: Layout }) {
       <Table>
         <TableHeader>
           <TableRow>
+            {/* Sotto sm una sola colonna con i due percorsi, a capo: due
+                colonne troncate non mostravano niente di utile. */}
             <TableHead>{t('reseeding.fileInTorrent')}</TableHead>
-            <TableHead>{t('reseeding.localFile')}</TableHead>
+            <TableHead className="hidden sm:table-cell">{t('reseeding.localFile')}</TableHead>
             <TableHead className="w-24 text-right">{t('library.columnSize')}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
-          {layout.files.map((f) => (
-            <TableRow key={f.torrent_path}>
-              <TableCell className="max-w-0 truncate font-mono text-xs" title={f.torrent_path}>
-                {f.torrent_path}
-              </TableCell>
-              <TableCell className="max-w-0 truncate text-xs" title={f.local_path ?? undefined}>
-                {f.local_path ? (
-                  <span className={cn(f.piece_verified === false && 'text-destructive')}>
-                    {f.local_path}
-                    {f.piece_verified && <Badge variant="secondary" className="ml-1.5">{t('reseeding.verified')}</Badge>}
-                  </span>
-                ) : (
-                  <span className="text-muted-foreground">
-                    {f.is_video ? t('reseeding.missingVideo') : t('reseeding.clientDownloads')}
-                  </span>
-                )}
-              </TableCell>
-              <TableCell className="text-right text-xs tabular-nums">
-                {f.size_bytes != null ? formatBytes(f.size_bytes) : '—'}
-              </TableCell>
-            </TableRow>
-          ))}
+          {layout.files.map((f) => {
+            const local = f.local_path ? (
+              <span className={cn(f.piece_verified === false && 'text-destructive')}>
+                {f.local_path}
+                {f.piece_verified && <Badge variant="secondary" className="ml-1.5">{t('reseeding.verified')}</Badge>}
+              </span>
+            ) : (
+              <span className="text-muted-foreground">
+                {f.is_video ? t('reseeding.missingVideo') : t('reseeding.clientDownloads')}
+              </span>
+            )
+            return (
+              <TableRow key={f.torrent_path}>
+                <TableCell className="max-w-0 font-mono text-xs max-sm:break-all max-sm:whitespace-normal sm:truncate" title={f.torrent_path}>
+                  {f.torrent_path}
+                  <span className="mt-0.5 block font-sans sm:hidden">{local}</span>
+                </TableCell>
+                <TableCell className="hidden max-w-0 truncate text-xs sm:table-cell" title={f.local_path ?? undefined}>
+                  {local}
+                </TableCell>
+                <TableCell className="text-right text-xs tabular-nums">
+                  {f.size_bytes != null ? formatBytes(f.size_bytes) : '—'}
+                </TableCell>
+              </TableRow>
+            )
+          })}
         </TableBody>
       </Table>
     </div>
@@ -104,13 +116,61 @@ function CandidateAudit({ mediaItemId }: { mediaItemId: number }) {
       </p>
       {data?.map((c) => (
         <div key={c.id} className="flex items-center justify-between gap-2 text-xs">
-          <span className="truncate font-mono">{c.name}</span>
+          <span className="min-w-0 truncate font-mono pointer-coarse:break-all pointer-coarse:whitespace-normal">{c.name}</span>
           <div className="flex shrink-0 items-center gap-2">
             {c.ambiguity_reason && <span className="text-muted-foreground">{c.ambiguity_reason}</span>}
             <span>{(c.confidence * 100).toFixed(0)}%</span>
           </div>
         </div>
       ))}
+    </div>
+  )
+}
+
+// Categoria e tag con cui il reseed entra nel client: i default del client,
+// cambiabili a mano come per un upload. Si salvano subito e valgono quando
+// il reseed parte.
+function ReviewClientLabels({ review }: { review: Review }) {
+  const { data } = useTorrentClientCategories(review.torrent_client_id ?? null)
+  const save = useSetReviewClientLabels(review.id)
+  const custom = review.client_category !== null || review.client_tags !== null
+  const category = review.client_category !== null ? review.client_category || null : review.default_client_category ?? null
+  const savedTags = review.client_tags ?? review.default_client_tags ?? ''
+  const [tags, setTags] = useState<string | null>(null)
+  if (review.torrent_client_id == null) return null
+  const categories = data?.status === 'ok' ? data.categories : []
+  const send = (next: { category?: string | null; tags?: string }) =>
+    save.mutate(
+      { client_category: next.category !== undefined ? next.category ?? '' : category ?? '', client_tags: next.tags ?? savedTags },
+      { onSuccess: () => setTags(null), onError: (error) => toast.error(error.message) },
+    )
+  return (
+    <div className="grid gap-2 border-t px-3 py-2 sm:pl-9">
+      <p className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">{t('reseeding.clientLabels')}</p>
+      <div className="flex flex-wrap items-end gap-3">
+        {(categories.length > 0 || category) && (
+          <label className="grid gap-1 text-xs">
+            <span className="text-muted-foreground">{t('reseeding.clientCategory')}</span>
+            <ClientCategorySelect categories={categories} value={category} onChange={(value) => send({ category: value })} />
+          </label>
+        )}
+        <label className="grid min-w-40 flex-1 gap-1 text-xs sm:max-w-xs">
+          <span className="text-muted-foreground">{t('reseeding.clientTags')}</span>
+          <Input
+            className="h-8 text-xs"
+            value={tags ?? savedTags}
+            placeholder={t('torrentClients.noTags')}
+            onChange={(e) => setTags(e.target.value)}
+            onBlur={() => tags !== null && tags !== savedTags && send({ tags })}
+          />
+        </label>
+        {custom && (
+          <Button size="xs" variant="ghost" disabled={save.isPending}
+                  onClick={() => save.mutate({ client_category: null, client_tags: null }, { onSuccess: () => setTags(null) })}>
+            {t('reseeding.clientLabelsDefault')}
+          </Button>
+        )}
+      </div>
     </div>
   )
 }
@@ -123,13 +183,20 @@ function ReviewRow({ review }: { review: Review }) {
 
   return (
     <Collapsible open={open} onOpenChange={setOpen} className="border-b last:border-b-0">
-      <div className="flex items-center gap-2 px-3 py-2">
-        <CollapsibleTrigger>
+      {/* Sotto sm Approva/Rifiuta vanno a capo, sotto il nome: accanto lo
+          riducevano a poche lettere. */}
+      <div className="flex flex-wrap items-center gap-2 px-3 py-2 sm:flex-nowrap">
+        <CollapsibleTrigger
+          aria-label={review.candidate_name}
+          className="-m-1 shrink-0 self-start rounded p-1 pointer-coarse:-m-2 pointer-coarse:p-2 sm:self-center"
+        >
           <ChevronRightIcon className={cn('size-4 text-muted-foreground transition-transform', open && 'rotate-90')} />
         </CollapsibleTrigger>
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium">{review.candidate_name}</p>
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <div className="min-w-0 flex-1 basis-[calc(100%-2rem)] sm:basis-auto">
+          <p className="truncate text-sm font-medium max-sm:break-all max-sm:whitespace-normal pointer-coarse:break-all pointer-coarse:whitespace-normal">
+            {review.candidate_name}
+          </p>
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
             <Badge variant="secondary">{review.direction}</Badge>
             <span>{(review.confidence * 100).toFixed(0)}%</span>
             {review.ambiguity_reason && <span>{review.ambiguity_reason}</span>}
@@ -144,6 +211,7 @@ function ReviewRow({ review }: { review: Review }) {
           {review.layout && <p className="text-xs text-muted-foreground">{layoutSummary(review.layout)}</p>}
           <VerifyStatus review={review} />
         </div>
+        <div className="flex shrink-0 gap-2 max-sm:ml-6">
         <Button
           size="sm"
           variant="outline"
@@ -163,8 +231,10 @@ function ReviewRow({ review }: { review: Review }) {
         >
           {t('reseeding.reject')}
         </Button>
+        </div>
       </div>
       <CollapsibleContent>
+        <ReviewClientLabels review={review} />
         {review.layout && <LayoutFiles layout={review.layout} />}
         <CandidateAudit mediaItemId={review.media_item_id} />
       </CollapsibleContent>
@@ -198,11 +268,12 @@ const FILTERS: ExecutionFilter[] = ['all', 'seeding', 'in_progress', 'failed']
 
 function ExecutionRow({ job }: { job: SeedJob }) {
   const retry = useRetryFailed()
+  const remove = useDeleteSeedJob()
   const when = job.torrent_added_at ?? job.hardlink_created_at
   return (
     <TableRow>
       <TableCell className="max-w-0 w-full">
-        <p className="truncate font-mono text-xs" title={job.candidate_name ?? undefined}>
+        <p className="truncate font-mono text-xs pointer-coarse:break-all pointer-coarse:whitespace-normal" title={job.candidate_name ?? undefined}>
           {job.candidate_name ?? t('reseeding.candidateHash', { id: job.candidate_id })}
         </p>
         <p className="truncate text-xs text-muted-foreground">
@@ -210,8 +281,10 @@ function ExecutionRow({ job }: { job: SeedJob }) {
             .filter(Boolean)
             .join(' · ')}
         </p>
+        {/* Sotto sm la colonna Aggiunto non c'è: il quando va qui. */}
+        {when && <p className="text-xs text-muted-foreground sm:hidden">{relativeFromNow(when)}</p>}
       </TableCell>
-      <TableCell className="whitespace-nowrap text-xs text-muted-foreground" title={when ? parseApiDate(when).toLocaleString() : undefined}>
+      <TableCell className="hidden whitespace-nowrap text-xs text-muted-foreground sm:table-cell" title={when ? parseApiDate(when).toLocaleString() : undefined}>
         {when ? relativeFromNow(when) : '—'}
       </TableCell>
       <TableCell>
@@ -233,12 +306,14 @@ function ExecutionRow({ job }: { job: SeedJob }) {
             <FullCheckButton
               target={{ candidateId: job.candidate_id, seedJobId: job.id }}
               label={job.candidate_name ?? t('reseeding.candidateHash', { id: job.candidate_id })}
+              iconOnlyOnPhone
             />
           )}
           {job.final_status === 'failed' && (
             <Button
               size="xs"
               variant="outline"
+              title={t('reseeding.retry')}
               disabled={retry.isPending}
               onClick={() =>
                 retry.mutate(job.id, {
@@ -248,8 +323,29 @@ function ExecutionRow({ job }: { job: SeedJob }) {
               }
             >
               <RotateCcwIcon className="size-3" />
-              {t('reseeding.retry')}
+              {/* Sotto sm solo l'icona: con le etichette il nome del torrent spariva. */}
+              <span className="max-sm:sr-only">{t('reseeding.retry')}</span>
             </Button>
+          )}
+          {/* Fallita o rimasta in corso: eliminarla libera il torrent per il
+              prossimo scan (un candidato con un'esecuzione non torna in coda). */}
+          {(job.final_status === 'failed' || job.final_status === 'in_progress') && (
+            <ConfirmButton
+              trigger={
+                <Button size="xs" variant="ghost" title={t('reseeding.deleteJob')} aria-label={t('reseeding.deleteJob')}>
+                  <TrashIcon className="size-3" />
+                </Button>
+              }
+              title={t('reseeding.deleteJobTitle')}
+              description={t('reseeding.deleteJobDescription')}
+              pending={remove.isPending}
+              onConfirm={() =>
+                remove.mutate(job.id, {
+                  onSuccess: () => toast.success(t('reseeding.jobDeleted')),
+                  onError: (error) => toast.error(t('reseeding.deleteJobFailed', { message: error.message })),
+                })
+              }
+            />
           )}
         </div>
       </TableCell>
@@ -269,10 +365,12 @@ function ExecutionsCard() {
 
   return (
     <Card>
-      <CardHeader>
+      {/* Sotto sm il filtro va sotto il titolo, a tutta larghezza, e scorre:
+          a destra del titolo veniva tagliato. */}
+      <CardHeader className="max-sm:grid-cols-1!">
         <CardTitle>{t('reseeding.executions')}</CardTitle>
         <CardDescription>{t('reseeding.executionsHint')}</CardDescription>
-        <CardAction>
+        <CardAction className="max-w-full overflow-x-auto max-sm:col-start-1 max-sm:row-span-1 max-sm:row-start-3 max-sm:justify-self-stretch">
           <ToggleGroupSingle value={filter} onValueChange={(v) => setFilter(v as ExecutionFilter)} variant="outline" size="sm">
             {FILTERS.map((f) => (
               <ToggleGroupItem key={f} value={f}>
@@ -288,7 +386,7 @@ function ExecutionsCard() {
           <TableHeader>
             <TableRow>
               <TableHead>{t('reseeding.torrent')}</TableHead>
-              <TableHead>{t('reseeding.added')}</TableHead>
+              <TableHead className="hidden sm:table-cell">{t('reseeding.added')}</TableHead>
               <TableHead>{t('reseeding.status')}</TableHead>
               <TableHead />
             </TableRow>

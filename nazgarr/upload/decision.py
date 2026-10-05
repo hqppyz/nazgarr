@@ -157,6 +157,7 @@ def propose(session: Session, job: UploadJob) -> None:
     # I tag di "Detected details": i valori con le regole generiche, senza override.
     generic = release_values(job, from_name, mediainfo, {}, None)
     analysis["detected"] = {key: generic.get(key) for key in DETECTED_FIELDS}
+    analysis["type_basis"] = generic.get("type_basis")
     for target in job.targets:
         profile = _profile(session, target)
         categories, types, resolutions = _maps(profile)

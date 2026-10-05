@@ -43,6 +43,7 @@ def list_bundled_profiles() -> list[dict]:
         profiles.append({
             "key": data["key"], "label": data["label"], "adapter_type": data["adapter_type"],
             "base_url": data.get("base_url"),
+            "announce_url_page": data.get("announce_url_page"),
         })
     return profiles
 

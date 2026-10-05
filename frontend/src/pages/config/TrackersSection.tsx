@@ -7,6 +7,8 @@ import type { Schemas } from '@/api/client'
 import { SettingsHeader } from '@/components/SettingsHeader'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { ConfirmButton } from '@/components/ConfirmButton'
+import { InfoPopover } from '@/components/InfoPopover'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   Dialog,
@@ -98,7 +100,7 @@ function TrackerLanguageSelect({ value, onChange }: { value: string | null; onCh
   const current = value ?? NO_LANGUAGE
   return (
     <Select value={current} onValueChange={(v) => onChange(v === NO_LANGUAGE || v == null ? null : v)}>
-      <SelectTrigger size="sm" className="w-44">
+      <SelectTrigger size="sm" className="w-full max-w-44">
         <SelectValue>
           {(v: string | null) => selectLabel(options, v, (o) => o.value, (o) => o.label, t('trackers.noLanguage'))}
         </SelectValue>
@@ -126,7 +128,7 @@ function TrackerClientSelect({ value, onChange }: { value: number | null; onChan
   const current = value == null ? FIRST_ENABLED : String(value)
   return (
     <Select value={current} onValueChange={(v) => onChange(v === FIRST_ENABLED || v == null ? null : Number(v))}>
-      <SelectTrigger size="sm" className="w-44">
+      <SelectTrigger size="sm" className="w-full max-w-44">
         <SelectValue>
           {(v: string | null) => selectLabel(options, v, (o) => o.value, (o) => o.label, t('trackers.firstEnabledClient'))}
         </SelectValue>
@@ -166,6 +168,18 @@ function AddTrackerDialog() {
   const [rssKey, setRssKey] = useState('')
   const createTracker = useCreateTracker()
   const { data: bundled } = useBundledUploadProfiles()
+  // Dove il tracker mostra il proprio announce URL: dal preset scelto, o da
+  // quello dello stesso indirizzo (come fa il server per il profilo).
+  const hostOf = (url: string | null | undefined) => {
+    try {
+      return new URL(url ?? '').hostname.replace(/^www\./, '')
+    } catch {
+      return ''
+    }
+  }
+  const matched = bundled?.find((p) => p.key === presetKey)
+    ?? bundled?.find((p) => p.base_url && hostOf(p.base_url) === hostOf(baseUrl))
+  const announcePage = matched?.announce_url_page
 
   function applyPreset(key: string) {
     setPresetKey(key)
@@ -285,6 +299,12 @@ function AddTrackerDialog() {
               onChange={(e) => setAnnounceUrl(e.target.value)}
               placeholder="https://mytracker.example/announce/passkey"
             />
+            {announcePage && (
+              <p className="text-xs text-muted-foreground">
+                {t('trackers.announceUrlWhere')}{' '}
+                <a href={announcePage} target="_blank" rel="noreferrer" className="underline">{announcePage}</a>
+              </p>
+            )}
           </div>
           <RssKeyField id="t-rss-key" value={rssKey} onChange={setRssKey} placeholder={t('trackers.rssKeyPlaceholder')} />
           {pluginSpec && (
@@ -463,7 +483,7 @@ export function TrackersSection() {
       )}
       {/* Una scheda per tracker: icona del sito, indirizzi e chiavi, client
           su cui seedano i suoi torrent, profilo di upload e azioni. */}
-      <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
+      <div className="grid gap-4 xl:grid-cols-2 2xl:grid-cols-3">
         {trackers?.map((tracker) => {
           const profile = tracker.upload_profile
           return (
@@ -503,8 +523,8 @@ export function TrackersSection() {
                       )
                     }
                   />
-                  <span className="text-muted-foreground" title={t('trackers.languageHelp')} data-tour="trackers.card.language">
-                    {t('trackers.languageColumn')}
+                  <span className="text-muted-foreground" data-tour="trackers.card.language">
+                    <InfoPopover content={t('trackers.languageHelp')} className="pointer-coarse:underline pointer-coarse:decoration-dotted pointer-coarse:underline-offset-2">{t('trackers.languageColumn')}</InfoPopover>
                   </span>
                   <TrackerLanguageSelect
                     value={tracker.language ?? null}
@@ -515,8 +535,8 @@ export function TrackersSection() {
                       )
                     }
                   />
-                  <span className="text-muted-foreground" title={t('trackers.seedRequirement.help')} data-tour="trackers.card.seed">
-                    {t('trackers.seedRequirement.column')}
+                  <span className="text-muted-foreground" data-tour="trackers.card.seed">
+                    <InfoPopover content={t('trackers.seedRequirement.help')} className="pointer-coarse:underline pointer-coarse:decoration-dotted pointer-coarse:underline-offset-2">{t('trackers.seedRequirement.column')}</InfoPopover>
                   </span>
                   <TrackerSeedRequirement
                     tracker={tracker}
@@ -558,9 +578,17 @@ export function TrackersSection() {
                   </Button>
                   <span className="flex-1" />
                   <EditTrackerDialog tracker={tracker} />
-                  <Button variant="ghost" size="icon-sm" title={t('common.delete')} onClick={() => deleteTracker.mutate(tracker.id)}>
-                    <TrashIcon className="size-4" />
-                  </Button>
+                  <ConfirmButton
+                    trigger={
+                      <Button variant="ghost" size="icon-sm" title={t('common.delete')}>
+                        <TrashIcon className="size-4" />
+                      </Button>
+                    }
+                    title={t('trackers.deleteTitle', { label: tracker.label })}
+                    description={t('trackers.deleteDescription')}
+                    pending={deleteTracker.isPending}
+                    onConfirm={() => deleteTracker.mutate(tracker.id)}
+                  />
                 </div>
               </CardContent>
             </Card>

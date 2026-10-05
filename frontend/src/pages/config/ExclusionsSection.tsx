@@ -74,6 +74,10 @@ function PresetsCard() {
             />
             <div className="grid min-w-0 gap-1.5">
               <Label htmlFor={`preset-${preset.key}`}>{t(`exclusions.preset.${preset.key}`)}</Label>
+              {/* Solo alcuni preset hanno una spiegazione: t() senza traduzione restituisce la chiave. */}
+              {t(`exclusions.presetHelp.${preset.key}`) !== `exclusions.presetHelp.${preset.key}` && (
+                <p className="text-xs text-muted-foreground">{t(`exclusions.presetHelp.${preset.key}`)}</p>
+              )}
               <div className="flex flex-wrap gap-1">
                 {preset.patterns.map((pattern) => (
                   <code key={pattern} className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px]">

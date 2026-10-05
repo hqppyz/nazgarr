@@ -13,6 +13,7 @@ from nazgarr.core.models import Candidate, MatchReview, SeedJob, TorrentClient
 from nazgarr.library import seeding
 from nazgarr.reseed import pipeline, review
 from nazgarr.reseed.executor import ExecutionError
+from nazgarr.torrents import client_labels
 from nazgarr.web.deps import get_or_404, get_session
 
 router = APIRouter(prefix="/api/reviews", tags=["reviews"])
@@ -126,6 +127,15 @@ class ReviewResponse(BaseModel):
     verify_check_id: str | None = None
     # Dove il file è già in seed (tracker o host): non vuoto = un cross-seed.
     seeding_on: list[str] = []
+    # Il client dove andrà il reseed, coi suoi default per categoria e tag e
+    # quelli scelti a mano su questa review (None = i default, "" = nessuno).
+    # Il default della categoria non sa se è un anime: lo decide TMDB quando
+    # il reseed parte, se non ne è stata scelta una.
+    torrent_client_id: int | None = None
+    default_client_category: str | None = None
+    default_client_tags: str | None = None
+    client_category: str | None = None
+    client_tags: str | None = None
 
     @classmethod
     def from_model(cls, r: MatchReview) -> "ReviewResponse":
@@ -134,7 +144,13 @@ class ReviewResponse(BaseModel):
             session.query(SeedJob).filter_by(candidate_id=r.candidate_id).order_by(SeedJob.id.desc()).first()
             if session is not None else None
         )
+        client = review.client_row_for_candidate(session, r.candidate) if session is not None else None
+        item = r.candidate.media_item
         return cls(
+            torrent_client_id=client.id if client else None,
+            default_client_category=client_labels.default_category(client, item.content_type if item else None),
+            default_client_tags=client_labels.default_tags(client, "reseed"),
+            client_category=r.client_category, client_tags=r.client_tags,
             id=r.id, candidate_id=r.candidate_id, media_item_id=r.candidate.media_item_id,
             media_file_id=r.media_file_id, seed_file_id=r.seed_file_id,
             status=r.status, direction=r.candidate.direction, confidence=r.candidate.confidence,
@@ -168,6 +184,22 @@ def approve_review(review_id: int, request: Request, session: Session = Depends(
     return ReviewResponse.from_model(row)
 
 
+class ClientLabelsRequest(BaseModel):
+    client_category: str | None = None  # None = default del client, "" = nessuna
+    client_tags: str | None = None  # None = tag dei reseed del client, "" = nessuno
+
+
+@router.put("/{review_id}/client-labels", response_model=ReviewResponse)
+def set_client_labels(review_id: int, body: ClientLabelsRequest, session: Session = Depends(get_session)):
+    """Categoria e tag nel client per questo reseed, scelti a mano come per un
+    upload: valgono quando parte. Solo finché la review è in coda."""
+    row = _get_review_or_404(session, review_id)
+    if row.status not in review.READY_FOR_DECISION_STATUSES:
+        raise HTTPException(status_code=409, detail=coded_detail("review_already_decided", id=review_id))
+    review.set_client_labels(session, row, body.client_category, body.client_tags)
+    return ReviewResponse.from_model(row)
+
+
 @router.post("/{review_id}/reject", response_model=ReviewResponse)
 def reject_review(review_id: int, session: Session = Depends(get_session)):
     row = _get_review_or_404(session, review_id)
@@ -197,6 +229,21 @@ def reconcile_now(session: Session = Depends(get_session)):
     if pipeline.run_in_progress(session):
         raise HTTPException(status_code=409, detail=coded_detail("run_in_progress"))
     return review.reconcile_pending_seed_jobs(session)
+
+
+@router.delete("/seed-jobs/{seed_job_id}", status_code=204)
+def delete_seed_job(seed_job_id: int, session: Session = Depends(get_session)):
+    """Elimina un'esecuzione fallita o rimasta in corso: il prossimo scan
+    ripropone il torrent. Niente cambia nel client né sul disco."""
+    seed_job = session.get(SeedJob, seed_job_id)
+    if seed_job is None:
+        raise HTTPException(status_code=404, detail=coded_detail("seed_job_not_found", id=seed_job_id))
+    if pipeline.run_in_progress(session):  # la run ricontrolla i job in corso
+        raise HTTPException(status_code=409, detail=coded_detail("run_in_progress"))
+    try:
+        review.delete_seed_job(session, seed_job)
+    except ExecutionError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.get("/failed", response_model=list[SeedJobResponse])

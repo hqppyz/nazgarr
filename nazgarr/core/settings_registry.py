@@ -50,6 +50,9 @@ _SPECS = [
     SettingSpec("upload_single_file_folder", "choice", "keep", choices=("keep", "remove")),
     SettingSpec("upload_tonemap_hdr", "bool", False),
     SettingSpec("upload_screenshot_count", "int", 4, minimum=0, maximum=12),
+    # Aggiornamenti: controllo automatico ogni 12 ore (nazgarr/core/updates.py),
+    # spento di default: contatta GitHub solo se l'utente lo accende.
+    SettingSpec("update_check_auto", "bool", False),
 ]
 
 REGISTRY: dict[str, SettingSpec] = {spec.key: spec for spec in _SPECS}

@@ -28,7 +28,7 @@ export function HistoryChart({ history, current }: { history: HistoryPoint[] | u
         {chartData.length < 2 ? (
           <p className="text-sm text-muted-foreground">{t('dashboard.notEnoughHistory')}</p>
         ) : (
-          <ChartContainer config={chartConfig} className="aspect-auto h-[260px] w-full">
+          <ChartContainer config={chartConfig} className="aspect-auto h-[180px] w-full sm:h-[260px]">
             <AreaChart data={chartData}>
               <defs>
                 <linearGradient id="fillHealth" x1="0" y1="0" x2="0" y2="1">

@@ -35,33 +35,70 @@ CLIENT_INCOMPLETE_PRESETS: dict[str, list[str]] = {
 # Spazzatura tipica di una release scena/tracker, mai il contenuto vero.
 SCENE_JUNK_PRESET = "scene_junk"
 
-# Metadati che media server e *arr scrivono accanto ai video in libreria
-# (poster, fanart, nfo Kodi/Radarr/Sonarr): mai parte di un torrent, ma da
-# quando lo scanner registra ogni file lato libreria renderebbero la vista
-# Media files illeggibile. Attivo di default finché l'utente non salva le
-# proprie scelte (DEFAULT_ENABLED_PRESETS).
+# Artwork e metadati che Plex, Jellyfin, Kodi e gli *arr scrivono accanto ai
+# video. Dalle documentazioni (2026-10-05): Plex "Local Media Assets" (film e
+# serie) e Jellyfin "Movies"/"Shows". Le immagini si escludono per estensione,
+# nei formati che leggono (jpg, jpeg, png, tbn; webp per Jellyfin): Plex
+# accetta anche artwork chiamato come il video ("Avatar (2009).jpg", la
+# miniatura di un episodio) o numerato ("poster-2.png", "Season01a.jpg"),
+# nomi che nessun elenco copre, e in una cartella di media un'immagine non è
+# mai il contenuto. Poi i file nfo, la musica e i video del tema.
 MEDIA_SERVER_METADATA_PRESET = "media_server_metadata"
 
+# Extra (trailer, featurette, scene eliminate...) come li nominano Plex
+# ("Local Files for Trailers and Extras") e Jellyfin: le cartelle e i
+# suffissi. Spento di default: sono video veri. Escluderli li toglie solo
+# dalle viste e dalla ricerca come file a sé; un pack che li contiene li
+# ricrea comunque con un hardlink (nazgarr/torrents/layout.py).
+EXTRAS_PRESET = "extras"
+
+# File di sistema di macOS (AppleDouble "._", .DS_Store, cartelle nascoste
+# dei volumi) e di Windows, che finiscono nelle cartelle condivise.
+SYSTEM_FILES_PRESET = "system_files"
+
+# I .torrent lasciati accanto ai file: mai contenuto.
+TORRENT_FILES_PRESET = "torrent_files"
+
+_EXTRA_FOLDERS = ("behind the scenes", "deleted scenes", "featurettes", "interviews", "scenes", "shorts",
+                  "trailers", "clips", "other", "extras", "samples")
+_EXTRA_SUFFIXES = ("-trailer", ".trailer", "_trailer", " trailer", "-scene", "-clip", "-interview",
+                   "-behindthescenes", "-deleted", "-deletedscene", "-featurette", "-short", "-other", "-extra")
+
+# In quest'ordine nella UI (Impostazioni › Esclusioni).
 PRESETS: dict[str, list[str]] = {
-    **CLIENT_INCOMPLETE_PRESETS,
     SCENE_JUNK_PRESET: [
         "*.nfo", "*.sfv", "*.txt", "*.diz",
         "sample/*", "sample.*", "*-sample.*",
         "proof/*",
         "screens/*", "screenshots/*",
-        "*thumbs.db", "*.ds_store",
     ],
     MEDIA_SERVER_METADATA_PRESET: [
-        "poster.*", "fanart.*", "banner.*", "clearlogo.*", "clearart.*", "landscape.*", "logo.*",
-        "folder.jpg", "folder.png", "*-thumb.jpg", "*-poster.*", "*-fanart.*",
-        "season*-poster.*", "season*-banner.*", "season*-fanart.*",
-        "theme.mp3", ".actors/*", "*.nfo",
+        "*.jpg", "*.jpeg", "*.png", "*.tbn", "*.webp",
+        "*.nfo",
+        "theme.*", "theme-music/*", "backdrops/*",
+        ".actors/*",
     ],
+    EXTRAS_PRESET: [
+        *(f"{folder}/*" for folder in _EXTRA_FOLDERS),
+        *(f"*{suffix}.*" for suffix in _EXTRA_SUFFIXES),
+        "trailer.*",
+    ],
+    SYSTEM_FILES_PRESET: [
+        "._*", ".ds_store", ".appledouble/*", ".spotlight-v100/*", ".trashes/*", ".fseventsd/*",
+        ".temporaryitems/*", ".documentrevisions-v100/*", "icon\r", ".localized",
+        "thumbs.db", "desktop.ini", "$recycle.bin/*", "system volume information/*",
+    ],
+    TORRENT_FILES_PRESET: ["*.torrent"],
+    **CLIENT_INCOMPLETE_PRESETS,
 }
+# I preset della libreria per primi.
+PRESETS = {key: PRESETS[key] for key in (MEDIA_SERVER_METADATA_PRESET, EXTRAS_PRESET, SYSTEM_FILES_PRESET,
+                                         TORRENT_FILES_PRESET, SCENE_JUNK_PRESET, *CLIENT_INCOMPLETE_PRESETS)}
 
 # Preset attivi quando exclusion_presets non è mai stato salvato (None).
-# Una stringa vuota salvata dall'utente significa invece "nessuno".
-DEFAULT_ENABLED_PRESETS = [MEDIA_SERVER_METADATA_PRESET]
+# Una stringa vuota salvata dall'utente significa invece "nessuno". Chi li
+# aveva salvati riceve quelli nuovi dal passo 9 (nazgarr/core/db.py).
+DEFAULT_ENABLED_PRESETS = [MEDIA_SERVER_METADATA_PRESET, SYSTEM_FILES_PRESET, TORRENT_FILES_PRESET]
 
 
 @dataclass

@@ -88,6 +88,14 @@ jobs:
         run: |
           set -euo pipefail
           gh release edit "v$VERSION" --prerelease=false --latest
+          # Le note dettagliate: la sezione "## X.Y.Z" di CHANGELOG.md, se c'è
+          # (proposte prima della promozione e approvate, nazgarr/core/updates.py).
+          awk -v v="$VERSION" '/^## /{found = ($2 == v)} found' CHANGELOG.md > release-notes.md
+          if [[ -s release-notes.md ]]; then
+            gh release edit "v$VERSION" --notes-file release-notes.md
+          else
+            echo "::warning::CHANGELOG.md has no section for $VERSION: release notes left as they were"
+          fi
           git tag -f stable "v$VERSION^{commit}"
           git push -f origin stable
 

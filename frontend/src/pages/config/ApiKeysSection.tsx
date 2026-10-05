@@ -55,7 +55,7 @@ function AddApiKeyDialog({ onCreated }: { onCreated: (key: string) => void }) {
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger render={<Button><PlusIcon className="size-4" />{t('security.apiKeyAdd')}</Button>} />
+      <DialogTrigger render={<Button data-tour="api-keys.add"><PlusIcon className="size-4" />{t('security.apiKeyAdd')}</Button>} />
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{t('security.apiKeyNewTitle')}</DialogTitle>
@@ -91,6 +91,16 @@ function AddApiKeyDialog({ onCreated }: { onCreated: (key: string) => void }) {
   )
 }
 
+function KeyStatus({ revokedAt }: { revokedAt: ReturnType<typeof when> }) {
+  return revokedAt ? (
+    <span className="text-muted-foreground" title={revokedAt.absolute}>
+      {t('security.apiKeyRevokedAt', { when: revokedAt.relative })}
+    </span>
+  ) : (
+    <span className="text-emerald-600 dark:text-emerald-400">{t('security.apiKeyActive')}</span>
+  )
+}
+
 // API key per servizi e script (header X-Api-Key): lettura = solo GET,
 // scrittura = tutto tranne gestire le chiavi.
 export function ApiKeysSection() {
@@ -113,6 +123,45 @@ export function ApiKeysSection() {
             {t('security.apiKeysNone')}
           </CardContent>
         ) : (
+          <>
+          {/* Da telefono sette colonne non ci stanno (Revoca finiva fuori
+              schermo): una riga per chiave, con i dettagli sotto il nome. */}
+          <ul className="divide-y sm:hidden">
+            {keys!.map((key) => {
+              const createdAt = when(key.created_at)
+              const usedAt = when(key.last_used_at)
+              const revokedAt = when(key.revoked_at)
+              return (
+                <li key={key.id} className={cn('grid gap-1.5 px-4 py-3', key.revoked_at && 'opacity-60')}>
+                  <div className="flex items-center gap-2">
+                    <span className="min-w-0 flex-1 truncate font-medium">{key.name}</span>
+                    <Badge variant="outline">
+                      {t(key.level === 'write' ? 'security.apiKeyWrite' : 'security.apiKeyRead')}
+                    </Badge>
+                  </div>
+                  <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
+                    <span className="font-mono">{key.prefix}…</span>
+                    <span>{t('security.apiKeyColumnCreated')}: {createdAt?.relative}</span>
+                    <span>{t('security.apiKeyColumnLastUsed')}: {usedAt?.relative ?? t('security.apiKeyNeverUsed')}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-2 text-xs">
+                    <KeyStatus revokedAt={revokedAt} />
+                    {!key.revoked_at && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-destructive hover:text-destructive"
+                        onClick={() => setRevoking({ id: key.id, name: key.name })}
+                      >
+                        {t('security.apiKeyRevoke')}
+                      </Button>
+                    )}
+                  </div>
+                </li>
+              )
+            })}
+          </ul>
+          <div className="hidden sm:block">
           <Table>
             <TableHeader>
               <TableRow>
@@ -146,13 +195,7 @@ export function ApiKeysSection() {
                       {usedAt?.relative ?? t('security.apiKeyNeverUsed')}
                     </TableCell>
                     <TableCell className="text-xs whitespace-nowrap">
-                      {revokedAt ? (
-                        <span className="text-muted-foreground" title={revokedAt.absolute}>
-                          {t('security.apiKeyRevokedAt', { when: revokedAt.relative })}
-                        </span>
-                      ) : (
-                        <span className="text-emerald-600 dark:text-emerald-400">{t('security.apiKeyActive')}</span>
-                      )}
+                      <KeyStatus revokedAt={revokedAt} />
                     </TableCell>
                     <TableCell className="text-right">
                       {!key.revoked_at && (
@@ -171,6 +214,8 @@ export function ApiKeysSection() {
               })}
             </TableBody>
           </Table>
+          </div>
+          </>
         )}
       </Card>
 

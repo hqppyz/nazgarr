@@ -1,12 +1,18 @@
-"""Helper condiviso per gli host "famiglia chevereto" (lensdump, ptscreens,
-onlyimage, dalexni) — stessa piattaforma software (Chevereto) dietro host
-diversi, con piccole differenze di annidamento della risposta reale non
-tutte confermate byte-per-byte (ricerca su Upload-Assistant via un report
-di sintesi, non il codice letto direttamente per ognuno). Il parser prova
-più percorsi ragionevoli invece di assumerne uno solo che potrebbe rompersi
-silenziosamente su un host con un annidamento leggermente diverso — mai
-verificato contro un account reale per nessuno di questi (stessa categoria
-di apertura già accettata per ptpimg/imgbb/pixhost)."""
+"""Gli host "famiglia Chevereto" (PTScreens, Passtheima, imageride,
+Lensdump...): la stessa piattaforma dietro host diversi, con la stessa API
+(POST /api/1/upload, header X-API-Key, il file nel campo "source").
+CheveretoImageHost ne fa un adapter dati l'indirizzo e la chiave, ed è
+nell'SDK (nazgarr.sdk): un plugin per un altro host Chevereto è una riga.
+
+L'annidamento della risposta cambia un poco fra un host e l'altro: il
+parser prova più percorsi ragionevoli invece di assumerne uno solo che
+potrebbe rompersi in silenzio."""
+
+import os
+
+import httpx
+
+from nazgarr.adapters.image_host.base import ImageHostAdapter, ImageHostError
 
 
 def chevereto_image_url(data: dict) -> str | None:
@@ -29,3 +35,35 @@ def chevereto_image_url(data: dict) -> str | None:
         if isinstance(url, str) and url:
             return url
     return None
+
+
+class CheveretoImageHost(ImageHostAdapter):
+    """Upload verso un host Chevereto: endpoint è l'indirizzo completo
+    dell'API (es. "https://ptscreens.com/api/1/upload"), name il nome
+    dell'host negli errori."""
+
+    def __init__(self, api_key: str, *, endpoint: str, name: str, client: httpx.Client | None = None):
+        self.api_key = api_key
+        self.endpoint = endpoint
+        self.name = name
+        self._client = client or httpx.Client(timeout=60.0)
+
+    def upload(self, image_path: str) -> str:
+        try:
+            with open(image_path, "rb") as f:
+                response = self._client.post(
+                    self.endpoint,
+                    headers={"X-API-Key": self.api_key},
+                    files={"source": (os.path.basename(image_path), f)},
+                )
+            data = response.json()
+        except (httpx.HTTPError, ValueError, OSError) as exc:
+            raise ImageHostError(f"Upload {self.name} fallito: {exc}") from exc
+        if response.status_code >= 400:
+            error = data.get("error") if isinstance(data, dict) else None
+            reason = error.get("message") if isinstance(error, dict) else f"HTTP {response.status_code}"
+            raise ImageHostError(f"Upload {self.name} fallito: {reason}")
+        url = chevereto_image_url(data)
+        if not url:
+            raise ImageHostError(f"Risposta {self.name} senza URL riconoscibile: {data!r}")
+        return url

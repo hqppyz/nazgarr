@@ -56,11 +56,15 @@ function writeDismissed(runId: number) {
   }
 }
 
+// Senza una scelta salvata: aperto su schermi grandi, chiuso sul telefono
+// (aperto copriva metà dello schermo).
 function readExpanded(): boolean {
+  const small = typeof window !== 'undefined' && window.matchMedia?.('(max-width: 639px)').matches
   try {
-    return localStorage.getItem(EXPANDED_STORAGE_KEY) !== 'false'
+    const stored = localStorage.getItem(EXPANDED_STORAGE_KEY)
+    return stored === null ? !small : stored !== 'false'
   } catch {
-    return true
+    return !small
   }
 }
 
@@ -201,7 +205,7 @@ export function RunStatusIndicator() {
   }
 
   return (
-    <div className="w-80 max-w-[calc(100vw-2rem)] rounded-lg border bg-card text-sm shadow-lg">
+    <div className="w-80 max-w-[calc(100vw-2rem)] rounded-lg border bg-card text-sm shadow-lg max-sm:w-full">
       <div className="flex items-start gap-3 px-4 py-3">
         {isActive ? (
           <Loader2Icon className="mt-0.5 size-4 shrink-0 animate-spin text-primary" />
@@ -234,7 +238,7 @@ export function RunStatusIndicator() {
         <button
           type="button"
           onClick={toggle}
-          className="shrink-0 text-muted-foreground hover:text-foreground"
+          className="-my-1.5 inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:text-foreground pointer-coarse:size-9"
           aria-label={expanded ? t('runStatus.collapse') : t('runStatus.expand')}
           aria-expanded={expanded}
         >
@@ -244,7 +248,7 @@ export function RunStatusIndicator() {
           <button
             type="button"
             onClick={() => dismiss(run.id)}
-            className="shrink-0 text-muted-foreground hover:text-foreground"
+            className="-my-1.5 inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:text-foreground pointer-coarse:size-9"
             aria-label={t('runStatus.dismiss')}
           >
             <XIcon className="size-4" />

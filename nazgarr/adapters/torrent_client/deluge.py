@@ -144,7 +144,7 @@ class DelugeAdapter(TorrentClientAdapter):
     def add_torrent(
         self, torrent_file_or_url: str, save_path: str, force_recheck: bool = True,
         expected_info_hash: str | None = None, skip_check_verified: bool = False,
-        category: str | None = None, tags: list[str] | None = None,
+        category: str | None = None, tags: list[str] | None = None, content_layout: str = "Original",
     ) -> str:
         require_recheck(force_recheck)
         before = self._hashes()

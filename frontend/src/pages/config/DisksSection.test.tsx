@@ -18,7 +18,7 @@ const mutation = { mutate: vi.fn(), isPending: false }
 
 vi.mock('@/api/hooks/disks', () => ({
   useDisks: () => ({ data: [disk], isPending: false }),
-  useAvailableMounts: () => ({ data: { scan_root: '/data', mounts: [] } }),
+  useAvailableMounts: () => ({ data: { scan_root: '/data', scan_roots: ['/data'], scope_source: 'mounts', mounts: [], detected: [], warnings: [] } }),
   useCreateDisk: () => mutation,
   useUpdateDisk: () => mutation,
   useDeleteDisk: () => mutation,
@@ -39,7 +39,10 @@ describe('DisksSection', () => {
     for (const folder of ['torrents', 'movies', 'tv']) expect(screen.getByText(folder)).toBeTruthy()
     expect(screen.getAllByRole('button', { name: /Add/ }).length).toBeGreaterThanOrEqual(2)
 
+    // Togliere una cartella ora chiede conferma.
     fireEvent.click(screen.getAllByRole('button', { name: 'Remove the folder (nothing changes on disk)' })[2])
+    expect(remove).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Remove' }))
     expect(remove).toHaveBeenCalledWith({ diskId: 1, folderId: 12 }, expect.anything())
   })
 })

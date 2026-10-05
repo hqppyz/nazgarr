@@ -33,7 +33,7 @@ export function RunNowButton() {
         }
       >
         {stopping ? <Loader2Icon className="size-4 animate-spin" /> : <SquareIcon className="size-4" />}
-        {stopping ? t('common.stopping') : t('common.stopRun')}
+        <span className="max-sm:sr-only">{stopping ? t('common.stopping') : t('common.stopRun')}</span>
       </Button>
     )
   }
@@ -50,7 +50,8 @@ export function RunNowButton() {
       disabled={triggerRun.isPending}
     >
       <PlayIcon className="size-4" />
-      {t('common.runNow')}
+      {/* Sul telefono solo l'icona: con il testo l'intestazione usciva dallo schermo. */}
+      <span className="max-sm:sr-only">{t('common.runNow')}</span>
     </Button>
   )
 }

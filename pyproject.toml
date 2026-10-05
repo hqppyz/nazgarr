@@ -25,7 +25,6 @@ dependencies = [
     "guessit",
     "torf",
     "ffmpeg-python",
-    "pyimgbox",
     "jinja2",
     "python-multipart",
     "pyyaml",
@@ -48,7 +47,7 @@ version = { attr = "nazgarr._build_info.VERSION" }
 include = ["nazgarr*"]
 
 [tool.setuptools.package-data]
-nazgarr = ["_assets/**/*", "tracker_profiles/*.yaml", "cli_client/*.json"]
+nazgarr = ["_assets/**/*", "tracker_profiles/*.yaml", "cli_client/*.json", "release_notes.json"]
 
 [tool.ruff]
 line-length = 120

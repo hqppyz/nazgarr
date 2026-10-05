@@ -45,4 +45,6 @@ export const integrations = {
   'integrations.testConnection': 'Prova connessione',
   'integrations.connectedSuccess': 'Connesso — v{version}.',
   'integrations.connectionFailed': 'Connessione non riuscita: {message}',
+  'integrations.deleteInstanceTitle': 'Eliminare l’istanza {label}?',
+  'integrations.deleteInstanceDescription': 'Nazgarr smette di leggere da questa istanza di {name}. L’istanza stessa non viene toccata.',
 } as const

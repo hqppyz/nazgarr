@@ -7,9 +7,11 @@ export const onboarding = {
   'onboarding.welcome.approval':
     'Nothing passes without your word: Nazgarr never creates a hardlink, adds a torrent or uploads anything until you approve it in a review queue. Automatic execution exists, but it is off and stays off unless you turn it on.',
   'onboarding.welcome.needTitle': 'Good to have at hand',
-  'onboarding.welcome.needPaths': 'Where your media and your torrent downloads are mounted inside this container (e.g. /data/media and /data/torrents).',
+  'onboarding.welcome.needPaths':
+    "Which folders you mounted in this container (e.g. /data, with media/ and torrents/ inside, or /mnt/disk1 and /mnt/disk2).",
   'onboarding.welcome.needClient': "Your torrent client's address and login (qBittorrent, qui, Deluge, Transmission or rTorrent/ruTorrent).",
-  'onboarding.welcome.needTmdb': 'A free TMDB API key, to recognise movies and series.',
+  'onboarding.welcome.needTmdb':
+    "A free TMDB API key (or Radarr/Sonarr), to recognize movies and shows.",
   'onboarding.welcome.needTracker': 'For each private tracker: its address and your API token.',
   'onboarding.welcome.ask.upload': 'Will you upload new torrents?',
   'onboarding.welcome.ask.uploadHelp': 'Adds the image hosts and the upload settings to the path.',
@@ -27,21 +29,30 @@ export const onboarding = {
   'onboarding.checklist.optional': 'optional',
   'onboarding.checklist.guide': 'Guide me',
 
-  'onboarding.step.storage.title': 'Storage',
-  'onboarding.step.storage.summary': 'Your disks: the torrent folder on each one, and the media library if you have one.',
-  'onboarding.step.clients.title': 'Torrent clients',
-  'onboarding.step.clients.summary': 'Connect your torrent client, so Nazgarr knows what it seeds.',
-  'onboarding.step.metadata.title': 'Metadata',
-  'onboarding.step.metadata.summary': 'A TMDB API key, to recognise movies and series.',
+  'onboarding.step.storage.title':
+    "Storage",
+  'onboarding.step.storage.summary':
+    "Your disks: the torrent folder on each and, if you have one, the media library.",
+  'onboarding.step.clients.title':
+    "Clients",
+  'onboarding.step.clients.summary':
+    "Connect your torrent client and check that Nazgarr finds its files.",
+  'onboarding.step.metadata.title':
+    "Integrations",
+  'onboarding.step.metadata.summary':
+    "A TMDB API key (or Radarr/Sonarr), to recognize movies and shows.",
   'onboarding.step.arr.title': 'Radarr / Sonarr',
   'onboarding.step.arr.summary': 'Their import history: why a torrent never reached the library.',
   'onboarding.step.trackers.title': 'Trackers',
   'onboarding.step.trackers.summary': 'Your private trackers, to find what you can seed again.',
   'onboarding.step.exclusions.title': 'Exclusions',
   'onboarding.step.exclusions.summary': 'Samples, extras and folders to leave out of every count.',
-  'onboarding.step.reseeding.title': 'Reseeding',
-  'onboarding.step.reseeding.summary': 'How sure a match must be before it is recommended.',
-  'onboarding.step.upload.title': 'Upload',
+  'onboarding.step.reseeding.title':
+    "Matching & approval",
+  'onboarding.step.reseeding.summary':
+    "How often to scan on its own, and how sure a match must be before it is recommended.",
+  'onboarding.step.upload.title':
+    "Images & releases",
   'onboarding.step.upload.summary': 'Image hosts for the screenshots, and the upload defaults.',
   'onboarding.step.first_scan.title': 'First scan',
   'onboarding.step.views.title': 'Tour of the views',
@@ -58,20 +69,23 @@ export const onboarding = {
 
   'onboarding.tour.storage.intro.title': 'Your disks',
   'onboarding.tour.storage.intro.body':
-    'A disk is a filesystem as this container sees it. Hardlinks only work inside one filesystem, so each disk holds both its media folders and its torrent folders.\nWith a single shared mount (e.g. /data with media/ and torrents/ inside) one disk is enough.',
+    "A disk is a filesystem as this container sees it: one of the folders you mounted. Hardlinks only work inside one filesystem, so a disk keeps its torrent folders and its media folders (if any) on the same one.\nWith a single shared mount (e.g. /data with media/ and torrents/ inside) one disk is enough; with disks mounted one by one (/mnt/disk1, /mnt/disk2) you add one for each.",
+  'onboarding.tour.storage.suggested.title': 'A folder you mounted',
+  'onboarding.tour.storage.suggested.body':
+    'Nazgarr found the folders mounted in this container: start from one of them, already filled in. Click "Add as a disk".',
   'onboarding.tour.storage.add.title': 'Add a disk',
   'onboarding.tour.storage.add.body': 'Click "Add disk" to register the first one.',
   'onboarding.tour.storage.label.title': 'A name',
   'onboarding.tour.storage.label.body': 'Anything that tells you which disk this is: "main", "disk1", "nvme".',
   'onboarding.tour.storage.root.title': 'Where it is mounted',
   'onboarding.tour.storage.root.body':
-    'The path inside this container, not on your host. It starts from disk_scan_root (e.g. /data): keep it with a single mount, or pick the subfolder of one physical disk (e.g. /data/disk1) if you mount several.',
+    "The path inside this container, not on your host: one of the mounted folders, already proposed. Below the disks you find the folders you mounted, with a warning if two are the same filesystem mounted separately (hardlinks across mounts do not work) or if the Unraid share and the single disks are mounted together.",
   'onboarding.tour.storage.create.title': 'Create it',
   'onboarding.tour.storage.create.body': 'Nazgarr checks that the path exists and remembers which filesystem it is on.',
   'onboarding.tour.storage.media.title':
     'The media folders',
   'onboarding.tour.storage.media.body':
-    'Now your library, the one Plex, Jellyfin or Radarr/Sonarr use: "Add" for each folder (e.g. movies/ and tv/, even separate ones). Every file in them is matched with what you seed. Optional: without them, Nazgarr works on your torrents and uploads only. A folder on another filesystem goes in as a disk of its own.',
+    "Now your library, the one Plex, Jellyfin or Radarr/Sonarr use: \"Add\" for each folder (e.g. movies/ and tv/, even separate). Every file inside is matched against what you seed. Optional: without them Nazgarr works on your torrents and uploads, but reseeding finds nothing, because it recognizes content from library files. A folder on another filesystem must be added as a disk of its own.",
   'onboarding.tour.storage.seeding.title':
     'The torrent folders',
   'onboarding.tour.storage.seeding.body':
@@ -100,9 +114,12 @@ export const onboarding = {
   'onboarding.tour.clients.create.body': 'Then we test the connection.',
   'onboarding.tour.clients.test.title': 'Test the connection',
   'onboarding.tour.clients.test.body': 'Click "Test connection": it says how many torrents the client has. If it fails, check the address and the WebUI login.',
+  'onboarding.tour.clients.paths.title': 'Check the paths',
+  'onboarding.tour.clients.paths.body':
+    'The delicate part: the client and Nazgarr must find the same files, even if they see them from different folders. Click "Check paths": for every torrent Nazgarr looks for its file on the disks. If something is off it shows where it looked and suggests the right mapping, applied with one click. Run it again whenever you change the client mounts.',
   'onboarding.tour.clients.disks.title': 'Disks and paths (optional)',
   'onboarding.tour.clients.disks.body':
-    'If the client sees your files at the same paths as Nazgarr (both use /data), nothing to do here. Use it to limit the client to some disks, or when it sees them elsewhere: set the disk folder and how the client sees it (e.g. /data/qbittorrent = /download).',
+    "This is where you say how the client sees the disks. Three typical cases:\n• client and Nazgarr both mount /data: nothing to do;\n• the client mounts only the torrent folder as /downloads: disk folder torrents = /downloads;\n• Unraid with /mnt/disk1 and /mnt/disk2 in Nazgarr and the share /mnt/user/data in the client: on each disk, folder data = /mnt/user/data.\nWhen in doubt, \"Check paths\" suggests it for you. Once you turn on one disk, the others count only if turned on too.",
   'onboarding.tour.clients.labels.title': 'Category and tags for uploads',
   'onboarding.tour.clients.labels.body': 'The category and the tags your uploads get on this client (e.g. tag "release"). Each upload can still change them.',
 
@@ -110,7 +127,8 @@ export const onboarding = {
   'onboarding.tour.metadata.tmdb.body':
     'The key that lets Nazgarr recognise what every file is. It is free: create an account on themoviedb.org, then Settings › API, and paste the API key (v3) here. Keep it hidden and safe: it is stored encrypted.',
   'onboarding.tour.metadata.tvdb.title': 'TVDB (optional)',
-  'onboarding.tour.metadata.tvdb.body': 'Not used yet: you can leave it empty.',
+  'onboarding.tour.metadata.tvdb.body':
+    "Only a last resort for episode orders, when Sonarr does not have the show or the files follow another order. You can leave it empty.",
   'onboarding.tour.metadata.radarr.title': 'Radarr',
   'onboarding.tour.metadata.radarr.body':
     'Its address and API key (Radarr › Settings › General). Its import history tells why a torrent never reached the library, and recognises files faster than by name.',
@@ -142,13 +160,13 @@ export const onboarding = {
   'onboarding.tour.trackers.profile.body': 'How uploads to this tracker are named and categorised. A known tracker already has one: change it only if needed.',
   'onboarding.tour.exclusions.presets.title': 'Ready-made exclusions',
   'onboarding.tour.exclusions.presets.body':
-    'Sets of files that never count: media server metadata (artwork, .nfo) is on by default; samples and scene leftovers can be added. Excluded files stay on disk, they are just left out of states, counts and searches.',
+    'Sets of files that never count: media server artwork and metadata, macOS and Windows system files and .torrent files are excluded by default; extras, samples and scene leftovers can be added. Excluded files stay on disk, they are just left out of states, counts and searches.',
   'onboarding.tour.exclusions.custom.title': 'Your own patterns',
   'onboarding.tour.exclusions.custom.body': 'Anything else to leave out, as patterns on the path (e.g. */Extras/*). You can also exclude a file or a folder by right-clicking it in the Library.',
 
   'onboarding.tour.reseeding.schedule.title': 'Automatic scans',
   'onboarding.tour.reseeding.schedule.body':
-    'When Nazgarr reads everything again on its own: every 6 hours suits most libraries. Even so nothing is linked or added without you: proposals wait in the queue.',
+    "Automatic scans are off until you choose when: every 6 hours suits most libraries. Without one, Nazgarr scans only when you click \"Scan now\". Even so nothing is linked or added without you: suggestions wait in the queue.",
   'onboarding.tour.reseeding.search.title': 'What gets searched',
   'onboarding.tour.reseeding.search.body':
     'Every scan looks for the library files that do not seed. With cross-seeds on, a file seeding on one tracker is also searched on the others.',
@@ -161,7 +179,7 @@ export const onboarding = {
 
   'onboarding.tour.upload.hosts.title': 'Image hosts',
   'onboarding.tour.upload.hosts.body':
-    'Where the screenshots of your uploads go, in this order: drag to change it, remove the ones you do not want. Imgbox and Pixhost need no key; for the others paste your API key on the right.',
+    'Where the screenshots of your uploads go, in this order: drag to change it, switch each host on or off and tap a host for its API key. More hosts come with a plugin.',
   'onboarding.tour.upload.screenshots.title': 'Screenshots',
   'onboarding.tour.upload.screenshots.body': 'How many per upload, and whether HDR frames are tone-mapped so they do not look washed out.',
   'onboarding.tour.upload.description.title': 'Description',
@@ -209,17 +227,62 @@ export const onboarding = {
   'onboarding.tour.views.pack.title':
     'Compose a pack',
   'onboarding.tour.views.pack.body':
-    'Episodes downloaded one at a time, even ones already seeding with their own torrent, become a season pack or a complete pack: pick them (Shift-click for a run) and create the pack. The upload starts from a new folder of hardlinks, one subfolder per season, subtitles included. Episodes from different releases need your confirmation.',
+    'Episodes downloaded one at a time, even ones already seeding with their own torrent, become a season pack or a complete pack: pick them (Shift-click for a run, or "Pick all shown") and create the pack. The upload starts from a new folder of hardlinks, one subfolder per season, subtitles included. Episodes from different releases need your confirmation.',
   'onboarding.tour.views.torrents.title':
     'Your torrents',
   'onboarding.tour.views.torrents.body':
     'Files: what your seeding folders hold, as a tree, with the same filters and the same pack picking (no media folder needed). Triage: the torrents that never made it to the library.',
-  'onboarding.tour.views.uploads.title':
-    'Your uploads',
-  'onboarding.tour.views.uploads.body':
-    'In progress and history, one row per upload with the outcome on each tracker. The trash removes the record only (trackers, clients and disk stay as they are); on an upload that is running it cancels it.',
   'onboarding.tour.upload.single_file.title':
     'A single file, not a folder',
   'onboarding.tour.upload.single_file.body':
     'When the only file going into the torrent sits in a folder, the torrent can be just that file. Choose whether the file seeds inside its folder or directly in the releases folder. Off by default.',
+  'onboarding.step.extras.title':
+    "The rest of Nazgarr",
+  'onboarding.step.extras.summary':
+    "Uploads, notifications, other instances, API keys and plugins: what is there, without having to use it.",
+  'onboarding.tour.extras.upload_off.title':
+    "There are uploads too",
+  'onboarding.tour.extras.upload_off.body':
+    "At the welcome you said you don't upload torrents, so I won't show more here. If one day you want to publish your encodes, Nazgarr makes the torrent, screenshots and description and uploads them to your trackers, always with your approval: it starts from Settings › Images.",
+  'onboarding.tour.extras.new.title':
+    "How an upload starts",
+  'onboarding.tour.extras.new.body':
+    "Three ways: from here, picking a file or folder; with a right click on a file in the Library; or on its own, dropping a release in the watched folder. Either way nothing is published without you: there are two moments where you decide. Let's look at them on an example upload.",
+  'onboarding.tour.extras.demo_match.title':
+    "What content is it",
+  'onboarding.tour.extras.demo_match.body':
+    "The first moment: Nazgarr suggests the TMDB content it recognized, with how sure it is. You confirm, pick another one or search by hand. This is an example: click anything, nothing happens.",
+  'onboarding.tour.extras.demo_decision.title':
+    "What to do on each tracker",
+  'onboarding.tour.extras.demo_decision.body':
+    "The second: for each tracker Nazgarr shows what is already there (a dupe, a version to replace) and suggests upload, reseed or skip. Name, category, type and options can be changed; only what you approve starts.",
+  'onboarding.tour.extras.queue.title':
+    "Your uploads",
+  'onboarding.tour.extras.queue.body':
+    "In progress and history, one row per upload with the result on each tracker. The bin only removes the record (tracker, client and disk stay as they are); on a running upload it cancels it.",
+  'onboarding.tour.extras.notifications.title':
+    "Notifications",
+  'onboarding.tour.extras.notifications.body':
+    "A message on Discord or Telegram, or a signed webhook, when an upload waits for you or ends, a reseed seeds, a scan finishes. As many services as you like, each with its own events, and a test before saving.",
+  'onboarding.tour.extras.instances.title':
+    "Other instances",
+  'onboarding.tour.extras.instances.body':
+    "Another server running Nazgarr? Link it with one of its API keys and manage it from here, without opening another window. As soon as you add one, a switcher appears under the app name to move from one to the other.",
+  'onboarding.tour.extras.switcher.title':
+    "From one instance to another",
+  'onboarding.tour.extras.switcher.body':
+    "This is where you choose which instance you are looking at: the interface shows its data, as if you were there.",
+  'onboarding.tour.extras.api_keys.title':
+    "API keys",
+  'onboarding.tour.extras.api_keys.body':
+    "For scripts, for the nazgarr CLI (also inside the container) and to let another instance link to this one. Read only or write; the key is shown only once.",
+  'onboarding.tour.extras.plugins.title':
+    "Plugins",
+  'onboarding.tour.extras.plugins.body':
+    "Packages that add trackers, clients, notifications or image hosts. List them in an environment variable and they install at the next restart.",
+  'onboarding.tour.extras.updates.title': 'Updates',
+  'onboarding.tour.extras.updates.body':
+    'Nazgarr can check on its own every 12 hours whether there is a new version and show you what changes, and what to do, before updating. It is off: turn it on here if you want. The path ends here: happy seeding.',
+  'onboarding.restart.extras':
+    "The rest of Nazgarr",
 } as const

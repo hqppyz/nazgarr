@@ -379,6 +379,27 @@ class _BulkRun:
             self.totals["torrents_indexed"] += counts["torrents_indexed"]
             self.totals["files_indexed"] += counts["files_indexed"]
             self.totals["files_linked"] = self.totals.get("files_linked", 0) + counts.get("files_linked", 0)
+            self._check_client_paths(torrent_client, counts)
+
+    # Oltre questa quota di file che puntano a un disco senza esserci, un
+    # client ha una corrispondenza dei percorsi (o una cartella) sbagliata.
+    # Sotto, sono download a metà o file appena spostati.
+    UNLINKED_SHARE = 0.10
+
+    def _check_client_paths(self, torrent_client: TorrentClient, counts: dict) -> None:
+        """Un avviso sulla run per un client che Nazgarr non riesce a
+        collegare ai file sui dischi (prima solo nel log, e solo se nessun
+        client collegava niente): i suoi torrent risulterebbero orfani."""
+        files, linked = counts.get("files_indexed", 0), counts.get("files_linked", 0)
+        unlinked = counts.get("files_mapped_unlinked", 0)
+        if not files or not self.session.query(SeedFile.id).first():
+            return
+        if not linked:
+            self._problem(f"Client {torrent_client.label!r}: none of its {files} files was found on the disks. "
+                          "Run \"Check paths\" in Settings > Clients")
+        elif unlinked > files * self.UNLINKED_SHARE:
+            self._problem(f"Client {torrent_client.label!r}: {unlinked} of {files} files point to a disk but are "
+                          "not there. Run \"Check paths\" in Settings > Clients")
 
     def prepare_matching(self) -> None:
         # Il matching torrent -> client cerca sul tracker ogni file lato

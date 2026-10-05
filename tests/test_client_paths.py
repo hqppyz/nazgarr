@@ -26,6 +26,11 @@ def test_the_disk_root_and_no_mapping_as_before(tmp_path):
     whole = Mapping(str(root), "/downloads")
     assert to_client(whole, str(root / "torrents")) == "/downloads/torrents"
     assert to_disk_relative(whole, "/downloads/torrents/a.mkv") == "torrents/a.mkv"
+    # Un percorso fuori dal disco: errore anche senza sottocartella, mai inventato.
+    other = tmp_path / "other"
+    other.mkdir()
+    with pytest.raises(ClientPathError):
+        to_client(whole, str(other))
     same = Mapping(str(root))
     assert to_client(same, str(root / "torrents")) == str(root / "torrents")
     assert to_disk_relative(same, str(root / "torrents" / "a.mkv")) == "torrents/a.mkv"
@@ -50,3 +55,28 @@ def test_the_save_path_handed_to_the_client(db_session, tmp_path):
     with pytest.raises(ClientPathError):
         client_visible_path(db_session, disk, tc.id, str(root / "uploads"))  # il client non la vede
     assert client_visible_path(db_session, disk, None, str(root / "uploads")) == str(root / "uploads")
+
+
+def test_the_client_root_is_cleaned_or_refused(client):
+    root = client.scan_root / "data"
+    (root / "torrents").mkdir(parents=True)
+    disk_id = client.post("/api/disks", json={"label": "main", "root_path": str(root)}).json()["id"]
+    tc = client.post("/api/torrent-clients", json={"label": "q", "adapter_type": "qbittorrent",
+                                                   "base_url": "http://q"}).json()["id"]
+
+    saved = client.post(f"/api/torrent-clients/{tc}/disks/{disk_id}",
+                        json={"torrent_client_root_path": "  /downloads/ ", "local_rel_path": "torrents"})
+    assert saved.status_code == 204
+    assert client.get("/api/torrent-clients").json()[0]["disks"][0]["torrent_client_root_path"] == "/downloads"
+    for value in ("downloads", "D:\\torrents", "./x"):
+        refused = client.post(f"/api/torrent-clients/{tc}/disks/{disk_id}", json={"torrent_client_root_path": value})
+        assert refused.status_code == 400 and refused.json()["detail"]["code"] == "client_root_not_absolute", value
+
+
+def test_a_coded_error_on_a_reseed_is_saved_as_readable_text():
+    from nazgarr.reseed.executor import _error_text
+
+    text = _error_text(ClientPathError("client_cannot_see_path", path="/data/x", folder="/data/torrents",
+                                       client_root="/downloads"))
+    assert "/data/x" in text and "/downloads" in text and "client_cannot_see_path" not in text
+    assert _error_text(RuntimeError("boom")) == "boom"

@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 from nazgarr.plugins import REGISTRY, loader
+from nazgarr.plugins.builtin import BUNDLED
 
 
 def _ep(name, obj, dist="nazgarr-test", version="0.1.0"):
@@ -32,7 +33,7 @@ def _setup(adapter_type, requires=">=1.0,<2", then_fail=False):
 @pytest.fixture(autouse=True)
 def _clean():
     yield
-    for spec in [s for s in REGISTRY.all() if s.plugin]:
+    for spec in [s for s in REGISTRY.all() if s.plugin and s.plugin not in BUNDLED]:
         REGISTRY.unregister(spec.kind, spec.adapter_type)
 
 
@@ -147,8 +148,26 @@ def test_the_api_lists_plugins_and_adapters(client):
     body = client.get("/api/plugins").json()
 
     assert body["sdk_version"] and body["env_var"] == "NAZGARR_PLUGINS"
-    ptpimg = next(a for a in body["adapters"] if a["adapter_type"] == "ptpimg")
-    assert ptpimg["plugin"] is None and ptpimg["config_fields"][0]["type"] == "secret"
+    imgbb = next(a for a in body["adapters"] if a["adapter_type"] == "imgbb")
+    assert imgbb["plugin"] == "nazgarr-imgbb" and imgbb["bundled"] is True
+    assert imgbb["config_fields"][0]["type"] == "secret"
+    # Ogni host è un plugin nativo, con la sua card.
+    plugin = next(p for p in body["plugins"] if p["name"] == "nazgarr-imgbb")
+    assert (plugin["label"], plugin["bundled"], plugin["enabled"], plugin["status"]) == ("ImgBB", True, True, "loaded")
+    assert (plugin["categories"], plugin["settings"]) == (["image_host"], ["image_host:imgbb"])
+
+
+def test_a_plugin_is_switched_off_and_on_without_a_restart(client):
+    assert client.put("/api/plugins/nazgarr-imageride/enabled", json={"enabled": False}).status_code == 204
+    body = client.get("/api/plugins").json()
+    plugin = next(p for p in body["plugins"] if p["name"] == "nazgarr-imageride")
+    # Spento: niente più adapter nel registro, ma la card sa ancora cosa fa.
+    assert (plugin["enabled"], plugin["status"], plugin["label"]) == (False, "disabled", "imageride")
+    assert not any(a["adapter_type"] == "imageride" for a in body["adapters"])
+
+    assert client.put("/api/plugins/nazgarr-imageride/enabled", json={"enabled": True}).status_code == 204
+    assert any(a["adapter_type"] == "imageride" for a in client.get("/api/plugins").json()["adapters"])
+    assert client.put("/api/plugins/nope/enabled", json={"enabled": False}).status_code == 404
 
 
 def test_a_local_plugin_folder_is_reinstalled_when_its_code_changes(tmp_path, monkeypatch):

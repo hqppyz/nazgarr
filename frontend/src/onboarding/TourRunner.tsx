@@ -25,9 +25,18 @@ const NOT_FOUND_MS = 5000
 // l'overlay li coprirebbe (es. il selettore delle cartelle).
 const LAYERS = '[data-slot="dialog-content"], [role="listbox"], [role="menu"], [role="alertdialog"]'
 
+// Un livello chiuso ma ancora nel DOM (l'animazione d'uscita, o una lista
+// che resta montata nascosta) non conta: se no il tour restava in pausa
+// finché non si cambiava schermata.
+function hidden(layer: Element): boolean {
+  if (layer.closest('[hidden], [data-closed], [aria-hidden="true"]')) return true
+  const style = window.getComputedStyle(layer)
+  return style.display === 'none' || style.visibility === 'hidden'
+}
+
 function foreignLayerOpen(anchor: Element | null): boolean {
   return Array.from(document.querySelectorAll(LAYERS)).some(
-    (layer) => !layer.closest('.driver-popover') && !(anchor && layer.contains(anchor)),
+    (layer) => !layer.closest('.driver-popover') && !(anchor && layer.contains(anchor)) && !hidden(layer),
   )
 }
 
@@ -132,6 +141,10 @@ export function TourRunner() {
     const started = Date.now()
     let shown = false
     let paused = false
+    // L'elemento evidenziato: se la pagina lo ridisegna (una card che si
+    // aggiorna dopo un salvataggio), si evidenzia quello nuovo, se no il
+    // fumetto restava attaccato a un elemento che non c'è più.
+    let highlighted: Element | null = null
     let missingSince: number | null = null
     const last = active.index === steps.length - 1
     const nextTour = last ? afterThis().nextStep : undefined
@@ -146,7 +159,8 @@ export function TourRunner() {
         popover: {
           title: t(`${base}.title`),
           description: t(`${base}.body`),
-          side: step.side,
+          // Sul telefono sempre sotto: a sinistra o a destra non c'è spazio.
+          side: window.matchMedia?.('(max-width: 639px)').matches ? 'bottom' : step.side,
           showButtons: buttons,
           prevBtnText: t('onboarding.tour.back'),
           nextBtnText: last
@@ -171,6 +185,7 @@ export function TourRunner() {
         },
       })
       shown = true
+      highlighted = element
     }
 
     const tick = () => {
@@ -198,7 +213,7 @@ export function TourRunner() {
         return
       }
       if (foreign) return
-      if (!shown || paused) {
+      if (!shown || paused || (element && element !== highlighted)) {
         paused = false
         show(element)
       } else drv.refresh()

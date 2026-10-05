@@ -13,7 +13,7 @@ from nazgarr.cli_client.output import EXIT_USAGE, fail
 def raw(
     ctx: typer.Context,
     method: str = typer.Argument(..., help="GET, POST, PUT, PATCH or DELETE."),
-    path: str = typer.Argument(..., help="The endpoint, e.g. /api/dashboard (see http://HOST:8080/docs)."),
+    path: str = typer.Argument(..., help="The endpoint, e.g. /api/dashboard (see http://HOST:3019/docs)."),
     data: str = typer.Option(None, "--data", "-d", help="JSON body, or @file.json."),
     param: list[str] = typer.Option(None, "--param", "-p", help="Query parameter key=value (repeatable)."),
 ):

@@ -32,6 +32,7 @@ from collections.abc import Callable
 
 from nazgarr.adapters.torrent_client.base import (
     CHECKING_STATES,
+    CONTENT_LAYOUTS,
     ERROR_STATES,
     ClientTorrentFileInfo,
     ClientTorrentInfo,
@@ -89,7 +90,7 @@ class QBittorrentAdapter(TorrentClientAdapter):
     def add_torrent(
         self, torrent_file_or_url: str, save_path: str, force_recheck: bool = True,
         expected_info_hash: str | None = None, skip_check_verified: bool = False,
-        category: str | None = None, tags: list[str] | None = None,
+        category: str | None = None, tags: list[str] | None = None, content_layout: str = "Original",
     ) -> str:
         if not force_recheck:
             raise ValueError(
@@ -117,13 +118,34 @@ class QBittorrentAdapter(TorrentClientAdapter):
             save_path=save_path,
             is_skip_checking=skip_check_verified,
             use_auto_torrent_management=False,
+            content_layout=content_layout,
+            # Avviato e senza condizione di arresto, qualunque cosa dicano le
+            # preferenze del client ("non avviare automaticamente", "fermati
+            # dopo il controllo dei file"): un reseed o un upload deve seedare.
+            is_stopped=False,
+            stop_condition="None",
             **({"category": category} if category else {}),
             **({"tags": ",".join(tags)} if tags else {}),
         )
         info_hash = self._wait_for_new_hash(before_hashes, expected)
         if not skip_check_verified:
             self._client.torrents_recheck(torrent_hashes=info_hash)
+        self.start(info_hash)  # una versione che ignora "stopped" all'aggiunta
         return info_hash
+
+    def start(self, info_hash: str) -> None:
+        self._client.torrents_start(torrent_hashes=info_hash)
+
+    def content_layout(self) -> str:
+        prefs = self._client.app_preferences()
+        layout = prefs.get("torrent_content_layout")
+        if layout in CONTENT_LAYOUTS:
+            return layout
+        # Prima della 4.3.2 c'era solo "crea sottocartella" sì/no.
+        subfolder = prefs.get("create_subfolder_enabled")
+        if subfolder is None:
+            return "Original"
+        return "Original" if subfolder else "NoSubfolder"
 
     def _wait_for_new_hash(self, before_hashes: set[str], expected: str | None = None) -> str:
         deadline = time.monotonic() + self.poll_timeout

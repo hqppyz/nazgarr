@@ -79,7 +79,7 @@ describe('GettingStartedCard', () => {
     render(<MemoryRouter><GettingStartedCard /></MemoryRouter>)
 
     expect(screen.getByText('Getting started')).toBeTruthy()
-    expect(screen.getByText('2/8')).toBeTruthy() // upload sì, Radarr/Sonarr no
+    expect(screen.getByText('2/9')).toBeTruthy() // upload sì, Radarr/Sonarr no; con "Il resto di Nazgarr"
     expect(screen.getByText('Trackers').closest('a')?.getAttribute('href')).toBe('/config?tab=trackers')
   })
 

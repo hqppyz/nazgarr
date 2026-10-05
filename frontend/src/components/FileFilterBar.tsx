@@ -28,8 +28,10 @@ export function FileFilterBar({
   return (
     <div className="grid gap-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <Tabs value={filters.status} onValueChange={(v) => set('status', v as string)}>
-          <TabsList>
+        {/* Sotto sm le card di riepilogo sopra fanno già da filtro: le tab
+            ripetevano le stesse scelte. Più strette dello schermo scorrono. */}
+        <Tabs value={filters.status} onValueChange={(v) => set('status', v as string)} className="hidden max-w-full min-w-0 sm:flex">
+          <TabsList className="max-w-full justify-start overflow-x-auto">
             {statusOptions.map((option) => (
               <TabsTrigger key={option.value} value={option.value}>
                 {option.label} ({summary[option.value]?.count ?? 0})

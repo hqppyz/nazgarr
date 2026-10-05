@@ -32,3 +32,17 @@ export function useSaveAdapterConfig(kind: string, adapterType: string) {
     onSuccess: (data) => queryClient.setQueryData(['plugins', 'config', kind, adapterType], data),
   })
 }
+
+// Accende o spegne un plugin, nativo o installato, senza riavviare: i suoi
+// adapter entrano o escono dal registro (un host di immagini dalla catena).
+export function useSetPluginEnabled(name: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (enabled: boolean) =>
+      unwrap(api.PUT('/api/plugins/{name}/enabled', { params: { path: { name } }, body: { enabled } })),
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['plugins'] })
+      queryClient.invalidateQueries({ queryKey: ['uploads', 'image-hosts'] })
+    },
+  })
+}

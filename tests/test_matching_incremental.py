@@ -235,3 +235,31 @@ def test_torrent_to_client_matching_is_skipped_when_no_client_file_is_linked(db_
     assert t2c_calls == []
     assert run.errors >= 1
     assert run.last_error.startswith("Torrent → client matching skipped: no file of the torrent clients")
+
+
+def test_a_client_with_unlinked_files_is_a_problem_on_the_run(db_session, tmp_path):
+    """Prima solo un log, e solo se nessun client collegava niente: ora ogni
+    client con i file fuori posto lo dice sulla run (Verifica percorsi)."""
+    import json
+
+    from nazgarr.core.models import SeedFile, TorrentClient
+
+    _setup(db_session)
+    run0 = pipeline.start_run(db_session, "manual")
+    db_session.add(SeedFile(disk_id=1, relative_path="torrents/a.mkv", size_bytes=1, st_dev=1, inode=9,
+                            last_scan_id=run0.id, last_seen_at=datetime.now(UTC)))
+    client = TorrentClient(label="q", adapter_type="qbittorrent", base_url="http://q")
+    db_session.add(client)
+    db_session.commit()
+    run = pipeline.start_run(db_session, "manual")
+    job = pipeline._BulkRun(db_session, run, str(tmp_path))
+
+    job._check_client_paths(client, {"files_indexed": 10, "files_linked": 9, "files_mapped_unlinked": 1})
+    assert run.errors == 0  # un download a metà non è un errore di percorsi
+    job._check_client_paths(client, {"files_indexed": 10, "files_linked": 7, "files_mapped_unlinked": 3})
+    job._check_client_paths(client, {"files_indexed": 4, "files_linked": 0, "files_mapped_unlinked": 0})
+    assert run.errors == 2
+    assert json.loads(run.errors_json) == [
+        "Client 'q': 3 of 10 files point to a disk but are not there. Run \"Check paths\" in Settings > Clients",
+        "Client 'q': none of its 4 files was found on the disks. Run \"Check paths\" in Settings > Clients",
+    ]
