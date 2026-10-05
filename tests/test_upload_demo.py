@@ -21,8 +21,10 @@ from tests.test_api_uploads import setup  # noqa: F401  (fixture)
 from tests.upload_helpers import FakeTMDB, make_tracker, tmdb_result, write_video
 
 DEMO = Path(__file__).resolve().parents[1] / "frontend" / "src" / "lib" / "uploadDemo.json"
-TITLE, YEAR, TMDB_ID = "Big Buck Bunny", 2008, 10378  # un film libero (Blender Foundation, CC BY)
-NAME = "Big.Buck.Bunny.2008.1080p.BluRay.x264-NZG.mkv"
+TITLE, YEAR, TMDB_ID, IMDB_ID = "Hackers", 1995, 10428, "tt0113243"
+NAME = "Hackers.1995.2160p.AI.Upscaled.BluRay.x265-MaTiTa.mkv"
+# I file dei test sono piccoli: nei dati salvati, la dimensione di un 2160p vero.
+TEST_SIZE, SHOWN_SIZE = 300_123, 21_474_836_480
 DEMO_ID = 0  # mai l'id di un job vero: il frontend serve da sé tutto quello che lo riguarda
 
 
@@ -30,12 +32,12 @@ def _build(client, tmp_path, setup, monkeypatch) -> dict:  # noqa: F811
     session = client.app.state.session_factory()
     make_tracker(session, "ITT")
     session.close()
-    write_video(tmp_path / "releases" / NAME, 300_000)
+    write_video(tmp_path / "releases" / NAME, TEST_SIZE)
     setup["resolver"].resolved = ResolvedMedia(tmdb_id=TMDB_ID, content_type="movie", title=TITLE, year=YEAR,
                                                poster_path=None)
-    details = {**tmdb_result(TMDB_ID, TITLE, YEAR), "genres": ["Animation", "Comedy"], "runtime": 10,
-               "imdb_id": "tt1254207", "tvdb_id": None, "cast": [], "original_language": "en",
-               "overview": "A giant rabbit meets three bullying rodents."}
+    details = {**tmdb_result(TMDB_ID, TITLE, YEAR), "genres": ["Action", "Crime", "Thriller", "Drama"],
+               "runtime": 105, "imdb_id": IMDB_ID, "tvdb_id": None, "cast": [], "original_language": "en",
+               "overview": "A group of teenage hackers stumbles on a plot to frame them for a crime they did not commit."}
     fake = FakeTMDB(search={("movie", TITLE, YEAR): [tmdb_result(TMDB_ID, TITLE, YEAR)]},
                     details={("movie", TMDB_ID): details})
     monkeypatch.setattr(upload_identify, "tmdb_client", lambda session: fake)
@@ -48,7 +50,7 @@ def _build(client, tmp_path, setup, monkeypatch) -> dict:  # noqa: F811
     decision = client.get(f"/api/uploads/{job_id}").json()
     text = json.dumps({"match": match, "decision": decision, "metadata": metadata})
     # Niente percorsi della macchina dei test, e l'id che nessun job vero ha.
-    text = text.replace(str(tmp_path), "/data")
+    text = text.replace(str(tmp_path), "/data").replace(str(TEST_SIZE), str(SHOWN_SIZE))
     # Il tracker del fixture si chiama "t": un nome che si legge.
     text = text.replace('"tracker_label": "t"', '"tracker_label": "Another tracker"').replace(
         "https://t.example", "https://tracker.example")

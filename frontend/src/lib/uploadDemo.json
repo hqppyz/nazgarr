@@ -7,15 +7,15 @@
     "audio": null,
     "audio_languages": null,
     "edition": null,
-    "group": "NZG",
+    "group": "MaTiTa",
     "hdr": null,
     "hybrid": null,
     "repack": null,
-    "resolution": "1080p",
+    "resolution": "2160p",
     "service": null,
     "source": "BluRay",
     "type": "ENCODE",
-    "video_codec": "x264"
+    "video_codec": "x265"
    },
    "field_options": {
     "audio": [
@@ -283,19 +283,19 @@
      "generated": {
       "count": 1,
       "files": [
-       "Big.Buck.Bunny.2008.1080p.BluRay.x264-NZG.mkv"
+       "Hackers.1995.2160p.BluRay.x265-MaTiTa.mkv"
       ],
       "folder": null,
-      "name": "Big.Buck.Bunny.2008.1080p.BluRay.x264-NZG.mkv",
+      "name": "Hackers.1995.2160p.BluRay.x265-MaTiTa.mkv",
       "single_file": false
      },
      "original": {
       "count": 1,
       "files": [
-       "Big.Buck.Bunny.2008.1080p.BluRay.x264-NZG.mkv"
+       "Hackers.1995.2160p.AI.Upscaled.BluRay.x265-MaTiTa.mkv"
       ],
       "folder": null,
-      "name": "Big.Buck.Bunny.2008.1080p.BluRay.x264-NZG.mkv",
+      "name": "Hackers.1995.2160p.AI.Upscaled.BluRay.x265-MaTiTa.mkv",
       "single_file": false
      }
     }
@@ -303,10 +303,10 @@
    "languages": {},
    "mediainfo": {
     "audio": [],
-    "file_name": "Big.Buck.Bunny.2008.1080p.BluRay.x264-NZG.mkv",
+    "file_name": "Hackers.1995.2160p.AI.Upscaled.BluRay.x265-MaTiTa.mkv",
     "general": {
      "duration_ms": null,
-     "file_size": 300000,
+     "file_size": 21474836480,
      "format": null,
      "overall_bit_rate": null
     },
@@ -314,11 +314,11 @@
     "video": null
    },
    "name_source": {
-    "name": "Big.Buck.Bunny.2008.1080p.BluRay.x264-NZG.mkv",
+    "name": "Hackers.1995.2160p.AI.Upscaled.BluRay.x265-MaTiTa.mkv",
     "origin": "source"
    },
    "seeding_here": {},
-   "total_size_bytes": 300000
+   "total_size_bytes": 21474836480
   },
   "candidates": [
    {
@@ -326,23 +326,23 @@
     "confidence_parts": {
      "basis": "name",
      "title": 1.0,
-     "title_guess": "Big Buck Bunny",
-     "title_matched": "Big Buck Bunny",
+     "title_guess": "Hackers",
+     "title_matched": "Hackers",
      "type": 1.0,
      "type_candidate": "movie",
      "type_guess": "movie",
      "year": 1.0,
-     "year_candidate": 2008,
-     "year_guess": 2008
+     "year_candidate": 1995,
+     "year_guess": 1995
     },
     "content_type": "movie",
     "original_title": null,
     "overview": null,
     "poster_path": null,
     "source": "filename_parser",
-    "title": "Big Buck Bunny",
-    "tmdb_id": 10378,
-    "year": 2008
+    "title": "Hackers",
+    "tmdb_id": 10428,
+    "year": 1995
    }
   ],
   "content_type": "movie",
@@ -360,7 +360,7 @@
     "id": 1,
     "level": "info",
     "params": {
-     "path": "releases/Big.Buck.Bunny.2008.1080p.BluRay.x264-NZG.mkv",
+     "path": "releases/Hackers.1995.2160p.AI.Upscaled.BluRay.x265-MaTiTa.mkv",
      "trackers": [
       "t",
       "ITT"
@@ -397,9 +397,9 @@
      "episode": null,
      "kind": "movie",
      "seasons": [],
-     "title": "Big Buck Bunny",
-     "tmdb_id": 10378,
-     "year": 2008
+     "title": "Hackers",
+     "tmdb_id": 10428,
+     "year": 1995
     },
     "target_id": null
    },
@@ -449,28 +449,28 @@
   "finished_at": null,
   "forced_ids": {},
   "id": 0,
-  "imdb_id": "tt1254207",
+  "imdb_id": "tt0113243",
   "is_dir": false,
   "kind": "movie",
   "layout": {
    "content_type": "movie",
    "episodes_by_season": {},
    "kind": "movie",
-   "main_video": "/data/releases/Big.Buck.Bunny.2008.1080p.BluRay.x264-NZG.mkv",
+   "main_video": "/data/releases/Hackers.1995.2160p.AI.Upscaled.BluRay.x265-MaTiTa.mkv",
    "other_files": 0,
-   "release_group": "NZG",
+   "release_group": "MaTiTa",
    "seasons": [],
-   "title": "Big Buck Bunny",
-   "total_size_bytes": 300000,
+   "title": "Hackers",
+   "total_size_bytes": 21474836480,
    "videos": [
     {
      "episodes": [],
      "relative_path": "",
      "season": null,
-     "size_bytes": 300000
+     "size_bytes": 21474836480
     }
    ],
-   "year": 2008
+   "year": 1995
   },
   "mal_id": null,
   "mediainfo_text": "MI",
@@ -482,10 +482,10 @@
   "progress_done": null,
   "progress_total": null,
   "queue_position": null,
-  "relative_path": "releases/Big.Buck.Bunny.2008.1080p.BluRay.x264-NZG.mkv",
+  "relative_path": "releases/Hackers.1995.2160p.AI.Upscaled.BluRay.x265-MaTiTa.mkv",
   "screenshot_urls": [],
   "seasons": [],
-  "source_path": "/data/releases/Big.Buck.Bunny.2008.1080p.BluRay.x264-NZG.mkv",
+  "source_path": "/data/releases/Hackers.1995.2160p.AI.Upscaled.BluRay.x265-MaTiTa.mkv",
   "stage": null,
   "status": "awaiting_decision",
   "targets": [
@@ -514,7 +514,7 @@
     "freeleech_options": [],
     "id": 1,
     "info_hash": null,
-    "proposed_name": "Big Buck Bunny (2008) 1080p BluRay x264-NZG",
+    "proposed_name": "Hackers (1995) 2160p BluRay x265-MaTiTa",
     "remote_url": null,
     "reseed_torrent_id": null,
     "resolution_id": null,
@@ -555,7 +555,7 @@
     "freeleech_options": [],
     "id": 2,
     "info_hash": null,
-    "proposed_name": "Big Buck Bunny (2008) 1080p BluRay x264-NZG",
+    "proposed_name": "Hackers (1995) 2160p BluRay x265-MaTiTa",
     "remote_url": null,
     "reseed_torrent_id": null,
     "resolution_id": null,
@@ -572,11 +572,11 @@
     "type_id_map": {}
    }
   ],
-  "title": "Big Buck Bunny",
-  "tmdb_id": 10378,
+  "title": "Hackers",
+  "tmdb_id": 10428,
   "tvdb_id": null,
   "updated_at": "2026-10-05T12:00:00Z",
-  "year": 2008
+  "year": 1995
  },
  "match": {
   "analysis": null,
@@ -586,23 +586,23 @@
     "confidence_parts": {
      "basis": "name",
      "title": 1.0,
-     "title_guess": "Big Buck Bunny",
-     "title_matched": "Big Buck Bunny",
+     "title_guess": "Hackers",
+     "title_matched": "Hackers",
      "type": 1.0,
      "type_candidate": "movie",
      "type_guess": "movie",
      "year": 1.0,
-     "year_candidate": 2008,
-     "year_guess": 2008
+     "year_candidate": 1995,
+     "year_guess": 1995
     },
     "content_type": "movie",
     "original_title": null,
     "overview": null,
     "poster_path": null,
     "source": "filename_parser",
-    "title": "Big Buck Bunny",
-    "tmdb_id": 10378,
-    "year": 2008
+    "title": "Hackers",
+    "tmdb_id": 10428,
+    "year": 1995
    }
   ],
   "content_type": "movie",
@@ -620,7 +620,7 @@
     "id": 1,
     "level": "info",
     "params": {
-     "path": "releases/Big.Buck.Bunny.2008.1080p.BluRay.x264-NZG.mkv",
+     "path": "releases/Hackers.1995.2160p.AI.Upscaled.BluRay.x265-MaTiTa.mkv",
      "trackers": [
       "t",
       "ITT"
@@ -659,21 +659,21 @@
    "content_type": "movie",
    "episodes_by_season": {},
    "kind": "movie",
-   "main_video": "/data/releases/Big.Buck.Bunny.2008.1080p.BluRay.x264-NZG.mkv",
+   "main_video": "/data/releases/Hackers.1995.2160p.AI.Upscaled.BluRay.x265-MaTiTa.mkv",
    "other_files": 0,
-   "release_group": "NZG",
+   "release_group": "MaTiTa",
    "seasons": [],
-   "title": "Big Buck Bunny",
-   "total_size_bytes": 300000,
+   "title": "Hackers",
+   "total_size_bytes": 21474836480,
    "videos": [
     {
      "episodes": [],
      "relative_path": "",
      "season": null,
-     "size_bytes": 300000
+     "size_bytes": 21474836480
     }
    ],
-   "year": 2008
+   "year": 1995
   },
   "mal_id": null,
   "mediainfo_text": null,
@@ -685,10 +685,10 @@
   "progress_done": null,
   "progress_total": null,
   "queue_position": null,
-  "relative_path": "releases/Big.Buck.Bunny.2008.1080p.BluRay.x264-NZG.mkv",
+  "relative_path": "releases/Hackers.1995.2160p.AI.Upscaled.BluRay.x265-MaTiTa.mkv",
   "screenshot_urls": [],
   "seasons": [],
-  "source_path": "/data/releases/Big.Buck.Bunny.2008.1080p.BluRay.x264-NZG.mkv",
+  "source_path": "/data/releases/Hackers.1995.2160p.AI.Upscaled.BluRay.x265-MaTiTa.mkv",
   "stage": null,
   "status": "awaiting_match",
   "targets": [
@@ -763,28 +763,30 @@
     "type_id_map": {}
    }
   ],
-  "title": "Big Buck Bunny",
+  "title": "Hackers",
   "tmdb_id": null,
   "tvdb_id": null,
   "updated_at": "2026-10-05T12:00:00Z",
-  "year": 2008
+  "year": 1995
  },
  "metadata": {
   "cast": [],
   "content_type": "movie",
   "genres": [
-   "Animation",
-   "Comedy"
+   "Action",
+   "Crime",
+   "Thriller",
+   "Drama"
   ],
-  "imdb_id": "tt1254207",
+  "imdb_id": "tt0113243",
   "original_language": "en",
-  "original_title": "Big Buck Bunny",
-  "overview": "A giant rabbit meets three bullying rodents.",
+  "original_title": "Hackers",
+  "overview": "A group of teenage hackers stumbles on a plot to frame them for a crime they did not commit.",
   "poster_path": null,
-  "runtime": 10,
-  "title": "Big Buck Bunny",
-  "tmdb_id": 10378,
+  "runtime": 105,
+  "title": "Hackers",
+  "tmdb_id": 10428,
   "tvdb_id": null,
-  "year": 2008
+  "year": 1995
  }
 }
