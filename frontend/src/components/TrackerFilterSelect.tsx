@@ -23,7 +23,9 @@ export function TrackerFilterSelect() {
   }
   return (
     <Select value={value} onValueChange={(v) => v != null && setValue.mutate(v)}>
-      <SelectTrigger size="sm" className="w-52" title={t('trackerFilter.help')} data-tour="views.tracker-filter">
+      {/* Sul telefono solo l'icona: il nome del filtro rubava lo spazio al titolo. */}
+      <SelectTrigger size="sm" className="w-auto sm:w-52" title={t('trackerFilter.help')} aria-label={t('trackerFilter.help')}
+                     data-tour="views.tracker-filter">
         {/* Con un tracker scelto, la sua icona al posto di quella del filtro. */}
         {selected ? (
           <span className="flex shrink-0 [&>*]:size-4">
@@ -32,7 +34,9 @@ export function TrackerFilterSelect() {
         ) : (
           <FilterIcon className="size-3.5 text-muted-foreground" />
         )}
-        <SelectValue>{(v: string | null) => labelOf(v)}</SelectValue>
+        <span className="hidden min-w-0 sm:contents">
+          <SelectValue>{(v: string | null) => labelOf(v)}</SelectValue>
+        </span>
       </SelectTrigger>
       <SelectContent>
         <SelectItem value="all">{t('trackerFilter.all')}</SelectItem>

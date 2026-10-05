@@ -159,7 +159,8 @@ export function TourRunner() {
         popover: {
           title: t(`${base}.title`),
           description: t(`${base}.body`),
-          side: step.side,
+          // Sul telefono sempre sotto: a sinistra o a destra non c'è spazio.
+          side: window.matchMedia?.('(max-width: 639px)').matches ? 'bottom' : step.side,
           showButtons: buttons,
           prevBtnText: t('onboarding.tour.back'),
           nextBtnText: last

@@ -97,7 +97,8 @@ function AppSidebarFooter() {
             <PaletteIcon className="size-4" />
           </Link>
           {username && (
-            <Button variant="ghost" size="icon-sm" title={t('layout.logout', { username })} onClick={logout}>
+            <Button variant="ghost" size="icon-sm" title={t('layout.logout', { username })}
+                    aria-label={t('layout.logout', { username })} onClick={logout}>
               <LogOutIcon className="size-4" />
             </Button>
           )}
@@ -121,6 +122,12 @@ function SidebarRing() {
 
 export function AppSidebar() {
   const location = useLocation()
+  // Sul telefono il menu è un pannello sopra la pagina: toccata una voce si
+  // chiude, se no si navigava dietro il pannello ancora aperto.
+  const { isMobile, setOpenMobile } = useSidebar()
+  useEffect(() => {
+    if (isMobile) setOpenMobile(false)
+  }, [location.pathname, location.search]) // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <Sidebar collapsible="icon">
       {/* L'anello resta visibile anche a sidebar chiusa; sparisce solo il nome.

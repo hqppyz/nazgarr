@@ -147,7 +147,9 @@
   border-radius: var(--radius);
   box-shadow: 0 10px 30px -10px rgb(0 0 0 / 0.35);
   font-family: inherit;
-  max-width: 340px;
+  /* Mai più largo dello schermo, anche sul telefono. */
+  max-width: min(340px, calc(100vw - 24px));
+  min-width: 0;
   padding: 16px;
 }
 .driver-popover.nazgarr-tour .driver-popover-title {
@@ -222,5 +224,12 @@
   input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
   textarea {
     font-size: max(16px, 1em) !important;
+  }
+}
+
+/* Il fumetto del tour sul telefono: pulsanti da toccare comodamente. */
+@media (pointer: coarse) {
+  .driver-popover.nazgarr-tour .driver-popover-navigation-btns button {
+    padding: 8px 14px;
   }
 }

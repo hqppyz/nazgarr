@@ -27,7 +27,7 @@ export function HealthGauge({
     transform: `rotate(135 ${size / 2} ${size / 2})`,
   }
   return (
-    <div className={cn('relative mx-auto aspect-square w-52', className)}>
+    <div className={cn('relative mx-auto aspect-square w-40 max-w-full sm:w-52', className)}>
       <svg viewBox={`0 0 ${size} ${size}`} className="h-full w-full" role="img" aria-label={`${clamped.toFixed(0)} / 100`}>
         <circle {...circle} className="stroke-muted" strokeDasharray={`${ARC} ${CIRCUMFERENCE}`} />
         <circle

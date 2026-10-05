@@ -84,7 +84,7 @@ export function ChangesCard({ className }: { className?: string }) {
                 type="button"
                 onClick={() => setKind(k)}
                 className={cn(
-                  'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs transition-colors hover:bg-muted',
+                  'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs transition-colors hover:bg-muted pointer-coarse:py-1.5',
                   kind === k && 'border-primary text-primary',
                 )}
               >
@@ -106,15 +106,16 @@ export function ChangesCard({ className }: { className?: string }) {
         ) : data.total === 0 ? (
           <p className="text-sm text-muted-foreground">{t('changes.nothingChanged')}</p>
         ) : (
-          <div className="max-h-96 overflow-y-auto">
+          <div className="max-h-96 overflow-y-auto overscroll-contain">
             {/* table-fixed: il percorso prende tutto lo spazio rimasto invece
                 di troncarsi dopo pochi caratteri. */}
             <Table className="table-fixed">
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-36">{t('changes.type')}</TableHead>
+                  {/* Sul telefono il tipo va sopra il nome: la colonna lasciava al percorso 50px. */}
+                  <TableHead className="hidden w-36 sm:table-cell">{t('changes.type')}</TableHead>
                   <TableHead>{t('changes.path')}</TableHead>
-                  <TableHead className="w-24 text-right">{t('changes.size')}</TableHead>
+                  <TableHead className="w-20 text-right sm:w-24">{t('changes.size')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -126,10 +127,13 @@ export function ChangesCard({ className }: { className?: string }) {
                       className={cn(openable && 'cursor-pointer')}
                       onClick={openable ? () => setOpenItem({ contentType: c.content_type!, tmdbId: c.tmdb_id! }) : undefined}
                     >
-                      <TableCell>
+                      <TableCell className="hidden sm:table-cell">
                         <KindBadge kind={c.kind} />
                       </TableCell>
                       <TableCell title={c.relative_path}>
+                        <span className="mb-1 block sm:hidden">
+                          <KindBadge kind={c.kind} />
+                        </span>
                         {/* Nome del file in evidenza, cartella sotto: così si legge
                             anche quando il percorso intero non ci sta. */}
                         <span className="block truncate font-mono text-xs">{fileName(c.relative_path)}</span>

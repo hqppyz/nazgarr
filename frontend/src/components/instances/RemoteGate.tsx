@@ -4,11 +4,11 @@ import { useEffect } from 'react'
 import { useInstances, type Instance } from '@/api/hooks/instances'
 import { instanceDot } from '@/components/instances/InstanceSwitcher'
 import { Button } from '@/components/ui/button'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { t } from '@/lib/i18n'
 import { activeInstanceId, switchInstance } from '@/lib/instance'
 import { safeHref } from '@/lib/safeUrl'
 import { cn } from '@/lib/utils'
+import { InfoPopover } from '@/components/InfoPopover'
 
 function useActiveInstance(): { instance: Instance | null; localVersion: string | undefined; loading: boolean } {
   const id = activeInstanceId()
@@ -45,13 +45,12 @@ export function RemoteBar() {
         <span className="hidden shrink-0 text-muted-foreground sm:inline">· {t('instances.level.read')}</span>
       )}
       {problem && (
-        <Tooltip>
-          <TooltipTrigger render={<span className="flex min-w-0 items-center gap-1 text-amber-700 dark:text-amber-400" />}>
-            <TriangleAlertIcon className="size-4 shrink-0" />
-            <span className="hidden truncate lg:inline">{problem}</span>
-          </TooltipTrigger>
-          <TooltipContent className="max-w-xs">{problem}</TooltipContent>
-        </Tooltip>
+        // Un popover e non un tooltip: sul telefono il testo è nascosto, e un
+        // tooltip al tocco non si apre.
+        <InfoPopover content={problem} className="flex min-w-0 items-center gap-1 p-1 text-amber-700 dark:text-amber-400">
+          <TriangleAlertIcon className="size-4 shrink-0" />
+          <span className="hidden truncate lg:inline">{problem}</span>
+        </InfoPopover>
       )}
       <span className="ml-auto flex shrink-0 items-center gap-1">
         <Button variant="ghost" size="sm" title={t('instances.openItsUi')}
