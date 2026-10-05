@@ -7,7 +7,9 @@ import hashlib
 import os
 from datetime import UTC, datetime
 
-from nazgarr.adapters.torrent_client.base import TorrentStatus
+import pytest
+
+from nazgarr.adapters.torrent_client.base import ClientTorrentInfo, TorrentAddTimeoutError, TorrentStatus
 from nazgarr.adapters.tracker.base import TorrentCandidate
 from nazgarr.core.models import (
     Candidate,
@@ -18,6 +20,7 @@ from nazgarr.core.models import (
     MediaFile,
     MediaItem,
     SeedFile,
+    SeedJob,
     TorrentClient,
     Tracker,
 )
@@ -232,9 +235,15 @@ def test_failed_client_add_removes_only_the_new_hardlinks(db_session, tmp_path, 
     _disk, tracker, _ = _library(db_session, tmp_path)
     matching.run_media_to_torrent_matching(db_session, tracker, PackTracker([_pack_candidate()]))
 
+    db_session.query(Candidate).one().info_hash = "packhash"
+    db_session.commit()
+
     class Down(FakeClient):
         def add_torrent(self, url, save_path, force_recheck=True, expected_info_hash=None):
             raise RuntimeError("client down")
+
+        def get_torrent_info(self, info_hash):
+            return None  # il client risponde: quel torrent non ce l'ha
 
     try:
         executor.execute_review(db_session, db_session.query(MatchReview).one(), Down())
@@ -242,6 +251,80 @@ def test_failed_client_add_removes_only_the_new_hardlinks(db_session, tmp_path, 
         pass
     assert not any((tmp_path / "torrents" / FOLDER).glob("*"))
     assert (tmp_path / "media/tv/Show/Season 01/Show - S01E01 - Pilot.mkv").exists()
+
+
+class LateClient(FakeClient):
+    """Accetta il torrent ma l'attesa del suo hash scade (il .torrent arriva
+    dal tracker dopo il timeout): il caso del bug del reseed partito in download."""
+
+    def __init__(self, has_torrent):
+        super().__init__()
+        self.has_torrent = has_torrent
+        self.rechecks = []
+
+    def add_torrent(self, url, save_path, force_recheck=True, expected_info_hash=None):
+        self.added.append((url, save_path))
+        raise TorrentAddTimeoutError("no new torrent within 30s")
+
+    def get_torrent_info(self, info_hash):
+        if not self.has_torrent:
+            return None
+        return ClientTorrentInfo(info_hash=info_hash, name=FOLDER, save_path=self.added[0][1], state="checkingUP")
+
+    def recheck(self, info_hash):
+        self.rechecks.append(info_hash)
+
+
+def test_torrent_that_reached_the_client_after_an_add_error_keeps_its_hardlinks(db_session, tmp_path, monkeypatch):
+    _no_mediainfo(monkeypatch)
+    _disk, tracker, _ = _library(db_session, tmp_path)
+    matching.run_media_to_torrent_matching(db_session, tracker, PackTracker([_pack_candidate()]))
+    db_session.query(Candidate).one().info_hash = "packhash"
+    db_session.commit()
+    client = LateClient(has_torrent=True)
+
+    seed_job = executor.execute_review(db_session, db_session.query(MatchReview).one(), client)
+
+    assert (tmp_path / "torrents" / FOLDER / "Show.S01E01.1080p-GRP.mkv").read_bytes() == E01
+    assert (seed_job.final_status, seed_job.info_hash) == ("in_progress", "packhash")
+    assert seed_job.recheck_status == "pending"
+    assert client.rechecks == ["packhash"]
+
+
+def test_add_timeout_without_the_torrent_in_the_client_still_keeps_the_hardlinks(db_session, tmp_path, monkeypatch):
+    # Il client può ancora scaricare il .torrent dal tracker: senza i file
+    # partirebbe in download. Un hardlink in più non costa spazio.
+    _no_mediainfo(monkeypatch)
+    _disk, tracker, _ = _library(db_session, tmp_path)
+    matching.run_media_to_torrent_matching(db_session, tracker, PackTracker([_pack_candidate()]))
+    db_session.query(Candidate).one().info_hash = "packhash"
+    db_session.commit()
+
+    with pytest.raises(executor.ExecutionError):
+        executor.execute_review(db_session, db_session.query(MatchReview).one(), LateClient(has_torrent=False))
+
+    assert (tmp_path / "torrents" / FOLDER / "Show.S01E01.1080p-GRP.mkv").read_bytes() == E01
+    assert db_session.query(SeedJob).one().final_status == "failed"
+
+
+def test_retry_of_a_failed_job_follows_the_torrent_already_in_the_client(db_session, tmp_path, monkeypatch):
+    _no_mediainfo(monkeypatch)
+    _disk, tracker, _ = _library(db_session, tmp_path)
+    matching.run_media_to_torrent_matching(db_session, tracker, PackTracker([_pack_candidate()]))
+    candidate = db_session.query(Candidate).one()
+    candidate.info_hash = "packhash"
+    db_session.commit()
+    with pytest.raises(executor.ExecutionError):
+        executor.execute_review(db_session, db_session.query(MatchReview).one(), LateClient(has_torrent=False))
+    seed_job = db_session.query(SeedJob).one()
+
+    client = LateClient(has_torrent=True)
+    client.added.append(("x", str(tmp_path / "torrents")))
+    client.status = TorrentStatus("packhash", "checkingUP", "pending", 0.4)
+    executor.retry_seed_job(db_session, seed_job, client)
+
+    assert (seed_job.info_hash, seed_job.final_status) == ("packhash", "in_progress")
+    assert len(client.added) == 1  # nessuna nuova aggiunta
 
 
 def test_pack_folder_still_on_disk_is_readded_to_the_client(db_session, tmp_path, monkeypatch):
