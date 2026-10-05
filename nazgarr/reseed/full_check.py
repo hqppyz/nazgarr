@@ -238,6 +238,20 @@ def build_locator(session: Session, candidate: Candidate, seed_job: SeedJob | No
     return locate
 
 
+def _sync_folder(session: Session, candidate: Candidate, parsed: TorrentInfo) -> None:
+    """La cartella del torrent la dice il .torrent, non il catalogo del
+    tracker: UNIT3D spesso non la riporta, e un file solo dentro una cartella
+    finiva hardlinkato fuori, col recheck del client che falliva (segnalato,
+    2026-10-06). Il controllo prima di eseguire scarica comunque il .torrent:
+    qui il candidato si corregge prima che nasca un hardlink."""
+    folder = parsed.name if parsed.is_multi_file else None
+    if candidate.folder != folder:
+        logger.info("Candidate %s: cartella del torrent %r invece di %r (dal .torrent)",
+                    candidate.id, folder, candidate.folder)
+        candidate.folder = folder
+        session.commit()
+
+
 def run_full_check(
     session: Session,
     candidate: Candidate,
@@ -252,6 +266,7 @@ def run_full_check(
         fetch_torrent = _download_torrent
     content = fetch_torrent(candidate)
     parsed = parse_torrent_info(content)
+    _sync_folder(session, candidate, parsed)
     locate = build_locator(session, candidate, seed_job, media_file_id)
     on_start(parsed.total_length)
     files, bad = verify_all_pieces(parsed, locate, on_progress, cancelled)

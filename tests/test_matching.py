@@ -107,6 +107,35 @@ def test_movie_with_an_nfo_takes_its_folder_and_names_from_the_torrent(db_sessio
     assert by_path["Movie.2024.1080p-GRP.nfo"].media_file_id is None  # lo scaricherà il client
 
 
+def test_a_single_file_inside_a_folder_takes_the_folder_from_the_torrent(db_session, monkeypatch):
+    # Segnalato (2026-10-06): un file solo dentro una cartella, che il catalogo
+    # non riporta; il .torrent si leggeva solo per i torrent con più file, e
+    # l'hardlink finiva fuori dalla cartella col recheck del client che falliva.
+    monkeypatch.setattr(matching, "compute_unique_id", lambda path: None)
+    torrent = _torrent_bytes("Movie.2024.1080p-GRP", {"Movie.2024.1080p-GRP.mkv": 1000})
+    ctx, anchor = _anchor_ctx(db_session, [_tc(
+        size_bytes=1000, folder=None, download_link="https://t.example/torrent/download/2.k",
+        file_list=["Movie.2024.1080p-GRP.mkv"], file_sizes={"Movie.2024.1080p-GRP.mkv": 1000},
+    )])
+    ctx.tracker_adapter.download_torrent = lambda url: torrent
+
+    (c,) = matching.match_file(ctx, anchor, anchor.media_item_id, 157336)
+
+    assert c.folder == "Movie.2024.1080p-GRP"
+    assert [f.torrent_path for f in c.files] == ["Movie.2024.1080p-GRP.mkv"]
+
+
+def test_a_single_file_without_a_readable_torrent_keeps_the_catalog_shape(db_session, monkeypatch):
+    # Niente .torrent (link mancante o tracker giù): resta proponibile, il
+    # controllo completo prima di eseguire ne correggerà la cartella.
+    monkeypatch.setattr(matching, "compute_unique_id", lambda path: None)
+    c = _match_one(db_session, _tc(
+        size_bytes=1000, folder=None, download_link=None,
+        file_list=["Movie.2024.1080p-GRP.mkv"], file_sizes={"Movie.2024.1080p-GRP.mkv": 1000},
+    ))
+    assert c.confidence > matching.CONFIDENCE_NO_MATCH and c.folder is None
+
+
 def test_multi_file_candidate_without_a_readable_torrent_is_not_executable(db_session, monkeypatch):
     monkeypatch.setattr(matching, "compute_unique_id", lambda path: None)
     c = _match_one(db_session, _tc(

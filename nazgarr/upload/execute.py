@@ -38,6 +38,7 @@ from nazgarr.core import settings_registry
 from nazgarr.core.file_types import is_video
 from nazgarr.core.fs_scope import ScopeViolation, resolve_scoped
 from nazgarr.core.models import TorrentClient, TrackerUploadProfile, UploadJob, UploadTarget
+from nazgarr.core.version import CREATED_BY
 from nazgarr.integrations import adapter_factory
 from nazgarr.integrations.adapter_factory import ImageHostConfigError
 from nazgarr.library import disk_folders, hardlinks
@@ -216,7 +217,7 @@ def hash_pieces(session: Session, job: UploadJob, path: str | None = None) -> to
         for f in (upload_inventory.walk(root) if os.path.isdir(root) else [])
         if not upload_inventory.in_torrent(f.relative, f.size)
     ]
-    torrent = torf.Torrent(path=root, private=True, exclude_regexs=excluded)
+    torrent = torf.Torrent(path=root, private=True, exclude_regexs=excluded, created_by=CREATED_BY)
     if not torrent.files:
         raise UploadJobError("no_video_files")
 

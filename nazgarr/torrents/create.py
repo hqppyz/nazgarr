@@ -4,10 +4,12 @@ puro Python, coerente con l'assenza di binari esterni pesanti del progetto
 
 import torf
 
+from nazgarr.core.version import CREATED_BY
+
 
 def create_torrent(source_path: str, announce_url: str, output_path: str, *, private: bool = True) -> tuple[str, str]:
     """Crea il .torrent, lo scrive su output_path e ritorna (output_path, info_hash)."""
-    torrent = torf.Torrent(path=source_path, trackers=[announce_url], private=private)
+    torrent = torf.Torrent(path=source_path, trackers=[announce_url], private=private, created_by=CREATED_BY)
     torrent.generate()
     torrent.write(output_path, overwrite=True)
     return output_path, torrent.infohash

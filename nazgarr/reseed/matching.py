@@ -222,12 +222,13 @@ def match_file(ctx: MatchContext, anchor: MediaFile | SeedFile, media_item_id: i
         )
         if evaluation.ambiguity_reason in _UNRELATED_REASONS:
             continue
-        if evaluation.confidence > CONFIDENCE_NO_MATCH and len(layout.files) > 1:
+        if evaluation.confidence > CONFIDENCE_NO_MATCH:
             # Il catalogo UNIT3D spesso non riporta la cartella del torrent (né
             # sempre gli stessi percorsi): ricreare il seed con quei dati mette
             # i file nel posto sbagliato e il recheck fallisce. Per un
-            # candidato plausibile con più file la struttura vera la dà solo il
-            # .torrent — un download per pack, mai per quelli non pertinenti.
+            # candidato plausibile la struttura vera la dà solo il .torrent, un
+            # download per candidato, mai per quelli non pertinenti. Anche con
+            # un file solo: può stare in una cartella (2026-10-06, segnalato).
             parsed = layout.torrent or ctx.fetch_torrent(tc.download_link)
             if parsed is not None:
                 layout = layout_from_torrent(parsed)
@@ -235,9 +236,11 @@ def match_file(ctx: MatchContext, anchor: MediaFile | SeedFile, media_item_id: i
                     ctx, layout, anchor, download_link=tc.download_link,
                     unique_ids=tc.mediainfo_unique_ids_by_filename, single_unique_id=tc.mediainfo_unique_id,
                 )
-            else:
+            elif len(layout.files) > 1:
                 evaluation.confidence = CONFIDENCE_NO_MATCH
                 evaluation.ambiguity_reason = "torrent_structure_unknown"
+            # Un file solo senza .torrent resta come il catalogo lo descrive:
+            # il controllo completo prima di eseguire ne corregge la cartella.
         if multi_video:
             ctx.evaluated_packs.add(tc.torrent_id_remote)
         persisted.append(_persist(
