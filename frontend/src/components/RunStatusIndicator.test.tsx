@@ -1,5 +1,5 @@
-import { fireEvent, render, screen } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { RunStatusIndicator } from '@/components/RunStatusIndicator'
 
@@ -17,6 +17,7 @@ vi.mock('@/api/hooks/runs', () => ({
 
 describe('RunStatusIndicator', () => {
   beforeEach(() => localStorage.clear())
+  afterEach(cleanup)
 
   it('keeps the summary of a finished scan until it is closed, also after a reload', () => {
     const { unmount } = render(<RunStatusIndicator />)
@@ -28,5 +29,19 @@ describe('RunStatusIndicator', () => {
     unmount()
     render(<RunStatusIndicator />) // ricarica: resta chiuso
     expect(screen.queryByText('Scan completed')).toBeNull()
+  })
+
+  it('shows a finished scan even after closing one with a higher id (another instance, another database)', () => {
+    localStorage.setItem('runStatus.dismissedRunId', '999')
+    render(<RunStatusIndicator />)
+    expect(screen.getByText('Scan completed')).toBeTruthy()
+  })
+
+  it('remembers the closed scan per instance', () => {
+    localStorage.setItem('nazgarr-instance', '3')
+    render(<RunStatusIndicator />)
+    fireEvent.click(screen.getByLabelText('Dismiss'))
+    expect(localStorage.getItem('runStatus.dismissedRunId.3')).toBe('7')
+    expect(localStorage.getItem('runStatus.dismissedRunId')).toBeNull()
   })
 })

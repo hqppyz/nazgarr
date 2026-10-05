@@ -112,9 +112,15 @@ class AdapterConfigRequest(BaseModel):
     events: list[str] | None = None  # solo le notifiche
 
 
+# Degli adapter integrati si configurano qui solo le notifiche (Discord,
+# Telegram): gli image host integrati hanno le loro impostazioni nell'upload.
+BUILTIN_CONFIGURABLE = ("notification",)
+
+
 def _global_spec(kind: str, adapter_type: str):
     spec = REGISTRY.get(kind, adapter_type)
-    if kind not in GLOBAL_KINDS or spec is None or spec.plugin is None:
+    if (kind not in GLOBAL_KINDS or spec is None
+            or (spec.plugin is None and kind not in BUILTIN_CONFIGURABLE)):
         raise HTTPException(status_code=404, detail=coded_detail("adapter_not_found", kind=kind, type=adapter_type))
     return spec
 

@@ -50,6 +50,7 @@ describe('UploadNotices', () => {
     expect(title).toBe('Upload ready for your decision')
     expect(options.description).toBe('My Movie (2024)')
     expect(options.action.label).toBe('Open')
+    expect(options.closeButton).toBe(true)
     expect(localStorage.getItem('nazgarr-upload-notice')).toBe('42')
   })
 })
