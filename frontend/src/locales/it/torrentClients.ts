@@ -28,10 +28,6 @@ export const torrentClients = {
   'torrentClients.leaveEmptyToKeep': 'Lascia vuoto per non cambiarlo.',
   'torrentClients.testConnection': 'Prova connessione',
   'torrentClients.connectedSuccess': 'Connesso — {count} torrent trovati.',
-  'torrentClients.layoutSubfolder':
-    'Il client crea una sottocartella per i torrent a file singolo: i reseed mettono gli hardlink lì dentro.',
-  'torrentClients.layoutNoSubfolder':
-    'Il client toglie la cartella radice dei torrent: i reseed creano gli hardlink senza quella cartella.',
   'torrentClients.connectionFailed': 'Connessione non riuscita.',
   'torrentClients.enabledDisks': 'Dischi abilitati',
   'torrentClients.enabledDisksForClient': 'Dischi abilitati per questo client',

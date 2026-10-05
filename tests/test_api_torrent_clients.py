@@ -61,7 +61,7 @@ def test_connection_test_reports_success(client, monkeypatch):
     response = client.post(f"/api/torrent-clients/{tc_id}/test")
 
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "torrents_found": 3, "error": None, "content_layout": None}
+    assert response.json() == {"status": "ok", "torrents_found": 3, "error": None}
 
 
 def test_connection_test_reports_failure_against_unreachable_host(client):

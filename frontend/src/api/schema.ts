@@ -1103,6 +1103,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/reviews/seed-jobs/{seed_job_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Seed Job
+         * @description Elimina un'esecuzione fallita o rimasta in corso: il prossimo scan
+         *     ripropone il torrent. Niente cambia nel client né sul disco.
+         */
+        delete: operations["delete_seed_job_api_reviews_seed_jobs__seed_job_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/reviews/failed": {
         parameters: {
             query?: never;
@@ -4409,8 +4430,6 @@ export interface components {
             torrents_found?: number | null;
             /** Error */
             error?: string | null;
-            /** Content Layout */
-            content_layout?: string | null;
         };
         /** TorrentClientUpdateRequest */
         TorrentClientUpdateRequest: {
@@ -7305,6 +7324,35 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ReconcileResponse"];
+                };
+            };
+        };
+    };
+    delete_seed_job_api_reviews_seed_jobs__seed_job_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                seed_job_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

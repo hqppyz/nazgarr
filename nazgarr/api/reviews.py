@@ -199,6 +199,21 @@ def reconcile_now(session: Session = Depends(get_session)):
     return review.reconcile_pending_seed_jobs(session)
 
 
+@router.delete("/seed-jobs/{seed_job_id}", status_code=204)
+def delete_seed_job(seed_job_id: int, session: Session = Depends(get_session)):
+    """Elimina un'esecuzione fallita o rimasta in corso: il prossimo scan
+    ripropone il torrent. Niente cambia nel client né sul disco."""
+    seed_job = session.get(SeedJob, seed_job_id)
+    if seed_job is None:
+        raise HTTPException(status_code=404, detail=coded_detail("seed_job_not_found", id=seed_job_id))
+    if pipeline.run_in_progress(session):  # la run ricontrolla i job in corso
+        raise HTTPException(status_code=409, detail=coded_detail("run_in_progress"))
+    try:
+        review.delete_seed_job(session, seed_job)
+    except ExecutionError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
 @router.get("/failed", response_model=list[SeedJobResponse])
 def list_failed(session: Session = Depends(get_session)):
     return [SeedJobResponse.from_model(sj) for sj in review.list_failed_seed_jobs(session)]

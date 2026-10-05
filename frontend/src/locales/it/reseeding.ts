@@ -34,6 +34,12 @@ export const reseeding = {
   'reseeding.added': 'Aggiunto',
   'reseeding.status': 'Stato',
   'reseeding.retry': 'Riprova',
+  'reseeding.deleteJob': 'Elimina',
+  'reseeding.deleteJobTitle': 'Eliminare questa esecuzione?',
+  'reseeding.deleteJobDescription':
+    'Il prossimo scan riproporrà il torrent per questo file. Niente cambia nel client né sul disco: un hardlink già creato si riusa, ma se il torrent è ancora nel client va tolto da lì, altrimenti non torna in coda.',
+  'reseeding.jobDeleted': 'Esecuzione eliminata: il prossimo scan riproporrà il torrent.',
+  'reseeding.deleteJobFailed': 'Eliminazione non riuscita: {message}',
   'reseeding.recheckSkipped': 'nessun recheck del client',
   'reseeding.recheckSkippedHint': 'Nazgarr ha verificato prima ogni pezzo, quindi il client l’ha aggiunto come completo senza recheck.',
   'reseeding.executionError': 'Perché è fallita',

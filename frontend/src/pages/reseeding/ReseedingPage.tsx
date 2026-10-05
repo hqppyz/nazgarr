@@ -1,15 +1,17 @@
-import { ChevronRightIcon, Loader2Icon, RotateCcwIcon } from 'lucide-react'
+import { ChevronRightIcon, Loader2Icon, RotateCcwIcon, TrashIcon } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 
 import {
   useApproveReview,
   useCandidateAudit,
+  useDeleteSeedJob,
   useRecentSeedJobs,
   useRejectReview,
   useRetryFailed,
   useReviews,
 } from '@/api/hooks/reviews'
+import { ConfirmButton } from '@/components/ConfirmButton'
 import { ErrorsPopover } from '@/components/ErrorsPopover'
 import { FullCheckButton } from '@/components/FullCheckButton'
 import { StateBadge } from '@/components/StateBadge'
@@ -213,6 +215,7 @@ const FILTERS: ExecutionFilter[] = ['all', 'seeding', 'in_progress', 'failed']
 
 function ExecutionRow({ job }: { job: SeedJob }) {
   const retry = useRetryFailed()
+  const remove = useDeleteSeedJob()
   const when = job.torrent_added_at ?? job.hardlink_created_at
   return (
     <TableRow>
@@ -270,6 +273,26 @@ function ExecutionRow({ job }: { job: SeedJob }) {
               {/* Sotto sm solo l'icona: con le etichette il nome del torrent spariva. */}
               <span className="max-sm:sr-only">{t('reseeding.retry')}</span>
             </Button>
+          )}
+          {/* Fallita o rimasta in corso: eliminarla libera il torrent per il
+              prossimo scan (un candidato con un'esecuzione non torna in coda). */}
+          {(job.final_status === 'failed' || job.final_status === 'in_progress') && (
+            <ConfirmButton
+              trigger={
+                <Button size="xs" variant="ghost" title={t('reseeding.deleteJob')} aria-label={t('reseeding.deleteJob')}>
+                  <TrashIcon className="size-3" />
+                </Button>
+              }
+              title={t('reseeding.deleteJobTitle')}
+              description={t('reseeding.deleteJobDescription')}
+              pending={remove.isPending}
+              onConfirm={() =>
+                remove.mutate(job.id, {
+                  onSuccess: () => toast.success(t('reseeding.jobDeleted')),
+                  onError: (error) => toast.error(t('reseeding.deleteJobFailed', { message: error.message })),
+                })
+              }
+            />
           )}
         </div>
       </TableCell>

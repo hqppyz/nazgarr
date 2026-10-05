@@ -28,6 +28,7 @@ from nazgarr.core.models import (
     Candidate,
     ClientTorrent,
     ClientTorrentFile,
+    MatchAttempt,
     MatchReview,
     MediaFile,
     SeedFile,
@@ -540,6 +541,40 @@ def approve_all(session: Session, decided_by: str = "user") -> int:
 
 def list_failed_seed_jobs(session: Session) -> list[SeedJob]:
     return session.query(SeedJob).filter_by(final_status="failed").all()
+
+
+# Le esecuzioni che si possono eliminare: una in seed resta, è il record
+# di cosa Nazgarr ha aggiunto al client.
+DELETABLE_SEED_JOB_STATUSES = ("failed", "in_progress")
+
+
+def delete_seed_job(session: Session, seed_job: SeedJob) -> None:
+    """Toglie un'esecuzione fallita o rimasta in corso, così il prossimo scan
+    ripropone il torrent per quel file: un candidato con un seed_job non
+    torna mai in coda (without_seed_job). Si tolgono anche la review che
+    l'aveva lanciata (rifiutata dal sistema, che non blocca una nuova
+    proposta) e l'ultimo tentativo di matching del file su quel tracker,
+    altrimenti lo scan lo salterebbe fino a rematch_interval_days. Non
+    tocca né il client né i file: un hardlink rimasto si riusa alla nuova
+    esecuzione (stesso inode), un torrent ancora nel client va tolto dal
+    client perché il candidato torni."""
+    if seed_job.final_status not in DELETABLE_SEED_JOB_STATUSES:
+        raise ExecutionError(f"SeedJob {seed_job.id} is {seed_job.final_status}: only failed or running ones")
+    candidate = session.get(Candidate, seed_job.candidate_id)
+    file_filter = (
+        {"media_file_id": seed_job.source_media_file_id} if seed_job.source_media_file_id is not None
+        else {"seed_file_id": seed_job.source_seed_file_id}
+    )
+    for row in (
+        session.query(MatchReview).filter_by(candidate_id=seed_job.candidate_id, **file_filter)
+        .filter(MatchReview.status.in_(READY_FOR_DECISION_STATUSES + ("approved",)))
+    ):
+        row.status, row.decided_by, row.decided_at = "rejected", "system", datetime.now(UTC)
+    if candidate is not None:
+        session.query(MatchAttempt).filter_by(tracker_id=candidate.tracker_id, **file_filter).delete()
+    logger.info("Seed job %s (%s) eliminato su richiesta", seed_job.id, seed_job.final_status)
+    session.delete(seed_job)
+    session.commit()
 
 
 def retry_failed(session: Session, seed_job: SeedJob) -> SeedJob:

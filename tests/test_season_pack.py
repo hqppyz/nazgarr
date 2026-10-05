@@ -403,6 +403,47 @@ def test_tracked_pack_folder_is_not_an_orphan(db_session, tmp_path):
     assert matching.orphan_seed_files_with_identity(db_session) == []
 
 
+def test_deleting_a_stuck_seed_job_lets_the_next_scan_propose_the_torrent_again(db_session, tmp_path, monkeypatch):
+    from nazgarr.core.models import MatchAttempt
+    from nazgarr.reseed import review
+
+    _no_mediainfo(monkeypatch)
+    _disk, tracker, _ = _library(db_session, tmp_path)
+    matching.run_media_to_torrent_matching(db_session, tracker, PackTracker([_pack_candidate()]))
+    seed_job = executor.execute_review(db_session, db_session.query(MatchReview).one(), FakeClient())
+    assert seed_job.final_status == "in_progress"
+    assert review.list_ready_for_review(db_session) == []
+    matching.run_media_to_torrent_matching(db_session, tracker, PackTracker([_pack_candidate()]))
+    assert review.list_ready_for_review(db_session) == []  # appena cercato: lo scan lo salta
+
+    anchor_id = seed_job.source_media_file_id
+    review.delete_seed_job(db_session, seed_job)
+
+    assert db_session.query(SeedJob).count() == 0
+    assert {(r.status, r.decided_by) for r in db_session.query(MatchReview)} == {("rejected", "system")}
+    assert db_session.query(MatchAttempt).filter(MatchAttempt.media_file_id == anchor_id).count() == 0
+    matching.run_media_to_torrent_matching(db_session, tracker, PackTracker([_pack_candidate()]))
+    assert len(review.list_ready_for_review(db_session)) == 1
+    # Gli hardlink rimasti si riusano: la nuova esecuzione non trova "destinazione esistente".
+    again = executor.execute_review(db_session, review.list_ready_for_review(db_session)[0], FakeClient())
+    assert again.final_status == "in_progress"
+
+
+def test_a_seeding_job_cannot_be_deleted(db_session, tmp_path, monkeypatch):
+    from nazgarr.reseed import review
+
+    _no_mediainfo(monkeypatch)
+    _disk, tracker, _ = _library(db_session, tmp_path)
+    matching.run_media_to_torrent_matching(db_session, tracker, PackTracker([_pack_candidate()]))
+    seed_job = executor.execute_review(db_session, db_session.query(MatchReview).one(), FakeClient())
+    seed_job.final_status = "seeding"
+    db_session.commit()
+
+    with pytest.raises(executor.ExecutionError):
+        review.delete_seed_job(db_session, seed_job)
+    assert db_session.query(SeedJob).count() == 1
+
+
 def test_review_api_summarizes_the_pack(db_session, tmp_path, monkeypatch):
     from nazgarr.api.reviews import ReviewResponse
 

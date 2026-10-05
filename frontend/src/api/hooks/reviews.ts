@@ -78,6 +78,19 @@ export function useRetryFailed() {
   })
 }
 
+export function useDeleteSeedJob() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (seedJobId: number) =>
+      unwrap(api.DELETE('/api/reviews/seed-jobs/{seed_job_id}', { params: { path: { seed_job_id: seedJobId } } })),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['reviews'] })
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      queryClient.invalidateQueries({ queryKey: ['library'] })
+    },
+  })
+}
+
 export function useCandidateAudit(mediaItemId: number | null) {
   return useQuery({
     queryKey: ['reviews', 'candidates', mediaItemId],
