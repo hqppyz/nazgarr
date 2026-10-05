@@ -15,6 +15,7 @@ import { Link } from 'react-router-dom'
 import { useRuns } from '@/api/hooks/runs'
 import { Progress } from '@/components/ui/progress'
 import { t } from '@/lib/i18n'
+import { activeInstanceId } from '@/lib/instance'
 import {
   etaSeconds,
   formatCount,
@@ -30,11 +31,18 @@ import { parseApiDate } from '@/lib/time'
 const EXPANDED_STORAGE_KEY = 'runStatus.expanded'
 // L'ultima scansione chiusa a mano (X): il riepilogo di una scansione finita
 // resta finché l'utente non lo chiude, anche dopo una ricarica della pagina.
-const DISMISSED_STORAGE_KEY = 'runStatus.dismissedRunId'
+// Una chiave per istanza: gli id delle run di un'altra istanza (o di un
+// database nuovo) non c'entrano con questi. E si nasconde solo la run chiusa,
+// non "tutte quelle fino a quell'id": un id chiuso più alto delle run di
+// questa istanza nascondeva ogni riepilogo appena la scansione finiva.
+function dismissedStorageKey(): string {
+  const instance = activeInstanceId()
+  return instance === null ? 'runStatus.dismissedRunId' : `runStatus.dismissedRunId.${instance}`
+}
 
 function readDismissed(): number {
   try {
-    return Number(localStorage.getItem(DISMISSED_STORAGE_KEY)) || 0
+    return Number(localStorage.getItem(dismissedStorageKey())) || 0
   } catch {
     return 0
   }
@@ -42,7 +50,7 @@ function readDismissed(): number {
 
 function writeDismissed(runId: number) {
   try {
-    localStorage.setItem(DISMISSED_STORAGE_KEY, String(runId))
+    localStorage.setItem(dismissedStorageKey(), String(runId))
   } catch {
     // senza storage il riepilogo si chiude comunque, solo per questa sessione
   }
@@ -178,7 +186,7 @@ export function RunStatusIndicator() {
     setDismissedRunId(runId)
   }
 
-  const run = isActive || (latestRun != null && latestRun.id > dismissedRunId) ? latestRun : undefined
+  const run = isActive || (latestRun != null && latestRun.id !== dismissedRunId) ? latestRun : undefined
   if (!run) return null
 
   const stopped = !isActive && run.cancelled

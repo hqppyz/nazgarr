@@ -49,6 +49,8 @@ export function UploadNotices() {
       toast(t(`upload.notice.${notice.kind}`), {
         description: name,
         duration: notice.kind === 'ready' ? 20_000 : 8_000,
+        // Si chiudono anche senza aprirli (X), non solo dal pulsante.
+        closeButton: true,
         action: { label: t('upload.notice.open'), onClick: () => navigate(`/upload/${notice.upload_id}`) },
       })
     }
