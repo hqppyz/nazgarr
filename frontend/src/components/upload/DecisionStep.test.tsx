@@ -89,6 +89,19 @@ describe('DecisionStep', () => {
     expect(approve.mock.calls.length).toBe(before + 1)
   })
 
+  it('explains the detected type in a popover on its tag', async () => {
+    const analysis = {
+      ...job.analysis, detected: { type: 'REMUX', source: 'BluRay', group: 'GRP' },
+      type_basis: { type: 'disc_no_encoder', source: 'mediainfo', evidence: ['dv_el', 'pgs'], encoder: null },
+    }
+    render(<DecisionStep job={{ ...job, analysis } as UploadJob} />)
+
+    fireEvent.click(screen.getByText('REMUX'))
+
+    expect(await screen.findByText(/the video carries no trace of an encoder/)).toBeTruthy()
+    expect(screen.getByText(/Dolby Vision profile 7/)).toBeTruthy()
+  })
+
   it('suggests the values the trackers accept in the detected details, still free to write', () => {
     const withOptions = {
       ...job, analysis: { ...job.analysis, field_options: { type: ['REMUX', 'WEBDL'], resolution: ['1080p'] } },

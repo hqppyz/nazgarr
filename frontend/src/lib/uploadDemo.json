@@ -318,7 +318,13 @@
     "origin": "source"
    },
    "seeding_here": {},
-   "total_size_bytes": 21474836480
+   "total_size_bytes": 21474836480,
+   "type_basis": {
+    "encoder": null,
+    "evidence": [],
+    "source": "name",
+    "type": "default"
+   }
   },
   "candidates": [
    {

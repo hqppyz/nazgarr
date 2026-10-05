@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { toast } from 'sonner'
 
 import { useUpdateOverrides, type UploadJob } from '@/api/hooks/uploads'
+import { InfoPopover } from '@/components/InfoPopover'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
@@ -27,6 +28,34 @@ function toDraft(overrides: Record<string, unknown>): Draft {
   return draft
 }
 
+type TypeBasis = { type: string; source: string | null; evidence: string[]; encoder: string | null }
+
+// Perché il tipo (REMUX, ENCODE...) e la sorgente sono quelli rilevati
+// (nazgarr/upload/naming.py release_values): nel popover del tag del tipo,
+// niente in più a schermo.
+function TypeBasisText({ basis }: { basis: TypeBasis }) {
+  return (
+    <div className="grid gap-1.5">
+      <p>
+        {basis.type === 'encoder' && !basis.encoder
+          ? t('upload.typeBasis.type.encoderSettings') // solo le impostazioni di encoding, senza la libreria
+          : t(`upload.typeBasis.type.${basis.type}`, { encoder: basis.encoder ?? '' })}
+      </p>
+      {basis.source && <p>{t(`upload.typeBasis.source.${basis.source}`)}</p>}
+      {basis.evidence.length > 0 && (
+        <div>
+          <p className="text-muted-foreground">{t('upload.typeBasis.evidence')}</p>
+          <ul className="list-disc pl-4">
+            {basis.evidence.map((code) => (
+              <li key={code}>{t(`upload.typeBasis.signal.${code}`)}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // Solo i quattro id sono sempre visibili (pagina di creazione): qui i valori
 // rilevati per il nome. Chiuso: i valori come tag. Aperto: una riga per
 // campo, etichetta e valore, con il valore rilevato come placeholder; si
@@ -48,6 +77,7 @@ export function OverridesPanel({
   // field_options): un menu nel campo, che resta libero.
   const options = (analysis.field_options ?? {}) as Record<string, string[]>
   const nameSource = analysis.name_source as { name: string; origin: string } | undefined
+  const typeBasis = analysis.type_basis as TypeBasis | undefined
   const [draft, setDraft] = useState<Draft>(() => toDraft(job.overrides))
   const [openState, setOpenState] = useState(false)
   const open = openProp ?? openState
@@ -134,7 +164,7 @@ export function OverridesPanel({
                 const override = typeof saved[key] === 'string' ? (saved[key] as string) : ''
                 const value = override || detectedOf(key)
                 if (!value) return null
-                return (
+                const tag = (
                   <span
                     key={key}
                     title={t(`upload.overrides.field.${key}`)}
@@ -146,6 +176,15 @@ export function OverridesPanel({
                     {value}
                   </span>
                 )
+                // Il tipo rilevato (non uno scritto a mano) spiega da dove viene.
+                if (key === 'type' && typeBasis && !override) {
+                  return (
+                    <InfoPopover key={key} content={<TypeBasisText basis={typeBasis} />} className="pointer-coarse:m-0 pointer-coarse:p-0">
+                      {tag}
+                    </InfoPopover>
+                  )
+                }
+                return tag
               })}
             </div>
           )}

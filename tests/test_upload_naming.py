@@ -430,3 +430,52 @@ def test_an_upscale_is_an_edition():
     assert build_name(None, values) == "Absolute Cinema (1895) AI Upscaled 2160p BluRay x265-MaTiTa"
     without = {"templates": {"default": "{title} {year} {resolution} {group}"}}
     assert build_name(without, values) == "Absolute Cinema 1895 2160p-MaTiTa"
+
+
+# Il file segnalato (2026-10-05): "ballerina.mkv", un remux UHD che il nome non
+# descrive. MediaInfo ridotto ai campi che contano.
+_UHD_DISC_VIDEO = {
+    "format": "HEVC", "height": 2160, "width": 3840, "bit_rate": 74_400_000, "writing_library": None,
+    "encoding_settings": False, "hdr_format": "Dolby Vision / SMPTE ST 2086", "hdr_format_profile": "dvhe.07.06",
+    "hdr_format_string": "Dolby Vision, Version 1.0, Profile 7.6, dvhe.07.06, BL+EL+RPU, no metadata compression",
+}
+_TRUEHD = {"format": "MLP FBA 16-ch", "commercial_name": "Dolby TrueHD with Dolby Atmos", "channels": 8,
+           "language": "en"}
+_PGS = {"format": "PGS", "language": "en"}
+
+
+def test_a_renamed_uhd_remux_is_recognized_from_its_mediainfo():
+    from nazgarr.upload.naming import detect, release_values
+
+    mediainfo = {"video": _UHD_DISC_VIDEO, "audio": [_TRUEHD], "subtitles": [_PGS]}
+    values = release_values(_job(), detect("ballerina.mkv"), mediainfo, {}, None)
+
+    assert (values["type"], values["source"], values["video_codec"]) == ("REMUX", "BluRay", "HEVC")
+    assert values["type_basis"]["type"] == "disc_no_encoder"
+    assert values["type_basis"]["source"] == "mediainfo"
+    assert values["type_basis"]["evidence"] == ["dv_el", "lossless", "pgs", "bitrate"]
+
+
+def test_a_mux_with_web_video_and_disc_audio_gets_no_disc_source():
+    # DLMux: video web (niente encoder, bitrate basso), audio e sub dal Blu-ray.
+    from nazgarr.upload.naming import detect, release_values
+
+    video = {"format": "HEVC", "height": 2160, "width": 3840, "bit_rate": 16_000_000, "writing_library": None}
+    values = release_values(_job(), detect("film.mkv"), {"video": video, "audio": [_TRUEHD], "subtitles": [_PGS]},
+                            {}, None)
+
+    assert values["type"] == "ENCODE" and not values["source"]
+    assert values["type_basis"] == {"type": "default", "source": None, "evidence": ["lossless", "pgs"],
+                                    "encoder": None}
+
+
+def test_a_disc_encode_gets_its_source_and_stays_an_encode():
+    from nazgarr.upload.naming import detect, release_values
+
+    video = {"format": "HEVC", "height": 1080, "width": 1920, "bit_rate": 9_000_000, "writing_library": "x265 3.5",
+             "encoding_settings": True}
+    values = release_values(_job(), detect("film.mkv"), {"video": video, "audio": [_TRUEHD], "subtitles": [_PGS]},
+                            {}, None)
+
+    assert (values["type"], values["source"], values["video_codec"]) == ("ENCODE", "BluRay", "x265")
+    assert (values["type_basis"]["type"], values["type_basis"]["encoder"]) == ("encoder", "x265 3.5")

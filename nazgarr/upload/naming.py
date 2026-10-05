@@ -371,6 +371,54 @@ def has_encoder(video: dict) -> bool:
     )
 
 
+# Il bitrate video sotto cui un 2160p o un 1080p non è un remux (un encode o
+# una release web di solito ci sta molto sotto), in bit/s.
+_REMUX_BITRATE = {"2160": 40_000_000, "1080": 18_000_000}
+
+
+def disc_evidence(video: dict, tracks: list[dict], subtitles: list[dict]) -> list[str]:
+    """I segni nel MediaInfo che il file viene da un disco, per quando il
+    nome non dice la sorgente (un file rinominato, "film.mkv"):
+    dv_el    Dolby Vision profilo 7 con l'enhancement layer: solo sui UHD Blu-ray;
+    vc1      video VC-1: solo Blu-ray e HD DVD;
+    lossless audio TrueHD, DTS-HD MA/DTS:X o LPCM;
+    pgs      sottotitoli PGS, quelli dei Blu-ray;
+    bitrate  un bitrate video da remux per la risoluzione."""
+    found = []
+    hdr = str(video.get("hdr_format_string") or video.get("hdr_format") or "")
+    if dv_profile(video) == 7 and "EL" in re.split(r"[^A-Z]+", hdr):
+        found.append("dv_el")
+    if str(video.get("format") or "").upper() == "VC-1":
+        found.append("vc1")
+    for track in tracks:
+        name = f"{track.get('format') or ''} {track.get('commercial_name') or ''}"
+        if "MLP FBA" in name or "TrueHD" in name or _audio_codec_key(track) in ("DTS-HD MA", "DTS:X") \
+                or str(track.get("format") or "") == "PCM":
+            found.append("lossless")
+            break
+    if any(str(sub.get("format") or "") == "PGS" for sub in subtitles):
+        found.append("pgs")
+    threshold = _REMUX_BITRATE.get(str(mi_resolution(video) or "")[:4])
+    if threshold and (video.get("bit_rate") or 0) >= threshold:
+        found.append("bitrate")
+    return found
+
+
+def _disc_source(evidence: list[str], encoded: bool) -> bool:
+    """Basta per dire disco il video (DV a doppio strato, VC-1). Audio
+    lossless e PGS insieme solo se il video è un encode o ha un bitrate da
+    remux: un mux con video web (DLMux, WEBMux) può prendere audio e
+    sottotitoli da un Blu-ray, e il suo video non ha né l'uno né l'altro."""
+    if "dv_el" in evidence or "vc1" in evidence:
+        return True
+    return {"lossless", "pgs"} <= set(evidence) and (encoded or "bitrate" in evidence)
+
+
+def _disc_video(evidence: list[str]) -> bool:
+    """Il video stesso è quello del disco, non solo audio e sottotitoli."""
+    return "dv_el" in evidence or "vc1" in evidence or "bitrate" in evidence
+
+
 def _audio_codec_key(track: dict) -> str | None:
     fmt = str(track.get("format") or "")
     features = str(track.get("format_additional_features") or "")
@@ -536,12 +584,27 @@ def release_values(
     video = (mediainfo or {}).get("video") or {}
     tracks = (mediainfo or {}).get("audio") or []
     subtitles = (mediainfo or {}).get("subtitles") or []
+    evidence = disc_evidence(video, tracks, subtitles) if video else []
+    named_encode = str(detected.get("video_codec") or "").lower() in ("x264", "x265")
+    basis = {"type": "name" if values["type"] not in (None, "ENCODE") or named_encode else None,
+             "source": "name" if values.get("source") else None, "evidence": evidence}
+    # Il nome non dice la sorgente, il MediaInfo sì: un disco (decisione
+    # dell'utente, 2026-10-05). Prima del remux qui sotto, che ne ha bisogno.
+    if video and not values.get("source") and _disc_source(evidence, has_encoder(video)):
+        values["source"] = "DVD" if 0 < int(video.get("height") or 0) <= 576 else "BluRay"
+        basis["source"] = "mediainfo"
     # Il nome dice encode (o niente), ma è un disco senza traccia di encoder:
     # è un remux (decisione dell'utente, 2026-10-02). Prima del codec, che
-    # per un remux si scrive AVC/HEVC e non x264/x265.
+    # per un remux si scrive AVC/HEVC e non x264/x265. Con la sorgente letta
+    # dal MediaInfo anche il video deve essere quello del disco.
     if (video and not overrides.get("type") and values["type"] in (None, "ENCODE")
-            and values.get("source") in _DISC_LABELS and not has_encoder(video)):
+            and values.get("source") in _DISC_LABELS and not has_encoder(video)
+            and (basis["source"] != "mediainfo" or _disc_video(evidence))):
         values["type"] = "REMUX"
+        basis["type"] = "disc_no_encoder"
+    if basis["type"] is None:
+        basis["type"] = "encoder" if video and has_encoder(video) else "default"
+    basis["encoder"] = str(video.get("writing_library") or "") or None if video and has_encoder(video) else None
     release = overrides.get("type") or values["type"] or "ENCODE"
     # Un remux con Dolby Vision profilo 8: il DV è stato aggiunto a un altro
     # video (un remux puro ha profilo 7 o 5), quindi è un ibrido.
@@ -591,6 +654,10 @@ def release_values(
     if values.get("type") == "REMUX" and not values.get("source"):
         height = int(video.get("height") or 0) if video else 0
         values["source"] = "DVD" if 0 < height <= 576 else "BluRay"
+        basis["source"] = "remux"
+    # Perché tipo e sorgente sono questi (analysis.type_basis): nel popover
+    # del tipo fra i valori rilevati.
+    values["type_basis"] = basis
     # Dopo gli override: seguono la risoluzione, il tipo e la sorgente scelti.
     if values.get("source") == "DVD" and values.get("resolution"):
         standard = {"576": "PAL", "480": "NTSC"}.get(str(values["resolution"])[:3])

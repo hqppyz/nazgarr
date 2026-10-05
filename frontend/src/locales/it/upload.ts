@@ -377,6 +377,34 @@ export const upload = {
   'upload.overrides.missingSource':
     'Sorgente non trovata: nessun torrent in hardlink o nome di release dice da dove viene (BluRay, WEB-DL, HDTV…), quindi il nome non ce l’ha. Scrivila nel campo Sorgente.',
   'upload.overrides.setSource': 'Impostala',
+  'upload.typeBasis.type.name':
+    'Tipo letto dal nome della release.',
+  'upload.typeBasis.type.disc_no_encoder':
+    'Remux: la sorgente è un disco e il video non porta traccia di un encoder.',
+  'upload.typeBasis.type.encoder':
+    'Encode: il video porta la traccia di un encoder ({encoder}).',
+  'upload.typeBasis.type.encoderSettings':
+    'Encode: il video porta le impostazioni di un encoder.',
+  'upload.typeBasis.type.default':
+    'Encode per esclusione: né il nome né il MediaInfo dicono altro.',
+  'upload.typeBasis.source.name':
+    'Sorgente letta dal nome della release.',
+  'upload.typeBasis.source.mediainfo':
+    'Sorgente dal MediaInfo: il file viene da un disco.',
+  'upload.typeBasis.source.remux':
+    'Sorgente dedotta: un remux viene da un Blu-ray (o da un DVD, se a definizione standard).',
+  'upload.typeBasis.evidence':
+    'Segni di un disco nel MediaInfo:',
+  'upload.typeBasis.signal.dv_el':
+    'Dolby Vision profilo 7 con enhancement layer (solo UHD Blu-ray)',
+  'upload.typeBasis.signal.vc1':
+    'video VC-1 (solo Blu-ray e HD DVD)',
+  'upload.typeBasis.signal.lossless':
+    'audio lossless (TrueHD, DTS-HD MA, LPCM)',
+  'upload.typeBasis.signal.pgs':
+    'sottotitoli PGS',
+  'upload.typeBasis.signal.bitrate':
+    'bitrate video da remux per la risoluzione',
   'upload.overrides.sourcePlaceholder': 'es. BluRay, WEB-DL',
   'upload.history.delete': 'Rimuovi dallo storico (non cambia niente su tracker, client o disco)',
   'upload.history.cancelRunning': "Annulla l'upload (passa nello storico)",
