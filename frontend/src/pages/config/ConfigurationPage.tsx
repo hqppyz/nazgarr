@@ -16,7 +16,6 @@ import {
   ServerIcon,
   ShieldIcon,
   UploadCloudIcon,
-  WebhookIcon,
   type LucideIcon,
 } from 'lucide-react'
 import type { ReactNode } from 'react'
@@ -47,7 +46,6 @@ import { SecuritySection } from '@/pages/config/SecuritySection'
 import { TorrentClientsSection } from '@/pages/config/TorrentClientsSection'
 import { TrackersSection } from '@/pages/config/TrackersSection'
 import { UploadImagesSection, UploadReleasesSection } from '@/pages/config/UploadSettingsSection'
-import { WebhooksSection } from '@/pages/config/WebhooksSection'
 
 // Impostazioni in gruppi per argomento (Generale, Libreria, Torrent,
 // Reseeding, Upload, Estensioni, Sistema). Il tab aperto sta nell'URL (?tab=…), così un link da
@@ -130,7 +128,7 @@ const GROUPS: { title: string; tabs: Tab[] }[] = [
   },
   {
     // Quello che estende Nazgarr o lo collega ad altri servizi: plugin,
-    // webhook e API key (docs/SDK.md).
+    // notifiche, webhook e API key (docs/SDK.md).
     title: t('config.groupExtensions'),
     tabs: [
       { value: 'api-keys', label: t('config.tabApiKeys'), icon: KeyRoundIcon, layout: STACK, content: <ApiKeysSection />,
@@ -139,8 +137,6 @@ const GROUPS: { title: string; tabs: Tab[] }[] = [
         description: t('config.descPlugins') },
       { value: 'notifications', label: t('config.tabNotifications'), icon: BellIcon, layout: STACK,
         content: <NotificationsSection />, ownHeading: true },
-      { value: 'webhooks', label: t('config.tabWebhooks'), icon: WebhookIcon, layout: STACK, content: <WebhooksSection />,
-        ownHeading: true },
     ],
   },
   {
@@ -161,6 +157,7 @@ const ALL_TABS = VISIBLE_GROUPS.flatMap((group) => group.tabs)
 // Tab di prima del riordino, per i link già salvati.
 const RENAMED: Record<string, string> = {
   mapping: 'storage', metadata: 'integrations', 'time-language': 'interface', upload: 'images',
+  webhooks: 'notifications',
 }
 
 // Al posto di Sicurezza e API key mentre si guarda un'altra istanza: si

@@ -23,4 +23,12 @@ export const application = {
   'application.channelStable': 'Stable channel (:stable / :latest image): only stable releases are offered.',
   'application.channelTest': 'Nightly channel (:nightly image): every new build is offered.',
   'application.updateAvailable': 'Update available: {version}',
+  'application.creditsTitle': 'Credits',
+  'application.creditsDescription': 'Services and other people’s work Nazgarr builds on.',
+  'application.creditTmdb': 'This product uses the TMDB API but is not endorsed or certified by TMDB.',
+  'application.creditTvdb': 'Episode orders provided by TheTVDB. If something is missing, please consider adding it or subscribing.',
+  'application.creditIcons':
+    'Logos of the connected clients, services and sites (Apache-2.0), only to identify them: the marks belong to their owners, no affiliation implied.',
+  'application.creditTwemoji': 'Country flags on systems without them (CC-BY 4.0, Twitter, Inc. and other contributors).',
+  'application.creditGeist': 'The interface typeface (SIL Open Font License 1.1).',
 } as const

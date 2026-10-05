@@ -33,7 +33,7 @@ from nazgarr.adapters.tracker.base import (
 )
 from nazgarr.plugins.registry import KINDS, AdapterContext, AdapterSpec, ConfigField, register
 
-SDK_VERSION = "1.0.0"
+SDK_VERSION = "1.1.0"  # 1.1: AdapterSpec.icon
 
 __all__ = [
     "KINDS", "SDK_VERSION", "AdapterContext", "AdapterSpec", "ClientTorrentFileInfo", "ClientTorrentInfo",

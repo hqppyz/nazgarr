@@ -173,15 +173,29 @@ CREATE TABLE IF NOT EXISTS sonarr_instance (
 );
 
 -- Configuration of the adapters that have no row of their own (image hosts,
--- media resolvers, notifications) when they come from a plugin
--- (nazgarr/plugins/config.py). Built-in image hosts keep their app_settings keys.
+-- media resolvers) when they come from a plugin (nazgarr/plugins/config.py).
+-- Built-in image hosts keep their app_settings keys. Notification services
+-- have their own table (notification_service), one row per instance.
 CREATE TABLE IF NOT EXISTS adapter_config (
     kind            TEXT NOT NULL,
     adapter_type    TEXT NOT NULL,
     enabled         BOOLEAN NOT NULL DEFAULT 1,
     config_json     TEXT,                   -- encrypted at rest; secrets never returned by the API
-    events_json     TEXT,                   -- notifications: the events they send (nazgarr/events.py), null = all
     PRIMARY KEY (kind, adapter_type)
+);
+
+-- Notification services (nazgarr/integrations/notifications.py, user decision
+-- 2026-10-05): any number of instances of each type (a Discord bot and a
+-- Discord channel, two Telegram chats...), built-in or from a plugin.
+CREATE TABLE IF NOT EXISTS notification_service (
+    id              INTEGER PRIMARY KEY,
+    name            TEXT NOT NULL,
+    adapter_type    TEXT NOT NULL,          -- a "notification" adapter of the registry (discord, telegram, a plugin's)
+    enabled         BOOLEAN NOT NULL DEFAULT 1,
+    config_json     TEXT,                   -- encrypted at rest; secrets never returned by the API
+    events_json     TEXT NOT NULL,          -- event names (nazgarr/core/events.py CATALOG), or ["*"] for all
+    message_format  TEXT NOT NULL DEFAULT 'standard',  -- how events become text (notifications.FORMATS)
+    created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 -- API keys for services and scripts (docs/ROADMAP.md Phase 10): only the
@@ -237,7 +251,7 @@ CREATE TABLE IF NOT EXISTS event_delivery (
     id              INTEGER PRIMARY KEY,
     event_id        INTEGER NOT NULL REFERENCES event(id) ON DELETE CASCADE,
     webhook_id      INTEGER REFERENCES webhook(id) ON DELETE CASCADE,
-    notification_type TEXT,                 -- a notification adapter (Phase 10 step 6) instead of a webhook
+    notification_id INTEGER REFERENCES notification_service(id) ON DELETE CASCADE,  -- or a notification service
     status          TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','delivered','failed')),
     attempts        INTEGER NOT NULL DEFAULT 0,
     next_attempt_at TIMESTAMP,

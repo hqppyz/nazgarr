@@ -5,8 +5,10 @@ cifrati e mai restituiti se segreti.
 Dove stanno:
 - adapter con una riga propria (tracker, client torrent): in
   adapter_config_json di quella riga;
-- adapter globali (host di immagini, resolver, notifiche): nella tabella
-  adapter_config, una riga per (kind, adapter_type), con un interruttore.
+- adapter globali (host di immagini, resolver): nella tabella
+  adapter_config, una riga per (kind, adapter_type), con un interruttore;
+- servizi di notifica: in notification_service, una riga per istanza
+  (nazgarr/integrations/notifications.py), con gli stessi validate/public.
 
 Gli adapter integrati non dichiarano campi e usano le colonne di sempre.
 """

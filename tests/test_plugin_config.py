@@ -88,22 +88,22 @@ def test_a_builtin_client_takes_no_plugin_config(client):
 
 
 def test_a_global_adapter_is_configured_from_the_plugins_api(client):
-    sdk.register(sdk.AdapterSpec("notification", "ntfy", "ntfy", lambda ctx: None, plugin="nazgarr-ntfy",
-                                 config_fields=(sdk.ConfigField("topic", "Topic", required=True),
+    sdk.register(sdk.AdapterSpec("media_resolver", "anidb", "AniDB", lambda ctx: None, plugin="nazgarr-anidb",
+                                 config_fields=(sdk.ConfigField("user", "User", required=True),
                                                 sdk.ConfigField("token", "Token", type="secret"))))
     try:
-        saved = client.put("/api/plugins/config/notification/ntfy",
-                           json={"config": {"topic": "nazgarr", "token": "s3cret"}, "enabled": False})
+        saved = client.put("/api/plugins/config/media_resolver/anidb",
+                           json={"config": {"user": "me", "token": "s3cret"}, "enabled": False})
         assert saved.status_code == 200, saved.text
-        assert saved.json() == {"kind": "notification", "adapter_type": "ntfy", "enabled": False,
-                                "values": {"topic": "nazgarr"}, "secrets_set": ["token"],
-                                "events": ["*"], "last_delivery": None}
-        assert "s3cret" not in client.get("/api/plugins/config/notification/ntfy").text
-        # Image host integrati e adapter sconosciuti non si configurano da qui.
+        assert saved.json() == {"kind": "media_resolver", "adapter_type": "anidb", "enabled": False,
+                                "values": {"user": "me"}, "secrets_set": ["token"]}
+        assert "s3cret" not in client.get("/api/plugins/config/media_resolver/anidb").text
+        # Image host integrati, adapter sconosciuti e notifiche (/api/notifications) non si configurano da qui.
         assert client.get("/api/plugins/config/image_host/ptpimg").status_code == 404
-        assert client.get("/api/plugins/config/notification/nope").status_code == 404
+        assert client.get("/api/plugins/config/media_resolver/nope").status_code == 404
+        assert client.get("/api/plugins/config/notification/discord").status_code == 404
     finally:
-        REGISTRY.unregister("notification", "ntfy")
+        REGISTRY.unregister("media_resolver", "anidb")
 
 
 def test_plugin_resolvers_come_before_the_builtin_ones_even_without_tmdb(db_session):
@@ -127,17 +127,3 @@ def test_plugin_resolvers_come_before_the_builtin_ones_even_without_tmdb(db_sess
             adapter_factory.build_media_resolver(db_session)
     finally:
         REGISTRY.unregister("media_resolver", "anidb")
-
-
-def test_the_builtin_notification_services_are_configured_from_the_plugins_api(client):
-    """Discord e Telegram sono integrati ma si configurano come quelli dei
-    plugin (Impostazioni › Notifiche): un 404 qui lasciava la pagina vuota."""
-    shown = client.get("/api/plugins/config/notification/discord")
-    assert shown.status_code == 200, shown.text
-    assert shown.json()["events"] == ["*"]
-    saved = client.put("/api/plugins/config/notification/telegram",
-                       json={"config": {"bot_token": "1:secret", "chat_id": "42"}, "events": ["run.finished"]})
-    assert saved.status_code == 200, saved.text
-    assert saved.json()["secrets_set"] == ["bot_token"]
-    assert saved.json()["events"] == ["run.finished"]
-    assert "1:secret" not in client.get("/api/plugins/config/notification/telegram").text

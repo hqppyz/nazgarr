@@ -17,10 +17,9 @@ export const config = {
   'config.tabMatching': 'Match e approvazione',
   'config.tabLogs': 'Log',
   'config.tabPlugins': 'Plugin',
-  'config.tabWebhooks': 'Webhook',
   'config.tabNotifications': 'Notifiche',
   'config.descNotifications':
-    "Un messaggio su Discord o Telegram quando succede qualcosa: un upload da decidere o finito, un reseed, una scansione. Scegli gli eventi per ogni servizio e prova l'invio.",
+    "Dove Nazgarr manda i suoi eventi: un upload da decidere o finito, un reseed, una scansione. Aggiungi quanti servizi Discord o Telegram ti servono (un bot, un canale...) o webhook firmati, ognuno con i suoi eventi.",
   'config.tabApiKeys': 'API key',
   'config.tabImages': 'Immagini',
   'config.tabReleases': 'Release',

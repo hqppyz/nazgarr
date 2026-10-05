@@ -17,10 +17,9 @@ export const config = {
   'config.tabMatching': 'Matching & approval',
   'config.tabLogs': 'Logs',
   'config.tabPlugins': 'Plugins',
-  'config.tabWebhooks': 'Webhooks',
   'config.tabNotifications': 'Notifications',
   'config.descNotifications':
-    'A message on Discord or Telegram when something happens: an upload waiting for you or finished, a reseed, a scan. Pick the events for each service and send a test.',
+    'Where Nazgarr sends its events: an upload waiting for you or finished, a reseed, a scan. Add as many Discord or Telegram services as you need (a bot, a channel...) or signed webhooks, each with its own events.',
   'config.tabApiKeys': 'API keys',
   'config.tabImages': 'Images',
   'config.tabReleases': 'Releases',

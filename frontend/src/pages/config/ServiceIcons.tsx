@@ -1,4 +1,4 @@
-import { HardDriveDownloadIcon, RadioTowerIcon } from 'lucide-react'
+import { BellIcon, HardDriveDownloadIcon, RadioTowerIcon, WebhookIcon } from 'lucide-react'
 
 import { AuthedImage } from '@/components/AuthedPoster'
 import { cn } from '@/lib/utils'
@@ -41,5 +41,30 @@ export function TrackerLogo({ trackerId, className }: { trackerId: number; class
       className={className ?? BOX}
       fallback={<RadioTowerIcon className="size-4 text-muted-foreground" />}
     />
+  )
+}
+
+// I servizi di notifica: Discord e Telegram da public/logos (homarr-labs/
+// dashboard-icons), un webhook con la sua icona, un plugin con quella che
+// dichiara (un'immagine data:, in un <img> dove uno script non gira),
+// altrimenti una campanella.
+const NOTIFICATION_LOGOS: Record<string, string> = {
+  discord: '/logos/discord.svg',
+  telegram: '/logos/telegram.svg',
+}
+const WEBHOOK_TYPE = 'webhook'
+
+export function NotificationLogo({ type, icon }: { type: string; icon?: string | null }) {
+  const logo = NOTIFICATION_LOGOS[type] ?? (icon?.startsWith('data:image/') ? icon : undefined)
+  return (
+    <div className={cn(BOX, 'flex items-center justify-center')}>
+      {logo ? (
+        <img src={logo} alt="" className="size-full object-contain" />
+      ) : type === WEBHOOK_TYPE ? (
+        <WebhookIcon className="size-5 text-muted-foreground" />
+      ) : (
+        <BellIcon className="size-5 text-muted-foreground" />
+      )}
+    </div>
   )
 }

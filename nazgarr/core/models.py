@@ -266,6 +266,22 @@ class Webhook(Base):
     created_at: Mapped[datetime] = mapped_column(nullable=False, server_default=text("CURRENT_TIMESTAMP"))
 
 
+class NotificationService(Base):
+    """Un servizio di notifica (nazgarr/integrations/notifications.py): un'istanza
+    di un adapter "notification", con la sua configurazione e i suoi eventi."""
+
+    __tablename__ = "notification_service"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(nullable=False)
+    adapter_type: Mapped[str] = mapped_column(nullable=False)
+    enabled: Mapped[bool] = mapped_column(nullable=False, server_default=text("1"))
+    config_json: Mapped[str | None] = mapped_column(EncryptedString)
+    events_json: Mapped[str] = mapped_column(nullable=False)
+    message_format: Mapped[str] = mapped_column(nullable=False, server_default=text("'standard'"))
+    created_at: Mapped[datetime] = mapped_column(nullable=False, server_default=text("CURRENT_TIMESTAMP"))
+
+
 class Event(Base):
     """Un evento da consegnare (nazgarr/core/events.py), con le sue consegne."""
 
@@ -287,7 +303,7 @@ class EventDelivery(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     event_id: Mapped[int] = mapped_column(ForeignKey("event.id", ondelete="CASCADE"), nullable=False)
     webhook_id: Mapped[int | None] = mapped_column(ForeignKey("webhook.id", ondelete="CASCADE"))
-    notification_type: Mapped[str | None]
+    notification_id: Mapped[int | None] = mapped_column(ForeignKey("notification_service.id", ondelete="CASCADE"))
     status: Mapped[str] = mapped_column(nullable=False, server_default=text("'pending'"))
     attempts: Mapped[int] = mapped_column(nullable=False, server_default=text("0"))
     next_attempt_at: Mapped[datetime | None]
@@ -298,6 +314,7 @@ class EventDelivery(Base):
 
     event: Mapped["Event"] = relationship(back_populates="deliveries")
     webhook: Mapped["Webhook | None"] = relationship()
+    notification: Mapped["NotificationService | None"] = relationship()
 
 
 class ApiKey(Base):
@@ -330,7 +347,8 @@ class RemoteInstance(Base):
 
 class AdapterConfig(Base):
     """Configurazione di un adapter di un plugin senza una riga sua (host
-    di immagini, resolver, notifiche): nazgarr/plugins/config.py."""
+    di immagini, resolver): nazgarr/plugins/config.py. Le notifiche hanno
+    NotificationService, un'istanza per riga."""
 
     __tablename__ = "adapter_config"
 
@@ -338,7 +356,6 @@ class AdapterConfig(Base):
     adapter_type: Mapped[str] = mapped_column(primary_key=True)
     enabled: Mapped[bool] = mapped_column(nullable=False, server_default=text("1"))
     config_json: Mapped[str | None] = mapped_column(EncryptedString)
-    events_json: Mapped[str | None]
 
 
 class AppSetting(Base):

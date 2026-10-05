@@ -1864,26 +1864,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/plugins/config/notification/{adapter_type}/test": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Test Notification
-         * @description Una notifica di prova, mandata subito.
-         */
-        post: operations["test_notification_api_plugins_config_notification__adapter_type__test_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/webhooks/events": {
         parameters: {
             query?: never;
@@ -1985,6 +1965,104 @@ export interface paths {
          * @description Un evento "test" solo per questo webhook, consegnato subito.
          */
         post: operations["send_test_api_webhooks__webhook_id__test_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/notifications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Services */
+        get: operations["list_services_api_notifications_get"];
+        put?: never;
+        /** Create Service */
+        post: operations["create_service_api_notifications_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/notifications/{service_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Service
+         * @description Con il servizio se ne vanno anche le sue consegne, in coda o no.
+         */
+        delete: operations["delete_service_api_notifications__service_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Service */
+        patch: operations["update_service_api_notifications__service_id__patch"];
+        trace?: never;
+    };
+    "/api/notifications/{service_id}/deliveries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Deliveries */
+        get: operations["list_deliveries_api_notifications__service_id__deliveries_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/notifications/{service_id}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Test Service
+         * @description Una notifica di prova al servizio salvato, mandata subito e tenuta
+         *     nello storico delle sue consegne.
+         */
+        post: operations["test_service_api_notifications__service_id__test_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/notifications/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Test Unsaved
+         * @description La prova dalla modale, con i valori non ancora salvati: non passa
+         *     dalla coda e non lascia tracce.
+         */
+        post: operations["test_unsaved_api_notifications_test_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2150,8 +2228,6 @@ export interface components {
             config?: {
                 [key: string]: unknown;
             } | null;
-            /** Events */
-            events?: string[] | null;
         };
         /** AdapterConfigResponse */
         AdapterConfigResponse: {
@@ -2167,9 +2243,6 @@ export interface components {
             };
             /** Secrets Set */
             secrets_set: string[];
-            /** Events */
-            events?: string[] | null;
-            last_delivery?: components["schemas"]["LastDelivery"] | null;
         };
         /** AdapterResponse */
         AdapterResponse: {
@@ -2185,6 +2258,8 @@ export interface components {
             plugin: string | null;
             /** Config Fields */
             config_fields: components["schemas"]["ConfigFieldResponse"][];
+            /** Icon */
+            icon?: string | null;
         };
         /** ApiKeyCreateRequest */
         ApiKeyCreateRequest: {
@@ -3096,20 +3171,6 @@ export interface components {
             /** Seed Jobs */
             seed_jobs: components["schemas"]["DetailSeedJob"][];
         };
-        /** LastDelivery */
-        LastDelivery: {
-            /** Event */
-            event: string;
-            /** Status */
-            status: string;
-            /** Error */
-            error: string | null;
-            /**
-             * At
-             * Format: date-time
-             */
-            at: string;
-        };
         /** LastRunSummary */
         LastRunSummary: {
             /** Id */
@@ -3379,6 +3440,79 @@ export interface components {
             excluded_count: number;
             /** Torrents */
             torrents: components["schemas"]["NotImportedItem"][];
+        };
+        /** NotificationServiceRequest */
+        NotificationServiceRequest: {
+            /** Name */
+            name?: string | null;
+            /** Adapter Type */
+            adapter_type?: string | null;
+            /** Enabled */
+            enabled?: boolean | null;
+            /** Config */
+            config?: {
+                [key: string]: unknown;
+            } | null;
+            /** Events */
+            events?: string[] | null;
+            /** Message Format */
+            message_format?: string | null;
+        };
+        /** NotificationServiceResponse */
+        NotificationServiceResponse: {
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
+            /** Adapter Type */
+            adapter_type: string;
+            /** Available */
+            available: boolean;
+            /** Enabled */
+            enabled: boolean;
+            /** Values */
+            values: {
+                [key: string]: unknown;
+            };
+            /** Secrets Set */
+            secrets_set: string[];
+            /** Events */
+            events: string[];
+            /** Message Format */
+            message_format: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Last Status */
+            last_status?: string | null;
+            /** Last Error */
+            last_error?: string | null;
+            /** Last Delivery At */
+            last_delivery_at?: string | null;
+        };
+        /**
+         * NotificationTestRequest
+         * @description Una prova prima di salvare: i valori del form; con service_id, i
+         *     segreti non reinviati sono quelli già salvati di quel servizio.
+         */
+        NotificationTestRequest: {
+            /** Adapter Type */
+            adapter_type: string;
+            /** Config */
+            config?: {
+                [key: string]: unknown;
+            } | null;
+            /** Service Id */
+            service_id?: number | null;
+        };
+        /** NotificationTestResponse */
+        NotificationTestResponse: {
+            /** Status */
+            status: string;
+            /** Error */
+            error: string | null;
         };
         /** OrderEpisodeResponse */
         OrderEpisodeResponse: {
@@ -3973,13 +4107,6 @@ export interface components {
             client_category?: string | null;
             /** Client Tags */
             client_tags?: string | null;
-        };
-        /** TestResponse */
-        TestResponse: {
-            /** Status */
-            status: string;
-            /** Error */
-            error: string | null;
         };
         /** TokenResponse */
         TokenResponse: {
@@ -8273,37 +8400,6 @@ export interface operations {
             };
         };
     };
-    test_notification_api_plugins_config_notification__adapter_type__test_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                adapter_type: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TestResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     list_events_api_webhooks_events_get: {
         parameters: {
             query?: never;
@@ -8521,6 +8617,218 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DeliveryResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_services_api_notifications_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationServiceResponse"][];
+                };
+            };
+        };
+    };
+    create_service_api_notifications_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NotificationServiceRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationServiceResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_service_api_notifications__service_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                service_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_service_api_notifications__service_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                service_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NotificationServiceRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationServiceResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_deliveries_api_notifications__service_id__deliveries_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                service_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeliveryResponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    test_service_api_notifications__service_id__test_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                service_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationTestResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    test_unsaved_api_notifications_test_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NotificationTestRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationTestResponse"];
                 };
             };
             /** @description Validation Error */
