@@ -426,5 +426,7 @@ def test_an_upscale_is_an_edition():
                             None)
     with_edition = {"templates": {"default": "{title} {year} {edition} {resolution} {group}"}}
     assert build_name(with_edition, values) == "Absolute Cinema 1895 AI Upscaled 2160p-MaTiTa"
-    # Un modello senza {edition} non la mette: decide il profilo del tracker.
-    assert build_name(None, values) == "Absolute Cinema (1895) 2160p BluRay x265-MaTiTa"
+    # Il modello predefinito la prevede; uno senza {edition} non la mette: decide il profilo.
+    assert build_name(None, values) == "Absolute Cinema (1895) AI Upscaled 2160p BluRay x265-MaTiTa"
+    without = {"templates": {"default": "{title} {year} {resolution} {group}"}}
+    assert build_name(without, values) == "Absolute Cinema 1895 2160p-MaTiTa"

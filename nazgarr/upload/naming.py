@@ -45,7 +45,7 @@ DETECTED_FIELDS = (
     "audio_languages", "group",
 )
 
-DEFAULT_TEMPLATE = "{title} ({year}) {season} {resolution} {source} {video_codec} {audio} {group}"
+DEFAULT_TEMPLATE = "{title} ({year}) {season} {edition} {resolution} {source} {video_codec} {audio} {group}"
 # Come si scrive {type} nel nome: la chiave del profilo (REMUX, WEBDL, ...)
 # resta per scegliere il type_id, nel nome va la sua etichetta. Un profilo
 # può ridefinirla (rules.type_labels), anche con variabili dentro, es.
