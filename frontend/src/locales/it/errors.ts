@@ -1,11 +1,12 @@
 // Codici restituiti dal backend come HTTPException(detail={"code", "params"})
-// — vedi nazgarr/api_errors.py. Ogni codice qui deve avere una controparte
+// — vedi nazgarr/core/errors.py. Ogni codice qui deve avere una controparte
 // backend che lo solleva con esattamente questi nomi di parametro.
 export const errors = {
   'errors.auth_already_configured': 'Accesso già configurato.',
   'errors.auth_username_required': 'Il nome utente è obbligatorio.',
   'errors.auth_password_too_short': 'La password deve avere almeno 8 caratteri.',
   'errors.upload_reseed_needs_verification': '{tracker}: esegui prima il controllo completo degli hash, solo un controllo superato permette un reseed',
+  'errors.upload_reseed_torrent_changed': '{tracker}: il .torrent sul tracker non è quello verificato dal controllo completo degli hash, ripeti il controllo',
   'errors.upload_source_not_a_file': 'Non è un file normale (un symlink?): {path}',
   'errors.cross_site_request': 'Richiesta rifiutata: arriva da un altro sito',
   'errors.upload_source_has_symlinks': '{path} contiene symlink: carica i file veri, non dei link a essi',
@@ -41,6 +42,7 @@ export const errors = {
   'errors.secret_required_for_new_host':
     'L’indirizzo punta a un altro host: inserisci di nuovo {fields}, così non vengono mai inviati per errore a un nuovo server',
   'errors.setting_safety_for_api_key': 'Le API key non possono cambiare le impostazioni di sicurezza: accedi per cambiarle',
+  'errors.setting_invalid_value': '{key}: valore non valido per questa impostazione.',
   'errors.setting_protected': 'Questa impostazione si gestisce dalla sua pagina',
   'errors.setting_secret_for_api_key': 'Le API key non possono leggere o cambiare le impostazioni segrete',
   'errors.webhook_event_unknown': 'Evento sconosciuto: {event}',

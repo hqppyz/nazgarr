@@ -370,6 +370,7 @@ CREATE TABLE IF NOT EXISTS media_file (
     nlink                   INTEGER,                -- >1 = hardlinked somewhere, a quick first signal
     content_hash            TEXT,                   -- fast partial-content hash (nazgarr/duplicates.py), to find
                                                       -- unintentional same-content copies across different inodes
+    mtime_ns                INTEGER,                -- mtime when content_hash was computed: reused while unchanged
     media_item_id           INTEGER REFERENCES media_item(id) ON DELETE SET NULL,     -- resolved by the resolver
     resolver_source         TEXT,                   -- "filename_parser" | "sonarr" | "radarr"
     mediainfo_unique_id     TEXT,                    -- computed on demand, cached
@@ -379,6 +380,8 @@ CREATE TABLE IF NOT EXISTS media_file (
 );
 CREATE INDEX IF NOT EXISTS idx_media_file_media_item_id ON media_file(media_item_id);
 CREATE INDEX IF NOT EXISTS idx_media_file_hardlink ON media_file(disk_id, st_dev, inode);
+-- L'ultima scansione di ogni disco (nazgarr/scan_state.py) e le sue righe.
+CREATE INDEX IF NOT EXISTS idx_media_file_scan ON media_file(disk_id, last_scan_id);
     -- used ONLY on write, by the end-of-scan writer that populates seed_file.media_file_id — never on read
 
 -- Physical, torrent folder side. One row per hardlink sibling: content
@@ -408,6 +411,7 @@ CREATE TABLE IF NOT EXISTS seed_file (
 );
 CREATE INDEX IF NOT EXISTS idx_seed_file_media_file_id ON seed_file(media_file_id);
 CREATE INDEX IF NOT EXISTS idx_seed_file_hardlink ON seed_file(disk_id, st_dev, inode);
+CREATE INDEX IF NOT EXISTS idx_seed_file_scan ON seed_file(disk_id, last_scan_id);
     -- used ONLY on write, same reason as idx_media_file_hardlink
 
 -- ============ TORRENT CLIENT (multi-instance, SPEC.md §5) ============
@@ -802,6 +806,7 @@ CREATE INDEX IF NOT EXISTS idx_candidate_file_candidate_id ON candidate_file(can
 CREATE INDEX IF NOT EXISTS idx_match_review_candidate_id ON match_review(candidate_id);
 CREATE INDEX IF NOT EXISTS idx_match_review_media_file_id ON match_review(media_file_id);
 CREATE INDEX IF NOT EXISTS idx_match_review_seed_file_id ON match_review(seed_file_id);
+CREATE INDEX IF NOT EXISTS idx_match_review_status ON match_review(status);
 CREATE INDEX IF NOT EXISTS idx_seed_job_candidate_id ON seed_job(candidate_id);
 CREATE INDEX IF NOT EXISTS idx_seed_job_source_media_file_id ON seed_job(source_media_file_id);
 CREATE INDEX IF NOT EXISTS idx_seed_job_source_seed_file_id ON seed_job(source_seed_file_id);

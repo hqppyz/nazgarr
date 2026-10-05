@@ -3,9 +3,8 @@ from datetime import UTC, datetime
 
 import pytest
 
-from nazgarr import executor, pipeline
 from nazgarr.adapters.torrent_client.base import TorrentStatus
-from nazgarr.models import (
+from nazgarr.core.models import (
     Candidate,
     Disk,
     DiskTorrentClient,
@@ -16,6 +15,7 @@ from nazgarr.models import (
     TorrentClient,
     Tracker,
 )
+from nazgarr.reseed import executor, pipeline
 
 
 class FakeAdapter:
@@ -145,7 +145,7 @@ def test_execute_media_to_torrent_fails_on_cross_device(db_session, tmp_path, mo
     def fake_stat(path, *a, **kw):
         result = real_stat(path, *a, **kw)
         if str(path) == str(media_file_path):
-            # os.path.isfile() (chiamato prima di _check_same_filesystem) usa
+            # os.path.isfile() (chiamato prima dei controlli di hardlinks.check_link) usa
             # anche st_mode: serve un os.stat_result completo, non un oggetto
             # con solo st_dev, altrimenti fallisce lì invece che dove vogliamo.
             seq = list(result)
@@ -233,7 +233,7 @@ def test_reconcile_seed_job_updates_status_to_seeding(db_session, tmp_path):
     )
     db_session.add(candidate)
     db_session.commit()
-    from nazgarr.models import SeedJob
+    from nazgarr.core.models import SeedJob
 
     seed_job = SeedJob(
         candidate_id=candidate.id, final_status="in_progress", info_hash="deadbeef", recheck_status="pending"
@@ -350,6 +350,25 @@ def test_another_file_at_the_destination_is_never_overwritten(db_session, tmp_pa
     with pytest.raises(executor.ExecutionError, match="already exists"):
         executor.execute_review(db_session, match_review, FakeAdapter())
     assert (root / "torrents" / "Movie.2024.mkv").read_bytes() == b"something else"
+
+
+@pytest.mark.parametrize("target", ["outside", "inside"])
+def test_a_library_file_replaced_by_a_symlink_is_never_linked(db_session, tmp_path, target):
+    # Fra la scansione e l'esecuzione il file in libreria è diventato un
+    # link simbolico (fuori dal disco o anche dentro): niente hardlink, e
+    # niente torrent nel client.
+    root, disk, tracker, item, run = _base_setup(db_session, tmp_path)
+    media_file_path, match_review = _single_file_review(db_session, root, disk, tracker, item, run)
+    elsewhere = (tmp_path / "secret.mkv") if target == "outside" else (root / "media" / "other.mkv")
+    elsewhere.write_bytes(b"content")
+    media_file_path.unlink()
+    media_file_path.symlink_to(elsewhere)
+
+    adapter = FakeAdapter()
+    with pytest.raises(executor.ExecutionError, match="scope|symbolic link"):
+        executor.execute_review(db_session, match_review, adapter)
+    assert not os.path.lexists(root / "torrents" / "Movie.2024.mkv")
+    assert adapter.add_torrent_calls == []
 
 
 @pytest.mark.parametrize("can_skip", [True, False])

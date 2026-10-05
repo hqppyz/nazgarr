@@ -1,4 +1,4 @@
-"""Season pack e torrent con file extra: abbinamento (nazgarr/torrent_layout.py),
+"""Season pack e torrent con file extra: abbinamento (nazgarr/torrents/layout.py),
 matching (una valutazione e un download per pack, nessuna review doppia),
 esecuzione nei due versi e tolleranza del recheck per gli extra mancanti.
 Filesystem vero in tmp_path, nessuna chiamata di rete."""
@@ -7,11 +7,9 @@ import hashlib
 import os
 from datetime import UTC, datetime
 
-from nazgarr import executor, matching, pipeline
 from nazgarr.adapters.torrent_client.base import TorrentStatus
 from nazgarr.adapters.tracker.base import TorrentCandidate
-from nazgarr.arr import ArrIndex
-from nazgarr.models import (
+from nazgarr.core.models import (
     Candidate,
     ClientTorrent,
     ClientTorrentFile,
@@ -23,6 +21,8 @@ from nazgarr.models import (
     TorrentClient,
     Tracker,
 )
+from nazgarr.integrations.arr import ArrIndex
+from nazgarr.reseed import executor, matching, pipeline
 
 PIECE = 16
 FOLDER = "Show.S01.1080p-GRP"
@@ -315,7 +315,7 @@ def test_review_api_summarizes_the_pack(db_session, tmp_path, monkeypatch):
 
 
 def test_health_ignores_excluded_files(db_session, tmp_path):
-    from nazgarr import health
+    from nazgarr.library import health
 
     disk, _tracker, (e01, _e02) = _library(db_session, tmp_path, with_srt=False)
     db_session.add(MediaFile(  # poster scritto dal media server: escluso dal preset di default
@@ -332,8 +332,8 @@ def test_health_ignores_excluded_files(db_session, tmp_path):
 def test_nothing_is_executed_without_approval_by_default(db_session, tmp_path, monkeypatch):
     """Decisione dell'utente: niente che tocchi file o client parte senza
     una sua approvazione — nemmeno un pack verificato al 99%."""
-    from nazgarr import review
-    from nazgarr.models import SeedJob
+    from nazgarr.core.models import SeedJob
+    from nazgarr.reseed import review
 
     _no_mediainfo(monkeypatch)
     _disk, tracker, _ = _library(db_session, tmp_path)
@@ -348,8 +348,9 @@ def test_nothing_is_executed_without_approval_by_default(db_session, tmp_path, m
 
 
 def test_automatic_execution_only_when_the_user_turns_it_on(db_session, tmp_path, monkeypatch):
-    from nazgarr import review, settings_repo
-    from nazgarr.models import SeedJob
+    from nazgarr.core import settings_repo
+    from nazgarr.core.models import SeedJob
+    from nazgarr.reseed import review
 
     _no_mediainfo(monkeypatch)
     _disk, tracker, _ = _library(db_session, tmp_path)
@@ -401,8 +402,9 @@ def test_executor_refuses_a_multi_file_candidate_with_unknown_folder(db_session,
 def test_after_a_successful_recheck_episodes_are_seeding_without_waiting_for_a_run(db_session, tmp_path, monkeypatch):
     """Il caso reale: pack in seed nel client ma episodi ancora "orphaned" e
     seed job "pending" fino alla run successiva."""
-    from nazgarr import library, review
     from nazgarr.adapters.torrent_client.base import ClientTorrentFileInfo, ClientTorrentInfo
+    from nazgarr.library import states as library
+    from nazgarr.reseed import review
 
     _no_mediainfo(monkeypatch)
     _disk, tracker, (e01, e02) = _library(db_session, tmp_path)
@@ -436,7 +438,8 @@ def test_after_a_successful_recheck_episodes_are_seeding_without_waiting_for_a_r
 
 
 def test_reconcile_between_runs_is_scheduled_and_skipped_during_a_run(db_session, monkeypatch):
-    from nazgarr import review, scheduler
+    from nazgarr import scheduler
+    from nazgarr.reseed import review
 
     calls = []
     monkeypatch.setattr(review, "has_pending_seed_jobs", lambda session: True)

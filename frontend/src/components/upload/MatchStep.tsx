@@ -83,7 +83,7 @@ function CandidateCard({
           <p className="flex items-center justify-between gap-1 text-[10px] text-white/70">
             <span>{candidate.year ?? '—'}</span>
             {label && <span className="rounded bg-white/15 px-1">{label}</span>}
-            {/* Quanto è sicuro (nazgarr/upload_match_score.py): sopra la soglia la cartella osservata lo conferma da sola. */}
+            {/* Quanto è sicuro (nazgarr/upload/match_score.py): sopra la soglia la cartella osservata lo conferma da sola. */}
             {candidate.confidence != null && (
               <span
                 className={cn('ml-auto rounded px-1 tabular-nums', candidate.ambiguous ? 'bg-amber-500/40' : 'bg-white/15')}
@@ -101,7 +101,7 @@ function CandidateCard({
 
 const percent = (value: number | undefined) => `${Math.round((value ?? 0) * 100)}%`
 
-// Da cosa viene la confidence di un candidato (nazgarr/upload_match_score.py).
+// Da cosa viene la confidence di un candidato (nazgarr/upload/match_score.py).
 function confidenceExplained(candidate: MetadataCandidate): string {
   const parts = candidate.confidence_parts
   if (!parts) return t('upload.match.confidence')
@@ -407,7 +407,7 @@ function SeasonPicker({
   )
 }
 
-// L'ordinamento degli episodi (nazgarr/episode_orders.py): proposto quello
+// L'ordinamento degli episodi (nazgarr/library/episode_orders.py): proposto quello
 // preferito per la serie, poi TVDB aired; se i file ne seguono un altro, un
 // avviso con la scorciatoia per passarci, mai una scelta al posto dell'utente.
 // Sotto, la corrispondenza fra i file e gli episodi dell'ordinamento scelto.

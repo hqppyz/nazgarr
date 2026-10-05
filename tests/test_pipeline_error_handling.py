@@ -1,4 +1,4 @@
-"""Copre il bug diagnosticato in nazgarr/pipeline.py: un'eccezione a metà di
+"""Copre il bug diagnosticato in nazgarr/reseed/pipeline.py: un'eccezione a metà di
 una fase (qui, l'indicizzazione di un client torrent irraggiungibile) non
 deve avvelenare la sessione SQLAlchemy per il resto della run — senza
 session.rollback(), il commit finale (errors/finished_at/health_snapshot)

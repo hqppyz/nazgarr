@@ -1,6 +1,6 @@
 import pytest
 
-from nazgarr.client_paths import ClientPathError, Mapping, to_client, to_disk_relative
+from nazgarr.torrents.client_paths import ClientPathError, Mapping, to_client, to_disk_relative
 
 
 def test_a_client_on_a_subfolder_both_ways(tmp_path):
@@ -32,8 +32,8 @@ def test_the_disk_root_and_no_mapping_as_before(tmp_path):
 
 
 def test_the_save_path_handed_to_the_client(db_session, tmp_path):
-    from nazgarr.executor import client_visible_path
-    from nazgarr.models import Disk, DiskTorrentClient, TorrentClient
+    from nazgarr.core.models import Disk, DiskTorrentClient, TorrentClient
+    from nazgarr.reseed.executor import client_visible_path
 
     root = tmp_path / "data"
     (root / "qbittorrent" / "reseed").mkdir(parents=True)

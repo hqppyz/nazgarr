@@ -39,7 +39,7 @@ npm run test   # vitest, component/unit test sulla logica non banale (vedi src/*
 npm run build   # type-check (tsc) + build di produzione in dist/
 ```
 
-In produzione `dist/` viene servito direttamente da FastAPI (`nazgarr/frontend.py`) — un solo container, nessun server Node separato (vedi il Dockerfile, stage `frontend-build`).
+In produzione `dist/` viene servito direttamente da FastAPI (`nazgarr/web/frontend.py`) — un solo container, nessun server Node separato (vedi il Dockerfile, stage `frontend-build`).
 
 ## Struttura
 

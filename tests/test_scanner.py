@@ -6,8 +6,10 @@ con/senza hardlink.
 import os
 from datetime import UTC, datetime
 
-from nazgarr import library, pipeline, scanner
-from nazgarr.models import Disk, MediaFile
+from nazgarr.core.models import Disk, MediaFile
+from nazgarr.library import scanner
+from nazgarr.library import states as library
+from nazgarr.reseed import pipeline
 
 
 def _make_disk(db_session, tmp_path, torrents_rel_path="torrents"):
@@ -171,8 +173,8 @@ def test_bulk_upsert_writes_more_rows_than_a_single_sqlite_statement_allows(db_s
     """Con ogni file della libreria registrato, un disco arriva a decine di
     migliaia di righe: in un'unica istruzione superava il limite di
     parametri di SQLite e lo scan falliva (0 file scansionati)."""
-    from nazgarr.db_utils import UPSERT_CHUNK_ROWS, bulk_upsert
-    from nazgarr.models import Disk, MediaFile
+    from nazgarr.core.db_utils import UPSERT_CHUNK_ROWS, bulk_upsert
+    from nazgarr.core.models import Disk, MediaFile
 
     disk = Disk(label="d", root_path="/mnt/d", media_rel_path="media")
     db_session.add(disk)
@@ -195,7 +197,7 @@ def test_bulk_upsert_writes_more_rows_than_a_single_sqlite_statement_allows(db_s
 
 
 def test_symlinks_are_never_listed(tmp_path):
-    from nazgarr.scanner import _list_files
+    from nazgarr.library.scanner import _list_files
 
     (tmp_path / "media").mkdir()
     real = tmp_path / "media" / "Movie.mkv"
@@ -205,3 +207,28 @@ def test_symlinks_are_never_listed(tmp_path):
     (tmp_path / "media" / "innocent.mkv").symlink_to(secret)
 
     assert _list_files(str(tmp_path / "media")) == [str(real)]
+
+
+def test_the_content_hash_is_reread_only_for_changed_files(db_session, tmp_path, monkeypatch):
+    """La seconda scansione riusa l'hash dei file invariati (stesso inode,
+    dimensione e mtime) e rilegge solo quelli cambiati."""
+    disk, root = _make_disk(db_session, tmp_path)
+    same = root / "media" / "movies" / "Same.2024.mkv"
+    changed = root / "media" / "movies" / "Changed.2024.mkv"
+    same.write_bytes(b"a" * 1000)
+    changed.write_bytes(b"b" * 1000)
+    _run_scan(db_session, disk)
+    before = {mf.relative_path: mf.content_hash for mf in db_session.query(MediaFile)}
+
+    changed.write_bytes(b"c" * 1000)  # stessa dimensione, contenuto e mtime nuovi
+    os.utime(changed, ns=(1, os.stat(changed).st_mtime_ns + 10**9))
+    read = []
+    real = scanner.compute_fast_hash
+    monkeypatch.setattr(scanner, "compute_fast_hash", lambda path: read.append(os.path.basename(path)) or real(path))
+    _run_scan(db_session, disk)
+    db_session.expire_all()
+    after = {mf.relative_path: mf.content_hash for mf in db_session.query(MediaFile)}
+
+    assert read == ["Changed.2024.mkv"]
+    assert after["media/movies/Same.2024.mkv"] == before["media/movies/Same.2024.mkv"]
+    assert after["media/movies/Changed.2024.mkv"] != before["media/movies/Changed.2024.mkv"]

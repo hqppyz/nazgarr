@@ -7,17 +7,17 @@ import { t } from '@/lib/i18n'
 import { autosaveFeedback } from '@/lib/autosave'
 import { ScheduleCard } from '@/pages/config/ScheduleCard'
 
-// Spenta di default (nazgarr/review.py auto_execute_enabled): decisione
+// Spenta di default (nazgarr/reseed/review.py auto_execute_enabled): decisione
 // dell'utente, niente che modifichi file o client parte senza la sua
 // approvazione. Accesa solo con una scelta esplicita qui.
 const AUTO_EXECUTE_KEY = 'auto_execute_above_threshold'
-// Attiva di default (nazgarr/review.py verify_before_execute_enabled): mai
+// Attiva di default (nazgarr/reseed/review.py verify_before_execute_enabled): mai
 // salvata = attiva.
 const VERIFY_KEY = 'verify_before_execute'
-// Spenta di default (nazgarr/review.py skip_recheck_enabled): l'unica eccezione
+// Spenta di default (nazgarr/reseed/review.py skip_recheck_enabled): l'unica eccezione
 // al recheck del client, solo insieme alla verifica completa.
 const SKIP_RECHECK_KEY = 'skip_client_recheck_when_verified'
-// Accesa di default (nazgarr/seeding.py cross_seed_enabled): un file in seed su
+// Accesa di default (nazgarr/library/seeding.py cross_seed_enabled): un file in seed su
 // un tracker si cerca anche sugli altri.
 const CROSS_SEED_KEY = 'cross_seed_search'
 

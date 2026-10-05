@@ -6,9 +6,9 @@ Sempre disponibile, nessuna dipendenza esterna oltre l'API TMDB
 
 
 from nazgarr.adapters.media_resolver.base import MediaResolverAdapter, ResolvedMedia
-from nazgarr.content_type_guess import guess_content_type_from_guessit
-from nazgarr.guess import guess as guess_name
-from nazgarr.tmdb_client import TMDBSearchClient, year_of
+from nazgarr.library.content_type_guess import guess_content_type_from_guessit
+from nazgarr.library.guess import guess as guess_name
+from nazgarr.library.tmdb_client import TMDBSearchClient, year_of
 
 
 def _first_if_list(value):

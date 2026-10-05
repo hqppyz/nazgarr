@@ -42,12 +42,16 @@ export function useOnboarding() {
 }
 
 export function useSetupStatus() {
+  const { state } = useOnboarding()
+  // Il benvenuto (mai visto) e la checklist (tour attivo) ne hanno bisogno;
+  // a tour finito o chiuso nessuno la guarda più di continuo.
+  const touring = state === null || state.status === 'active'
   return useQuery({
     queryKey: ['setup-status'],
     queryFn: () => unwrap(api.GET('/api/system/setup-status')),
     // Ogni passo si chiude quando la configurazione cambia: un salvataggio
     // in un'altra schermata invalida le sue query, non questa. Si rilegge
     // a ogni ritorno sulla finestra e ogni tanto mentre il tour è aperto.
-    refetchInterval: 15_000,
+    refetchInterval: touring ? 15_000 : false,
   })
 }

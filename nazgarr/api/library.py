@@ -12,23 +12,21 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from nazgarr import (
-    adapter_factory,
-    duplicates,
-    library,
-    library_detail,
-    matching,
-    response_cache,
-    settings_repo,
-    tracker_scope,
-)
 from nazgarr.api.reviews import ReviewResponse
 from nazgarr.api.uploads import EpisodeOrdersResponse
-from nazgarr.api_errors import coded_detail
-from nazgarr.deps import get_session
-from nazgarr.exclusions import CompiledExclusions, load_exclusions
-from nazgarr.models import MediaFile, MediaItem, RunLog, Tracker
-from nazgarr.poster_cache import poster_file
+from nazgarr.core import settings_repo
+from nazgarr.core.errors import coded_detail
+from nazgarr.core.models import MediaFile, MediaItem, Tracker
+from nazgarr.integrations import adapter_factory
+from nazgarr.library import detail as library_detail
+from nazgarr.library import duplicates
+from nazgarr.library import states as library
+from nazgarr.library.exclusions import CompiledExclusions, load_exclusions
+from nazgarr.library.poster_cache import poster_file
+from nazgarr.reseed import matching, pipeline
+from nazgarr.torrents import tracker_scope
+from nazgarr.web import response_cache
+from nazgarr.web.deps import get_session
 
 router = APIRouter(prefix="/api", tags=["library"])
 
@@ -107,14 +105,14 @@ class MediaItemOverview(BaseModel):
 
 
 # Le tre risposte pesanti delle viste (decine di migliaia di righe) passano
-# da nazgarr/response_cache.py: ETag sulla versione dei dati, 304 se il browser
+# da nazgarr/web/response_cache.py: ETag sulla versione dei dati, 304 se il browser
 # ha già quella versione, ricalcolo una sola volta quando cambia. Il
 # response_model resta per lo schema OpenAPI (tipi del frontend).
 @router.get("/media-files", response_model=list[MediaFileState])
 def list_media_files(
     request: Request, disk_id: int | None = None, tracker: str | None = None, session: Session = Depends(get_session)
 ):
-    tracker = tracker_scope.normalize(tracker)  # filtro per tracker (nazgarr/tracker_scope.py)
+    tracker = tracker_scope.normalize(tracker)  # filtro per tracker (nazgarr/torrents/tracker_scope.py)
     return response_cache.cached_json(
         request, session, f"media-files:{disk_id}:{tracker}",
         lambda: library.media_file_states(
@@ -127,7 +125,7 @@ def list_media_files(
 def list_seed_files(
     request: Request, disk_id: int | None = None, tracker: str | None = None, session: Session = Depends(get_session)
 ):
-    tracker = tracker_scope.normalize(tracker)  # filtro per tracker (nazgarr/tracker_scope.py)
+    tracker = tracker_scope.normalize(tracker)  # filtro per tracker (nazgarr/torrents/tracker_scope.py)
     return response_cache.cached_json(
         request, session, f"seed-files:{disk_id}:{tracker}",
         lambda: library.seed_file_states(
@@ -140,7 +138,7 @@ def list_seed_files(
 def list_library_items(
     request: Request, disk_id: int | None = None, tracker: str | None = None, session: Session = Depends(get_session)
 ):
-    tracker = tracker_scope.normalize(tracker)  # filtro per tracker (nazgarr/tracker_scope.py)
+    tracker = tracker_scope.normalize(tracker)  # filtro per tracker (nazgarr/torrents/tracker_scope.py)
     return response_cache.cached_json(
         request, session, f"items:{disk_id}:{tracker}",
         lambda: library.media_items_overview(
@@ -157,7 +155,7 @@ def list_unmatched(disk_id: int | None = None, session: Session = Depends(get_se
 @router.get("/library/duplicates", response_model=list[DuplicateGroup])
 def list_duplicates(request: Request, disk_id: int | None = None, session: Session = Depends(get_session)):
     """Copie non intenzionali dello stesso contenuto su inode diversi —
-    file già hardlinkati fra loro non compaiono qui (nazgarr/duplicates.py)."""
+    file già hardlinkati fra loro non compaiono qui (nazgarr/library/duplicates.py)."""
     return response_cache.cached_json(
         request, session, f"duplicates:{disk_id}",
         lambda: duplicates.find_duplicate_media_files(session, disk_id=disk_id),
@@ -222,7 +220,7 @@ class DetailTrackerEntry(BaseModel):
 
 
 class DetailTracker(BaseModel):
-    """Panoramica per tracker (nazgarr/library_detail.py tracker_overview)."""
+    """Panoramica per tracker (nazgarr/library/detail.py tracker_overview)."""
 
     tracker_id: int | None  # None = un tracker non configurato, riconosciuto dall'host
     label: str
@@ -310,7 +308,7 @@ def search_item_now(content_type: str, tmdb_id: int, session: Session = Depends(
     l'intervallo fra una ricerca e l'altra. Non modifica file né client:
     al massimo crea review, che restano da approvare in Reseeding."""
     _content_type_or_404(content_type)
-    if session.query(RunLog).filter(RunLog.finished_at.is_(None)).count():
+    if pipeline.run_in_progress(session):
         raise HTTPException(status_code=409, detail=coded_detail("run_in_progress"))
     mf_ids = {
         mf.id for mf in session.query(MediaFile).join(MediaItem, MediaItem.id == MediaFile.media_item_id)
@@ -320,10 +318,10 @@ def search_item_now(content_type: str, tmdb_id: int, session: Session = Depends(
         raise HTTPException(status_code=404, detail=coded_detail("media_item_not_found"))
     totals = {"files": 0, "candidates": 0, "rate_limited": False}
     for tracker_row in session.query(Tracker).filter_by(enabled=True).all():
-        result = matching.run_media_to_torrent_matching(
-            session, tracker_row, adapter_factory.build_tracker_adapter(tracker_row),
-            only_media_file_ids=mf_ids, force=True,
-        )
+        with adapter_factory.tracker(tracker_row) as adapter:
+            result = matching.run_media_to_torrent_matching(
+                session, tracker_row, adapter, only_media_file_ids=mf_ids, force=True,
+            )
         totals["files"] += result["files"]
         totals["candidates"] += result["candidates"]
         totals["rate_limited"] = totals["rate_limited"] or result["rate_limited"]
@@ -368,10 +366,10 @@ def exclude_file(body: ExcludeFileRequest, session: Session = Depends(get_sessio
 @router.get("/library/items/tv/{tmdb_id}/episode-orders", response_model=EpisodeOrdersResponse)
 def library_episode_orders(tmdb_id: int, session: Session = Depends(get_session)):
     """Gli ordinamenti degli episodi di una serie in libreria
-    (nazgarr/episode_orders.py): quello che seguono i file (di solito Sonarr),
+    (nazgarr/library/episode_orders.py): quello che seguono i file (di solito Sonarr),
     gli altri per vederla in un'altra numerazione, e l'avviso se i file non
     seguono TVDB aired."""
-    from nazgarr import episode_orders
+    from nazgarr.library import episode_orders
 
     found = episode_orders.group(
         (i.season_number, i.episode_number)

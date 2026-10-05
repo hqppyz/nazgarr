@@ -24,7 +24,7 @@ def test_init_writes_the_config_and_a_private_valid_secret_key(tmp_path, monkeyp
     }
     key_file = config.parent / cli.SECRET_FILE
     assert stat.S_IMODE(key_file.stat().st_mode) == 0o600
-    Fernet(key_file.read_text().strip().encode())  # una chiave che nazgarr/crypto.py accetta
+    Fernet(key_file.read_text().strip().encode())  # una chiave che nazgarr/core/crypto.py accetta
     first_key = key_file.read_text()
 
     # Rilanciato: la chiave non cambia mai (le credenziali nel DB dipendono da lei).

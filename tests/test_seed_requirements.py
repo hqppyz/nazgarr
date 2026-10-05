@@ -1,4 +1,4 @@
-from nazgarr.seed_requirements import Requirement, evaluate
+from nazgarr.torrents.seed_requirements import Requirement, evaluate
 
 DAY = 86400
 

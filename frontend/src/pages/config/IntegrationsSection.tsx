@@ -34,6 +34,7 @@ import { Switch } from '@/components/ui/switch'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { t } from '@/lib/i18n'
 import { autosaveFeedback } from '@/lib/autosave'
+import { arrConnectionBody, arrInstanceBody, emptyArrForm, type ArrInstanceForm } from '@/lib/arrInstanceForm'
 
 // Radarr e Sonarr non sono ancora consumati da nessun adapter (nessun
 // resolver li chiama davvero) — ma la tabella è già multi-istanza da
@@ -155,273 +156,140 @@ function BasicAuthFields({
   )
 }
 
-function AddArrInstanceDialog({
+// Aggiungere (senza instance) o modificare un'istanza: gli stessi campi.
+// Modificando, una API key non ridigitata (write-only) resta quella salvata, e
+// la prova usa le credenziali salvate.
+function ArrInstanceDialog({
   serviceName,
   urlPlaceholder,
-  createMutation,
-  testConnectionMutation,
-}: {
-  serviceName: string
-  urlPlaceholder: string
-  createMutation: UseMutationResult<ArrInstance, Error, ArrInstanceWriteBody>
-  testConnectionMutation: UseMutationResult<ArrInstanceTestResult, Error, ArrConnectionTestBody>
-}) {
-  const [open, setOpen] = useState(false)
-  const [label, setLabel] = useState('')
-  const [baseUrl, setBaseUrl] = useState('')
-  const [apiKey, setApiKey] = useState('')
-  const [priority, setPriority] = useState('0')
-  const [timeoutSeconds, setTimeoutSeconds] = useState('15')
-  const [basicAuth, setBasicAuth] = useState(false)
-  const [basicAuthUsername, setBasicAuthUsername] = useState('')
-  const [basicAuthPassword, setBasicAuthPassword] = useState('')
-
-  function reset() {
-    setLabel('')
-    setBaseUrl('')
-    setApiKey('')
-    setPriority('0')
-    setTimeoutSeconds('15')
-    setBasicAuth(false)
-    setBasicAuthUsername('')
-    setBasicAuthPassword('')
-  }
-
-  function submit() {
-    createMutation.mutate(
-      {
-        label, base_url: baseUrl, api_key: apiKey,
-        priority: Number(priority) || 0, timeout_seconds: Number(timeoutSeconds) || 15,
-        basic_auth_username: basicAuth ? basicAuthUsername : undefined,
-        basic_auth_password: basicAuth ? basicAuthPassword : undefined,
-      },
-      {
-        onSuccess: () => {
-          setOpen(false)
-          reset()
-        },
-        onError: (error) => toast.error(t('integrations.createInstanceFailed', { message: error.message })),
-      },
-    )
-  }
-
-  function test() {
-    testConnectionMutation.mutate(
-      {
-        base_url: baseUrl, api_key: apiKey, timeout_seconds: Number(timeoutSeconds) || 15,
-        basic_auth_username: basicAuth ? basicAuthUsername : undefined,
-        basic_auth_password: basicAuth ? basicAuthPassword : undefined,
-      },
-      { onSuccess: toastTestResult },
-    )
-  }
-
-  return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger
-        render={
-          <Button size="sm">
-            <PlusIcon className="size-4" />
-            {t('integrations.addInstance')}
-          </Button>
-        }
-      />
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>{t('integrations.addInstanceTitled', { name: serviceName })}</DialogTitle>
-        </DialogHeader>
-        <div className="grid gap-5">
-          <div className="grid gap-1.5">
-            <Label htmlFor="arr-add-label">{t('integrations.instanceLabel')}</Label>
-            <Input id="arr-add-label" value={label} onChange={(e) => setLabel(e.target.value)} />
-          </div>
-          <div className="grid gap-1.5">
-            <Label htmlFor="arr-add-url">{t('integrations.instanceUrl')}</Label>
-            <Input id="arr-add-url" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} />
-            <p className="text-xs text-muted-foreground">{t('integrations.urlSuggestion', { url: urlPlaceholder })}</p>
-          </div>
-          <div className="grid gap-1.5">
-            <Label htmlFor="arr-add-key">{t('integrations.instanceApiKey')}</Label>
-            <Input id="arr-add-key" type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} />
-            <p className="text-xs text-muted-foreground">{t('integrations.apiKeyHelp', { name: serviceName })}</p>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="grid gap-1.5">
-              <Label htmlFor="arr-add-priority">{t('integrations.priority')}</Label>
-              <Input id="arr-add-priority" type="number" value={priority} onChange={(e) => setPriority(e.target.value)} />
-            </div>
-            <div className="grid gap-1.5">
-              <Label htmlFor="arr-add-timeout">{t('integrations.timeoutSeconds')}</Label>
-              <Input
-                id="arr-add-timeout"
-                type="number"
-                value={timeoutSeconds}
-                onChange={(e) => setTimeoutSeconds(e.target.value)}
-              />
-            </div>
-          </div>
-          <p className="-mt-3 text-xs text-muted-foreground">{t('integrations.priorityHelp')}</p>
-          <BasicAuthFields
-            enabled={basicAuth}
-            onEnabledChange={setBasicAuth}
-            username={basicAuthUsername}
-            onUsernameChange={setBasicAuthUsername}
-            password={basicAuthPassword}
-            onPasswordChange={setBasicAuthPassword}
-          />
-        </div>
-        <DialogFooter className="sm:justify-between">
-          <TestConnectionButton onTest={test} isPending={testConnectionMutation.isPending} disabled={!baseUrl || !apiKey} />
-          <Button
-            onClick={submit}
-            disabled={
-              !label || !baseUrl || !apiKey || (basicAuth && !basicAuthUsername) || createMutation.isPending
-            }
-          >
-            {t('common.save')}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-function EditArrInstanceDialog({
-  serviceName,
   instance,
+  createMutation,
   updateMutation,
   testConnectionMutation,
   testInstanceMutation,
 }: {
   serviceName: string
-  instance: ArrInstance
-  updateMutation: UseMutationResult<ArrInstance, Error, { id: number; body: ArrInstanceUpdateBody }>
+  urlPlaceholder?: string
+  instance?: ArrInstance
+  createMutation?: UseMutationResult<ArrInstance, Error, ArrInstanceWriteBody>
+  updateMutation?: UseMutationResult<ArrInstance, Error, { id: number; body: ArrInstanceUpdateBody }>
   testConnectionMutation: UseMutationResult<ArrInstanceTestResult, Error, ArrConnectionTestBody>
-  testInstanceMutation: UseMutationResult<ArrInstanceTestResult, Error, number>
+  testInstanceMutation?: UseMutationResult<ArrInstanceTestResult, Error, number>
 }) {
+  const editing = instance != null
   const [open, setOpen] = useState(false)
-  const [label, setLabel] = useState(instance.label)
-  const [baseUrl, setBaseUrl] = useState(instance.base_url)
-  const [apiKey, setApiKey] = useState('')
-  const [priority, setPriority] = useState(String(instance.priority))
-  const [timeoutSeconds, setTimeoutSeconds] = useState(String(instance.timeout_seconds))
-  const [basicAuth, setBasicAuth] = useState(instance.basic_auth_username !== null)
-  const [basicAuthUsername, setBasicAuthUsername] = useState(instance.basic_auth_username ?? '')
-  const [basicAuthPassword, setBasicAuthPassword] = useState('')
+  const [form, setForm] = useState<ArrInstanceForm>(() => emptyArrForm(instance))
+  const set = <K extends keyof ArrInstanceForm>(field: K) => (value: ArrInstanceForm[K]) =>
+    setForm((f) => ({ ...f, [field]: value }))
+  const idPrefix = editing ? 'arr-edit' : 'arr-add'
+  const pending = createMutation?.isPending || updateMutation?.isPending
 
   function submit() {
-    updateMutation.mutate(
-      {
-        id: instance.id,
-        body: {
-          label, base_url: baseUrl, api_key: apiKey || undefined,
-          priority: Number(priority) || 0, timeout_seconds: Number(timeoutSeconds) || 15,
-          basic_auth_username: basicAuth ? basicAuthUsername : '',
-          basic_auth_password: basicAuth && basicAuthPassword ? basicAuthPassword : undefined,
-        },
-      },
-      {
-        onSuccess: () => {
-          setOpen(false)
-          setApiKey('')
-          setBasicAuthPassword('')
-        },
-        onError: (error) => toast.error(t('common.saveFailed', { message: error.message })),
-      },
-    )
+    const onError = (error: Error) =>
+      toast.error(t(editing ? 'common.saveFailed' : 'integrations.createInstanceFailed', { message: error.message }))
+    if (editing && updateMutation) {
+      updateMutation.mutate(
+        { id: instance.id, body: arrInstanceBody(form, true) },
+        { onSuccess: () => { setOpen(false); setForm((f) => ({ ...f, apiKey: '', basicAuthPassword: '' })) }, onError },
+      )
+    } else if (createMutation) {
+      createMutation.mutate(arrInstanceBody(form, false) as ArrInstanceWriteBody, {
+        onSuccess: () => { setOpen(false); setForm(emptyArrForm()) },
+        onError,
+      })
+    }
   }
 
   function test() {
-    // Se l'utente non ha ridigitato una nuova API key (write-only, non torna
-    // mai nel form), testa contro le credenziali già salvate dell'istanza
-    // invece che con una chiave vuota.
-    if (apiKey) {
-      testConnectionMutation.mutate(
-        {
-          base_url: baseUrl, api_key: apiKey, timeout_seconds: Number(timeoutSeconds) || 15,
-          basic_auth_username: basicAuth ? basicAuthUsername : undefined,
-          basic_auth_password: basicAuth ? basicAuthPassword : undefined,
-        },
-        { onSuccess: toastTestResult },
-      )
-    } else {
-      testInstanceMutation.mutate(instance.id, { onSuccess: toastTestResult })
-    }
+    // La richiesta stessa fallita (rete, Nazgarr irraggiungibile): prima non si vedeva niente.
+    const handlers = { onSuccess: toastTestResult, onError: (error: Error) => toast.error(error.message) }
+    if (editing && !form.apiKey && testInstanceMutation) testInstanceMutation.mutate(instance.id, handlers)
+    else testConnectionMutation.mutate(arrConnectionBody(form), handlers)
   }
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger
         render={
-          <Button variant="ghost" size="icon-sm" title={t('common.edit')}>
-            <PencilIcon className="size-4" />
-          </Button>
+          editing ? (
+            <Button variant="ghost" size="icon-sm" title={t('common.edit')}>
+              <PencilIcon className="size-4" />
+            </Button>
+          ) : (
+            <Button size="sm">
+              <PlusIcon className="size-4" />
+              {t('integrations.addInstance')}
+            </Button>
+          )
         }
       />
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>{t('integrations.editInstanceTitled', { name: serviceName })}</DialogTitle>
+          <DialogTitle>
+            {t(editing ? 'integrations.editInstanceTitled' : 'integrations.addInstanceTitled', { name: serviceName })}
+          </DialogTitle>
         </DialogHeader>
         <div className="grid gap-5">
           <div className="grid gap-1.5">
-            <Label htmlFor="arr-edit-label">{t('integrations.instanceLabel')}</Label>
-            <Input id="arr-edit-label" value={label} onChange={(e) => setLabel(e.target.value)} />
+            <Label htmlFor={`${idPrefix}-label`}>{t('integrations.instanceLabel')}</Label>
+            <Input id={`${idPrefix}-label`} value={form.label} onChange={(e) => set('label')(e.target.value)} />
           </div>
           <div className="grid gap-1.5">
-            <Label htmlFor="arr-edit-url">{t('integrations.instanceUrl')}</Label>
-            <Input id="arr-edit-url" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} />
+            <Label htmlFor={`${idPrefix}-url`}>{t('integrations.instanceUrl')}</Label>
+            <Input id={`${idPrefix}-url`} value={form.baseUrl} onChange={(e) => set('baseUrl')(e.target.value)} />
+            {!editing && urlPlaceholder && (
+              <p className="text-xs text-muted-foreground">{t('integrations.urlSuggestion', { url: urlPlaceholder })}</p>
+            )}
           </div>
           <div className="grid gap-1.5">
-            <Label htmlFor="arr-edit-key">{t('integrations.instanceApiKey')}</Label>
+            <Label htmlFor={`${idPrefix}-key`}>{t('integrations.instanceApiKey')}</Label>
             <Input
-              id="arr-edit-key"
+              id={`${idPrefix}-key`}
               type="password"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              placeholder={t('common.leaveBlank')}
+              value={form.apiKey}
+              onChange={(e) => set('apiKey')(e.target.value)}
+              placeholder={editing ? t('common.leaveBlank') : undefined}
             />
             <p className="text-xs text-muted-foreground">{t('integrations.apiKeyHelp', { name: serviceName })}</p>
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="grid gap-1.5">
-              <Label htmlFor="arr-edit-priority">{t('integrations.priority')}</Label>
-              <Input
-                id="arr-edit-priority"
-                type="number"
-                value={priority}
-                onChange={(e) => setPriority(e.target.value)}
-              />
+              <Label htmlFor={`${idPrefix}-priority`}>{t('integrations.priority')}</Label>
+              <Input id={`${idPrefix}-priority`} type="number" value={form.priority} onChange={(e) => set('priority')(e.target.value)} />
             </div>
             <div className="grid gap-1.5">
-              <Label htmlFor="arr-edit-timeout">{t('integrations.timeoutSeconds')}</Label>
+              <Label htmlFor={`${idPrefix}-timeout`}>{t('integrations.timeoutSeconds')}</Label>
               <Input
-                id="arr-edit-timeout"
+                id={`${idPrefix}-timeout`}
                 type="number"
-                value={timeoutSeconds}
-                onChange={(e) => setTimeoutSeconds(e.target.value)}
+                value={form.timeoutSeconds}
+                onChange={(e) => set('timeoutSeconds')(e.target.value)}
               />
             </div>
           </div>
           <p className="-mt-3 text-xs text-muted-foreground">{t('integrations.priorityHelp')}</p>
           <BasicAuthFields
-            enabled={basicAuth}
-            onEnabledChange={setBasicAuth}
-            username={basicAuthUsername}
-            onUsernameChange={setBasicAuthUsername}
-            password={basicAuthPassword}
-            onPasswordChange={setBasicAuthPassword}
-            passwordPlaceholder={t('common.leaveBlank')}
+            enabled={form.basicAuth}
+            onEnabledChange={set('basicAuth')}
+            username={form.basicAuthUsername}
+            onUsernameChange={set('basicAuthUsername')}
+            password={form.basicAuthPassword}
+            onPasswordChange={set('basicAuthPassword')}
+            passwordPlaceholder={editing ? t('common.leaveBlank') : undefined}
           />
         </div>
         <DialogFooter className="sm:justify-between">
           <TestConnectionButton
             onTest={test}
-            isPending={testConnectionMutation.isPending || testInstanceMutation.isPending}
-            disabled={!baseUrl}
+            isPending={testConnectionMutation.isPending || (testInstanceMutation?.isPending ?? false)}
+            disabled={!form.baseUrl || (!editing && !form.apiKey)}
           />
           <Button
             onClick={submit}
-            disabled={!label || !baseUrl || (basicAuth && !basicAuthUsername) || updateMutation.isPending}
+            disabled={
+              !form.label || !form.baseUrl || (!editing && !form.apiKey) ||
+              (form.basicAuth && !form.basicAuthUsername) || pending
+            }
           >
             {t('common.save')}
           </Button>
@@ -464,7 +332,7 @@ function ArrInstancesCard({
             <ServiceLogo src={logoSrc} alt={title} />
             <CardTitle>{title}</CardTitle>
           </div>
-          <AddArrInstanceDialog
+          <ArrInstanceDialog
             serviceName={title}
             urlPlaceholder={urlPlaceholder}
             createMutation={createMutation}
@@ -506,7 +374,7 @@ function ArrInstancesCard({
                   />
                 </TableCell>
                 <TableCell className="flex justify-end gap-1">
-                  <EditArrInstanceDialog
+                  <ArrInstanceDialog
                     serviceName={title}
                     instance={instance}
                     updateMutation={updateMutation}

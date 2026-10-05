@@ -1,5 +1,5 @@
 """Trigger e stato delle run (docs/SPEC.md sezione 11) — scan filesystem
-+ indicizzazione client torrent, orchestrati da nazgarr/pipeline.py.
++ indicizzazione client torrent, orchestrati da nazgarr/reseed/pipeline.py.
 
 Solo import massivo per ora, innescato manualmente via API e mandato in
 background (FastAPI BackgroundTasks — niente scheduler vero, quello
@@ -14,16 +14,16 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session, sessionmaker
 
-from nazgarr import pipeline
-from nazgarr.api_errors import coded_detail
-from nazgarr.deps import get_session
-from nazgarr.models import RunLog
+from nazgarr.core.errors import coded_detail
+from nazgarr.core.models import RunLog
+from nazgarr.reseed import pipeline
+from nazgarr.web.deps import get_session
 
 router = APIRouter(prefix="/api/runs", tags=["runs"])
 
 
 class PhaseProgressResponse(BaseModel):
-    """Una fase della run (nazgarr/run_progress.py): done include gli elementi
+    """Una fase della run (nazgarr/core/run_progress.py): done include gli elementi
     saltati (skipped), così done/total è sempre l'avanzamento vero."""
 
     status: str  # "running" | "done"
@@ -94,7 +94,10 @@ def _run_bulk_import_bg(session_factory: sessionmaker, run_id: int, data_dir: st
 def trigger_bulk_import(
     request: Request, background_tasks: BackgroundTasks, session: Session = Depends(get_session)
 ):
-    run = pipeline.start_run(session, run_type="bulk_import")
+    try:
+        run = pipeline.try_start_run(session, run_type="bulk_import")
+    except pipeline.RunInProgressError as exc:
+        raise HTTPException(status_code=409, detail=coded_detail("run_in_progress")) from exc
     background_tasks.add_task(
         _run_bulk_import_bg, request.app.state.session_factory, run.id, request.app.state.settings.data_dir
     )

@@ -28,11 +28,11 @@ def test_rejects_unsupported_adapter_type(client):
 
 
 def test_deluge_transmission_and_rtorrent_are_built_in(client):
-    from nazgarr import adapter_factory
     from nazgarr.adapters.torrent_client.deluge import DelugeAdapter
     from nazgarr.adapters.torrent_client.rtorrent import RTorrentAdapter
     from nazgarr.adapters.torrent_client.transmission import TransmissionAdapter
-    from nazgarr.models import TorrentClient
+    from nazgarr.core.models import TorrentClient
+    from nazgarr.integrations import adapter_factory
 
     expected = {"deluge": DelugeAdapter, "transmission": TransmissionAdapter, "rutorrent": RTorrentAdapter}
     for adapter_type, cls in expected.items():
@@ -56,7 +56,7 @@ def test_connection_test_reports_success(client, monkeypatch):
         def list_torrents(self):
             return [object(), object(), object()]
 
-    monkeypatch.setattr("nazgarr.adapter_factory.build_torrent_client_adapter", lambda tc: FakeAdapter())
+    monkeypatch.setattr("nazgarr.integrations.adapter_factory.build_torrent_client_adapter", lambda tc: FakeAdapter())
 
     response = client.post(f"/api/torrent-clients/{tc_id}/test")
 

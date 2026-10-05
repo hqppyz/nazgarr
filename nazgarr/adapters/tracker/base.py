@@ -7,8 +7,10 @@ Unit3dTrackerAdapter è porting diretto da ratio-guardian (shape della
 risposta già verificata contro un'istanza reale, ITT) — nessun dettaglio
 API riscoperto qui."""
 
+import hashlib
 import logging
 import re
+import threading
 import time
 from abc import ABC, abstractmethod
 from collections import deque
@@ -94,7 +96,7 @@ class TorrentCandidate:
     file_sizes: dict[str, int] | None = None  # nome file -> dimensione in byte, se il tracker lo espone
     mediainfo_unique_ids_by_filename: dict[str, str] | None = None  # nome file (basename) -> Unique ID,
     # utile per un futuro motore di matching season-pack-aware (fuori scope in questa fase,
-    # vedi nazgarr/matching.py) — il blob media_info per un pack è la concatenazione dei report
+    # vedi nazgarr/reseed/matching.py) — il blob media_info per un pack è la concatenazione dei report
     # per-file, mediainfo_unique_id da solo cattura solo il primo.
 
 
@@ -112,6 +114,21 @@ class TorrentRecord:
 
 class TrackerAdapter(ABC):
     """Un'istanza per ogni tracker configurato (vedi tabella `tracker`)."""
+
+    def close(self) -> None:
+        """Chiude le connessioni dell'adapter. Chi lo costruisce lo chiude
+        dopo l'uso (`with adapter_factory.build_...(...) as adapter:`): ogni
+        operazione ha il suo adapter, e senza le connessioni restavano aperte
+        fino al garbage collector."""
+        close = getattr(getattr(self, "_client", None), "close", None)
+        if callable(close):
+            close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_exc) -> None:
+        self.close()
 
     @abstractmethod
     def search_by_tmdb(self, tmdb_id: int) -> list[TorrentCandidate]:
@@ -157,23 +174,60 @@ class UploadedTorrent:
 
 
 class _RateLimiter:
-    """Sliding window semplice: al massimo `max_per_min` richieste in ogni
-    finestra di 60s, bloccante (time.sleep) oltre soglia."""
+    """Sliding window: al massimo `max_per_min` richieste in ogni finestra di
+    60s, bloccante (time.sleep) oltre soglia. Thread-safe: ogni chiamata si
+    prenota il suo istante sotto lock e aspetta fuori, così più thread (run
+    pianificata, upload, controllo completo) non superano insieme il limite."""
 
     def __init__(self, max_per_min: int):
         self.max_per_min = max_per_min
         self._timestamps: deque[float] = deque()
+        self._lock = threading.Lock()
 
-    def wait(self) -> None:
-        now = time.monotonic()
-        window_start = now - 60
-        while self._timestamps and self._timestamps[0] < window_start:
-            self._timestamps.popleft()
-        if len(self._timestamps) >= self.max_per_min:
-            sleep_for = 60 - (now - self._timestamps[0])
-            if sleep_for > 0:
-                time.sleep(sleep_for)
-        self._timestamps.append(time.monotonic())
+    def wait(self, sleep: Callable[[float], None] = time.sleep) -> None:
+        with self._lock:
+            now = time.monotonic()
+            while self._timestamps and self._timestamps[0] < now - 60:
+                self._timestamps.popleft()
+            slot = now
+            if len(self._timestamps) >= self.max_per_min:
+                # Quando la max_per_min-esima richiesta più recente esce dalla finestra.
+                slot = max(now, self._timestamps[-self.max_per_min] + 60)
+            self._timestamps.append(slot)
+        if slot > now:
+            sleep(slot - now)
+
+
+# Rate limit e cache delle ricerche condivisi per tracker in tutto il
+# processo: ogni operazione (run, "Cerca ora", upload, controllo completo)
+# costruisce il suo adapter, e con un limitatore per adapter ognuna aveva il
+# suo budget, così insieme superavano il limite del tracker.
+_shared_lock = threading.Lock()
+_shared_limiters: dict[str, _RateLimiter] = {}
+_shared_search_caches: dict[tuple[str, str], dict[int, tuple[float, list]]] = {}
+
+
+def _shared_limiter(base_url: str, max_per_min: int) -> _RateLimiter:
+    with _shared_lock:
+        limiter = _shared_limiters.get(base_url)
+        if limiter is None:
+            limiter = _shared_limiters[base_url] = _RateLimiter(max_per_min)
+        limiter.max_per_min = max_per_min  # cambiato dalla configurazione del tracker
+        return limiter
+
+
+def _shared_search_cache(base_url: str, api_token: str) -> dict[int, tuple[float, list]]:
+    # Per token: i risultati possono dipendere dall'utente (freeleech, accesso).
+    key = (base_url, hashlib.sha256(api_token.encode()).hexdigest())
+    with _shared_lock:
+        return _shared_search_caches.setdefault(key, {})
+
+
+def reset_shared_state() -> None:
+    """Per i test."""
+    with _shared_lock:
+        _shared_limiters.clear()
+        _shared_search_caches.clear()
 
 
 class Unit3dTrackerAdapter(TrackerAdapter):
@@ -226,13 +280,19 @@ class Unit3dTrackerAdapter(TrackerAdapter):
         cache_ttl_seconds: int = 600,
         sleep: Callable[[float], None] = time.sleep,
         rss_key: str | None = None,
+        shared: bool = False,
     ):
+        """shared: rate limit e cache delle ricerche comuni a tutti gli adapter
+        dello stesso tracker nel processo (quelli costruiti dall'app, vedi
+        nazgarr/plugins/builtin.py); senza, propri di questo adapter (test)."""
         self.base_url = base_url.rstrip("/")
         self.api_token = api_token
         self._client = http_client or httpx.Client(base_url=self.base_url, timeout=15.0)
-        self._rate_limiter = _RateLimiter(rate_limit_per_min)
+        self._rate_limiter = (
+            _shared_limiter(self.base_url, rate_limit_per_min) if shared else _RateLimiter(rate_limit_per_min))
         self._cache_ttl_seconds = cache_ttl_seconds
-        self._search_cache: dict[int, tuple[float, list[TorrentCandidate]]] = {}
+        self._search_cache: dict[int, tuple[float, list[TorrentCandidate]]] = (
+            _shared_search_cache(self.base_url, api_token) if shared else {})
         self._sleep = sleep
         # Chiave attuale dei link di download: quella salvata sul tracker,
         # poi sempre aggiornata dal download_link di ogni risposta dell'API
@@ -240,7 +300,7 @@ class Unit3dTrackerAdapter(TrackerAdapter):
         self.rss_key = rss_key
         # Chiamato con i secondi di attesa prima di un retry su 429, e con
         # None quando si riprende: la run lo mostra nel popup di stato invece
-        # di sembrare bloccata (nazgarr/pipeline.py).
+        # di sembrare bloccata (nazgarr/reseed/pipeline.py).
         self.on_rate_limit_wait: Callable[[float | None], None] | None = None
 
     def search_by_tmdb(self, tmdb_id: int) -> list[TorrentCandidate]:
@@ -267,7 +327,7 @@ class Unit3dTrackerAdapter(TrackerAdapter):
 
     _TORRENT_ID_RE = re.compile(r"/(\d+)\.")
 
-    def upload_torrent(self, fields: UploadFields, torrent_path: str) -> str:
+    def upload_torrent(self, fields: UploadFields, torrent_path: str) -> UploadedTorrent:
         """POST /api/torrents/upload, multipart (file "torrent" + campi
         form). Risposta {"success": bool, "message": str, "data": <URL di
         download tipo "https://tracker/torrents/download/12345.<token>">}
@@ -309,7 +369,7 @@ class Unit3dTrackerAdapter(TrackerAdapter):
             raise UploadError(f"Could not read the .torrent to upload: {exc}") from exc
         files = {"torrent": ("torrent.torrent", torrent_bytes, "application/x-bittorrent")}
 
-        self._rate_limiter.wait()
+        self._rate_limiter.wait(self._sleep)
         try:
             response = self._client.post(
                 "/api/torrents/upload",
@@ -388,7 +448,7 @@ class Unit3dTrackerAdapter(TrackerAdapter):
     def _get(self, path: str, params: dict | None = None, authenticated: bool = True) -> httpx.Response:
         headers = {"Authorization": f"Bearer {self.api_token}"} if authenticated else None
         for attempt in range(self._MAX_429_RETRIES + 1):
-            self._rate_limiter.wait()
+            self._rate_limiter.wait(self._sleep)
             try:
                 response = self._client.get(path, params=params, headers=headers)
             except httpx.HTTPError as exc:
@@ -452,7 +512,7 @@ class Unit3dTrackerAdapter(TrackerAdapter):
         Se manca sia attributes.folder sia un path annidato, NON si
         indovina più una cartella da attributes.name: è un titolo
         "leggibile" per la UI, non necessariamente il vero nome di release
-        (vedi nazgarr/torrent_file.py per la motivazione completa e il fallback
+        (vedi nazgarr/torrents/metainfo.py per la motivazione completa e il fallback
         che legge il .torrent stesso)."""
         names = [f["name"] for f in files]
 

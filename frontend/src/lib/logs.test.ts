@@ -7,7 +7,9 @@ describe('shortLogger', () => {
     expect(shortLogger('apscheduler.executors.default')).toBe('scheduler')
     expect(shortLogger('uvicorn.access')).toBe('http')
     expect(shortLogger('uvicorn.error')).toBe('server')
-    expect(shortLogger('nazgarr.pipeline')).toBe('pipeline')
+    expect(shortLogger('nazgarr.reseed.pipeline')).toBe('pipeline')
+    expect(shortLogger('nazgarr.core.migrations')).toBe('migrations')
+    expect(shortLogger('nazgarr.upload.execute')).toBe('upload.execute')
     expect(shortLogger('app.pipeline')).toBe('pipeline') // log di prima del rinomino
     expect(shortLogger('app.adapters.tracker.unit3d')).toBe('tracker.unit3d')
     expect(shortLogger('httpx')).toBe('httpx')

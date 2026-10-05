@@ -4,11 +4,14 @@ from datetime import UTC, datetime
 
 import pytest
 
-from nazgarr import torrent_create, upload_analysis, upload_jobs, upload_verify
 from nazgarr.adapters.tracker.base import TorrentCandidate
-from nazgarr.arr import ArrGrab
-from nazgarr.models import ClientTorrent, ClientTorrentFile, RunLog, SeedFile, UploadJob
-from nazgarr.upload_worker import UploadWorker
+from nazgarr.core.models import ClientTorrent, ClientTorrentFile, RunLog, SeedFile, UploadJob
+from nazgarr.integrations.arr import ArrGrab
+from nazgarr.torrents import create as torrent_create
+from nazgarr.upload import analysis as upload_analysis
+from nazgarr.upload import jobs as upload_jobs
+from nazgarr.upload import verify as upload_verify
+from nazgarr.upload.worker import UploadWorker
 from tests.upload_helpers import InlineExecutor, make_client, make_disk, make_tracker, write_video
 
 MB = 1024 * 1024
@@ -245,7 +248,7 @@ def test_already_seeding_on_the_trackers_client_suggests_skip_and_names_come_fro
 
 def test_names_come_from_the_original_name_radarr_recorded(db_session, tmp_path, monkeypatch, analyzing_job):
     monkeypatch.setattr(upload_analysis.adapter_factory, "build_tracker_adapter", lambda t: _FakeTracker())
-    from nazgarr.arr import ArrIdentity
+    from nazgarr.integrations.arr import ArrIdentity
 
     class _Index:
         def grab_for(self, path, size):

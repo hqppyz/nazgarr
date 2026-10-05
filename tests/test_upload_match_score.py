@@ -1,4 +1,4 @@
-from nazgarr.upload_match_score import scored
+from nazgarr.upload.match_score import scored
 
 
 def _c(tmdb_id, title, year, content_type="movie", source="search", original=None):
@@ -40,7 +40,7 @@ def test_two_near_equal_candidates_are_ambiguous():
 
 
 def test_the_confidence_says_what_was_compared():
-    from nazgarr.upload_match_score import explained
+    from nazgarr.upload.match_score import explained
 
     [best] = scored([_c(1, "The Matrix", 1998, original="Matrix")], "Matrix", 1999, "movie")
     parts = best["confidence_parts"]

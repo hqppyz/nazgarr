@@ -1,5 +1,5 @@
 """nazgarr instance: le altre istanze che la web UI di questa può aprire
-(nazgarr/instances.py). Il registro vuole il login (una API key non usa le
+(nazgarr/integrations/instances.py). Il registro vuole il login (una API key non usa le
 chiavi delle altre istanze): questi comandi chiedono la password."""
 
 import typer

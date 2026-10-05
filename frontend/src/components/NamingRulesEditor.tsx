@@ -20,12 +20,12 @@ export type NamingRules = Record<string, unknown> & {
 const TEMPLATE_KEYS = [
   'default', 'tv', 'REMUX', 'WEBDL', 'WEBRIP', 'WEBMUX', 'DLMUX', 'ENCODE', 'HDTV', 'DVDRIP', 'BRRIP',
 ] as const
-// Stesse di nazgarr/upload_naming.py DEFAULT_TYPE_LABELS.
+// Stesse di nazgarr/upload/naming.py DEFAULT_TYPE_LABELS.
 const DEFAULT_TYPE_LABELS: Record<string, string> = {
   REMUX: 'REMUX', WEBDL: 'WEB-DL', WEBRIP: 'WEBRip', WEBMUX: 'WEBMux', DLMUX: 'DLMux', ENCODE: '', HDTV: 'HDTV',
   DVDRIP: 'DVDRip', BRRIP: 'BRRip',
 }
-// Stesso ordine di nazgarr/upload_naming.py VARIABLES.
+// Stesso ordine di nazgarr/upload/naming.py VARIABLES.
 const VARIABLE_NAMES = [
   'title', 'local_title', 'year', 'season', 'episode', 'edition', 'repack', 'hybrid', 'resolution', 'format', 'source', 'source_full', 'type',
   'service', 'video_codec', 'hdr', 'hdr_full', 'bit_depth', 'audio', 'audio_codec', 'audio_channels', 'audio_atmos',

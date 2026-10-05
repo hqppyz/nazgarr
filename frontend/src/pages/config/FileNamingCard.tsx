@@ -12,11 +12,11 @@ import { autosaveFeedback } from '@/lib/autosave'
 import { t } from '@/lib/i18n'
 
 // Il pattern dei nomi dei file dentro il torrent, quando non si usano quelli
-// del torrent in hardlink (nazgarr/upload_file_names.py): un nome a punti, come
+// del torrent in hardlink (nazgarr/upload/file_names.py): un nome a punti, come
 // le release.
 // Acceso (default): il nome del torrent in hardlink, se no il pattern qui
 // sotto per i file della libreria e le release della cartella osservata.
-// Spento: ogni upload parte con i nomi originali (nazgarr/upload_file_names.py).
+// Spento: ogni upload parte con i nomi originali (nazgarr/upload/file_names.py).
 function AutoRenameSwitch() {
   const { data } = useSetting('upload_auto_rename')
   const save = useSetSetting('upload_auto_rename')
@@ -39,7 +39,7 @@ function AutoRenameSwitch() {
 }
 
 // Una cartella con un solo file nel torrent: il torrent è il file, e la
-// cartella resta come cartella di seed o sparisce (nazgarr/upload_file_names.py).
+// cartella resta come cartella di seed o sparisce (nazgarr/upload/file_names.py).
 // Spento di default.
 function SingleFileSwitch() {
   const { data } = useSetting('upload_single_file')

@@ -3,8 +3,8 @@ import os
 
 import pytest
 
-from nazgarr import crypto as crypto_module
-from nazgarr import startup_checks
+from nazgarr.core import crypto as crypto_module
+from nazgarr.core import startup_checks
 
 
 def _random_key() -> str:
@@ -25,7 +25,7 @@ def test_first_boot_writes_the_canary(db_session, monkeypatch):
 
     startup_checks.verify_secret_key(db_session)  # non deve sollevare
 
-    from nazgarr.models import AppSetting
+    from nazgarr.core.models import AppSetting
 
     row = db_session.get(AppSetting, startup_checks._CANARY_KEY)
     assert row is not None
@@ -49,3 +49,10 @@ def test_changed_key_on_second_boot_raises(db_session, monkeypatch):
 
     with pytest.raises(startup_checks.SecretKeyMismatchError):
         startup_checks.verify_secret_key(db_session)
+
+
+def test_every_connection_waits_for_a_busy_database(db_session):
+    from sqlalchemy import text
+
+    assert db_session.execute(text("PRAGMA busy_timeout")).scalar() == 30000
+    assert db_session.execute(text("PRAGMA journal_mode")).scalar() == "wal"

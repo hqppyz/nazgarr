@@ -3,9 +3,9 @@ come un plugin, e un adapter di un plugin costruito dalle stesse factory."""
 
 import pytest
 
-import nazgarr_sdk as sdk
-from nazgarr import adapter_factory
-from nazgarr.models import TorrentClient
+import nazgarr.sdk as sdk
+from nazgarr.core.models import TorrentClient
+from nazgarr.integrations import adapter_factory
 from nazgarr.plugins import REGISTRY
 from nazgarr.plugins import config as plugin_config
 from nazgarr.plugins.registry import AdapterAlreadyRegisteredError

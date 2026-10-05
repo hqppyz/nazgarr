@@ -1,9 +1,9 @@
 import pytest
 
-from nazgarr import upload_identify
 from nazgarr.adapters.media_resolver.base import ResolvedMedia
-from nazgarr.upload_jobs import UploadJobError
-from nazgarr.upload_source import scan_source
+from nazgarr.upload import identify as upload_identify
+from nazgarr.upload.jobs import UploadJobError
+from nazgarr.upload.source import scan_source
 from tests.upload_helpers import FakeTMDB, tmdb_result, write_video
 
 
@@ -154,3 +154,76 @@ def test_the_italian_title_reaches_a_candidate_found_first_by_the_resolver(
     assert best["titles"] == ["La grande bellezza"]
     assert best["confidence"] == 1.0
     assert best["confidence_parts"]["title_matched"] == "La grande bellezza"
+
+
+def test_auto_match_confirms_the_numbers_of_the_chosen_ordering(db_session, monkeypatch):
+    """Come al match a mano: se l'ordinamento scelto non è quello dei file,
+    stagione ed episodio confermati sono già tradotti (nome, file e campi
+    del tracker usano la stessa numerazione)."""
+    from types import SimpleNamespace
+
+    from nazgarr.library import episode_orders
+    from nazgarr.upload import jobs as upload_jobs
+
+    job = SimpleNamespace(id=1, kind="episode", seasons_json="[2]", episode=1, forced_ids_json="{}",
+                          title=None, year=None)
+    orders = {
+        "recommended": "tmdb:group:1", "warning": None,
+        "orders": [{"key": "tmdb:group:1"}], "files_order": "tvdb:aired",
+        # I file dicono S02E01, che nell'ordinamento scelto è S01E06.
+        "found": {"tmdb:group:1": {1: [6]}, "tvdb:aired": {2: [1]}},
+    }
+    confirmed = {}
+    monkeypatch.setattr(upload_identify, "auto_match_threshold", lambda session: 0.5)
+    monkeypatch.setattr(upload_identify, "tmdb_client",
+                        lambda session: SimpleNamespace(full_details=lambda *a: {"tvdb_id": 5}))
+    monkeypatch.setattr(episode_orders, "for_job", lambda *a, **k: orders)
+    monkeypatch.setattr(episode_orders, "snapshot", lambda result, key: {"chosen": {"key": key}})
+    monkeypatch.setattr(upload_jobs, "confirm_match", lambda session, job, **kw: confirmed.update(kw))
+    monkeypatch.setattr(upload_jobs, "log_event", lambda *a, **k: None)
+    monkeypatch.setattr(db_session, "commit", lambda: None)
+
+    upload_identify._auto_match(db_session, job, [{"content_type": "tv", "tmdb_id": 96677, "confidence": 0.99}])
+
+    assert (confirmed["seasons"], confirmed["episode"]) == ([1], 6)
+    assert job.episode_order == "tmdb:group:1"
+
+
+def test_numbers_in_keeps_the_files_numbers_without_found_episodes():
+    from nazgarr.library import episode_orders
+
+    assert episode_orders.numbers_in({"found": {}}, "x", "season_pack", [3], None) == ([3], None)
+    assert episode_orders.numbers_in({"found": {"x": {"1": [1, 2], "2": [1]}}}, "x", "complete_pack", [5], None) \
+        == ([1, 2], None)
+
+
+def test_confirm_translates_only_when_asked_and_remembers_only_a_user_choice(db_session, monkeypatch):
+    """Lo stesso servizio per il match a mano (numeri già tradotti, scelta
+    ricordata) e per quello automatico (numeri dei file, niente preferenza)."""
+    from types import SimpleNamespace
+
+    from nazgarr.library import episode_orders
+    from nazgarr.upload import jobs as upload_jobs
+
+    orders = {"orders": [{"key": "tmdb:group:1"}, {"key": "tvdb:aired"}], "files_order": "tvdb:aired",
+              "found": {"tmdb:group:1": {1: [6]}}}
+    confirmed, remembered = [], []
+    monkeypatch.setattr(upload_jobs, "confirm_match", lambda session, job, **kw: confirmed.append(kw))
+    monkeypatch.setattr(episode_orders, "remember", lambda session, tmdb_id, key: remembered.append(key))
+
+    def job():
+        return SimpleNamespace(forced_ids_json="{}", episode_order=None, episode_order_json=None)
+
+    manual, auto = job(), job()
+    upload_identify.confirm(db_session, manual, content_type="tv", tmdb_id=1, kind="episode", seasons=[1],
+                            episode=6, details=None, order_key="tmdb:group:1", orders=orders, remember=True)
+    upload_identify.confirm(db_session, auto, content_type="tv", tmdb_id=1, kind="episode", seasons=[2],
+                            episode=1, details=None, order_key="tmdb:group:1", orders=orders, translate=True)
+
+    assert [(c["seasons"], c["episode"]) for c in confirmed] == [([1], 6), ([1], 6)]
+    assert remembered == ["tmdb:group:1"]
+    assert manual.episode_order == auto.episode_order == "tmdb:group:1"
+
+    with pytest.raises(episode_orders.EpisodeOrderError):
+        upload_identify.confirm(db_session, job(), content_type="tv", tmdb_id=1, kind="episode", seasons=[1],
+                                episode=1, details=None, order_key="nope", orders=orders)

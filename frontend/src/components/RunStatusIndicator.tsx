@@ -164,7 +164,7 @@ function compactLine(run: RunResponse, active: boolean): string {
 // al cambio view mentre una run è in corso. A scansione finita il riepilogo
 // resta visibile finché l'utente non lo chiude (X), anche se la scansione è
 // finita a pagina chiusa: l'id chiuso è ricordato nel browser.
-// Avanzamento per fase da nazgarr/run_progress.py.
+// Avanzamento per fase da nazgarr/core/run_progress.py.
 export function RunStatusIndicator() {
   const { data: runs } = useRuns()
   const latestRun = runs?.[0]

@@ -7,8 +7,8 @@ import html
 
 import httpx
 
-from nazgarr import net_guard
 from nazgarr.adapters.notification.base import Notification, NotificationAdapter, NotificationError
+from nazgarr.core import net_guard
 
 API = "https://api.telegram.org"
 ICONS = {"info": "ℹ️", "success": "✅", "warning": "⚠️", "error": "❌"}

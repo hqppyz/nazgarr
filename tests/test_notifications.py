@@ -1,10 +1,11 @@
-"""Servizi di notifica dei plugin (nazgarr/notifications.py)."""
+"""Servizi di notifica dei plugin (nazgarr/integrations/notifications.py)."""
 
 import pytest
 
-import nazgarr_sdk as sdk
-from nazgarr import events, notifications, webhooks
-from nazgarr.models import EventDelivery
+import nazgarr.sdk as sdk
+from nazgarr.core import events
+from nazgarr.core.models import EventDelivery
+from nazgarr.integrations import notifications, webhooks
 from nazgarr.plugins import REGISTRY
 from nazgarr.plugins import config as plugin_config
 
@@ -92,7 +93,7 @@ def test_the_plugins_api_sets_events_and_sends_a_test(client, ntfy):
 
 
 def test_watched_releases_have_their_own_messages():
-    from nazgarr.notifications import render
+    from nazgarr.integrations.notifications import render
 
     detected = render("upload.detected", {"upload_id": 3, "path": "releases/My.Movie.2024.mkv", "disk": "main"})
     ready = render("upload.ready", {"upload_id": 3, "title": "My Movie", "year": 2024, "trackers": ["ITT", "B"]})

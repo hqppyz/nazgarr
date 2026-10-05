@@ -1,6 +1,6 @@
 import os
 
-from nazgarr.torrent_create import create_torrent
+from nazgarr.torrents.create import create_torrent
 
 
 def test_create_torrent_writes_file_and_returns_info_hash(tmp_path):

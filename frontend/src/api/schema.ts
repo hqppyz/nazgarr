@@ -230,7 +230,7 @@ export interface paths {
         put?: never;
         /**
          * Add Folder
-         * @description Una cartella media o di seeding in più (nazgarr/disk_folders.py).
+         * @description Una cartella media o di seeding in più (nazgarr/library/disk_folders.py).
          */
         post: operations["add_folder_api_disks__disk_id__folders_post"];
         delete?: never;
@@ -394,7 +394,7 @@ export interface paths {
         /**
          * List Duplicates
          * @description Copie non intenzionali dello stesso contenuto su inode diversi —
-         *     file già hardlinkati fra loro non compaiono qui (nazgarr/duplicates.py).
+         *     file già hardlinkati fra loro non compaiono qui (nazgarr/library/duplicates.py).
          */
         get: operations["list_duplicates_api_library_duplicates_get"];
         put?: never;
@@ -496,7 +496,7 @@ export interface paths {
         /**
          * Library Episode Orders
          * @description Gli ordinamenti degli episodi di una serie in libreria
-         *     (nazgarr/episode_orders.py): quello che seguono i file (di solito Sonarr),
+         *     (nazgarr/library/episode_orders.py): quello che seguono i file (di solito Sonarr),
          *     gli altri per vederla in un'altra numerazione, e l'avviso se i file non
          *     seguono TVDB aired.
          */
@@ -697,7 +697,7 @@ export interface paths {
         };
         /**
          * Tracker Icon
-         * @description La favicon del tracker, dalla cache locale (nazgarr/tracker_icons.py).
+         * @description La favicon del tracker, dalla cache locale (nazgarr/torrents/tracker_icons.py).
          */
         get: operations["tracker_icon_api_trackers__tracker_id__icon_get"];
         put?: never;
@@ -854,9 +854,9 @@ export interface paths {
         put?: never;
         /**
          * Test Radarr Instance
-         * @description Come test_radarr_connection ma contro le credenziali già salvate di
-         *     un'istanza esistente — usata dal dialog "Edit instance" quando l'utente
-         *     non ha ridigitato una nuova API key (write-only, non torna mai nel form).
+         * @description Come il test di una connessione nuova, con le credenziali salvate:
+         *     dal dialog "Edit instance" quando l'API key (write-only) non è stata
+         *     ridigitata.
          */
         post: operations["test_radarr_instance_api_radarr_instances__instance_id__test_post"];
         delete?: never;
@@ -929,9 +929,9 @@ export interface paths {
         put?: never;
         /**
          * Test Sonarr Instance
-         * @description Come test_sonarr_connection ma contro le credenziali già salvate di
-         *     un'istanza esistente — usata dal dialog "Edit instance" quando l'utente
-         *     non ha ridigitato una nuova API key (write-only, non torna mai nel form).
+         * @description Come il test di una connessione nuova, con le credenziali salvate:
+         *     dal dialog "Edit instance" quando l'API key (write-only) non è stata
+         *     ridigitata.
          */
         post: operations["test_sonarr_instance_api_sonarr_instances__instance_id__test_post"];
         delete?: never;
@@ -1249,7 +1249,12 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Dashboard */
+        /**
+         * Get Dashboard
+         * @description La dashboard si interroga ogni 15 secondi: la risposta resta in cache
+         *     finché i dati non cambiano (nazgarr/web/response_cache.py), invece di
+         *     ricalcolare la salute di tutta la libreria a ogni giro.
+         */
         get: operations["get_dashboard_api_dashboard_get"];
         put?: never;
         post?: never;
@@ -1292,7 +1297,7 @@ export interface paths {
         /**
          * Get Changes
          * @description Cambiamenti per file dell'ultima scansione confrontata con la
-         *     precedente (nazgarr/file_changes.py): file nuovi, spariti, cambiati di stato.
+         *     precedente (nazgarr/library/file_changes.py): file nuovi, spariti, cambiati di stato.
          */
         get: operations["get_changes_api_dashboard_changes_get"];
         put?: never;
@@ -1393,7 +1398,7 @@ export interface paths {
         };
         /**
          * Get File Naming
-         * @description Il pattern dei nomi dei file nel torrent (nazgarr/upload_file_names.py):
+         * @description Il pattern dei nomi dei file nel torrent (nazgarr/upload/file_names.py):
          *     quello salvato, e quello di default per tornarci.
          */
         get: operations["get_file_naming_api_uploads_file_naming_get"];
@@ -1555,7 +1560,7 @@ export interface paths {
         put?: never;
         /**
          * Rematch Upload
-         * @description Dalla decisione torna al match (nazgarr/upload_jobs.py back_to_match): per
+         * @description Dalla decisione torna al match (nazgarr/upload/jobs.py back_to_match): per
          *     un match, automatico o no, che si è rivelato sbagliato.
          */
         post: operations["rematch_upload_api_uploads__upload_id__rematch_post"];
@@ -1734,7 +1739,7 @@ export interface paths {
         /**
          * Whoami
          * @description Chi sta chiamando: il login o una API key, e cosa può fare. Serve a
-         *     un'altra istanza che usa una nostra chiave (nazgarr/instances.py) per
+         *     un'altra istanza che usa una nostra chiave (nazgarr/integrations/instances.py) per
          *     sapere se è di lettura o di scrittura.
          */
         get: operations["whoami_api_system_whoami_get"];
@@ -1775,7 +1780,7 @@ export interface paths {
          * @description Chiamata solo su richiesta esplicita dell'utente (bottone "Check for
          *     updates" in UI), mai in automatico. Confronta con le GitHub Release: la
          *     CI ne crea una (prerelease) a ogni push su main, il canale stable si
-         *     aggiorna a mano (nazgarr/version.py).
+         *     aggiorna a mano (nazgarr/core/version.py).
          */
         get: operations["update_check_api_system_update_check_get"];
         put?: never;
@@ -1813,7 +1818,7 @@ export interface paths {
         /**
          * Setup Status
          * @description Per la checklist "Getting started" e il tour del primo accesso
-         *     (nazgarr/setup_status.py): cosa è già configurato, dalla configurazione reale.
+         *     (nazgarr/library/setup_status.py): cosa è già configurato, dalla configurazione reale.
          */
         get: operations["setup_status_api_system_setup_status_get"];
         put?: never;
@@ -2617,7 +2622,7 @@ export interface components {
         };
         /**
          * DetailTracker
-         * @description Panoramica per tracker (nazgarr/library_detail.py tracker_overview).
+         * @description Panoramica per tracker (nazgarr/library/detail.py tracker_overview).
          */
         DetailTracker: {
             /** Tracker Id */
@@ -3390,6 +3395,11 @@ export interface components {
         OrderFit: {
             /** Score */
             score: number;
+            /**
+             * Coverage
+             * @default 0
+             */
+            coverage: number;
             /** Matched */
             matched: number;
             /** Files */
@@ -3415,7 +3425,7 @@ export interface components {
         };
         /**
          * PhaseProgressResponse
-         * @description Una fase della run (nazgarr/run_progress.py): done include gli elementi
+         * @description Una fase della run (nazgarr/core/run_progress.py): done include gli elementi
          *     saltati (skipped), così done/total è sempre l'avanzamento vero.
          */
         PhaseProgressResponse: {
@@ -3474,11 +3484,7 @@ export interface components {
             /** Job Ids */
             job_ids: number[];
         };
-        /**
-         * RadarrConnectionTestRequest
-         * @description Senza instance_id: usata dal dialog "Add instance" per testare prima
-         *     ancora di salvare, con i valori appena digitati nel form.
-         */
+        /** RadarrConnectionTestRequest */
         RadarrConnectionTestRequest: {
             /** Base Url */
             base_url: string;
@@ -3859,11 +3865,7 @@ export interface components {
             /** Image Hosts */
             image_hosts?: number | null;
         };
-        /**
-         * SonarrConnectionTestRequest
-         * @description Senza instance_id: usata dal dialog "Add instance" per testare prima
-         *     ancora di salvare, con i valori appena digitati nel form.
-         */
+        /** SonarrConnectionTestRequest */
         SonarrConnectionTestRequest: {
             /** Base Url */
             base_url: string;

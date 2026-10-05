@@ -1,7 +1,7 @@
 import httpx
 import pytest
 
-from nazgarr.tmdb_client import TMDBClient
+from nazgarr.library.tmdb_client import TMDBClient
 
 
 def _client_with_handler(handler):

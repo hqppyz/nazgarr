@@ -1,8 +1,8 @@
 import json
 import types
 
-from nazgarr import dovi_probe
-from nazgarr.upload_naming import dv_profile, hdr_full
+from nazgarr.upload import dovi_probe
+from nazgarr.upload.naming import dv_profile, hdr_full
 
 
 def _ffprobe(monkeypatch, output: dict | None):

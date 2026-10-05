@@ -11,9 +11,9 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from nazgarr import scheduler as scheduler_module
-from nazgarr import settings_repo
-from nazgarr.api_errors import coded_detail
-from nazgarr.deps import get_session
+from nazgarr.core import settings_repo
+from nazgarr.core.errors import coded_detail
+from nazgarr.web.deps import get_session
 
 router = APIRouter(prefix="/api/schedule", tags=["schedule"])
 

@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from nazgarr.frontend import mount_frontend
+from nazgarr.web.frontend import mount_frontend
 
 
 def _build_fake_dist(tmp_path):

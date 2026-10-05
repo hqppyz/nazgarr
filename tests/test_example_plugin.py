@@ -8,8 +8,9 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
-import nazgarr_sdk as sdk
-from nazgarr import events, webhooks
+import nazgarr.sdk as sdk
+from nazgarr.core import events
+from nazgarr.integrations import webhooks
 from nazgarr.plugins import REGISTRY, loader
 from nazgarr.plugins import config as plugin_config
 

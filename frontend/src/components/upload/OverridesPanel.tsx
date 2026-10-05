@@ -12,7 +12,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { t } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 
-// Stessi campi di nazgarr/upload_naming.py DETECTED_FIELDS, più l'anno.
+// Stessi campi di nazgarr/upload/naming.py DETECTED_FIELDS, più l'anno.
 const DETECTED_FIELDS = [
   'type', 'resolution', 'source', 'video_codec', 'audio', 'audio_languages', 'hdr', 'service', 'edition', 'repack', 'hybrid',
   'group',
@@ -33,7 +33,7 @@ function toDraft(overrides: Record<string, unknown>): Draft {
 export function OverridesPanel({ job }: { job: UploadJob }) {
   const analysis = (job.analysis ?? {}) as Record<string, unknown>
   const detected = (analysis.detected ?? {}) as Record<string, string | null>
-  // I valori che i tracker del job accettano (nazgarr/upload_decision.py
+  // I valori che i tracker del job accettano (nazgarr/upload/decision.py
   // field_options): un menu nel campo, che resta libero.
   const options = (analysis.field_options ?? {}) as Record<string, string[]>
   const nameSource = analysis.name_source as { name: string; origin: string } | undefined

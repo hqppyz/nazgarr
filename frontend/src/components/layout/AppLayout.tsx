@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
 
 import { useSetting } from '@/api/hooks/settings'
@@ -13,11 +14,14 @@ import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/s
 import { setSizeUnits } from '@/lib/library-filters'
 import { NAV_DASHBOARD, resolveSectionTitle } from '@/lib/nav'
 import { usesTrackerFilter } from '@/lib/trackerFilter'
-import { TourRunner } from '@/onboarding/TourRunner'
 import { RemoteBar, RemoteGate } from '@/components/instances/RemoteGate'
 import { isRemote } from '@/lib/instance'
+import { preloadPages } from '@/lib/lazyPages'
 import { UploadNotices } from '@/components/upload/UploadNotices'
 import { WelcomeDialog } from '@/onboarding/WelcomeDialog'
+
+// Il tour (driver.js e il suo CSS) in un chunk a parte, fuori dal caricamento iniziale.
+const TourRunner = lazy(() => import('@/onboarding/TourRunner').then((m) => ({ default: m.TourRunner })))
 
 function TopHeader() {
   const location = useLocation()
@@ -45,8 +49,16 @@ function useSizeUnitsSync() {
   setSizeUnits(data?.value === 'binary' ? 'binary' : 'decimal')
 }
 
+// Finita la pagina aperta (nessuna richiesta in corso), le altre pagine si
+// scaricano in background: aprirle dopo è immediato.
+function usePreloadPages() {
+  const queryClient = useQueryClient()
+  useEffect(() => preloadPages(() => queryClient.isFetching() > 0), [queryClient])
+}
+
 export function AppLayout() {
   useSizeUnitsSync()
+  usePreloadPages()
   const [floatingSlot, setFloatingSlot] = useState<HTMLElement | null>(null)
   return (
     <FloatingSlotContext.Provider value={floatingSlot}>
@@ -54,7 +66,11 @@ export function AppLayout() {
         <AppSidebar />
         {/* Il tour è dell'istanza su cui si è fatto il login, non di quella che si guarda. */}
         {!isRemote() && <WelcomeDialog />}
-        {!isRemote() && <TourRunner />}
+        {!isRemote() && (
+          <Suspense fallback={null}>
+            <TourRunner />
+          </Suspense>
+        )}
         <UploadNotices />
         <SidebarInset className="h-svh overflow-hidden">
           <TopHeader />

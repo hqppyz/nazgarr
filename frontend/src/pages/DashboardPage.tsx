@@ -7,9 +7,8 @@ import {
   TrendingUpIcon,
   type LucideIcon,
 } from 'lucide-react'
-import { useState } from 'react'
+import { lazy, Suspense, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from 'recharts'
 
 import type { Schemas } from '@/api/client'
 import { useDashboard, useDashboardHistory } from '@/api/hooks/dashboard'
@@ -21,12 +20,11 @@ import { HealthGauge } from '@/components/HealthGauge'
 import { ScanHistoryCard } from '@/components/ScanHistoryCard'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { type ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart'
 import { ToggleGroupItem, ToggleGroupSingle } from '@/components/ui/toggle-group'
 import { useRingLoader } from '@/components/RingLoader'
 import { t } from '@/lib/i18n'
 import { formatBytes } from '@/lib/library-filters'
-import { dailyHealth, healthLabel } from '@/lib/health'
+import { healthLabel } from '@/lib/health'
 import { STATUS_STYLES } from '@/lib/status-styles'
 import { parseApiDate } from '@/lib/time'
 import { cn } from '@/lib/utils'
@@ -97,68 +95,9 @@ function HealthCard({ data, history }: { data: Dashboard; history: HistoryPoint[
   )
 }
 
-function formatDay(value: number) {
-  return new Date(value).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-}
-
-function HistoryChart({ history, current }: { history: HistoryPoint[] | undefined; current: number }) {
-  const chartData = dailyHealth(history ?? [])
-  const min = Math.min(...chartData.map((d) => d.health), 100)
-  const chartConfig = {
-    health: { label: t('dashboard.healthHistory'), color: healthLabel(current).color },
-  } satisfies ChartConfig
-  return (
-    <Card className="lg:col-span-2">
-      <CardHeader>
-        <CardTitle>{t('dashboard.healthHistory')}</CardTitle>
-      </CardHeader>
-      <CardContent className="px-2 sm:px-6">
-        {chartData.length < 2 ? (
-          <p className="text-sm text-muted-foreground">{t('dashboard.notEnoughHistory')}</p>
-        ) : (
-          <ChartContainer config={chartConfig} className="aspect-auto h-[260px] w-full">
-            <AreaChart data={chartData}>
-              <defs>
-                <linearGradient id="fillHealth" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="var(--color-health)" stopOpacity={0.35} />
-                  <stop offset="95%" stopColor="var(--color-health)" stopOpacity={0.02} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid vertical={false} strokeDasharray="3 3" />
-              <XAxis
-                dataKey="day"
-                type="number"
-                scale="time"
-                domain={['dataMin', 'dataMax']}
-                tickLine={false}
-                axisLine={false}
-                tickMargin={8}
-                minTickGap={32}
-                tickFormatter={formatDay}
-              />
-              <YAxis
-                domain={[Math.max(0, Math.floor(min / 10) * 10 - 10), 100]}
-                tickLine={false}
-                axisLine={false}
-                width={32}
-                tickCount={4}
-              />
-              <ChartTooltip
-                content={
-                  <ChartTooltipContent
-                    labelFormatter={(_value, payload) => formatDay(Number(payload?.[0]?.payload?.day))}
-                    indicator="dot"
-                  />
-                }
-              />
-              <Area dataKey="health" type="monotone" fill="url(#fillHealth)" stroke="var(--color-health)" />
-            </AreaChart>
-          </ChartContainer>
-        )}
-      </CardContent>
-    </Card>
-  )
-}
+// Il grafico (recharts, il pezzo più pesante della pagina) in un chunk a
+// parte: le card compaiono senza aspettarlo.
+const HistoryChart = lazy(() => import('@/components/HistoryChart').then((m) => ({ default: m.HistoryChart })))
 
 type Trend = 'improving' | 'worsening' | 'stable' | null
 
@@ -338,7 +277,9 @@ export function DashboardPage() {
 
       <div className="grid gap-6 lg:grid-cols-3">
         <HealthCard data={data} history={history} />
-        <HistoryChart history={history} current={data.health_pct} />
+        <Suspense fallback={<Card className="lg:col-span-2" />}>
+          <HistoryChart history={history} current={data.health_pct} />
+        </Suspense>
       </div>
 
       <MetricCards data={data} />

@@ -49,10 +49,10 @@ upload:
     "576i": 7
     "480p": 8
     "480i": 9
-  # Regole di naming (nazgarr/upload_naming.py). Versionate: alzare "version"
+  # Regole di naming (nazgarr/upload/naming.py). Versionate: alzare "version"
   # quando il tracker cambia le sue regole. All'avvio un profilo non
   # modificato dall'utente si aggiorna da solo; uno modificato riceve
-  # l'offerta di aggiornarsi, a meno di "force: true" (nazgarr/upload_profiles.py).
+  # l'offerta di aggiornarsi, a meno di "force: true" (nazgarr/upload/profiles.py).
   # Ricostruite dalle regole di ItaTorrents come le implementa
   # Upload-Assistant (src/trackers/ITT.py, riferimento di dominio): da
   # verificare contro il regolamento del tracker prima del primo upload.

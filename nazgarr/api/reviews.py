@@ -8,11 +8,12 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session, object_session
 
-from nazgarr import review, seeding
-from nazgarr.api_errors import coded_detail
-from nazgarr.deps import get_session
-from nazgarr.executor import ExecutionError
-from nazgarr.models import Candidate, MatchReview, RunLog, SeedJob, TorrentClient
+from nazgarr.core.errors import coded_detail
+from nazgarr.core.models import Candidate, MatchReview, SeedJob, TorrentClient
+from nazgarr.library import seeding
+from nazgarr.reseed import pipeline, review
+from nazgarr.reseed.executor import ExecutionError
+from nazgarr.web.deps import get_or_404, get_session
 
 router = APIRouter(prefix="/api/reviews", tags=["reviews"])
 
@@ -146,10 +147,7 @@ class ReviewResponse(BaseModel):
 
 
 def _get_review_or_404(session: Session, review_id: int) -> MatchReview:
-    row = session.get(MatchReview, review_id)
-    if row is None:
-        raise HTTPException(status_code=404, detail=coded_detail("review_not_found", id=review_id))
-    return row
+    return get_or_404(session, MatchReview, review_id, "review_not_found")
 
 
 @router.get("", response_model=list[ReviewResponse])
@@ -196,7 +194,7 @@ def reconcile_now(session: Session = Depends(get_session)):
     """Controlla subito l'esito dei recheck in attesa (lo scheduler lo fa
     comunque ogni 2 minuti). Sola lettura sul client: nessun torrent
     aggiunto né file modificato."""
-    if session.query(RunLog.id).filter(RunLog.finished_at.is_(None)).first() is not None:
+    if pipeline.run_in_progress(session):
         raise HTTPException(status_code=409, detail=coded_detail("run_in_progress"))
     return review.reconcile_pending_seed_jobs(session)
 

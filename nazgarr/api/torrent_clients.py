@@ -11,16 +11,16 @@ from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session, object_session
 
-from nazgarr import adapter_factory
 from nazgarr.api.types import HttpUrlStr, require_secrets_for_new_host
-from nazgarr.api_errors import coded_detail, from_coded_error
-from nazgarr.client_labels import split_tags
-from nazgarr.deps import get_session
-from nazgarr.fs_scope import ScopeViolation, resolve_scoped
-from nazgarr.logging_config import safe_error
-from nazgarr.models import ClientTorrent, Disk, DiskTorrentClient, TorrentClient
+from nazgarr.core.errors import coded_detail, from_coded_error
+from nazgarr.core.fs_scope import ScopeViolation, resolve_scoped
+from nazgarr.core.logs import safe_error
+from nazgarr.core.models import ClientTorrent, Disk, DiskTorrentClient, TorrentClient
+from nazgarr.integrations import adapter_factory
 from nazgarr.plugins import REGISTRY
 from nazgarr.plugins import config as plugin_config
+from nazgarr.torrents.client_labels import split_tags
+from nazgarr.web.deps import get_or_404, get_session
 
 router = APIRouter(prefix="/api/torrent-clients", tags=["torrent-clients"])
 
@@ -45,7 +45,7 @@ class TorrentClientUpdateRequest(BaseModel):
     api_token: str | None = None
     qui_instance_id: int | None = None
     enabled: bool | None = None
-    # Etichette dei torrent aggiunti da Nazgarr (nazgarr/client_labels.py): un
+    # Etichette dei torrent aggiunti da Nazgarr (nazgarr/torrents/client_labels.py): un
     # campo inviato vuoto o null le toglie.
     category_movie: str | None = None
     category_tv: str | None = None
@@ -80,7 +80,7 @@ class AssociateDiskRequest(BaseModel):
     # Quale cartella del disco il client vede come torrent_client_root_path,
     # relativa alla radice del disco (vuota = la radice): un client montato
     # su una sottocartella, es. Nazgarr /data/qbittorrent = client /download
-    # (nazgarr/client_paths.py).
+    # (nazgarr/torrents/client_paths.py).
     local_rel_path: str | None = None
 
 
@@ -132,17 +132,11 @@ def _apply_config(tc: TorrentClient, config: dict | None, *, creating: bool) -> 
 
 
 def _get_torrent_client_or_404(session: Session, torrent_client_id: int) -> TorrentClient:
-    tc = session.get(TorrentClient, torrent_client_id)
-    if tc is None:
-        raise HTTPException(status_code=404, detail=coded_detail("torrent_client_not_found", id=torrent_client_id))
-    return tc
+    return get_or_404(session, TorrentClient, torrent_client_id, "torrent_client_not_found")
 
 
 def _get_disk_or_404(session: Session, disk_id: int) -> Disk:
-    disk = session.get(Disk, disk_id)
-    if disk is None:
-        raise HTTPException(status_code=404, detail=coded_detail("disk_not_found", id=disk_id))
-    return disk
+    return get_or_404(session, Disk, disk_id, "disk_not_found")
 
 
 def _links_for(session: Session, torrent_client_id: int) -> list[DiskTorrentClient]:
@@ -187,8 +181,8 @@ def test_torrent_client(torrent_client_id: int, session: Session = Depends(get_s
     un client (docs/SPEC.md sezione 5)."""
     tc = _get_torrent_client_or_404(session, torrent_client_id)
     try:
-        adapter = adapter_factory.build_torrent_client_adapter(tc)
-        torrents = adapter.list_torrents()
+        with adapter_factory.torrent_client(tc) as adapter:
+            torrents = adapter.list_torrents()
     except Exception as exc:
         return TorrentClientTestResponse(status="error", error=safe_error(exc))
     return TorrentClientTestResponse(status="ok", torrents_found=len(torrents))
@@ -241,7 +235,8 @@ def torrent_client_categories(torrent_client_id: int, session: Session = Depends
     fra queste (nessuna scritta a mano), in impostazioni e nel job."""
     tc = _get_torrent_client_or_404(session, torrent_client_id)
     try:
-        categories = adapter_factory.build_torrent_client_adapter(tc).list_categories()
+        with adapter_factory.torrent_client(tc) as adapter:
+            categories = adapter.list_categories()
     except Exception as exc:
         return TorrentClientCategoriesResponse(status="error", error=safe_error(exc))
     return TorrentClientCategoriesResponse(status="ok", categories=categories)

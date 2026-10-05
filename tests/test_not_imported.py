@@ -1,23 +1,12 @@
 import os
 
-from nazgarr import not_imported, pipeline, scanner, torrent_indexer
-from nazgarr.adapters.torrent_client.base import ClientTorrentFileInfo, ClientTorrentInfo, TorrentClientAdapter
-from nazgarr.arr import ArrIndex
-from nazgarr.models import ClientTorrent, Disk, MediaFile, MediaItem, NotImportedTorrent, TorrentClient
-
-
-class FakeAdapter(TorrentClientAdapter):
-    def __init__(self, torrents):
-        self._torrents = torrents
-
-    def add_torrent(self, *args, **kwargs):
-        raise NotImplementedError
-
-    def get_torrent_status(self, *args, **kwargs):
-        raise NotImplementedError
-
-    def list_torrents(self):
-        return self._torrents
+from nazgarr.adapters.torrent_client.base import ClientTorrentFileInfo, ClientTorrentInfo
+from nazgarr.core.models import ClientTorrent, Disk, MediaFile, MediaItem, NotImportedTorrent, TorrentClient
+from nazgarr.integrations.arr import ArrIndex
+from nazgarr.library import not_imported, scanner
+from nazgarr.reseed import pipeline
+from nazgarr.torrents import indexer as torrent_indexer
+from tests.fakes import FakeAdapter
 
 
 def _setup(db_session, tmp_path):
@@ -121,8 +110,8 @@ def test_api_lists_torrents_with_their_replacement(db_session, tmp_path):
 
 
 def test_excluded_torrents_are_flagged_and_left_out_of_the_totals(db_session, tmp_path):
-    from nazgarr import settings_repo
     from nazgarr.api.torrents import list_not_imported
+    from nazgarr.core import settings_repo
 
     index = _setup(db_session, tmp_path)
     settings_repo.set_setting(db_session, "exclusion_patterns", "*Random*")
@@ -149,7 +138,7 @@ def test_a_skipped_scan_is_reported_until_the_next_computation(db_session, tmp_p
 
 def test_api_says_whether_the_tracker_seeding_requirement_is_met(db_session, tmp_path):
     from nazgarr.api.torrents import list_not_imported
-    from nazgarr.models import Tracker
+    from nazgarr.core.models import Tracker
 
     index = _setup(db_session, tmp_path)
     db_session.add(Tracker(label="T", adapter_type="unit3d", base_url="https://t.example", api_token="x",
@@ -169,7 +158,7 @@ def test_api_says_whether_the_tracker_seeding_requirement_is_met(db_session, tmp
 
 def test_api_warns_about_what_seed_time_and_ratio_do_not_say(db_session, tmp_path):
     from nazgarr.api.torrents import list_not_imported, removal_warnings
-    from nazgarr.models import ClientTorrentFile
+    from nazgarr.core.models import ClientTorrentFile
 
     index = _setup(db_session, tmp_path)
     rows = {t.info_hash: t for t in db_session.query(ClientTorrent).all()}
@@ -198,7 +187,7 @@ def test_api_warns_about_what_seed_time_and_ratio_do_not_say(db_session, tmp_pat
 
 def _met(db_session, index, *hashes):
     """I torrent dati sul tracker T, con il requisito soddisfatto."""
-    from nazgarr.models import Tracker
+    from nazgarr.core.models import Tracker
 
     db_session.add(Tracker(label="T", adapter_type="unit3d", base_url="https://t.example", api_token="x",
                            min_seed_time_seconds=86400))
@@ -256,7 +245,7 @@ def test_files_shared_with_another_torrent_are_never_deleted(db_session, tmp_pat
 
     from nazgarr.api import torrents as api
     from nazgarr.api.torrents import RemoveRequest, remove_not_imported
-    from nazgarr.models import ClientTorrentFile
+    from nazgarr.core.models import ClientTorrentFile
 
     index = _setup(db_session, tmp_path)
     rows = _met(db_session, index, "h-old")
@@ -298,3 +287,27 @@ def test_the_last_seeder_is_a_warning_that_does_not_block_removal(db_session, tm
     remove_not_imported(rows["h-old"].id, RemoveRequest(delete_files=True), session=db_session)
     assert removed == ["h-old"]
 
+
+
+def test_removal_warnings_understand_every_client_state_vocabulary():
+    """Gli avvisi bloccanti non dipendono dai nomi di qBittorrent: Deluge,
+    Transmission e rTorrent hanno i propri stati nativi."""
+    from nazgarr.api.torrents import removal_warnings
+
+    def codes(state):
+        return [w.code for w in removal_warnings(state, [])]
+
+    # qBittorrent / qui
+    assert codes("checkingUP") == ["checking"] and codes("missingFiles") == ["client_error"]
+    assert codes("stalledDL") == ["downloading"] and codes("pausedDL") == [] and codes("stoppedDL") == []
+    # Deluge
+    assert codes("Checking") == ["checking"] and codes("Error") == ["client_error"]
+    assert codes("Downloading") == ["downloading"] and codes("Allocating") == ["downloading"]
+    assert codes("Paused") == [] and codes("Seeding") == [] and codes("Queued") == []
+    # Transmission
+    assert codes("check_pending") == ["checking"] and codes("checking") == ["checking"]
+    assert codes("error") == ["client_error"] and codes("download_pending") == ["downloading"]
+    assert codes("stopped") == [] and codes("seed_pending") == []
+    # rTorrent
+    assert codes("downloading") == ["downloading"] and codes("paused") == [] and codes("seeding") == []
+    assert codes(None) == []

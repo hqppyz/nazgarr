@@ -151,7 +151,7 @@ export function useRefreshNotImported() {
   })
 }
 
-// Gli ordinamenti degli episodi di una serie in libreria (nazgarr/episode_orders.py):
+// Gli ordinamenti degli episodi di una serie in libreria (nazgarr/library/episode_orders.py):
 // quello che seguono i file e gli altri, per vederla in un'altra numerazione.
 export function useLibraryEpisodeOrders(tmdbId: number | null) {
   return useQuery({

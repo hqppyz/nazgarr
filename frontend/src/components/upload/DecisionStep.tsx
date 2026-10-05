@@ -37,7 +37,7 @@ export function DecisionStep({ job }: { job: UploadJob }) {
 
   const drafts = job.targets.map((target) => ({ target, draft: effectiveDraft(edits[target.id], target) }))
   const busy = job.targets.some((target) => target.status !== 'awaiting_decision')
-  // Un pack misto non confermato ferma gli upload, non i reseed (nazgarr/upload_decision.py).
+  // Un pack misto non confermato ferma gli upload, non i reseed (nazgarr/upload/decision.py).
   const blocked =
     packMixed(job) && !packMixedConfirmed(job) && drafts.some(({ draft }) => draft.action === 'upload')
       ? t('errors.upload_pack_mixed_unconfirmed', { fields: Object.keys(packMixed(job) ?? {}).map((f) => t(`pack.mixedField.${f}`)).join(', ') })

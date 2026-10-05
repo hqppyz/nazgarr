@@ -6,7 +6,7 @@ Nazgarr can be extended in three ways:
 - **Webhooks**: signed HTTP calls for the events you choose.
 - **API keys**: scripts and other services can use the same JSON API as the web UI.
 
-SDK version: **1.0.0** (`nazgarr_sdk.SDK_VERSION`, [semantic versioning](https://semver.org): a breaking change bumps the major version).
+SDK version: **1.0.0** (`nazgarr.sdk.SDK_VERSION`, [semantic versioning](https://semver.org): a breaking change bumps the major version).
 
 ## Rules that apply to everything here
 
@@ -58,7 +58,7 @@ ntfy = "nazgarr_ntfy:setup"
 
 ```python
 # nazgarr_ntfy/__init__.py
-import nazgarr_sdk as sdk
+import nazgarr.sdk as sdk
 
 REQUIRES_SDK = ">=1.0,<2"   # required: the SDK versions this plugin works with (PEP 440)
 
@@ -79,7 +79,7 @@ def setup() -> None:
     ))
 ```
 
-Import only from `nazgarr_sdk`, never from `app.*`: `nazgarr_sdk` is the stable contract, and the rest may change in any release. Dependencies you declare are installed next to your plugin. When a version conflicts with one Nazgarr ships, Nazgarr's version wins.
+Import only from `nazgarr.sdk`, never from the rest of `nazgarr`: `nazgarr.sdk` is the stable contract, and the rest may change in any release. Dependencies you declare are installed next to your plugin. When a version conflicts with one Nazgarr ships, Nazgarr's version wins.
 
 ### `AdapterSpec`
 
@@ -128,7 +128,7 @@ An adapter whose required fields are not all filled in is skipped, like a built-
 
 ## Adapter contracts
 
-Methods marked **required** are abstract. The others have a default that raises `NotSupportedError` or does nothing. The types (`TorrentCandidate`, `UploadFields`, `TorrentStatus`, `ClientTorrentInfo`, `ResolvedMedia`, `Notification`…) are all exported by `nazgarr_sdk`, with their fields documented in their docstrings.
+Methods marked **required** are abstract. The others have a default that raises `NotSupportedError` or does nothing. The types (`TorrentCandidate`, `UploadFields`, `TorrentStatus`, `ClientTorrentInfo`, `ResolvedMedia`, `Notification`…) are all exported by `nazgarr.sdk`, with their fields documented in their docstrings.
 
 ### `TrackerAdapter`
 
@@ -185,7 +185,7 @@ Set the class attribute `can_skip_recheck = False` if the client cannot add a to
 
 ### 1. Set up a development copy of Nazgarr
 
-`nazgarr_sdk` lives in the Nazgarr repository, and your plugin's tests import it, so develop against a checkout:
+`nazgarr.sdk` lives in the Nazgarr repository, and your plugin's tests import it, so develop against a checkout:
 
 ```sh
 git clone https://github.com/lktorrentz/nazgarr && cd nazgarr
@@ -224,7 +224,7 @@ class NtfyNotifier(sdk.NotificationAdapter):
 
 ```python
 import httpx
-import nazgarr_sdk as sdk
+import nazgarr.sdk as sdk
 
 REQUIRES_SDK = ">=1.0,<2"
 
@@ -317,8 +317,8 @@ Every tracker has `base_url`, `api_token`, `announce_url` and `rss_key` as colum
 
 ```python
 import httpx
-import nazgarr_sdk as sdk
-from nazgarr.plugins import REGISTRY      # tests only: your plugin code imports nazgarr_sdk alone
+import nazgarr.sdk as sdk
+from nazgarr.plugins import REGISTRY      # tests only: your plugin code imports nazgarr.sdk alone
 
 import nazgarr_myclient
 

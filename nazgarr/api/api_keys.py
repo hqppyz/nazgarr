@@ -1,5 +1,5 @@
-"""Gestione delle API key (nazgarr/api_keys.py): solo con il login, mai con
-un'altra API key (nazgarr/auth.py require_login)."""
+"""Gestione delle API key (nazgarr/web/api_keys.py): solo con il login, mai con
+un'altra API key (nazgarr/web/auth.py require_login)."""
 
 from datetime import datetime
 
@@ -7,10 +7,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from nazgarr import api_keys
-from nazgarr.api_errors import coded_detail
-from nazgarr.deps import get_session
-from nazgarr.models import ApiKey
+from nazgarr.core.errors import coded_detail
+from nazgarr.core.models import ApiKey
+from nazgarr.web import api_keys
+from nazgarr.web.deps import get_session
 
 router = APIRouter(prefix="/api/api-keys", tags=["api-keys"])
 

@@ -2,9 +2,9 @@
 
 import pytest
 
-import nazgarr_sdk as sdk
-from nazgarr import adapter_factory
+import nazgarr.sdk as sdk
 from nazgarr.adapters.media_resolver.base import ResolvedMedia
+from nazgarr.integrations import adapter_factory
 from nazgarr.plugins import REGISTRY
 from nazgarr.plugins import config as plugin_config
 
@@ -74,7 +74,7 @@ def test_a_plugin_client_is_configured_through_the_api_and_its_secret_never_come
     updated = client.patch(f"/api/torrent-clients/{data['id']}", json={"config": {"port": 1234}}).json()
     assert updated["config"]["values"]["port"] == 1234 and updated["config"]["secrets_set"] == ["password"]
 
-    from nazgarr.models import TorrentClient
+    from nazgarr.core.models import TorrentClient
     with client.app.state.session_factory() as session:
         adapter = adapter_factory.build_torrent_client_adapter(session.get(TorrentClient, data["id"]))
     assert adapter.config == {"url": "http://d:8112", "password": "pw", "port": 1234, "ssl": False, "mode": None}

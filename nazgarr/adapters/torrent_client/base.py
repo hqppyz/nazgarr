@@ -6,7 +6,7 @@ torrent è un requisito funzionale non negoziabile, mai un modo per
 bypassarlo implicitamente, es. default a skip_checking=True).
 
 list_torrents() è la parte nuova rispetto a ratio-guardian: enumera ogni
-torrent noto al client, file per file, usata da nazgarr/torrent_indexer.py per
+torrent noto al client, file per file, usata da nazgarr/torrents/indexer.py per
 popolare client_torrent/client_torrent_file e quindi calcolare
 orphan_torrent/ignored (sezione 3, multi-client). Sola lettura — non
 aggiunge/modifica mai nulla sul client.
@@ -37,7 +37,7 @@ class TorrentStatus:
     recheck_status: RecheckStatus
     progress: float  # 0.0-1.0
     # recheck_status "failed" solo perché mancano dati (nessuno stato di
-    # errore del client): nazgarr/executor.py lo accetta se mancano soltanto i
+    # errore del client): nazgarr/reseed/executor.py lo accetta se mancano soltanto i
     # file extra che si sapeva di non avere (seed_job.expected_missing_bytes).
     incomplete: bool = False
     amount_left: int | None = None  # byte ancora da scaricare, se il client lo espone
@@ -93,6 +93,21 @@ class TorrentClientAdapter(ABC):
     # recheck c'è sempre, e i chiamanti non registrano un recheck "saltato".
     can_skip_recheck: bool = True
 
+    def close(self) -> None:
+        """Chiude le connessioni dell'adapter. Chi lo costruisce lo chiude
+        dopo l'uso (`with adapter_factory.build_...(...) as adapter:`): ogni
+        operazione ha il suo adapter, e senza le connessioni restavano aperte
+        fino al garbage collector."""
+        close = getattr(getattr(self, "_client", None), "close", None)
+        if callable(close):
+            close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_exc) -> None:
+        self.close()
+
     @abstractmethod
     def add_torrent(
         self, torrent_file_or_url: str, save_path: str, force_recheck: bool = True,
@@ -108,12 +123,12 @@ class TorrentClientAdapter(ABC):
         skip_check_verified: le sole eccezioni al recheck del client. Il
         chiamante ha appena verificato lui ogni piece di quei file: un reseed
         dopo il controllo completo al 100% (decisione dell'utente, 2026-09-29,
-        opzione spenta di default, nazgarr/full_check.py), o un upload, il cui
+        opzione spenta di default, nazgarr/reseed/full_check.py), o un upload, il cui
         torrent Nazgarr ha appena creato leggendo quei file (decisione
-        dell'utente, 2026-09-30, nazgarr/upload_execute.py). Il client lo
+        dell'utente, 2026-09-30, nazgarr/upload/execute.py). Il client lo
         aggiunge già completo, senza rileggerlo una seconda volta.
 
-        category / tags: solo etichette nel client (nazgarr/client_labels.py); la
+        category / tags: solo etichette nel client (nazgarr/torrents/client_labels.py); la
         gestione automatica resta spenta, una categoria non sposta i file.
 
         expected_info_hash (se noto: il .torrent è già stato scaricato e
@@ -160,9 +175,38 @@ class TorrentClientAdapter(ABC):
 
 def is_stopped_state(state: str | None) -> bool:
     """Torrent fermato nel client (qBittorrent 4 "paused*", 5 "stopped*";
-    qui riporta gli stessi stati): il file resta tracciato, quindi "seeding"
+    qui riporta gli stessi stati; Deluge "Paused", Transmission e rTorrent
+    "stopped", rTorrent "paused"): il file resta tracciato, quindi "seeding"
     nel modello a stati (docs/SPEC.md §3), ma in quel momento non condivide."""
     return (state or "").lower().startswith(("paused", "stopped"))
+
+
+StateKind = Literal["checking", "error", "stopped", "downloading", "other"]
+
+# Gli stati nativi di ogni adapter incluso, in minuscolo, raggruppati per
+# quello che contano per chi li legge (per esempio gli avvisi prima di
+# rimuovere un torrent). qBittorrent/qui: checkingUP, missingFiles, *DL;
+# Deluge: Checking, Error, Downloading, Allocating; Transmission: checking,
+# check_pending, download_pending; rTorrent: checking, downloading. Un
+# plugin che usa gli stessi nomi generici viene classificato uguale.
+_CHECKING_KIND = {"checkingup", "checkingdl", "checkingresumedata", "checking", "check_pending"}
+_ERROR_KIND = {"error", "missingfiles"}
+_DOWNLOADING_KIND = {"downloading", "download_pending", "allocating"}
+
+
+def state_kind(state: str | None) -> StateKind:
+    """Lo stato nativo di un qualunque client, ridotto a una categoria: chi
+    deve decidere (avvisi, blocchi) usa questa, mai i nomi di un client."""
+    native = (state or "").lower()
+    if native in _CHECKING_KIND:
+        return "checking"
+    if native in _ERROR_KIND:
+        return "error"
+    if is_stopped_state(native):
+        return "stopped"
+    if native in _DOWNLOADING_KIND or native.endswith("dl"):  # qBittorrent: stalledDL, queuedDL, forcedDL, metaDL
+        return "downloading"
+    return "other"
 
 
 

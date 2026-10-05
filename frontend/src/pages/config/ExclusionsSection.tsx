@@ -39,7 +39,7 @@ function PresetsCard() {
   const setSetting = useSetSetting(PRESETS_KEY)
   const invalidateLibrary = useInvalidateLibrary()
   // Mai salvato (null): valgono i preset attivi di default lato backend
-  // (nazgarr/exclusions.py DEFAULT_ENABLED_PRESETS), la UI deve mostrare gli stessi.
+  // (nazgarr/library/exclusions.py DEFAULT_ENABLED_PRESETS), la UI deve mostrare gli stessi.
   const enabled =
     setting?.value == null
       ? (presets ?? []).filter((p) => p.enabled_by_default).map((p) => p.key)

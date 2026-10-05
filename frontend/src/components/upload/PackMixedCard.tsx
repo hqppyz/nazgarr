@@ -4,7 +4,7 @@ import { useUpdateOverrides, type UploadJob } from '@/api/hooks/uploads'
 import { t } from '@/lib/i18n'
 import { packMixed, packMixedConfirmed } from '@/lib/pack'
 
-// Un pack di episodi scelti a mano con release diverse (nazgarr/upload_pack.py):
+// Un pack di episodi scelti a mano con release diverse (nazgarr/upload/pack.py):
 // cosa cambia fra gli episodi, e la conferma senza cui l'upload non parte.
 export function PackMixedCard({ job }: { job: UploadJob }) {
   const save = useUpdateOverrides(job.id)

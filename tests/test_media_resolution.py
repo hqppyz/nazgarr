@@ -1,8 +1,9 @@
-from datetime import UTC, datetime
 
-from nazgarr import media_resolution, pipeline
 from nazgarr.adapters.media_resolver.base import MediaResolverAdapter, ResolvedMedia
-from nazgarr.models import Disk, MediaFile, MediaItem
+from nazgarr.core.models import Disk, MediaFile, MediaItem
+from nazgarr.library import resolution as media_resolution
+from nazgarr.reseed import pipeline
+from tests.fakes import make_media_file
 
 
 class FakeResolver(MediaResolverAdapter):
@@ -21,16 +22,6 @@ class FakeResolver(MediaResolverAdapter):
         return None
 
 
-def _make_media_file(db_session, disk, relative_path, run):
-    mf = MediaFile(
-        disk_id=disk.id, relative_path=relative_path,
-        size_bytes=1, st_dev=1, inode=1, last_scan_id=run.id, last_seen_at=datetime.now(UTC),
-    )
-    db_session.add(mf)
-    db_session.commit()
-    return mf
-
-
 def _setup(db_session):
     disk = Disk(label="disk1", root_path="/mnt/disk1", media_rel_path="movies")
     db_session.add(disk)
@@ -41,7 +32,7 @@ def _setup(db_session):
 
 def test_resolves_and_creates_media_item(db_session, tmp_path):
     disk, run = _setup(db_session)
-    _make_media_file(db_session, disk, "movies/Interstellar.2014.mkv", run)
+    make_media_file(db_session, disk, "movies/Interstellar.2014.mkv", run)
 
     resolver = FakeResolver({
         "Interstellar": ResolvedMedia(tmdb_id=157336, content_type="movie", poster_path=None),
@@ -60,8 +51,8 @@ def test_resolves_and_creates_media_item(db_session, tmp_path):
 
 def test_two_files_same_movie_share_one_media_item(db_session, tmp_path):
     disk, run = _setup(db_session)
-    _make_media_file(db_session, disk, "movies/Interstellar.2014.mkv", run)
-    _make_media_file(db_session, disk, "movies/Interstellar.2014.Extended.mkv", run)
+    make_media_file(db_session, disk, "movies/Interstellar.2014.mkv", run)
+    make_media_file(db_session, disk, "movies/Interstellar.2014.Extended.mkv", run)
 
     resolver = FakeResolver({
         "Interstellar": ResolvedMedia(tmdb_id=157336, content_type="movie"),
@@ -75,8 +66,8 @@ def test_two_files_same_movie_share_one_media_item(db_session, tmp_path):
 
 def test_two_episodes_same_show_get_distinct_media_items(db_session, tmp_path):
     disk, run = _setup(db_session)
-    _make_media_file(db_session, disk, "movies/GoT.S03E01.mkv", run)
-    _make_media_file(db_session, disk, "movies/GoT.S03E09.mkv", run)
+    make_media_file(db_session, disk, "movies/GoT.S03E01.mkv", run)
+    make_media_file(db_session, disk, "movies/GoT.S03E09.mkv", run)
 
     resolver = FakeResolver({
         "S03E01": ResolvedMedia(tmdb_id=1399, content_type="tv", season_number=3, episode_number=1),
@@ -90,7 +81,7 @@ def test_two_episodes_same_show_get_distinct_media_items(db_session, tmp_path):
 
 def test_unresolvable_file_counted_as_unresolved(db_session, tmp_path):
     disk, run = _setup(db_session)
-    _make_media_file(db_session, disk, "movies/Unknown.Thing.mkv", run)
+    make_media_file(db_session, disk, "movies/Unknown.Thing.mkv", run)
 
     resolver = FakeResolver({})  # nessun match per nessun file
 
@@ -103,8 +94,8 @@ def test_unresolvable_file_counted_as_unresolved(db_session, tmp_path):
 
 def test_resolver_exception_on_one_file_does_not_abort_the_rest(db_session, tmp_path):
     disk, run = _setup(db_session)
-    _make_media_file(db_session, disk, "movies/Broken.mkv", run)
-    _make_media_file(db_session, disk, "movies/Interstellar.2014.mkv", run)
+    make_media_file(db_session, disk, "movies/Broken.mkv", run)
+    make_media_file(db_session, disk, "movies/Interstellar.2014.mkv", run)
 
     resolver = FakeResolver({
         "Broken": RuntimeError("network error"),
@@ -118,7 +109,7 @@ def test_resolver_exception_on_one_file_does_not_abort_the_rest(db_session, tmp_
 
 def test_already_resolved_files_are_skipped(db_session, tmp_path):
     disk, run = _setup(db_session)
-    mf = _make_media_file(db_session, disk, "movies/Interstellar.2014.mkv", run)
+    mf = make_media_file(db_session, disk, "movies/Interstellar.2014.mkv", run)
     existing_item = MediaItem(content_type="movie", tmdb_id=1)
     db_session.add(existing_item)
     db_session.commit()
@@ -137,11 +128,11 @@ def test_already_resolved_files_are_skipped(db_session, tmp_path):
 
 
 def test_excluded_files_are_never_resolved(db_session, tmp_path):
-    from nazgarr import settings_repo
+    from nazgarr.core import settings_repo
 
     settings_repo.set_setting(db_session, "exclusion_presets", "scene_junk")
     disk, run = _setup(db_session)
-    _make_media_file(db_session, disk, "movies/Interstellar.2014-sample.mkv", run)
+    make_media_file(db_session, disk, "movies/Interstellar.2014-sample.mkv", run)
 
     class NeverCalled(FakeResolver):
         def resolve(self, file_path):
@@ -153,7 +144,7 @@ def test_excluded_files_are_never_resolved(db_session, tmp_path):
 
 
 def _resolved_by_name(db_session, disk, run, relative_path, tmdb_id):
-    mf = _make_media_file(db_session, disk, relative_path, run)
+    mf = make_media_file(db_session, disk, relative_path, run)
     item = MediaItem(content_type="movie", tmdb_id=tmdb_id)
     db_session.add(item)
     db_session.commit()
@@ -194,8 +185,8 @@ def test_a_file_that_cannot_be_reread_keeps_its_identity(db_session, tmp_path):
 
 
 def test_radarr_identity_wins_over_the_one_guessed_from_the_name(db_session, tmp_path):
-    from nazgarr import settings_repo
-    from nazgarr.arr import ArrIdentity, ArrIndex
+    from nazgarr.core import settings_repo
+    from nazgarr.integrations.arr import ArrIdentity, ArrIndex
 
     disk, run = _setup(db_session)
     settings_repo.set_setting(db_session, media_resolution.IDENTITY_RULES_KEY, media_resolution.IDENTITY_RULES_VERSION)

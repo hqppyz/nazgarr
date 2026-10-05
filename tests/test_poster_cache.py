@@ -2,7 +2,7 @@ import os
 
 import httpx
 
-from nazgarr.poster_cache import download_poster
+from nazgarr.library.poster_cache import download_poster
 
 
 def test_downloads_and_caches_poster(tmp_path):

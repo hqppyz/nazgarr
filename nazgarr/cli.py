@@ -95,7 +95,7 @@ def cmd_init(args) -> int:
     data_dir.mkdir(parents=True, exist_ok=True)
     key_path = config_path.parent / SECRET_FILE
     if not key_path.exists() and not os.environ.get("APP_SECRET_KEY"):
-        # Una chiave Fernet (32 byte in base64 url-safe): cifra le credenziali (nazgarr/crypto.py).
+        # Una chiave Fernet (32 byte in base64 url-safe): cifra le credenziali (nazgarr/core/crypto.py).
         _write_private(key_path, Fernet.generate_key().decode() + "\n")
         print(f"Secret key created in {key_path}. Back it up with the database: without it the stored "
               "credentials can't be read.")
@@ -211,7 +211,7 @@ def cmd_install_service(args) -> int:
 
 
 def cmd_version(_args) -> int:
-    from nazgarr.version import __commit__, __version__
+    from nazgarr.core.version import __commit__, __version__
 
     print(__version__ + (f" ({__commit__})" if __commit__ else ""))
     return 0

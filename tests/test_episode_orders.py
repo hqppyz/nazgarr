@@ -1,7 +1,7 @@
 import pytest
 
-from nazgarr import episode_orders as eo
-from nazgarr.episode_orders import EpisodeOrder, OrderEpisode
+from nazgarr.library import episode_orders as eo
+from nazgarr.library.episode_orders import EpisodeOrder, OrderEpisode
 
 
 def _order(key, seasons, source="tmdb", refs=True, dates=None):
@@ -114,7 +114,7 @@ class FakeSonarr:
 
 
 def test_the_best_fit_is_chosen_and_only_a_miss_on_tvdb_aired_warns(db_session):
-    from nazgarr.models import EpisodeOrderPreference, SonarrInstance
+    from nazgarr.core.models import EpisodeOrderPreference, SonarrInstance
 
     found = {2: [1, 2, 3, 4, 5]}  # un "S02" da 5: le parti di Netflix, non l'ordine aired
     # Senza Sonarr né chiave TVDB non si sa cosa sia TVDB aired: nessun avviso.
@@ -157,7 +157,7 @@ def test_round_trip_through_a_dict():
 def test_tvdb_api_logs_in_and_reads_every_season_type(monkeypatch):
     import httpx
 
-    monkeypatch.setattr("nazgarr.net_guard.check_url", lambda url: None)
+    monkeypatch.setattr("nazgarr.core.net_guard.check_url", lambda url: None)
     seen = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -185,8 +185,8 @@ def test_generated_episode_names_follow_the_chosen_ordering():
     import json
     from types import SimpleNamespace
 
-    from nazgarr.upload_file_names import _EpisodeJob
-    from nazgarr.upload_naming import season_token
+    from nazgarr.upload.file_names import _EpisodeJob
+    from nazgarr.upload.naming import season_token
 
     tmdb = _order("tmdb:default", {1: 10})
     parts = _order("tmdb:group:g1", {1: 5, 2: 5}, refs=False)
@@ -216,9 +216,9 @@ def test_generated_episode_names_follow_the_chosen_ordering():
 def test_a_pack_numbered_after_another_ordering_is_mapped_to_the_library(db_session, tmp_path):
     from datetime import UTC, datetime
 
-    from nazgarr import pipeline
-    from nazgarr.models import Disk, MediaFile, MediaItem
-    from nazgarr.torrent_layout import Layout, LayoutFile, LocalFiles, map_media_side
+    from nazgarr.core.models import Disk, MediaFile, MediaItem
+    from nazgarr.reseed import pipeline
+    from nazgarr.torrents.layout import Layout, LayoutFile, LocalFiles, map_media_side
 
     disk = Disk(label="d", root_path=str(tmp_path), media_rel_path="media", torrents_rel_path="torrents")
     db_session.add(disk)
@@ -248,8 +248,8 @@ def test_a_pack_numbered_after_another_ordering_is_mapped_to_the_library(db_sess
 
 
 def test_library_series_orderings_follow_the_library_numbering(client, monkeypatch):
-    from nazgarr import settings_repo
-    from nazgarr.models import MediaItem
+    from nazgarr.core import settings_repo
+    from nazgarr.core.models import MediaItem
 
     monkeypatch.setattr(eo, "TmdbApi", lambda key: FakeTmdb())
     session = client.app.state.session_factory()
@@ -274,9 +274,9 @@ def test_a_library_in_joined_order_is_not_taken_for_aired_segments(db_session, m
     segmenti (S01 da 38), "Joined Order" no (S01 da 13), come la libreria."""
     import httpx
 
-    from nazgarr.models import SonarrInstance
+    from nazgarr.core.models import SonarrInstance
 
-    monkeypatch.setattr("nazgarr.net_guard.check_url", lambda url: None)
+    monkeypatch.setattr("nazgarr.core.net_guard.check_url", lambda url: None)
 
     class Tmdb:
         def get(self, path, **params):
@@ -374,7 +374,7 @@ def test_a_library_numbered_by_sonarr_segments_is_shown_in_the_order_its_files_f
     """Dexter's Laboratory com'è davvero: Sonarr numera in TVDB aired, tre
     segmenti per file, e la libreria registra il primo (1, 4, 7...). I file
     però sono 13 per stagione, come il gruppo TV di TMDB."""
-    from nazgarr.models import SonarrInstance
+    from nazgarr.core.models import SonarrInstance
 
     segments = {1: 39, 3: 39}
 
@@ -412,3 +412,35 @@ def test_a_library_numbered_by_sonarr_segments_is_shown_in_the_order_its_files_f
     assert result["recommended"] == "tmdb:group:prod"  # la forma delle stagioni: 13 file, 13 episodi
     assert result["files_order"] == "sonarr:aired"  # i numeri registrati, da cui si traduce
     assert result["found"]["tmdb:group:prod"] == {1: list(range(1, 14)), 3: list(range(1, 14))}
+
+
+def test_cached_orders_are_copies_and_sonarr_is_asked_once(db_session):
+    """align_to riallinea gli ordinamenti che riceve: quelli in cache non
+    cambiano. La lista delle serie di Sonarr si chiede una volta, non a
+    ogni scheda, match e serie del reseeding."""
+    from nazgarr.core.models import SonarrInstance
+
+    first = eo.tmdb_orders(FakeTmdb(), 96677)
+    first[0].seasons[1][0].refs = [(9, 9)]  # come farebbe align_to
+    again = eo.tmdb_orders(FakeTmdb(), 96677)
+    assert again[0].seasons[1][0].refs == [(1, 1)]
+
+    asked = []
+
+    class CountingSonarr(FakeSonarr):
+        def get(self, path, **params):
+            asked.append(path)
+            return super().get(path, **params)
+
+    db_session.add(SonarrInstance(label="sonarr", base_url="http://s", api_key="k"))
+    db_session.commit()
+    for _ in range(3):
+        assert eo.sonarr_order(db_session, 96677, 375921, CountingSonarr) is not None
+    assert asked == ["/api/v3/series", "/api/v3/episode"]
+
+
+def test_the_cache_keeps_a_bounded_number_of_entries(monkeypatch):
+    monkeypatch.setattr(eo, "_CACHE_MAX", 3)
+    for n in range(5):
+        eo._cached(("k", n), lambda n=n: n)
+    assert list(eo._cache) == [("k", 2), ("k", 3), ("k", 4)]

@@ -1,19 +1,21 @@
 """Dashboard (docs/SPEC.md §10, Fase 5): gauge "salute libreria", KPI
 (pending review/falliti/non risolti/orphan_torrent/ignored), storico dello
 snapshot di salute per il grafico, cambiamenti per file dall'ultima
-scansione (nazgarr/file_changes.py).
+scansione (nazgarr/library/file_changes.py).
 """
 
 from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
-from nazgarr import health, not_imported, tracker_scope
-from nazgarr.deps import get_session
-from nazgarr.models import FileChange, NotImportedTorrent, RunLog, TrackerHealthSnapshot
+from nazgarr.core.models import FileChange, NotImportedTorrent, RunLog, TrackerHealthSnapshot
+from nazgarr.library import health, not_imported
+from nazgarr.torrents import tracker_scope
+from nazgarr.web import response_cache
+from nazgarr.web.deps import get_session
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
@@ -149,8 +151,20 @@ def _scoped_history(session: Session, scope: str):
 
 
 @router.get("", response_model=DashboardResponse)
-def get_dashboard(disk_id: int | None = None, tracker: str | None = None, session: Session = Depends(get_session)):
+def get_dashboard(
+    request: Request, disk_id: int | None = None, tracker: str | None = None, session: Session = Depends(get_session),
+):
+    """La dashboard si interroga ogni 15 secondi: la risposta resta in cache
+    finché i dati non cambiano (nazgarr/web/response_cache.py), invece di
+    ricalcolare la salute di tutta la libreria a ogni giro."""
     scope = tracker_scope.normalize(tracker)
+    return response_cache.cached_json(
+        request, session, f"dashboard|{disk_id}|{scope}",
+        lambda: _dashboard(session, disk_id, scope).model_dump(mode="json"),
+    )
+
+
+def _dashboard(session: Session, disk_id: int | None, scope: str) -> DashboardResponse:
     snapshot = health.compute_snapshot(session, disk_id=disk_id, tracker=scope)
     finished = _scoped_history(session, scope).limit(2).all()
     previous = None
@@ -205,7 +219,7 @@ def get_history(
 @router.get("/changes", response_model=ChangesResponse)
 def get_changes(limit: int = 1000, session: Session = Depends(get_session)):
     """Cambiamenti per file dell'ultima scansione confrontata con la
-    precedente (nazgarr/file_changes.py): file nuovi, spariti, cambiati di stato."""
+    precedente (nazgarr/library/file_changes.py): file nuovi, spariti, cambiati di stato."""
     snapshots = (
         session.query(RunLog).filter(RunLog.snapshot_saved.is_(True)).order_by(RunLog.id.desc()).limit(2).all()
     )

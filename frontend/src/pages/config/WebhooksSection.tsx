@@ -181,7 +181,7 @@ function DeliveriesDialog({ webhook, onClose }: { webhook: Webhook | null; onClo
   )
 }
 
-// Webhook firmati con HMAC per gli eventi di Nazgarr (nazgarr/webhooks.py).
+// Webhook firmati con HMAC per gli eventi di Nazgarr (nazgarr/integrations/webhooks.py).
 export function WebhooksSection() {
   const { data: webhooks } = useWebhooks()
   const update = useUpdateWebhook()

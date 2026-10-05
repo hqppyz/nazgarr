@@ -26,7 +26,7 @@ function remember(id: number) {
   }
 }
 
-// Gli avvisi delle release della cartella osservata (nazgarr/upload_watch.py),
+// Gli avvisi delle release della cartella osservata (nazgarr/upload/watch.py),
 // ovunque tu sia nell'app: rilevata, e pronta per la tua decisione. Il
 // pulsante porta all'upload. L'ultimo visto resta nel browser: niente doppioni
 // e, aprendo l'app, niente arretrati (la coda degli upload li mostra già).

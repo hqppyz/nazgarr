@@ -2,8 +2,11 @@ from datetime import UTC, datetime
 
 import pytest
 
-from nazgarr import health, library, pipeline, tracker_scope
-from nazgarr.models import ClientTorrent, ClientTorrentFile, Disk, MediaFile, SeedFile, TorrentClient, Tracker
+from nazgarr.core.models import ClientTorrent, ClientTorrentFile, Disk, MediaFile, SeedFile, TorrentClient, Tracker
+from nazgarr.library import health
+from nazgarr.library import states as library
+from nazgarr.reseed import pipeline
+from nazgarr.torrents import tracker_scope
 
 
 @pytest.fixture
@@ -92,7 +95,7 @@ def test_unknown_filters_do_not_restrict_anything():
 
 
 def test_scans_save_the_history_of_every_filter(db_session, world):
-    from nazgarr.models import TrackerHealthSnapshot
+    from nazgarr.core.models import TrackerHealthSnapshot
 
     run = pipeline.start_run(db_session, "manual")
     pipeline._save_tracker_snapshots(db_session, run)

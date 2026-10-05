@@ -9,14 +9,15 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from nazgarr import events, notifications, webhooks
-from nazgarr.api_errors import coded_detail, from_coded_error
-from nazgarr.deps import get_session
-from nazgarr.models import EventDelivery
+from nazgarr.core import events
+from nazgarr.core.errors import coded_detail, from_coded_error
+from nazgarr.core.models import EventDelivery
+from nazgarr.integrations import notifications, webhooks
 from nazgarr.plugins import REGISTRY
 from nazgarr.plugins import config as plugin_config
 from nazgarr.plugins.loader import ENV_VAR, STATE
-from nazgarr_sdk import SDK_VERSION
+from nazgarr.sdk import SDK_VERSION
+from nazgarr.web.deps import get_session
 
 router = APIRouter(prefix="/api/plugins", tags=["plugins"])
 

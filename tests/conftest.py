@@ -4,8 +4,9 @@ import os
 import pytest
 from fastapi.testclient import TestClient
 
-from nazgarr import crypto as crypto_module
-from nazgarr import db as db_module
+from nazgarr.core import crypto as crypto_module
+from nazgarr.core import db as db_module
+from nazgarr.core import migrations
 
 
 @pytest.fixture
@@ -14,16 +15,11 @@ def db_session(tmp_path, monkeypatch):
     # Stesso motivo del fixture `client` sotto: crypto._fernet() è cachata per
     # processo, va pulita qui altrimenti un test precedente nella stessa
     # sessione pytest "vince" la chiave per chi crea un Tracker/TorrentClient
-    # (api_token/password sono EncryptedString, vedi nazgarr/models.py).
+    # (api_token/password sono EncryptedString, vedi nazgarr/core/models.py).
     crypto_module._fernet.cache_clear()
 
     engine = db_module.make_engine(str(tmp_path / "test.db"))
-    db_module.migrate_legacy_media_path_id(engine)
-    db_module.repair_dangling_media_file_legacy_fk(engine)
-    db_module.migrate_legacy_run_log_phase_check(engine)
-    db_module.migrate_legacy_upload_job(engine)
-    db_module.apply_schema(engine)
-    db_module.migrate_schema(engine)
+    migrations.upgrade(engine)  # come all'avvio dell'app
     session_factory = db_module.make_session_factory(engine)
     session = session_factory()
     try:
@@ -48,8 +44,8 @@ def client(tmp_path, monkeypatch):
     # nel container reale non serve, perché lì un processo = un avvio solo.
     crypto_module._fernet.cache_clear()
 
-    from nazgarr import login_limiter
     from nazgarr.main import app
+    from nazgarr.web import login_limiter
 
     login_limiter.reset()
     with TestClient(app) as test_client:
@@ -77,11 +73,29 @@ def anon_client(tmp_path, monkeypatch):
     monkeypatch.setenv("APP_SECRET_KEY", base64.urlsafe_b64encode(os.urandom(32)).decode())
     crypto_module._fernet.cache_clear()
 
-    from nazgarr import login_limiter
     from nazgarr.main import app
+    from nazgarr.web import login_limiter
 
     login_limiter.reset()
     with TestClient(app) as test_client:
         yield test_client
 
     crypto_module._fernet.cache_clear()
+
+
+@pytest.fixture(autouse=True)
+def _fresh_tracker_state():
+    """Rate limit e cache delle ricerche dei tracker sono condivisi nel
+    processo (nazgarr/adapters/tracker/base.py): mai fra un test e l'altro."""
+    from nazgarr.adapters.tracker.base import reset_shared_state
+    from nazgarr.library import episode_orders
+    from nazgarr.library import mediainfo as mediainfo_util
+
+    def clear():
+        reset_shared_state()
+        mediainfo_util.clear_cache()  # per inode: mai una voce di un file di un altro test
+        episode_orders.clear_cache()
+
+    clear()
+    yield
+    clear()

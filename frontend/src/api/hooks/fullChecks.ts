@@ -19,16 +19,23 @@ export function useStartFullCheck() {
 }
 
 // Stato del controllo in background: si interroga ogni secondo finché è in
-// coda o in corso, poi si ferma.
+// coda o in corso, poi si ferma. Se la richiesta fallisce (per esempio un
+// controllo che dopo un riavvio non esiste più) si riprova più di rado e,
+// dopo qualche errore, si smette: niente polling infinito a un secondo.
+export const FULL_CHECK_MAX_ERRORS = 5
+
+export function fullCheckRefetchInterval(status: string | undefined, failed: boolean, errors: number): number | false {
+  if (failed) return errors < FULL_CHECK_MAX_ERRORS ? 5000 : false
+  return status === 'queued' || status === 'running' || status === undefined ? 1000 : false
+}
+
 export function useFullCheck(id: string | null) {
   return useQuery({
     queryKey: ['full-checks', id],
     queryFn: () => unwrap(api.GET('/api/full-checks/{check_id}', { params: { path: { check_id: id! } } })),
     enabled: id !== null,
-    refetchInterval: (query) => {
-      const status = query.state.data?.status
-      return status === 'queued' || status === 'running' || status === undefined ? 1000 : false
-    },
+    refetchInterval: (query) =>
+      fullCheckRefetchInterval(query.state.data?.status, query.state.status === 'error', query.state.errorUpdateCount),
   })
 }
 

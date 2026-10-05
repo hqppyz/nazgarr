@@ -90,7 +90,7 @@ export function TrackerCheckCard({
   const seeding = ((job.analysis as Record<string, unknown> | null)?.seeding_here as
     | Record<string, { name: string; client: string }>
     | undefined)?.[String(target.id)]
-  // La lingua del tracker nell'audio del file (nazgarr/upload_naming.py audio_language_check).
+  // La lingua del tracker nell'audio del file (nazgarr/upload/naming.py audio_language_check).
   const language = ((job.analysis as Record<string, unknown> | null)?.languages as
     | Record<string, { language: string; status: 'present' | 'missing' | 'unknown' }>
     | undefined)?.[String(target.tracker_id)]

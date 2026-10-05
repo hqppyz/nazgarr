@@ -1,21 +1,29 @@
-import { lazy, Suspense, type ReactNode } from 'react'
+import { type ReactNode } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 
 import { AppLayout } from '@/components/layout/AppLayout'
 import { ComingSoon } from '@/pages/ComingSoon'
-import { DashboardPage } from '@/pages/DashboardPage'
-import { ConfigurationPage } from '@/pages/config/ConfigurationPage'
-import { ReseedingPage } from '@/pages/reseeding/ReseedingPage'
-import { FolderView } from '@/pages/library/FolderView'
-import { LibraryDefaultView } from '@/pages/library/LibraryDefaultView'
-import { PosterView } from '@/pages/library/PosterView'
-import { NotImportedView } from '@/pages/torrent/NotImportedView'
-import { TorrentFolderView } from '@/pages/torrent/TorrentFolderView'
-import { NewUploadPage } from '@/pages/upload/NewUploadPage'
-import { UploadJobPage } from '@/pages/upload/UploadJobPage'
-import { UploadQueuePage } from '@/pages/upload/UploadQueuePage'
-import { InstancesPage } from '@/pages/InstancesPage'
+import { lazyPage } from '@/lib/lazyPages'
 import { NAV_DASHBOARD, NAV_GROUPS } from '@/lib/nav'
+
+// Ogni pagina è un chunk a parte (src/lib/lazyPages.tsx): il bundle iniziale
+// non porta con sé grafici (recharts), drag and drop (dnd-kit),
+// configurazione e upload di chi apre solo la dashboard; le altre pagine si
+// scaricano in background subito dopo.
+const DashboardPage = lazyPage(() => import('@/pages/DashboardPage'), (m) => m.DashboardPage)
+const PosterView = lazyPage(() => import('@/pages/library/PosterView'), (m) => m.PosterView)
+const FolderView = lazyPage(() => import('@/pages/library/FolderView'), (m) => m.FolderView)
+const LibraryDefaultView = lazyPage(() => import('@/pages/library/LibraryDefaultView'), (m) => m.LibraryDefaultView)
+const TorrentFolderView = lazyPage(() => import('@/pages/torrent/TorrentFolderView'), (m) => m.TorrentFolderView)
+const NotImportedView = lazyPage(() => import('@/pages/torrent/NotImportedView'), (m) => m.NotImportedView)
+const ReseedingPage = lazyPage(() => import('@/pages/reseeding/ReseedingPage'), (m) => m.ReseedingPage)
+const UploadQueuePage = lazyPage(() => import('@/pages/upload/UploadQueuePage'), (m) => m.UploadQueuePage)
+const NewUploadPage = lazyPage(() => import('@/pages/upload/NewUploadPage'), (m) => m.NewUploadPage)
+const UploadJobPage = lazyPage(() => import('@/pages/upload/UploadJobPage'), (m) => m.UploadJobPage)
+const ConfigurationPage = lazyPage(() => import('@/pages/config/ConfigurationPage'), (m) => m.ConfigurationPage)
+const InstancesPage = lazyPage(() => import('@/pages/InstancesPage'), (m) => m.InstancesPage)
+// Il laboratorio del logo porta Three.js: mai precaricato.
+const RingLabPage = lazyPage(() => import('@/pages/lab/RingLabPage'), (m) => m.default, { preload: false })
 
 // Ogni voce di navigazione (NAV_DASHBOARD + NAV_GROUPS) diventa una route:
 // ComingSoon di default, sostituita da una pagina reale via `overrides`
@@ -33,8 +41,6 @@ const overrides: Record<string, ReactNode> = {
   '/config': <ConfigurationPage />,
 }
 
-const RingLabPage = lazy(() => import('@/pages/lab/RingLabPage'))
-
 const ALL_ITEMS = [NAV_DASHBOARD, ...NAV_GROUPS.flatMap((group) => group.items)]
 
 function App() {
@@ -47,14 +53,7 @@ function App() {
         <Route path="/torrent/not-imported" element={<Navigate to="/torrent/triage" replace />} />
         {/* Prototipo del logo (branch feature/ring-logo): fuori dalla navigazione,
             caricato a parte perché porta con sé Three.js. */}
-        <Route
-          path="/lab/ring"
-          element={
-            <Suspense fallback={<p className="text-sm text-muted-foreground">Loading…</p>}>
-              <RingLabPage />
-            </Suspense>
-          }
-        />
+        <Route path="/lab/ring" element={<RingLabPage />} />
         {ALL_ITEMS.map((item) => (
           <Route key={item.to} path={item.to} element={overrides[item.to] ?? <ComingSoon title={item.title} />} />
         ))}

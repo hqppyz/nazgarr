@@ -1,5 +1,5 @@
 """Resolver Radarr/Sonarr (docs/SPEC.md §6): identità presa da ciò che
-Radarr/Sonarr sanno già di un file (nazgarr/arr.py::ArrIndex), senza guessit né
+Radarr/Sonarr sanno già di un file (nazgarr/integrations/arr.py::ArrIndex), senza guessit né
 una ricerca TMDB per titolo. Un file che non conoscono passa al resolver di
 default (`fallback`), mai un "non risolto" solo perché l'integrazione
 c'è."""
@@ -8,7 +8,7 @@ import os
 from collections.abc import Callable
 
 from nazgarr.adapters.media_resolver.base import MediaResolverAdapter, ResolvedMedia
-from nazgarr.arr import ArrIndex
+from nazgarr.integrations.arr import ArrIndex
 
 
 class ArrResolver(MediaResolverAdapter):

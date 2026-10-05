@@ -1,4 +1,4 @@
-"""Le altre istanze (nazgarr/instances.py): /api/instances per registrarle e
+"""Le altre istanze (nazgarr/integrations/instances.py): /api/instances per registrarle e
 vederne lo stato, /api/remote/{id}/… per parlarci attraverso questa.
 
 Solo con il login, mai con una API key (main.py: require_login): una chiave
@@ -11,11 +11,12 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from nazgarr import instances, settings_repo
-from nazgarr.api_errors import coded_detail, from_coded_error
-from nazgarr.deps import get_session
-from nazgarr.models import RemoteInstance
-from nazgarr.version import __version__
+from nazgarr.core import settings_repo
+from nazgarr.core.errors import coded_detail, from_coded_error
+from nazgarr.core.models import RemoteInstance
+from nazgarr.core.version import __version__
+from nazgarr.integrations import instances
+from nazgarr.web.deps import get_session
 
 router = APIRouter(prefix="/api/instances", tags=["instances"])
 remote_router = APIRouter(prefix="/api/remote", tags=["instances"])

@@ -13,7 +13,7 @@ Un plugin si fa trovare con un entry point del gruppo "nazgarr.plugins":
     flood = "nazgarr_flood:setup"
 
 Il modulo dichiara con quali versioni dell'SDK funziona (REQUIRES_SDK, es.
-">=1.0,<2") e setup() registra i suoi adapter con nazgarr_sdk.register.
+">=1.0,<2") e setup() registra i suoi adapter con nazgarr.sdk.register.
 Un plugin che non si installa, non si carica o è incompatibile viene
 disattivato, con il suo errore (Settings > Plugins); quello che aveva già
 registrato si annulla, e il resto di Nazgarr funziona come sempre.
@@ -184,7 +184,7 @@ def _compatible(requirement: str | None, sdk_version: str) -> str | None:
 
 def load_entry_points(entry_points=None, sdk_version: str | None = None) -> list[PluginStatus]:
     """Carica ogni plugin trovato. Un errore resta al suo plugin."""
-    from nazgarr_sdk import SDK_VERSION
+    from nazgarr.sdk import SDK_VERSION
 
     sdk_version = sdk_version or SDK_VERSION
     found = entry_points if entry_points is not None else importlib.metadata.entry_points(group=ENTRY_POINT_GROUP)

@@ -13,10 +13,10 @@ from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from nazgarr import setup_status as setup_status_module
-from nazgarr.config import Settings
-from nazgarr.deps import get_session, get_settings
-from nazgarr.version import __commit__, __version__
+from nazgarr.core.config import Settings
+from nazgarr.core.version import __commit__, __version__
+from nazgarr.library import setup_status as setup_status_module
+from nazgarr.web.deps import get_session, get_settings
 
 router = APIRouter(prefix="/api/system", tags=["system"])
 
@@ -40,9 +40,9 @@ class WhoAmIResponse(BaseModel):
 @router.get("/whoami", response_model=WhoAmIResponse)
 def whoami(request: Request, session: Session = Depends(get_session)):
     """Chi sta chiamando: il login o una API key, e cosa può fare. Serve a
-    un'altra istanza che usa una nostra chiave (nazgarr/instances.py) per
+    un'altra istanza che usa una nostra chiave (nazgarr/integrations/instances.py) per
     sapere se è di lettura o di scrittura."""
-    from nazgarr.models import ApiKey
+    from nazgarr.core.models import ApiKey
 
     key_id = getattr(request.state, "api_key_id", None)
     if key_id is None:
@@ -73,7 +73,7 @@ class UpdateCheckResponse(BaseModel):
 
 def _parse_version(version: str) -> tuple[int, ...]:
     """Confronto minimale X.Y.Z, senza dipendenza da una libreria semver —
-    unico schema che questo progetto usa (nazgarr/version.py)."""
+    unico schema che questo progetto usa (nazgarr/core/version.py)."""
     parts = []
     for chunk in version.lstrip("vV").split("."):
         digits = "".join(ch for ch in chunk if ch.isdigit())
@@ -100,7 +100,7 @@ def update_check():
     """Chiamata solo su richiesta esplicita dell'utente (bottone "Check for
     updates" in UI), mai in automatico. Confronta con le GitHub Release: la
     CI ne crea una (prerelease) a ogni push su main, il canale stable si
-    aggiorna a mano (nazgarr/version.py)."""
+    aggiorna a mano (nazgarr/core/version.py)."""
     now = datetime.now(UTC)
     try:
         response = httpx.get(
@@ -192,5 +192,5 @@ class SetupStatusResponse(BaseModel):
 @router.get("/setup-status", response_model=SetupStatusResponse)
 def setup_status(session: Session = Depends(get_session)):
     """Per la checklist "Getting started" e il tour del primo accesso
-    (nazgarr/setup_status.py): cosa è già configurato, dalla configurazione reale."""
+    (nazgarr/library/setup_status.py): cosa è già configurato, dalla configurazione reale."""
     return setup_status_module.setup_status(session)

@@ -1,4 +1,4 @@
-// L'istanza che l'interfaccia sta guardando (nazgarr/instances.py): questa, o
+// L'istanza che l'interfaccia sta guardando (nazgarr/integrations/instances.py): questa, o
 // un'altra registrata in Configurazione › Istanze. Con un'altra, ogni chiamata
 // alle API passa da questa istanza (/api/remote/{id}/…), che la inoltra con la
 // API key di quella: il browser non la vede mai.

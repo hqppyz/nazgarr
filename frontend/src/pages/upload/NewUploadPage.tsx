@@ -57,7 +57,7 @@ export function NewUploadPage() {
   const [params] = useSearchParams()
   const [initial] = useState(() => parseNewUploadParams(params))
   const [source, setSource] = useState<UploadSource | null>(initial.source)
-  // Episodi scelti a mano per un pack (nazgarr/upload_pack.py), dalla
+  // Episodi scelti a mano per un pack (nazgarr/upload/pack.py), dalla
   // libreria o dalla vista dei torrent.
   const location = useLocation()
   const [pack, setPack] = useState<PackState | null>(() => readPackState(location.state))

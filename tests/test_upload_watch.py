@@ -4,8 +4,11 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from nazgarr import settings_repo, upload_identify, upload_jobs, upload_watch
-from nazgarr.models import UploadJob, WatchEntry
+from nazgarr.core import settings_repo
+from nazgarr.core.models import UploadJob, WatchEntry
+from nazgarr.upload import identify as upload_identify
+from nazgarr.upload import jobs as upload_jobs
+from nazgarr.upload import watch as upload_watch
 from tests.upload_helpers import FakeTMDB, make_disk, make_tracker, tmdb_result, write_video
 
 T0 = datetime(2026, 10, 2, 12, 0, tzinfo=UTC)
@@ -151,3 +154,17 @@ def test_the_threshold_can_be_raised_or_turned_off(db_session, tmp_path, monkeyp
     job = _identified(db_session, monkeypatch, tmp_path, "The.Matrix.1999.1080p.mkv",
                       {("movie", "The Matrix", 1999): [tmdb_result(603, "The Matrix", 1999)]})
     assert job.status == "awaiting_match"
+
+
+def test_an_item_whose_upload_started_is_not_walked_again(db_session, tmp_path, watched, monkeypatch):
+    """Ogni 10 secondi: una release già partita non si rilegge (la firma
+    visita tutto l'albero della cartella)."""
+    _written_at(write_video(tmp_path / "releases" / "My.Movie.2024.1080p.WEB-DL.mkv"), T0 - timedelta(hours=2))
+    upload_watch.scan(db_session, now=T0)
+    assert db_session.query(WatchEntry).one().started_at is not None
+
+    walked = []
+    real = upload_watch._signature
+    monkeypatch.setattr(upload_watch, "_signature", lambda path: walked.append(path) or real(path))
+    upload_watch.scan(db_session, now=T0 + QUIET)
+    assert walked == []

@@ -3,12 +3,14 @@ import json
 import pytest
 from sqlalchemy import inspect, text
 
-from nazgarr import db as db_module
-from nazgarr import upload, upload_jobs, upload_profiles
-from nazgarr.fs_scope import ScopeViolation
-from nazgarr.models import Disk, UploadJob, UploadTarget
-from nazgarr.upload_jobs import UploadJobError
-from nazgarr.upload_worker import UploadWorker
+from nazgarr.core import db as db_module
+from nazgarr.core.fs_scope import ScopeViolation
+from nazgarr.core.models import Disk, UploadJob, UploadTarget
+from nazgarr.upload import description as upload
+from nazgarr.upload import jobs as upload_jobs
+from nazgarr.upload import profiles as upload_profiles
+from nazgarr.upload.jobs import UploadJobError
+from nazgarr.upload.worker import UploadWorker
 from tests.upload_helpers import InlineExecutor, make_client, make_disk, make_tracker, write_video
 
 
@@ -206,7 +208,7 @@ def test_migration_drops_the_phase6_upload_job(tmp_path):
 
 
 def test_render_description_wraps_template_with_header_and_signature(db_session):
-    from nazgarr import settings_repo
+    from nazgarr.core import settings_repo
 
     tracker = make_tracker(db_session, with_profile=False)
     profile = upload_profiles.create_upload_profile(db_session, tracker, "itt")
@@ -228,7 +230,7 @@ def test_render_description_without_header_or_signature(db_session):
 
 
 def test_credit_line_has_version_and_project_link():
-    from nazgarr.version import __version__
+    from nazgarr.core.version import __version__
 
     line = upload.credit_line()
     assert f"v{__version__}" in line
@@ -287,7 +289,7 @@ def test_the_description_template_runs_in_a_sandbox(db_session, tmp_path):
 def test_an_upload_source_with_symlinks_is_refused(db_session, tmp_path):
     import pytest
 
-    from nazgarr.upload_jobs import UploadJobError
+    from nazgarr.upload.jobs import UploadJobError
 
     disk = make_disk(db_session, tmp_path)
     folder = tmp_path / "Movie.2024"
@@ -382,3 +384,24 @@ def test_a_cancelled_upload_whose_source_is_gone_does_not_resume(db_session, tmp
     os.unlink(job.source_path)
     with pytest.raises(UploadJobError, match="upload_source_missing"):
         upload_jobs.resume_job(db_session, job)
+
+
+def test_target_statuses_go_through_one_function(caplog):
+    """Un nome sbagliato fallisce subito; un passaggio non previsto non si
+    blocca ma si vede nel log."""
+    import logging
+    from types import SimpleNamespace
+
+    import pytest
+
+    from nazgarr.upload import jobs as upload_jobs
+    from nazgarr.upload.jobs import TargetStatus, set_target_status
+
+    target = SimpleNamespace(id=1, status="approved")
+    set_target_status(target, TargetStatus.UPLOADING)
+    assert target.status == "uploading"
+    with pytest.raises(ValueError):
+        set_target_status(target, "uplaoding")
+    with caplog.at_level(logging.WARNING, logger=upload_jobs.logger.name):
+        set_target_status(target, TargetStatus.CHECKING)  # da uploading: non previsto
+    assert target.status == "checking" and "non previsto uploading -> checking" in caplog.text

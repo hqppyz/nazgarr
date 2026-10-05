@@ -2,8 +2,8 @@
 partono per ogni file anche se sono episodi della stessa serie") — un
 titolo/anno già visto non deve generare una seconda chiamata di rete."""
 
-from nazgarr.models import TmdbSearchCache
-from nazgarr.tmdb_cache import CachingTMDBClient
+from nazgarr.core.models import TmdbSearchCache
+from nazgarr.library.tmdb_cache import CachingTMDBClient
 
 
 class _CountingClient:

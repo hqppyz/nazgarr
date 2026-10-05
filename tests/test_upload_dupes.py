@@ -1,7 +1,7 @@
 import pytest
 
 from nazgarr.adapters.tracker.base import TorrentCandidate
-from nazgarr.upload_dupes import SourceSummary, check, classify
+from nazgarr.upload.dupes import SourceSummary, check, classify
 
 GB = 1024**3
 
@@ -88,3 +88,27 @@ def test_check_orders_results_and_suggests_an_action():
 
     assert check([_candidate("x", size=60 * GB)], MOVIE)[1] == "reseed"
     assert check([], MOVIE) == ([], "upload")
+
+
+def test_a_library_name_without_resolution_uses_the_mediainfo_one():
+    """Un nome rinominato da Plex/Radarr non dice la risoluzione: senza
+    quella di MediaInfo un 1080p sul tracker sembrava lo stesso posto."""
+    plex = SourceSummary(name="Dune Part Two (2024)", total_size_bytes=60 * GB, video_sizes=(60 * GB - 1000,),
+                         kind="movie", seasons=frozenset(), episode=None, resolution="2160p")
+    assert classify(_candidate("Dune.Part.Two.2024.1080p.WEB-DL.H264-OTHER"), plex)["reasons"] == ["resolution"]
+    unknown = SourceSummary(name="Dune Part Two (2024)", total_size_bytes=60 * GB, video_sizes=(60 * GB - 1000,),
+                            kind="movie", seasons=frozenset(), episode=None)
+    assert classify(_candidate("Dune.Part.Two.2024.1080p.WEB-DL.H264-OTHER"), unknown)["verdict"] == "same_slot"
+
+
+def test_summary_of_reads_the_release_name_and_the_mediainfo_resolution(tmp_path):
+    from types import SimpleNamespace
+
+    from nazgarr.upload.analysis import summary_of
+
+    job = SimpleNamespace(kind="movie", seasons_json="[]", episode=None, source_path=str(tmp_path / "Dune (2024)"),
+                          is_dir=True, pack_json=None)
+    analysis = {"name_source": {"name": "Dune.Part.Two.2024.2160p.BluRay.REMUX-GRP", "origin": "torrent"},
+                "mediainfo": {"video": {"width": 3840, "height": 1608}}}
+    summary = summary_of(job, [(str(tmp_path / "Dune (2024)" / "Dune.mkv"), 10)], analysis)
+    assert summary.name == "Dune.Part.Two.2024.2160p.BluRay.REMUX-GRP" and summary.resolution == "2160p"

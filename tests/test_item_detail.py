@@ -1,11 +1,11 @@
-"""Scheda di dettaglio della vista poster (nazgarr/library_detail.py, API)."""
+"""Scheda di dettaglio della vista poster (nazgarr/library/detail.py, API)."""
 
 import fnmatch
 from datetime import UTC, datetime
 
-from nazgarr import library_detail, matching, pipeline, settings_repo
 from nazgarr.api.library import _fnmatch_literal
-from nazgarr.models import (
+from nazgarr.core import settings_repo
+from nazgarr.core.models import (
     Candidate,
     ClientTorrent,
     ClientTorrentFile,
@@ -18,6 +18,8 @@ from nazgarr.models import (
     TorrentClient,
     Tracker,
 )
+from nazgarr.library import detail as library_detail
+from nazgarr.reseed import matching, pipeline
 
 
 def _movie(db_session):
@@ -152,7 +154,7 @@ def test_exclude_endpoint_appends_once(client):
 
 
 def test_excluding_a_folder_excludes_everything_inside(client):
-    from nazgarr.exclusions import CompiledExclusions
+    from nazgarr.library.exclusions import CompiledExclusions
 
     body = {"relative_path": "torrents/Old/", "is_dir": True}
     pattern = client.post("/api/library/exclude", json=body).json()["pattern"]
@@ -164,8 +166,8 @@ def test_excluding_a_folder_excludes_everything_inside(client):
 
 
 def test_search_now_forces_a_new_search_for_that_item_only(db_session, monkeypatch):
-    from nazgarr import adapter_factory
     from nazgarr.api import library as library_api
+    from nazgarr.integrations import adapter_factory
 
     _disk, tracker, item, mf, run = _movie(db_session)
     run.finished_at = datetime.now(UTC)  # nessuna run in corso: "Cerca ora" è permesso

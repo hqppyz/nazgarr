@@ -1,7 +1,7 @@
 import pytest
 
-from nazgarr.guess import clean_name, guess
-from nazgarr.upload_source import scan_source
+from nazgarr.library.guess import clean_name, guess
+from nazgarr.upload.source import scan_source
 
 
 @pytest.mark.parametrize("name, cleaned", [

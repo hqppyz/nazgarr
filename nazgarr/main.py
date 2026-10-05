@@ -8,7 +8,7 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.gzip import GZipMiddleware
 from pydantic import BaseModel
 
-from nazgarr import auth, db, pipeline, review, scheduler, startup_checks, upload_profiles
+from nazgarr import scheduler
 from nazgarr.api.api_keys import router as api_keys_router
 from nazgarr.api.auth import router as auth_router
 from nazgarr.api.dashboard import router as dashboard_router
@@ -31,13 +31,17 @@ from nazgarr.api.torrents import router as torrents_router
 from nazgarr.api.trackers import router as trackers_router
 from nazgarr.api.uploads import router as uploads_router
 from nazgarr.api.webhooks import router as webhooks_router
-from nazgarr.config import load_settings
-from nazgarr.frontend import mount_frontend
-from nazgarr.logging_config import add_file_handler, configure_logging
+from nazgarr.core import db, migrations, startup_checks
+from nazgarr.core.config import load_settings
+from nazgarr.core.logs import add_file_handler, configure_logging
+from nazgarr.core.version import __commit__, __version__
 from nazgarr.plugins import loader as plugin_loader
-from nazgarr.security_headers import SecurityMiddleware
-from nazgarr.upload_worker import UploadWorker
-from nazgarr.version import __commit__, __version__
+from nazgarr.reseed import pipeline, review
+from nazgarr.upload import profiles as upload_profiles
+from nazgarr.upload.worker import UploadWorker
+from nazgarr.web import auth
+from nazgarr.web.frontend import mount_frontend
+from nazgarr.web.security_headers import SecurityMiddleware
 
 configure_logging()
 
@@ -54,14 +58,7 @@ async def lifespan(app: FastAPI):
     plugin_loader.load(settings.data_dir)
     db.migrate_legacy_db_filename(settings.data_dir)
     engine = db.make_engine(settings.db_path)
-    db.migrate_legacy_media_path_id(engine)
-    db.repair_dangling_media_file_legacy_fk(engine)
-    db.migrate_legacy_run_log_phase_check(engine)
-    db.migrate_legacy_upload_job(engine)
-    db.apply_schema(engine)
-    db.migrate_schema(engine)
-    db.migrate_disk_folders(engine)
-    db.encrypt_plaintext_secrets(engine)
+    migrations.upgrade(engine)  # schema, colonne nuove e passi una tantum (nazgarr/core/migrations.py)
     session_factory = db.make_session_factory(engine)
     with session_factory() as session:
         startup_checks.verify_secret_key(session)
@@ -106,9 +103,8 @@ app.add_middleware(SecurityMiddleware)
 app.include_router(auth_router)
 
 # API JSON pura sotto /api/* fin dall'inizio (docs/SPEC.md §10). Protette da
-# require_auth, che però lascia passare tutto finché nessun login è stato
-# configurato (nazgarr/auth.py) — un'istanza esistente senza login impostato
-# continua a funzionare esattamente come prima di questa fase.
+# require_auth: il login è obbligatorio, e finché l'account non esiste tutto
+# resta chiuso tranne /api/auth/* (nazgarr/web/auth.py).
 _protected = Depends(auth.require_auth)
 app.include_router(disks_router, dependencies=[_protected])
 app.include_router(runs_router, dependencies=[_protected])
@@ -147,6 +143,6 @@ def health():
     return HealthResponse(status="ok", version=__version__, commit=__commit__)
 
 
-# Sempre per ultimo: il catch-all del frontend (nazgarr/frontend.py) non deve
+# Sempre per ultimo: il catch-all del frontend (nazgarr/web/frontend.py) non deve
 # mai avere la possibilità di intercettare le route /api/* sopra.
 mount_frontend(app)

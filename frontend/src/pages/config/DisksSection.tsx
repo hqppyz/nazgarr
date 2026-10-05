@@ -112,7 +112,7 @@ function AddDiskDialog() {
   )
 }
 
-// La prova del disco (nazgarr/disk_folders.py test_disk): cartelle, filesystem e
+// La prova del disco (nazgarr/library/disk_folders.py test_disk): cartelle, filesystem e
 // un hardlink di prova fra le cartelle, come "Prova connessione" dei client.
 // st_dev cambiato da solo è un avviso: su FUSE cambia a ogni rimontaggio.
 function DiskTestButton({ diskId }: { diskId: number }) {
@@ -249,7 +249,7 @@ function EditDiskDialog({ disk }: { disk: Disk }) {
   )
 }
 
-// Le cartelle media o di seeding di un disco, più di una (nazgarr/disk_folders.py):
+// Le cartelle media o di seeding di un disco, più di una (nazgarr/library/disk_folders.py):
 // ognuna si toglie con la sua X (sul disco non cambia niente), "Aggiungi"
 // apre il selettore. Il backend rifiuta quelle che si sovrappongono o stanno
 // su un altro filesystem, con il motivo.
@@ -405,7 +405,7 @@ export function DisksSection() {
                 <span className="text-muted-foreground" title={t('disks.watchFolderHelp')}>
                   {t('disks.watchFolderColumn')}
                 </span>
-                {/* Le release nuove qui dentro partono da sole fino alla decisione (nazgarr/upload_watch.py). */}
+                {/* Le release nuove qui dentro partono da sole fino alla decisione (nazgarr/upload/watch.py). */}
                 <RelPathCell
                   diskId={disk.id}
                   value={disk.watch_rel_path ?? null}

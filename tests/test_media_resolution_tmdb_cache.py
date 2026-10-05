@@ -3,25 +3,16 @@ serie, attraverso il resolver vero (FilenameParserResolver) e la pipeline
 di risoluzione vera (resolve_unmatched_media_files) — non solo
 CachingTMDBClient isolato (tests/test_tmdb_cache.py)."""
 
-from datetime import UTC, datetime
 
 import httpx
 
-from nazgarr import media_resolution, pipeline
 from nazgarr.adapters.media_resolver.filename_parser import FilenameParserResolver
-from nazgarr.models import Disk, MediaFile
-from nazgarr.tmdb_cache import CachingTMDBClient
-from nazgarr.tmdb_client import TMDBClient
-
-
-def _make_media_file(db_session, disk, relative_path, run):
-    mf = MediaFile(
-        disk_id=disk.id, relative_path=relative_path,
-        size_bytes=1, st_dev=1, inode=1, last_scan_id=run.id, last_seen_at=datetime.now(UTC),
-    )
-    db_session.add(mf)
-    db_session.commit()
-    return mf
+from nazgarr.core.models import Disk, MediaFile
+from nazgarr.library import resolution as media_resolution
+from nazgarr.library.tmdb_cache import CachingTMDBClient
+from nazgarr.library.tmdb_client import TMDBClient
+from nazgarr.reseed import pipeline
+from tests.fakes import make_media_file
 
 
 def test_a_full_season_of_episodes_costs_one_tmdb_call(db_session, tmp_path):
@@ -31,7 +22,7 @@ def test_a_full_season_of_episodes_costs_one_tmdb_call(db_session, tmp_path):
     run = pipeline.start_run(db_session, run_type="manual")
 
     for episode in range(1, 25):  # una stagione intera, 24 episodi
-        _make_media_file(db_session, disk, f"tv/Game.of.Thrones.S03E{episode:02d}.mkv", run)
+        make_media_file(db_session, disk, f"tv/Game.of.Thrones.S03E{episode:02d}.mkv", run)
 
     calls = {"count": 0}
 

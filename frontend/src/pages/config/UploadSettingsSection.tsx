@@ -33,7 +33,7 @@ function TonemapSwitch() {
 }
 
 // Testo fisso aggiunto alla descrizione generata dal template del tracker:
-// l'intestazione in cima, la firma in fondo (nazgarr/upload.py prepare).
+// l'intestazione in cima, la firma in fondo (nazgarr/upload/description.py prepare).
 // Salvataggio esplicito: un textarea in autosave salverebbe a ogni tasto.
 function DescriptionTextField({
   settingKey,

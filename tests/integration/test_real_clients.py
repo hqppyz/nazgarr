@@ -6,7 +6,7 @@ Mai in CI.
 
 Per ogni client:
 - NAZGARR_IT_DIR/<client>/seed è montata nel container come /srv/seed, un
-  percorso che qui non esiste: la save path passa da nazgarr/client_paths.py
+  percorso che qui non esiste: la save path passa da nazgarr/torrents/client_paths.py
   (Nazgarr <client>/seed = client /srv/seed), e un .torrent passato per
   percorso invece che per contenuto non verrebbe trovato dal client;
 - i .torrent (torf) stanno in NAZGARR_IT_DIR/<client>/nazgarr, che il client
@@ -31,8 +31,9 @@ import httpx
 import pytest
 import torf
 
-from nazgarr import adapter_factory, client_paths
 from nazgarr.adapters.torrent_client.base import TorrentAlreadyInClientError
+from nazgarr.integrations import adapter_factory
+from nazgarr.torrents import client_paths
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("NAZGARR_IT_CLIENTS") != "1", reason="real clients only with NAZGARR_IT_CLIENTS=1"

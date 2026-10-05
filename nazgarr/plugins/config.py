@@ -16,9 +16,9 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from nazgarr import net_guard
-from nazgarr.api_errors import CodedError
-from nazgarr.models import AdapterConfig
+from nazgarr.core import net_guard
+from nazgarr.core.errors import CodedError
+from nazgarr.core.models import AdapterConfig
 from nazgarr.plugins.registry import AdapterSpec, ConfigField
 
 

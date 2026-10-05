@@ -1,7 +1,7 @@
 name: Build and publish Docker image
 
 # A ogni push su main: versione = patch successiva all'ultimo tag vX.Y.Z
-# (o BASE_VERSION di nazgarr/version.py se più alta, per i salti di minor),
+# (o BASE_VERSION di nazgarr/core/version.py se più alta, per i salti di minor),
 # immagine pubblicata come :nightly, :X.Y.Z e :sha-xxxxxxx, poi tag git e
 # GitHub Release con le note generate dai commit, come PRERELEASE: sono
 # build di test (canale :nightly). :stable e :latest (sempre uguali) si
@@ -67,7 +67,7 @@ jobs:
             version="$major.$minor.$((patch + 1))-dev.${GITHUB_SHA::7}"
             release=false
           else
-            base=$(sed -n 's/^BASE_VERSION = "\([0-9]*\.[0-9]*\.[0-9]*\)"/\1/p' nazgarr/version.py)
+            base=$(sed -n 's/^BASE_VERSION = "\([0-9]*\.[0-9]*\.[0-9]*\)"/\1/p' nazgarr/core/version.py)
             latest=$(git tag -l 'v[0-9]*' --sort=-v:refname | { grep -Ex -m1 'v[0-9]+\.[0-9]+\.[0-9]+' || true; } | sed 's/^v//')
             if [[ -z "$latest" ]]; then
               IFS=. read -r major minor patch <<< "$base"

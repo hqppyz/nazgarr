@@ -32,7 +32,7 @@ import { activeInstanceId, switchInstance } from '@/lib/instance'
 import { safeHref } from '@/lib/safeUrl'
 import { cn } from '@/lib/utils'
 
-// Aggiungere o modificare un'istanza: nome, indirizzo, API key (nazgarr/instances.py).
+// Aggiungere o modificare un'istanza: nome, indirizzo, API key (nazgarr/integrations/instances.py).
 // La chiave non torna mai indietro dal server: in modifica, vuota = la stessa.
 function InstanceDialog({ instance }: { instance?: Instance }) {
   const [open, setOpen] = useState(false)

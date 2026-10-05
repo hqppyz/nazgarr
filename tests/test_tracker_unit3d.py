@@ -210,3 +210,55 @@ def test_a_download_link_to_another_host_is_not_followed():
     assert seen == []
     # Un sottodominio del tracker va bene (CDN dei download).
     assert adapter.download_torrent("https://dl.tracker.example/torrent/download/1.x")
+
+
+def test_adapters_of_the_same_tracker_share_rate_limit_and_search_cache():
+    """Ogni operazione costruisce il suo adapter: con shared=True (quelli
+    dell'app) il budget di richieste e la cache delle ricerche sono del
+    tracker, non dell'adapter."""
+    from nazgarr.adapters.tracker import base
+
+    base.reset_shared_state()
+    calls = []
+    slept = []
+
+    def handler(request):
+        calls.append(request.url.params.get("tmdbId"))
+        return httpx.Response(200, json={"data": []})
+
+    try:
+        first = _adapter(handler, rate_limit_per_min=2, shared=True, sleep=slept.append)
+        second = _adapter(handler, rate_limit_per_min=2, shared=True, sleep=slept.append)
+        first.search_by_tmdb(1)
+        second.search_by_tmdb(1)  # dalla cache del tracker: nessuna richiesta
+        second.search_by_tmdb(2)
+        assert calls == ["1", "2"] and slept == []
+        first.search_by_tmdb(3)  # terza richiesta del minuto sullo stesso tracker
+        assert calls == ["1", "2", "3"] and len(slept) == 1 and 55 < slept[0] <= 60
+
+        alone = _adapter(handler, rate_limit_per_min=2, sleep=slept.append)  # non condiviso (test)
+        alone.search_by_tmdb(1)
+        assert calls[-1] == "1" and len(slept) == 1
+    finally:
+        base.reset_shared_state()
+
+
+def test_the_rate_limiter_never_lets_threads_exceed_the_limit_together():
+    import threading
+
+    from nazgarr.adapters.tracker.base import _RateLimiter
+
+    limiter = _RateLimiter(5)
+    waits = []
+    lock = threading.Lock()
+
+    def sleep(seconds):
+        with lock:
+            waits.append(seconds)
+
+    threads = [threading.Thread(target=limiter.wait, args=(sleep,)) for _ in range(8)]
+    for th in threads:
+        th.start()
+    for th in threads:
+        th.join()
+    assert len(waits) == 3  # le prime 5 subito, le altre 3 aspettano la finestra

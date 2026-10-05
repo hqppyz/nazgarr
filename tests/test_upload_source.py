@@ -1,6 +1,6 @@
 import pytest
 
-from nazgarr.upload_source import scan_source
+from nazgarr.upload.source import scan_source
 from tests.upload_helpers import write_video
 
 
