@@ -34,9 +34,10 @@ Each line is a package (a name, `name==version`, or a `git+https://…` URL). Li
 **Settings > Extensions > Plugins** shows:
 
 - the plugins that were loaded, with their version and the adapters they add;
-- the plugins that failed to install or load, or that need another SDK version, with the error. They stay off and the rest of Nazgarr works as usual;
-- the plugins bundled with Nazgarr (marked "bundled"), such as `nazgarr-image-hosts`: written like any plugin, but shipped in the image and loaded without installing anything;
-- a form for the media resolvers of plugins, which have no row of their own: their fields and an on/off switch.
+- one card per plugin, like a browser's extensions: its name, an on/off switch, where it comes from (native, shipped with Nazgarr, or installed), its category and, for the image hosts and media resolvers that have no row of their own, a Settings button with their fields;
+- the plugins that failed to install or load, or that need another SDK version, with the error. They stay off and the rest of Nazgarr works as usual.
+
+Native plugins, one per image host (`nazgarr-ptscreens`, `nazgarr-passtheima`, `nazgarr-imageride`, `nazgarr-imgbb`), are written like any plugin but shipped in the image, without installing anything. Switching a plugin off, native or installed, takes effect at once, without a restart: its adapters leave the registry (an image host leaves the chain, a tracker or client type can no longer be used) and come back when it is switched on again, through its `setup()`. The choice survives restarts.
 
 Image hosts, bundled or from a plugin, are all configured in **Settings > Upload > Images**: one list in priority order, with an on/off switch and the API key of each.
 
@@ -91,7 +92,7 @@ Import only from `nazgarr.sdk`, never from the rest of `nazgarr`: `nazgarr.sdk` 
 | Field | Meaning |
 |---|---|
 | `kind` | `"tracker"`, `"torrent_client"`, `"media_resolver"`, `"image_host"` or `"notification"` |
-| `adapter_type` | Unique name for this kind. A plugin cannot replace a built-in adapter (`qbittorrent`, `qui`, `unit3d`) or one of a bundled plugin (the image hosts `ptscreens`, `passtheima`, `imageride`, `imgbb`). |
+| `adapter_type` | Unique name for this kind. A plugin cannot replace a built-in adapter (`qbittorrent`, `qui`, `unit3d`) or one of a native plugin (the image hosts `ptscreens`, `passtheima`, `imageride`, `imgbb`). |
 | `label`, `description` | What the UI shows |
 | `icon` | Optional (SDK 1.1): an image as a `data:image/...` URI (a small SVG or PNG, at most 64 KB), shown next to the label. Built-in adapters have their own. |
 | `config_fields` | The settings your adapter needs (below) |
@@ -127,7 +128,7 @@ An adapter whose required fields are not all filled in is skipped, like an image
 | `tracker` | on the tracker, in Settings > Trackers | search, reseeding, uploads |
 | `torrent_client` | on the client, in Settings > Clients | indexing torrents, reseeding, uploads |
 | `media_resolver` | Settings > Extensions > Plugins | recognizing files: plugin resolvers are tried **before** Radarr/Sonarr and TMDB, and the first that recognizes a file wins; they also work without a TMDB key |
-| `image_host` | Settings > Upload > Images, with the bundled hosts | upload screenshots: a new host joins the end of the priority list, and the user can move it or switch it off |
+| `image_host` | Settings > Upload > Images, with the native hosts (or the plugin's Settings button) | upload screenshots: a new host joins the end of the priority list, and the user can move it or switch it off |
 | `notification` | Settings > Extensions > Notifications: any number of instances, each with its fields and the events to send | the events below, as readable messages |
 
 ---

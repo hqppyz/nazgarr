@@ -4,7 +4,7 @@ import pytest
 from nazgarr.adapters.image_host.base import ImageHostError
 from nazgarr.adapters.image_host.chain import ImageHostChain
 from nazgarr.adapters.image_host.chevereto import CheveretoImageHost, chevereto_image_url
-from nazgarr.bundled.image_hosts import ImgbbAdapter
+from nazgarr.bundled.imgbb import ImgbbAdapter
 
 
 def _client(handler):

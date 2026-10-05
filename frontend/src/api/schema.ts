@@ -1931,6 +1931,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/plugins/{name}/enabled": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set Plugin Enabled
+         * @description Accende o spegne un plugin, incluso o installato, senza riavviare.
+         */
+        put: operations["set_plugin_enabled_api_plugins__name__enabled_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/webhooks/events": {
         parameters: {
             query?: never;
@@ -3791,10 +3811,17 @@ export interface components {
             /** Finished At */
             finished_at?: string | null;
         };
+        /** PluginEnabledRequest */
+        PluginEnabledRequest: {
+            /** Enabled */
+            enabled: boolean;
+        };
         /** PluginResponse */
         PluginResponse: {
             /** Name */
             name: string;
+            /** Label */
+            label: string;
             /** Distribution */
             distribution: string | null;
             /** Version */
@@ -3812,6 +3839,25 @@ export interface components {
              * @default false
              */
             bundled: boolean;
+            /**
+             * Enabled
+             * @default true
+             */
+            enabled: boolean;
+            /** Description */
+            description?: string | null;
+            /**
+             * Categories
+             * @default []
+             */
+            categories: string[];
+            /**
+             * Settings
+             * @default []
+             */
+            settings: string[];
+            /** Icon */
+            icon?: string | null;
         };
         /** PluginsResponse */
         PluginsResponse: {
@@ -8734,6 +8780,39 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["AdapterConfigResponse"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_plugin_enabled_api_plugins__name__enabled_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PluginEnabledRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

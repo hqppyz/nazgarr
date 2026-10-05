@@ -574,7 +574,7 @@ def migrate_image_hosts_to_plugins(engine: Engine) -> int:
     dell'utente, 2026-10-05): la API key di quelli che restano passa dalle
     impostazioni (image_host_<host>_api_key) ad adapter_config, come per un
     plugin; un host che la priorità salvata non nominava (spento) resta
-    spento. Gli host tolti perdono la chiave e spariscono dalla priorità;
+    spento: il suo plugin incluso in plugins_disabled. Gli host tolti perdono la chiave e spariscono dalla priorità;
     quelli che l'utente usava finiscono in image_hosts_removed, per un
     avviso nella UI. Idempotente. Restituisce le chiavi spostate."""
     from sqlalchemy.orm import Session
@@ -591,9 +591,13 @@ def migrate_image_hosts_to_plugins(engine: Engine) -> int:
         for host in _IMAGE_HOSTS_KEPT:
             if not keys[host] or session.get(AdapterConfig, ("image_host", host)) is not None:
                 continue
-            session.add(AdapterConfig(kind="image_host", adapter_type=host, enabled=host in enabled,
+            session.add(AdapterConfig(kind="image_host", adapter_type=host, enabled=True,
                                       config_json=json.dumps({"api_key": keys[host]})))
             moved += 1
+        off = {f"nazgarr-{h}" for h in _IMAGE_HOSTS_KEPT if raw is not None and h not in enabled}
+        if off:
+            current = set(filter(None, (settings_repo.get_setting(session, "plugins_disabled") or "").split(",")))
+            settings_repo.set_setting(session, "plugins_disabled", ",".join(sorted(current | off)))
         # Gli host anonimi li usava solo chi ha fatto upload senza un'altra
         # chiave: un'installazione nuova non ha niente da sapere.
         uploaded = session.execute(text("SELECT 1 FROM upload_job LIMIT 1")).first() is not None
@@ -610,6 +614,28 @@ def migrate_image_hosts_to_plugins(engine: Engine) -> int:
         )).delete(synchronize_session=False)
         session.commit()
     return moved
+
+
+def migrate_image_hosts_disabled_to_plugins(engine: Engine) -> int:
+    """Un host di immagini spento in adapter_config (la prima versione del
+    passo 7, solo nelle build di prova) si spegne come plugin: ogni host è
+    un plugin incluso con il suo interruttore. Idempotente."""
+    from sqlalchemy.orm import Session
+
+    from nazgarr.core import settings_repo
+    from nazgarr.core.models import AdapterConfig
+
+    with Session(engine) as session:
+        rows = session.query(AdapterConfig).filter_by(kind="image_host", enabled=False).all()
+        if not rows:
+            return 0
+        current = set(filter(None, (settings_repo.get_setting(session, "plugins_disabled") or "").split(",")))
+        for row in rows:
+            current.add(f"nazgarr-{row.adapter_type}")
+            row.enabled = True
+        settings_repo.set_setting(session, "plugins_disabled", ",".join(sorted(current)))
+        session.commit()
+        return len(rows)
 
 
 def encrypt_plaintext_secrets(engine: Engine) -> int:

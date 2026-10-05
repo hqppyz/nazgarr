@@ -49,6 +49,8 @@ MIGRATIONS: tuple[Migration, ...] = (
     Migration(5, "cartelle dei dischi in disk_folder", db.migrate_disk_folders, before_schema=False),
     Migration(6, "servizi di notifica come istanze", db.migrate_notification_services, before_schema=False),
     Migration(7, "host di immagini come plugin incluso", db.migrate_image_hosts_to_plugins, before_schema=False),
+    Migration(8, "host di immagini spenti come plugin spenti", db.migrate_image_hosts_disabled_to_plugins,
+              before_schema=False),
 )
 
 LATEST = MIGRATIONS[-1].version

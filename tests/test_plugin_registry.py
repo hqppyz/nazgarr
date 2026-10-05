@@ -17,7 +17,7 @@ def test_the_builtin_adapters_are_registered():
     assert {"ptscreens", "passtheima", "imageride", "imgbb"} <= REGISTRY.types("image_host")
     assert all(spec.plugin is None for spec in REGISTRY.of_kind("tracker"))
     # Gli host di immagini sono un plugin incluso, non integrati.
-    assert {spec.plugin for spec in REGISTRY.of_kind("image_host")} == {"nazgarr-image-hosts"}
+    assert {spec.plugin for spec in REGISTRY.of_kind("image_host")} >= {"nazgarr-ptscreens", "nazgarr-imgbb"}
 
 
 def test_a_plugin_cannot_replace_a_builtin_adapter():

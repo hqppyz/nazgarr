@@ -37,6 +37,7 @@ from nazgarr.core.config import load_settings
 from nazgarr.core.logs import add_file_handler, configure_logging
 from nazgarr.core.version import __commit__, __version__
 from nazgarr.plugins import loader as plugin_loader
+from nazgarr.plugins import switch as plugin_switch
 from nazgarr.reseed import pipeline, review
 from nazgarr.upload import profiles as upload_profiles
 from nazgarr.upload.worker import UploadWorker
@@ -62,6 +63,7 @@ async def lifespan(app: FastAPI):
     migrations.upgrade(engine)  # schema, colonne nuove e passi una tantum (nazgarr/core/migrations.py)
     session_factory = db.make_session_factory(engine)
     with session_factory() as session:
+        plugin_switch.apply_disabled(session)  # i plugin spenti dall'utente, inclusi o installati
         startup_checks.verify_secret_key(session)
         # Senza account: tutto chiuso finché non lo si crea con questo codice.
         app.state.setup_code = None

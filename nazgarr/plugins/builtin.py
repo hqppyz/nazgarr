@@ -1,8 +1,8 @@
 """Gli adapter integrati, iscritti al registro come farebbe un plugin
 (nazgarr/plugins/registry.py). Tracker e client leggono le colonne che hanno
-sempre avuto (ctx.row). Gli host di immagini sono un plugin incluso
-(nazgarr/bundled/image_hosts.py), caricato qui a nome suo: si configura
-come quelli installati.
+sempre avuto (ctx.row). Gli host di immagini sono plugin inclusi
+(nazgarr/bundled/), caricati qui a nome loro: si configurano, si accendono e
+si spengono come quelli installati.
 """
 
 from nazgarr.adapters.notification.discord import DiscordNotificationAdapter
@@ -13,11 +13,13 @@ from nazgarr.adapters.torrent_client.qui import QuiTorrentClientAdapter
 from nazgarr.adapters.torrent_client.rtorrent import RTorrentAdapter
 from nazgarr.adapters.torrent_client.transmission import TransmissionAdapter
 from nazgarr.adapters.tracker.base import Unit3dTrackerAdapter
-from nazgarr.bundled import image_hosts
+from nazgarr.bundled import imageride, imgbb, passtheima, ptscreens
+from nazgarr.plugins import switch
 from nazgarr.plugins.registry import AdapterContext, AdapterSpec, ConfigField, register, registering_as
 
-# I plugin inclusi: il nome con cui si registrano, e il loro setup().
-BUNDLED = {image_hosts.PLUGIN_NAME: image_hosts.setup}
+# I plugin inclusi, uno per host (Impostazioni › Plugin li accende e spegne
+# uno per uno): il nome con cui si registrano e il loro modulo.
+BUNDLED = {module.PLUGIN_NAME: module for module in (ptscreens, passtheima, imageride, imgbb)}
 
 
 def _qbittorrent(ctx: AdapterContext) -> QBittorrentAdapter:
@@ -64,9 +66,10 @@ register(AdapterSpec("torrent_client", "transmission", "Transmission", _transmis
 register(AdapterSpec("torrent_client", "rutorrent", "rTorrent / ruTorrent", _rtorrent))
 register(AdapterSpec("tracker", "unit3d", "UNIT3D", _unit3d))
 
-for _name, _setup in BUNDLED.items():
+for _name, _module in BUNDLED.items():
     with registering_as(_name):
-        _setup()
+        _module.setup()
+    switch.remember(_name, _module.setup)
 
 # Notifiche: ogni istanza ha la sua riga in notification_service (cifrata), come per i plugin.
 register(AdapterSpec(

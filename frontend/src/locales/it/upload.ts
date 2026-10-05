@@ -393,6 +393,8 @@ export const upload = {
     'Sorgente dedotta: un remux viene da un Blu-ray (o da un DVD, se a definizione standard).',
   'upload.typeBasis.evidence':
     'Segni di un disco nel MediaInfo:',
+  'upload.typeBasis.signal.origin':
+    'il MediaInfo dice da quale disco viene (Original source medium)',
   'upload.typeBasis.signal.dv_el':
     'Dolby Vision profilo 7 con enhancement layer (solo UHD Blu-ray)',
   'upload.typeBasis.signal.vc1':

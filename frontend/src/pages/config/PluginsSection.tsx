@@ -1,8 +1,19 @@
-import { PuzzleIcon, ShieldAlertIcon } from 'lucide-react'
+import { useQueryClient } from '@tanstack/react-query'
+import {
+  BellIcon,
+  HardDriveDownloadIcon,
+  ImageIcon,
+  PuzzleIcon,
+  RadioTowerIcon,
+  ScanSearchIcon,
+  SettingsIcon,
+  ShieldAlertIcon,
+  type LucideIcon,
+} from 'lucide-react'
 import { useState } from 'react'
 
-import { useAdapterConfig, usePlugins, useSaveAdapterConfig } from '@/api/hooks/plugins'
 import type { Schemas } from '@/api/client'
+import { useAdapterConfig, usePlugins, useSaveAdapterConfig, useSetPluginEnabled } from '@/api/hooks/plugins'
 import {
   AdapterConfigFields,
   configPayload,
@@ -10,90 +21,143 @@ import {
   missingRequired,
   type ConfigValues,
 } from '@/components/AdapterConfigFields'
-import { InfoPopover } from '@/components/InfoPopover'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Switch } from '@/components/ui/switch'
 import { autosaveFeedback } from '@/lib/autosave'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { t } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 
-const STATUS_STYLE: Record<string, string> = {
-  loaded: 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
-  failed: 'border-red-500/40 bg-red-500/10 text-red-700 dark:text-red-300',
-  incompatible: 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300',
-  install_failed: 'border-red-500/40 bg-red-500/10 text-red-700 dark:text-red-300',
-}
-const KINDS = ['tracker', 'torrent_client', 'media_resolver', 'image_host', 'notification'] as const
-// Gli adapter senza una riga propria: si configurano qui. Gli host di
-// immagini, inclusi o dei plugin, in Impostazioni › Upload › Immagini (col
-// loro ordine); i servizi di notifica in Impostazioni › Notifiche.
-const GLOBAL_KINDS = ['media_resolver']
-
+type Plugin = Schemas['PluginResponse']
 type Adapter = Schemas['AdapterResponse']
 
-function GlobalAdapterCard({ adapter }: { adapter: Adapter }) {
+// L'icona di un plugin senza la sua: quella della sua categoria.
+const KIND_ICONS: Record<string, LucideIcon> = {
+  image_host: ImageIcon, notification: BellIcon, tracker: RadioTowerIcon, torrent_client: HardDriveDownloadIcon,
+  media_resolver: ScanSearchIcon,
+}
+const BROKEN = ['failed', 'incompatible', 'install_failed']
+
+// La configurazione di un adapter globale del plugin (host di immagini,
+// resolver), nel dialogo delle impostazioni.
+function AdapterSettings({ adapter }: { adapter: Adapter }) {
   const { data } = useAdapterConfig(adapter.kind, adapter.adapter_type)
   const save = useSaveAdapterConfig(adapter.kind, adapter.adapter_type)
+  const queryClient = useQueryClient()
   const [values, setValues] = useState<ConfigValues | null>(null)
-  if (!data) return null
+  if (!data) return <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
   const current = values ?? initialConfigValues(adapter.config_fields, data.values)
-  const title = `${adapter.label} · ${t(`plugins.kind.${adapter.kind}`)}`
   return (
-    <Card>
-      <CardHeader className="flex flex-row items-start justify-between gap-3">
-        <div className="grid gap-1">
-          <CardTitle className="text-base">{adapter.label}</CardTitle>
-          <CardDescription>
-            {t(`plugins.kind.${adapter.kind}`)} · {adapter.plugin ?? t('plugins.builtin')}
-            {adapter.description ? ` — ${adapter.description}` : ''}
-          </CardDescription>
+    <div className="grid gap-3">
+      <AdapterConfigFields
+        idPrefix={`plugin-${adapter.kind}-${adapter.adapter_type}`}
+        fields={adapter.config_fields}
+        values={current}
+        secretsSet={data.secrets_set}
+        onChange={setValues}
+      />
+      <div className="flex justify-end">
+        <Button
+          size="sm"
+          disabled={save.isPending || values === null || missingRequired(adapter.config_fields, current, data.secrets_set)}
+          onClick={() => {
+            const feedback = autosaveFeedback(adapter.label)
+            save.mutate({ config: configPayload(adapter.config_fields, current) }, {
+              onSuccess: () => {
+                setValues(null)
+                feedback.onSuccess()
+              },
+              onError: feedback.onError,
+              onSettled: () => queryClient.invalidateQueries({ queryKey: ['uploads', 'image-hosts'] }),
+            })
+          }}
+        >
+          {t('common.save')}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+// Come le estensioni di un browser: nome, interruttore, fonte, categoria e,
+// se ne ha, le impostazioni in un dialogo.
+function PluginCard({ plugin, adapters }: { plugin: Plugin; adapters: Adapter[] }) {
+  const setEnabled = useSetPluginEnabled(plugin.name)
+  const [open, setOpen] = useState(false)
+  const broken = BROKEN.includes(plugin.status)
+  const Icon = KIND_ICONS[plugin.categories[0] ?? ''] ?? PuzzleIcon
+  const settings = adapters.filter((a) => plugin.settings.includes(`${a.kind}:${a.adapter_type}`))
+  return (
+    <Card size="sm" className={cn('gap-3', !plugin.enabled && 'opacity-70')}>
+      <CardHeader className="flex flex-row items-start gap-3">
+        <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-muted">
+          {plugin.icon ? <img src={plugin.icon} alt="" className="size-5" /> : <Icon className="size-4 text-muted-foreground" />}
         </div>
-        <Switch
-          checked={data.enabled}
-          title={t('plugins.enabled')}
-          onCheckedChange={(enabled) => save.mutate({ enabled }, autosaveFeedback(title))}
-        />
-      </CardHeader>
-      {adapter.config_fields.length > 0 && (
-        <CardContent className="grid gap-3">
-          <AdapterConfigFields
-            idPrefix={`plugin-${adapter.kind}-${adapter.adapter_type}`}
-            fields={adapter.config_fields}
-            values={current}
-            secretsSet={data.secrets_set}
-            onChange={setValues}
-          />
-          <div className="flex justify-end">
-            <Button
-              size="sm"
-              disabled={save.isPending || missingRequired(adapter.config_fields, current, data.secrets_set)}
-              onClick={() => {
-                const feedback = autosaveFeedback(title)
-                save.mutate(
-                  { config: configPayload(adapter.config_fields, current) },
-                  {
-                    onSuccess: () => {
-                      setValues(null)
-                      feedback.onSuccess()
-                    },
-                    onError: feedback.onError,
-                  },
-                )
-              }}
-            >
-              {t('common.save')}
-            </Button>
+        <div className="grid min-w-0 flex-1 gap-1">
+          <CardTitle className="truncate text-sm">{plugin.label}</CardTitle>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Badge variant="secondary" className="text-[11px]">
+              {plugin.bundled ? t('plugins.native') : t('plugins.installed')}
+            </Badge>
+            {plugin.categories.map((kind) => (
+              <Badge key={kind} variant="outline" className="text-[11px]">{t(`plugins.kind.${kind}`)}</Badge>
+            ))}
+            {broken && (
+              <Badge variant="outline" className="border-red-500/40 bg-red-500/10 text-[11px] text-red-700 dark:text-red-300">
+                {t(`plugins.status.${plugin.status}`)}
+              </Badge>
+            )}
           </div>
-        </CardContent>
-      )}
+        </div>
+        {!broken && (
+          <Switch
+            checked={plugin.enabled}
+            disabled={setEnabled.isPending}
+            aria-label={t('plugins.toggle', { name: plugin.label })}
+            onCheckedChange={(enabled) =>
+              setEnabled.mutate(enabled, autosaveFeedback(t(enabled ? 'plugins.switchedOn' : 'plugins.switchedOff', { name: plugin.label })))
+            }
+          />
+        )}
+      </CardHeader>
+      <CardContent className="grid gap-2">
+        {plugin.description && <p className="line-clamp-2 text-xs text-muted-foreground">{plugin.description}</p>}
+        {plugin.error && <p className="font-mono text-xs break-words text-red-700 dark:text-red-300">{plugin.error}</p>}
+        <div className="flex items-center gap-2">
+          <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-muted-foreground">
+            {plugin.bundled ? plugin.name : [plugin.distribution ?? plugin.name, plugin.version].filter(Boolean).join(' ')}
+          </span>
+          {settings.length > 0 && plugin.enabled && (
+            <Button size="xs" variant="outline" onClick={() => setOpen(true)}>
+              <SettingsIcon className="size-3" />
+              {t('plugins.settings')}
+            </Button>
+          )}
+        </div>
+      </CardContent>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('plugins.settingsTitle', { name: plugin.label })}</DialogTitle>
+            {plugin.description && <DialogDescription>{plugin.description}</DialogDescription>}
+          </DialogHeader>
+          {settings.map((adapter) => (
+            <div key={adapter.adapter_type} className="grid gap-2">
+              {settings.length > 1 && <p className="text-sm font-medium">{adapter.label}</p>}
+              <AdapterSettings adapter={adapter} />
+            </div>
+          ))}
+        </DialogContent>
+      </Dialog>
     </Card>
   )
 }
 
-// Plugin caricati e adapter disponibili, in sola lettura: la lista dei
-// plugin si cambia da NAZGARR_PLUGINS o plugins.txt, con un riavvio.
+// I plugin nativi (inclusi in Nazgarr) e quelli installati, uno per card. La
+// lista dei plugin installati si cambia da NAZGARR_PLUGINS o plugins.txt, con
+// un riavvio; accenderli e spegnerli no.
 export function PluginsSection() {
   const { data, isPending } = usePlugins()
   if (isPending || !data) return <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
@@ -111,15 +175,22 @@ export function PluginsSection() {
         </div>
       </div>
 
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        {data.plugins.map((plugin) => (
+          <PluginCard key={plugin.name} plugin={plugin} adapters={data.adapters} />
+        ))}
+      </div>
+
       <Card data-tour="plugins.source">
         <CardHeader>
           <CardTitle className="flex flex-wrap items-center gap-2">
-            {source}
+            {t('plugins.addTitle')}
             <Badge variant="outline" className="font-mono">{t('plugins.sdkVersion', { version: data.sdk_version })}</Badge>
           </CardTitle>
           <CardDescription>{t('plugins.howTo', { env: data.env_var })}</CardDescription>
         </CardHeader>
-        <CardContent className="grid gap-3">
+        <CardContent className="grid gap-2">
+          <p className="text-sm">{source}</p>
           {data.requested.length > 0 && (
             <p className="font-mono text-xs break-all text-muted-foreground">{data.requested.join('  ')}</p>
           )}
@@ -129,70 +200,6 @@ export function PluginsSection() {
               <pre className="overflow-x-auto font-mono whitespace-pre-wrap text-muted-foreground">{data.install_error}</pre>
             </div>
           )}
-          {data.plugins.length === 0 ? (
-            <p className="text-sm text-muted-foreground">{t('plugins.none')}</p>
-          ) : (
-            <ul className="grid gap-2">
-              {data.plugins.map((plugin) => (
-                <li key={plugin.name} className="grid gap-1 rounded-md border p-3 text-sm">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <PuzzleIcon className="size-4 text-muted-foreground" />
-                    <span className="font-medium">{plugin.distribution ?? plugin.name}</span>
-                    {plugin.version && <span className="font-mono text-xs text-muted-foreground">{plugin.version}</span>}
-                    {plugin.bundled && <Badge variant="secondary">{t('plugins.bundled')}</Badge>}
-                    <Badge variant="outline" className={cn(STATUS_STYLE[plugin.status])}>
-                      {t(`plugins.status.${plugin.status}`)}
-                    </Badge>
-                    {plugin.requires_sdk && (
-                      <span className="font-mono text-[11px] text-muted-foreground">SDK {plugin.requires_sdk}</span>
-                    )}
-                  </div>
-                  {plugin.error && <p className="font-mono text-xs break-words text-red-700 dark:text-red-300">{plugin.error}</p>}
-                  <p className="text-xs text-muted-foreground">
-                    {plugin.adapters.length > 0
-                      ? t('plugins.provides', { adapters: plugin.adapters.join(', ') })
-                      : t('plugins.providesNothing')}
-                  </p>
-                </li>
-              ))}
-            </ul>
-          )}
-        </CardContent>
-      </Card>
-
-      {data.adapters
-        .filter((a) => a.plugin && GLOBAL_KINDS.includes(a.kind))
-        .map((adapter) => (
-          <GlobalAdapterCard key={`${adapter.kind}:${adapter.adapter_type}`} adapter={adapter} />
-        ))}
-
-      <Card>
-        <CardHeader>
-          <CardTitle>{t('plugins.adaptersTitle')}</CardTitle>
-        </CardHeader>
-        <CardContent className="grid gap-4 sm:grid-cols-2">
-          {KINDS.map((kind) => {
-            const adapters = data.adapters.filter((a) => a.kind === kind)
-            if (adapters.length === 0) return null
-            return (
-              <div key={kind} className="grid content-start gap-1.5">
-                <p className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">{t(`plugins.kind.${kind}`)}</p>
-                <div className="flex flex-wrap gap-1.5">
-                  {adapters.map((adapter) => (
-                    // La descrizione si apre anche al tocco (prima solo nel title).
-                    <InfoPopover key={adapter.adapter_type} content={adapter.description}>
-                      <Badge variant="secondary">
-                        {adapter.label}
-                        <span className="ml-1 font-normal text-muted-foreground">
-                          {adapter.plugin ?? t('plugins.builtin')}
-                        </span>
-                      </Badge>
-                    </InfoPopover>
-                  ))}
-                </div>
-              </div>
-            )
-          })}
         </CardContent>
       </Card>
     </>

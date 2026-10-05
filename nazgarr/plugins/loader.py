@@ -40,6 +40,7 @@ from dataclasses import asdict, dataclass, field
 from packaging.specifiers import InvalidSpecifier, SpecifierSet
 from packaging.version import Version
 
+from nazgarr.plugins import switch
 from nazgarr.plugins.registry import REGISTRY, registering_as
 
 logger = logging.getLogger(__name__)
@@ -58,6 +59,7 @@ class PluginStatus:
     error: str | None = None
     requires_sdk: str | None = None
     adapters: list[str] = field(default_factory=list)  # "kind:adapter_type"
+    description: str | None = None  # il Summary del pacchetto
 
 
 @dataclass
@@ -182,6 +184,13 @@ def _compatible(requirement: str | None, sdk_version: str) -> str | None:
     return None
 
 
+def _summary(dist) -> str | None:
+    try:
+        return dist.metadata.get("Summary") or None
+    except Exception:
+        return None
+
+
 def load_entry_points(entry_points=None, sdk_version: str | None = None) -> list[PluginStatus]:
     """Carica ogni plugin trovato. Un errore resta al suo plugin."""
     from nazgarr.sdk import SDK_VERSION
@@ -192,7 +201,8 @@ def load_entry_points(entry_points=None, sdk_version: str | None = None) -> list
     for ep in found:
         dist = getattr(ep, "dist", None)
         status = PluginStatus(name=ep.name, distribution=dist.name if dist else None,
-                              version=dist.version if dist else None)
+                              version=dist.version if dist else None,
+                              description=_summary(dist))
         owner = status.distribution or ep.name
         try:
             obj = ep.load()
@@ -204,6 +214,8 @@ def load_entry_points(entry_points=None, sdk_version: str | None = None) -> list
                 with registering_as(owner):
                     if callable(obj):
                         obj()
+                if callable(obj):
+                    switch.remember(owner, obj)
         except Exception as exc:  # un plugin rotto non ferma gli altri
             logger.exception("Plugin %s non caricato", ep.name)
             status.status, status.error = "failed", f"{type(exc).__name__}: {exc}"

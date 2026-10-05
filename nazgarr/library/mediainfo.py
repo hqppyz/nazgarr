@@ -140,6 +140,9 @@ def summarize(media_info: MediaInfo, file_name: str | None = None) -> dict:
             "hdr_format_string": video.hdr_format_string,
             "transfer_characteristics": video.transfer_characteristics,
             "writing_library": video.writing_library,
+            # Il disco da cui viene la traccia, se chi l'ha estratta lo scrive
+            # (MakeMKV: "Blu-ray", "DVD-Video"): naming.disc_evidence.
+            "original_source_medium": video.original_source_medium,
             "encoding_settings": bool(video.encoding_settings),
         }
     for track in media_info.audio_tracks:

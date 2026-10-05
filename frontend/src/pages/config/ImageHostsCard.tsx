@@ -25,7 +25,6 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Switch } from '@/components/ui/switch'
 import { autosaveFeedback } from '@/lib/autosave'
 import { t } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
@@ -46,10 +45,9 @@ function HostRow({ adapter }: { adapter: Adapter }) {
   const queryClient = useQueryClient()
   const [open, setOpen] = useState(false)
   const [values, setValues] = useState<ConfigValues | null>(null)
-  const enabled = data?.enabled ?? true
   const missing = data ? missingRequired(adapter.config_fields, initialConfigValues(adapter.config_fields, data.values), data.secrets_set) : false
   const current = values ?? initialConfigValues(adapter.config_fields, data?.values)
-  const status = !enabled ? 'off' : missing ? 'missing' : 'ready'
+  const status = missing ? 'missing' : 'ready'
   // L'avviso prima di un upload segue subito.
   const saved = () => queryClient.invalidateQueries({ queryKey: ['uploads', 'image-hosts'] })
 
@@ -77,23 +75,12 @@ function HostRow({ adapter }: { adapter: Adapter }) {
               'shrink-0 text-xs',
               status === 'ready' && 'text-emerald-600 dark:text-emerald-400',
               status === 'missing' && 'text-amber-600 dark:text-amber-400',
-              status === 'off' && 'text-muted-foreground',
             )}
           >
             {t(`uploadSettings.hostStatus.${status}`)}
           </span>
           <ChevronDownIcon className={cn('ml-auto size-4 shrink-0 text-muted-foreground transition-transform', open && 'rotate-180')} />
         </button>
-        <Switch
-          checked={enabled}
-          aria-label={t('uploadSettings.hostEnabledToggle', { host: adapter.label })}
-          onCheckedChange={(next) =>
-            save.mutate({ enabled: next }, {
-              ...autosaveFeedback(t(next ? 'uploadSettings.hostEnabled' : 'uploadSettings.hostDisabled', { host: adapter.label })),
-              onSettled: saved,
-            })
-          }
-        />
       </div>
       {open && data && (
         <div className="grid gap-3 border-t px-3 py-3">
@@ -191,7 +178,7 @@ export function ImageHostsCard() {
   }
 
   return (
-    <Card data-masonry="full" data-tour="upload.image-hosts">
+    <Card data-tour="upload.image-hosts">
       <CardHeader>
         <CardTitle>{t('uploadSettings.imageHostsTitle')}</CardTitle>
         <CardDescription>{t('uploadSettings.imageHostsDescription')}</CardDescription>

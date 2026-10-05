@@ -24,20 +24,14 @@ export const uploadSettings = {
     'ready',
   'uploadSettings.hostStatus.missing':
     'API key missing',
-  'uploadSettings.hostStatus.off':
-    'off',
-  'uploadSettings.hostEnabledToggle':
-    'Use {host}',
   'uploadSettings.hostsRemoved':
     'These hosts are gone with the update: {hosts}. Enter the API key of at least one host below, or install a plugin for the one you used.',
   'uploadSettings.morePlugins':
-    'More hosts come with a plugin (Settings › Plugins): a Chevereto host is a few lines.',
+    'Each host is a plugin: switch it off, or add more, in Settings › Plugins. A Chevereto host is a few lines.',
   'uploadSettings.imageHostsDescription':
     'The first host that is on and has its API key is tried first, then the next if it fails. Drag to change the order, tap a host for its key.',
   'uploadSettings.priorityOrderSaved': 'Priority order saved.',
   'uploadSettings.dragToReorder': 'Drag to reorder {label}',
-  'uploadSettings.hostDisabled': '{host} disabled.',
-  'uploadSettings.hostEnabled': '{host} enabled.',
   'uploadSettings.fileNamesTitle': 'File names in the torrent',
   'uploadSettings.fileNamesDescription':
     'When there is no torrent on a client with the same files (hardlink), the files of a new upload get a name built from this pattern, dot-separated like a release: no ":" or accents. Each upload can still keep the original names.',

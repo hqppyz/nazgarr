@@ -379,12 +379,16 @@ _REMUX_BITRATE = {"2160": 40_000_000, "1080": 18_000_000}
 def disc_evidence(video: dict, tracks: list[dict], subtitles: list[dict]) -> list[str]:
     """I segni nel MediaInfo che il file viene da un disco, per quando il
     nome non dice la sorgente (un file rinominato, "film.mkv"):
+    origin   il MediaInfo lo dice: "Original source medium" del video (MakeMKV
+             lo scrive su ogni traccia estratta da un disco);
     dv_el    Dolby Vision profilo 7 con l'enhancement layer: solo sui UHD Blu-ray;
     vc1      video VC-1: solo Blu-ray e HD DVD;
     lossless audio TrueHD, DTS-HD MA/DTS:X o LPCM;
     pgs      sottotitoli PGS, quelli dei Blu-ray;
     bitrate  un bitrate video da remux per la risoluzione."""
     found = []
+    if origin_source(video):
+        found.append("origin")
     hdr = str(video.get("hdr_format_string") or video.get("hdr_format") or "")
     if dv_profile(video) == 7 and "EL" in re.split(r"[^A-Z]+", hdr):
         found.append("dv_el")
@@ -404,19 +408,34 @@ def disc_evidence(video: dict, tracks: list[dict], subtitles: list[dict]) -> lis
     return found
 
 
+# "Original source medium" del MediaInfo -> la sorgente nei nomi.
+_ORIGIN_SOURCES = (("blu-ray", "BluRay"), ("bd", "BluRay"), ("hd dvd", "HDDVD"), ("dvd", "DVD"))
+
+
+def origin_source(video: dict) -> str | None:
+    """La sorgente dal campo "Original source medium" del video, se c'è e
+    dice un disco (Blu-ray, HD DVD, DVD-Video)."""
+    medium = str(video.get("original_source_medium") or "").strip().lower()
+    if not medium:
+        return None
+    return next((label for key, label in _ORIGIN_SOURCES if medium.startswith(key)), None)
+
+
 def _disc_source(evidence: list[str], encoded: bool) -> bool:
     """Basta per dire disco il video (DV a doppio strato, VC-1). Audio
     lossless e PGS insieme solo se il video è un encode o ha un bitrate da
     remux: un mux con video web (DLMux, WEBMux) può prendere audio e
     sottotitoli da un Blu-ray, e il suo video non ha né l'uno né l'altro."""
-    if "dv_el" in evidence or "vc1" in evidence:
+    if "origin" in evidence or "dv_el" in evidence or "vc1" in evidence:
         return True
     return {"lossless", "pgs"} <= set(evidence) and (encoded or "bitrate" in evidence)
 
 
 def _disc_video(evidence: list[str]) -> bool:
-    """Il video stesso è quello del disco, non solo audio e sottotitoli."""
-    return "dv_el" in evidence or "vc1" in evidence or "bitrate" in evidence
+    """Il video stesso è quello del disco, non solo audio e sottotitoli. Un
+    encode di solito perde "Original source medium" della traccia video; se
+    lo tiene, la traccia dell'encoder lo tiene comunque encode."""
+    return "origin" in evidence or "dv_el" in evidence or "vc1" in evidence or "bitrate" in evidence
 
 
 def _audio_codec_key(track: dict) -> str | None:
@@ -591,7 +610,8 @@ def release_values(
     # Il nome non dice la sorgente, il MediaInfo sì: un disco (decisione
     # dell'utente, 2026-10-05). Prima del remux qui sotto, che ne ha bisogno.
     if video and not values.get("source") and _disc_source(evidence, has_encoder(video)):
-        values["source"] = "DVD" if 0 < int(video.get("height") or 0) <= 576 else "BluRay"
+        disc = origin_source(video) or "BluRay"
+        values["source"] = "DVD" if disc == "DVD" or 0 < int(video.get("height") or 0) <= 576 else disc
         basis["source"] = "mediainfo"
     # Il nome dice encode (o niente), ma è un disco senza traccia di encoder:
     # è un remux (decisione dell'utente, 2026-10-02). Prima del codec, che

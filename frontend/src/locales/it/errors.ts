@@ -66,6 +66,7 @@ export const errors = {
   'errors.adapter_config_unknown_field': 'Questo adapter non ha un campo chiamato {field}',
   'errors.adapter_config_missing_field': '{field} è obbligatorio',
   'errors.adapter_not_found': 'Nessun adapter plugin configurabile {kind} {type}',
+  'errors.plugin_not_found': 'Nessun plugin {name}',
   'errors.tracker_language_invalid': 'Lingua sconosciuta: {language}',
   'errors.tracker_adapter_type_unsupported': 'adapter_type non supportato: {adapter_type} (supportati: {supported})',
   'errors.tracker_no_upload_profile': 'Il tracker {tracker} non ha un profilo di upload.',

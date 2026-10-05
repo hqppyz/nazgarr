@@ -479,3 +479,22 @@ def test_a_disc_encode_gets_its_source_and_stays_an_encode():
 
     assert (values["type"], values["source"], values["video_codec"]) == ("ENCODE", "BluRay", "x265")
     assert (values["type_basis"]["type"], values["type_basis"]["encoder"]) == ("encoder", "x265 3.5")
+
+
+def test_the_original_source_medium_of_mediainfo_names_the_disc():
+    # MakeMKV scrive da quale disco viene ogni traccia: basta da solo.
+    from nazgarr.upload.naming import detect, release_values
+
+    video = {"format": "AVC", "height": 1080, "width": 1920, "bit_rate": 9_000_000, "writing_library": None,
+             "original_source_medium": "Blu-ray"}
+    remux = release_values(_job(), detect("film.mkv"), {"video": video}, {}, None)
+    assert (remux["type"], remux["source"], remux["video_codec"]) == ("REMUX", "BluRay", "AVC")
+    assert remux["type_basis"]["evidence"] == ["origin"]
+
+    hd_dvd = release_values(_job(), detect("film.mkv"), {"video": {**video, "original_source_medium": "HD DVD"}},
+                            {}, None)
+    assert hd_dvd["source"] == "HDDVD"
+    # Encodato da quel disco: la sorgente sì, il remux no.
+    encode = release_values(_job(), detect("film.mkv"),
+                            {"video": {**video, "writing_library": "x264 core 164"}}, {}, None)
+    assert (encode["type"], encode["source"]) == ("ENCODE", "BluRay")
