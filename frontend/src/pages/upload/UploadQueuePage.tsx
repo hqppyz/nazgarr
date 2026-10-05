@@ -280,7 +280,7 @@ export function UploadQueuePage() {
               <TabsTrigger value="active">{t('upload.history.activeTab', { count: active.length })}</TabsTrigger>
               <TabsTrigger value="history">{t('upload.history.historyTab', { count: history.length })}</TabsTrigger>
             </TabsList>
-            <Button onClick={() => navigate('/upload/new')}>
+            <Button data-tour="upload.new" onClick={() => navigate('/upload/new')}>
               <PlusIcon className="size-4" />
               {t('upload.newUpload')}
             </Button>

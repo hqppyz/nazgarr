@@ -217,7 +217,7 @@ function AddMenu({ adapters, onPick }: { adapters: Adapter[]; onPick: (type: Ada
   const item = 'flex items-center gap-3 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted'
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger render={<Button><PlusIcon className="size-4" />{t('notifications.add')}</Button>} />
+      <PopoverTrigger render={<Button data-tour="notifications.add"><PlusIcon className="size-4" />{t('notifications.add')}</Button>} />
       <PopoverContent align="end" className="w-72 gap-0.5 p-1.5">
         {adapters.map((adapter) => (
           <button key={adapter.adapter_type} type="button" className={item} onClick={() => pick(adapter)}>

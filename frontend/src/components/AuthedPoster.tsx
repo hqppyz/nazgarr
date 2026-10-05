@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { getToken } from '@/lib/authToken'
 import { instancePath } from '@/lib/instance'
 import { cn } from '@/lib/utils'
+import { demoResponse } from '@/lib/uploadDemo'
 
 // Il poster è protetto dal login come ogni altra API, e un <img src> non
 // manda l'header Authorization: lo si scarica con fetch + token e lo si
@@ -30,7 +31,9 @@ function useAuthedImage(url: string, enabled: boolean) {
     let objectUrl: string | null = null
     let cancelled = false
     const token = getToken()
-    fetch(instancePath(url), { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+    // L'upload di esempio del tour: il suo poster non si chiede mai al server.
+    const demo = demoResponse(new Request(new URL(url, window.location.origin)))
+    ;(demo ? Promise.resolve(demo) : fetch(instancePath(url), { headers: token ? { Authorization: `Bearer ${token}` } : {} }))
       .then((response) => (response.ok ? response.blob() : Promise.reject(new Error(String(response.status)))))
       .then((blob) => {
         if (cancelled) return

@@ -20,8 +20,9 @@ export interface TourStep {
   skipTo?: string
   // Se l'ancora sparisce (es. il dialog chiuso a metà), torna a questo passo.
   backTo?: string
-  // Solo con questa risposta del benvenuto.
+  // Solo con questa risposta del benvenuto, o solo senza.
   when?: keyof OnboardingState['answers']
+  unless?: keyof OnboardingState['answers']
   // La schermata del passo, se non è quella del tour (tour delle viste).
   route?: string
 }
@@ -158,7 +159,7 @@ export const TOURS: Tour[] = [
     // Il giro delle viste, dopo la prima scansione: non è un passo della checklist.
     key: 'views',
     route: '/dashboard',
-    last: true,
+    then: 'extras',
     steps: [
       { id: 'intro', next: true },
       { id: 'health', anchor: 'views.health', side: 'right', next: true },
@@ -170,11 +171,35 @@ export const TOURS: Tour[] = [
       { id: 'pack', anchor: 'views.pack', side: 'left', next: true, route: '/library/folder', when: 'upload' },
       { id: 'torrents', anchor: 'views.torrent-switch', side: 'bottom', next: true, route: '/torrent/folder' },
       { id: 'not_imported', anchor: 'views.summary', side: 'bottom', next: true, route: '/torrent/triage' },
-      { id: 'uploads', anchor: 'views.uploads', side: 'bottom', next: true, route: '/upload', when: 'upload' },
       { id: 'review', anchor: 'views.review', side: 'top', next: true, route: '/reseeding' },
     ],
   },
 ]
+
+// "Il resto di Nazgarr" (decisione dell'utente, 2026-10-05): upload,
+// notifiche, istanze, API key e plugin, solo per farli conoscere. Nessun
+// passo aspetta un'azione; l'upload si mostra con un upload di esempio
+// (src/lib/uploadDemo.ts) che non crea niente.
+TOURS.push({
+  key: 'extras',
+  route: '/upload',
+  last: true,
+  steps: [
+    { id: 'upload_off', next: true, route: '/upload', unless: 'upload' },
+    { id: 'new', anchor: 'upload.new', side: 'left', next: true, route: '/upload', when: 'upload' },
+    { id: 'demo_match', anchor: 'demo.match', side: 'top', next: true, route: '/upload/demo', when: 'upload' },
+    { id: 'demo_decision', anchor: 'demo.decision', side: 'top', next: true, route: '/upload/demo?step=decision',
+      when: 'upload' },
+    { id: 'queue', anchor: 'views.uploads', side: 'bottom', next: true, route: '/upload', when: 'upload' },
+    { id: 'notifications', anchor: 'notifications.add', side: 'left', next: true, route: '/config?tab=notifications' },
+    { id: 'instances', anchor: 'instances.add', side: 'left', next: true, route: '/config?tab=instances' },
+    // Il selettore c'è solo con almeno un'altra istanza: senza, lo dice il passo prima.
+    { id: 'switcher', anchor: 'instances.switcher', side: 'right', next: true,
+      skipIf: { gone: 'instances.switcher' }, skipTo: 'api_keys' },
+    { id: 'api_keys', anchor: 'api-keys.add', side: 'left', next: true, route: '/config?tab=api-keys' },
+    { id: 'plugins', anchor: 'plugins.source', side: 'bottom', next: true, route: '/config?tab=plugins' },
+  ],
+})
 
 export function tourFor(key: string): Tour | undefined {
   return TOURS.find((tour) => tour.key === key)
@@ -182,7 +207,7 @@ export function tourFor(key: string): Tour | undefined {
 
 // I passi di un tour per queste risposte del benvenuto.
 export function stepsFor(tour: Tour, answers: OnboardingState['answers']): TourStep[] {
-  return tour.steps.filter((step) => !step.when || answers[step.when])
+  return tour.steps.filter((step) => (!step.when || answers[step.when]) && (!step.unless || !answers[step.unless]))
 }
 
 export const selector = (anchor: string) => `[data-tour="${anchor}"]`

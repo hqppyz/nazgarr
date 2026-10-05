@@ -232,12 +232,54 @@ export const onboarding = {
     'I tuoi torrent',
   'onboarding.tour.views.torrents.body':
     'File: cosa contengono le cartelle di seeding, come albero, con gli stessi filtri e la stessa scelta per un pack (anche senza una cartella media). Triage: i torrent che non sono mai arrivati in libreria.',
-  'onboarding.tour.views.uploads.title':
-    'I tuoi upload',
-  'onboarding.tour.views.uploads.body':
-    "In corso e storico, una riga per upload con l'esito su ogni tracker. Il cestino toglie solo il record (tracker, client e disco restano come sono); su un upload in esecuzione lo annulla.",
   'onboarding.tour.upload.single_file.title':
     'Un file singolo, non una cartella',
   'onboarding.tour.upload.single_file.body':
     "Quando l'unico file che entra nel torrent è dentro una cartella, il torrent può essere solo quel file. Scegli se il file seeda dentro la sua cartella o direttamente nella cartella delle release. Spento di default.",
+  'onboarding.step.extras.title':
+    "Il resto di Nazgarr",
+  'onboarding.step.extras.summary':
+    "Upload, notifiche, altre istanze, API key e plugin: cosa c'è, senza doverlo usare.",
+  'onboarding.tour.extras.upload_off.title':
+    "C'è anche l'upload",
+  'onboarding.tour.extras.upload_off.body':
+    "Al benvenuto hai detto che non carichi torrent, quindi qui non ti mostro altro. Se un giorno vorrai pubblicare i tuoi encode, Nazgarr crea torrent, screenshot e descrizione e li carica sui tuoi tracker, sempre con la tua approvazione: si comincia da Impostazioni › Immagini.",
+  'onboarding.tour.extras.new.title':
+    "Come parte un upload",
+  'onboarding.tour.extras.new.body':
+    "Tre strade: da qui, scegliendo un file o una cartella; con il tasto destro su un file della Libreria; o da sola, mettendo una release nella cartella osservata. In ogni caso nulla viene pubblicato senza di te: ci sono due momenti in cui decidi. Guardiamoli su un upload di esempio.",
+  'onboarding.tour.extras.demo_match.title':
+    "Che contenuto è",
+  'onboarding.tour.extras.demo_match.body':
+    "Il primo momento: Nazgarr propone il contenuto TMDB che ha riconosciuto, con quanto ne è sicuro. Confermi, ne scegli un altro o lo cerchi a mano. Questo è un esempio: puoi cliccare tutto, non succede niente.",
+  'onboarding.tour.extras.demo_decision.title':
+    "Cosa fare su ogni tracker",
+  'onboarding.tour.extras.demo_decision.body':
+    "Il secondo: per ogni tracker Nazgarr mostra cosa c'è già (un doppione, una versione da sostituire) e consiglia upload, reseed o salta. Nome, categoria, tipo e opzioni si possono cambiare; parte solo quello che approvi.",
+  'onboarding.tour.extras.queue.title':
+    "I tuoi upload",
+  'onboarding.tour.extras.queue.body':
+    "In corso e storico, una riga per upload con l'esito su ogni tracker. Il cestino toglie solo il record (tracker, client e disco restano come sono); su un upload in esecuzione lo annulla.",
+  'onboarding.tour.extras.notifications.title':
+    "Notifiche",
+  'onboarding.tour.extras.notifications.body':
+    "Un messaggio su Discord o Telegram, o un webhook firmato, quando un upload aspetta te o finisce, un reseed va in seed, una scansione termina. Quanti servizi vuoi, ognuno con i suoi eventi, e una prova prima di salvare.",
+  'onboarding.tour.extras.instances.title':
+    "Altre istanze",
+  'onboarding.tour.extras.instances.body':
+    "Hai un secondo server con Nazgarr? Collegalo con una sua API key e lo gestisci da qui, senza aprire un'altra finestra. Appena ne aggiungi una, sotto il nome dell'app compare il selettore per passare dall'una all'altra.",
+  'onboarding.tour.extras.switcher.title':
+    "Da un'istanza all'altra",
+  'onboarding.tour.extras.switcher.body':
+    "Qui si sceglie quale istanza stai guardando: l'interfaccia mostra i suoi dati, come se fossi lì.",
+  'onboarding.tour.extras.api_keys.title':
+    "API key",
+  'onboarding.tour.extras.api_keys.body':
+    "Per script, per la CLI nazgarr (anche dentro il container) e per farti collegare da un'altra istanza. Sola lettura o scrittura; la chiave si vede una volta sola.",
+  'onboarding.tour.extras.plugins.title':
+    "Plugin",
+  'onboarding.tour.extras.plugins.body':
+    "Pacchetti che aggiungono tracker, client, notifiche o host di immagini. Si elencano in una variabile d'ambiente e si installano al riavvio. Il cammino finisce qui: buon seed.",
+  'onboarding.restart.extras':
+    "Il resto di Nazgarr",
 } as const

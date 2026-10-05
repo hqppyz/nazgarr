@@ -109,7 +109,7 @@ export function PluginsSection() {
         </div>
       </div>
 
-      <Card>
+      <Card data-tour="plugins.source">
         <CardHeader>
           <CardTitle className="flex flex-wrap items-center gap-2">
             {source}

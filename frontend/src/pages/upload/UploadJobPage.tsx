@@ -75,7 +75,12 @@ function JobBody({ job }: { job: UploadJob }) {
 export function UploadJobPage() {
   const { uploadId } = useParams()
   const id = Number(uploadId)
-  const { data: job, isPending, isError, error } = useUpload(Number.isFinite(id) ? id : null)
+  return <UploadJobView id={Number.isFinite(id) ? id : null} />
+}
+
+// La pagina di un upload; anche quella di esempio del tour (UploadDemoPage).
+export function UploadJobView({ id }: { id: number | null }) {
+  const { data: job, isPending, isError, error } = useUpload(id)
 
   if (isPending) return <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
   if (isError || !job) return <p className="text-sm text-destructive">{error?.message}</p>

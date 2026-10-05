@@ -419,4 +419,7 @@ export const upload = {
   'upload.match.factor.product': '{factors} = {confidence}',
   'upload.match.identifyAgainHelp': 'Cerca di nuovo su TMDB, anche nelle lingue dei tracker.',
   'upload.overrides.field.hybrid': 'Ibrido',
+  'upload.demo.title': 'Upload di esempio',
+  'upload.demo.description': 'Le schermate vere di un upload, con un film di esempio. Niente viene creato, cercato o pubblicato: puoi cliccare tutto.',
+  'upload.demo.approved': 'Qui un upload vero partirebbe: torrent e screenshot, pubblicazione sui tracker scelti e seed nel client. Questo era solo un esempio, e non è successo niente.',
 } as const

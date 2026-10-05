@@ -67,7 +67,7 @@ function InstanceDialog({ instance }: { instance?: Instance }) {
               <PencilIcon className="size-4" />
             </Button>
           ) : (
-            <Button>
+            <Button data-tour="instances.add">
               <PlusIcon className="size-4" />
               {t('instances.add')}
             </Button>

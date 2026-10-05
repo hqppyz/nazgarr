@@ -55,7 +55,7 @@ function AddApiKeyDialog({ onCreated }: { onCreated: (key: string) => void }) {
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger render={<Button><PlusIcon className="size-4" />{t('security.apiKeyAdd')}</Button>} />
+      <DialogTrigger render={<Button data-tour="api-keys.add"><PlusIcon className="size-4" />{t('security.apiKeyAdd')}</Button>} />
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{t('security.apiKeyNewTitle')}</DialogTitle>
