@@ -131,3 +131,13 @@ export function useRecentSeedJobs() {
   })
 }
 
+// Categoria e tag nel client scelti a mano per un reseed, come per un
+// upload: null torna ai default del client, "" vuol dire nessuno.
+export function useSetReviewClientLabels(reviewId: number) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (body: { client_category: string | null; client_tags: string | null }) =>
+      unwrap(api.PUT('/api/reviews/{review_id}/client-labels', { params: { path: { review_id: reviewId } }, body })),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['reviews'] }),
+  })
+}

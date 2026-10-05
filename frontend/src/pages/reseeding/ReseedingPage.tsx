@@ -10,7 +10,10 @@ import {
   useRejectReview,
   useRetryFailed,
   useReviews,
+  useSetReviewClientLabels,
 } from '@/api/hooks/reviews'
+import { useTorrentClientCategories } from '@/api/hooks/torrentClients'
+import { ClientCategorySelect } from '@/components/ClientCategorySelect'
 import { ConfirmButton } from '@/components/ConfirmButton'
 import { ErrorsPopover } from '@/components/ErrorsPopover'
 import { FullCheckButton } from '@/components/FullCheckButton'
@@ -18,6 +21,7 @@ import { StateBadge } from '@/components/StateBadge'
 import { VerifyStatus } from '@/components/VerifyStatus'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -123,6 +127,54 @@ function CandidateAudit({ mediaItemId }: { mediaItemId: number }) {
   )
 }
 
+// Categoria e tag con cui il reseed entra nel client: i default del client,
+// cambiabili a mano come per un upload. Si salvano subito e valgono quando
+// il reseed parte.
+function ReviewClientLabels({ review }: { review: Review }) {
+  const { data } = useTorrentClientCategories(review.torrent_client_id ?? null)
+  const save = useSetReviewClientLabels(review.id)
+  const custom = review.client_category !== null || review.client_tags !== null
+  const category = review.client_category !== null ? review.client_category || null : review.default_client_category ?? null
+  const savedTags = review.client_tags ?? review.default_client_tags ?? ''
+  const [tags, setTags] = useState<string | null>(null)
+  if (review.torrent_client_id == null) return null
+  const categories = data?.status === 'ok' ? data.categories : []
+  const send = (next: { category?: string | null; tags?: string }) =>
+    save.mutate(
+      { client_category: next.category !== undefined ? next.category ?? '' : category ?? '', client_tags: next.tags ?? savedTags },
+      { onSuccess: () => setTags(null), onError: (error) => toast.error(error.message) },
+    )
+  return (
+    <div className="grid gap-2 border-t px-3 py-2 sm:pl-9">
+      <p className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">{t('reseeding.clientLabels')}</p>
+      <div className="flex flex-wrap items-end gap-3">
+        {(categories.length > 0 || category) && (
+          <label className="grid gap-1 text-xs">
+            <span className="text-muted-foreground">{t('reseeding.clientCategory')}</span>
+            <ClientCategorySelect categories={categories} value={category} onChange={(value) => send({ category: value })} />
+          </label>
+        )}
+        <label className="grid min-w-40 flex-1 gap-1 text-xs sm:max-w-xs">
+          <span className="text-muted-foreground">{t('reseeding.clientTags')}</span>
+          <Input
+            className="h-8 text-xs"
+            value={tags ?? savedTags}
+            placeholder={t('torrentClients.noTags')}
+            onChange={(e) => setTags(e.target.value)}
+            onBlur={() => tags !== null && tags !== savedTags && send({ tags })}
+          />
+        </label>
+        {custom && (
+          <Button size="xs" variant="ghost" disabled={save.isPending}
+                  onClick={() => save.mutate({ client_category: null, client_tags: null }, { onSuccess: () => setTags(null) })}>
+            {t('reseeding.clientLabelsDefault')}
+          </Button>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function ReviewRow({ review }: { review: Review }) {
   const [open, setOpen] = useState(false)
   const approve = useApproveReview()
@@ -182,6 +234,7 @@ function ReviewRow({ review }: { review: Review }) {
         </div>
       </div>
       <CollapsibleContent>
+        <ReviewClientLabels review={review} />
         {review.layout && <LayoutFiles layout={review.layout} />}
         <CandidateAudit mediaItemId={review.media_item_id} />
       </CollapsibleContent>

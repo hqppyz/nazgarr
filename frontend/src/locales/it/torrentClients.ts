@@ -53,7 +53,7 @@ export const torrentClients = {
   'torrentClients.lastScan': 'ultima scansione {when}',
   'torrentClients.labelsTitle': 'Categoria e tag',
   'torrentClients.labelsHelp':
-    'Assegnati ai torrent che Nazgarr aggiunge a questo client, solo come etichette: i file non si spostano mai. Ogni job può cambiarli.',
+    'Assegnati ai torrent che Nazgarr aggiunge a questo client, solo come etichette: i file non si spostano mai. Ogni upload e ogni reseed in coda può cambiarli.',
   'torrentClients.categoryMovie': 'Film',
   'torrentClients.categoryTv': 'Serie',
   'torrentClients.categoryAnime': 'Anime',

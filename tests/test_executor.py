@@ -488,3 +488,40 @@ def test_a_torrent_stopped_after_a_good_recheck_is_started(db_session, tmp_path)
 
     assert seed_job.final_status == "seeding"
     assert adapter.started == ["deadbeef"]
+
+
+def test_a_reseed_uses_the_client_labels_chosen_on_its_review(db_session, tmp_path):
+    from nazgarr.reseed import review as review_module
+
+    _root, review = _movie_review(db_session, tmp_path)
+    client = TorrentClient(label="qb", adapter_type="qbittorrent", base_url="http://qb.test", category_movie="film",
+                           tags_reseed="nazgarr,reseed")
+    db_session.add(client)
+    db_session.commit()
+
+    class LabelAdapter(FakeAdapter):
+        def add_torrent(self, torrent_file_or_url, save_path, force_recheck=True, expected_info_hash=None,
+                        category=None, tags=None):
+            self.add_torrent_calls.append({"category": category, "tags": tags})
+            return self.info_hash
+
+    # Scelti a mano come per un upload: vincono sui default del client.
+    review_module.set_client_labels(db_session, review, "4k-movies", " cross , mine ")
+    adapter = LabelAdapter()
+    executor.execute_review(db_session, review, adapter, client.id)
+    assert adapter.add_torrent_calls[0] == {"category": "4k-movies", "tags": ["cross", "mine"]}
+
+
+def test_without_a_choice_a_reseed_takes_the_client_defaults_and_empty_means_none(db_session, tmp_path):
+    from nazgarr.reseed import review as review_module
+
+    _root, review = _movie_review(db_session, tmp_path)
+    client = TorrentClient(label="qb", adapter_type="qbittorrent", base_url="http://qb.test", category_movie="film",
+                           tags_reseed="reseed")
+    db_session.add(client)
+    db_session.commit()
+
+    labels = executor._labels(db_session, client.id, review.candidate, review)
+    assert labels == {"category": "film", "tags": ["reseed"]}
+    review_module.set_client_labels(db_session, review, "", None)  # nessuna categoria, i tag di sempre
+    assert executor._labels(db_session, client.id, review.candidate, review) == {"tags": ["reseed"]}

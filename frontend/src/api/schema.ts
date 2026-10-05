@@ -1043,6 +1043,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/reviews/{review_id}/client-labels": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set Client Labels
+         * @description Categoria e tag nel client per questo reseed, scelti a mano come per un
+         *     upload: valgono quando parte. Solo finché la review è in coda.
+         */
+        put: operations["set_client_labels_api_reviews__review_id__client_labels_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/reviews/{review_id}/reject": {
         parameters: {
             query?: never;
@@ -2587,6 +2608,13 @@ export interface components {
             /** Files */
             files: components["schemas"]["FileCheckResponse"][];
         };
+        /** ClientLabelsRequest */
+        ClientLabelsRequest: {
+            /** Client Category */
+            client_category?: string | null;
+            /** Client Tags */
+            client_tags?: string | null;
+        };
         /** ConfigFieldResponse */
         ConfigFieldResponse: {
             /** Key */
@@ -4072,6 +4100,16 @@ export interface components {
              * @default []
              */
             seeding_on: string[];
+            /** Torrent Client Id */
+            torrent_client_id?: number | null;
+            /** Default Client Category */
+            default_client_category?: string | null;
+            /** Default Client Tags */
+            default_client_tags?: string | null;
+            /** Client Category */
+            client_category?: string | null;
+            /** Client Tags */
+            client_tags?: string | null;
         };
         /** RunResponse */
         RunResponse: {
@@ -7291,6 +7329,41 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_client_labels_api_reviews__review_id__client_labels_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                review_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ClientLabelsRequest"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {

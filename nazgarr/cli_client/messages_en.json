@@ -69,6 +69,7 @@
  "removal_not_confirmed": "Confirm that the files will be deleted.",
  "removal_not_in_not_imported": "Torrent #{id} is not among the not imported ones: it cannot be removed from here.",
  "removal_requirement_not_met": "The tracker's seeding requirement is not met ({status}).",
+ "review_already_decided": "Review {id} has already been decided: its client labels can no longer change",
  "review_not_found": "Review {id} not found.",
  "run_already_finished": "Scan {id} has already finished.",
  "run_in_progress": "A scan is in progress: try again when it has finished.",

@@ -67,6 +67,7 @@ export const errors = {
   'errors.adapter_config_missing_field': '{field} is required',
   'errors.adapter_not_found': 'No configurable plugin adapter {kind} {type}',
   'errors.plugin_not_found': 'No plugin named {name}',
+  'errors.review_already_decided': 'Review {id} has already been decided: its client labels can no longer change',
   'errors.tracker_language_invalid': 'Unknown language: {language}',
   'errors.tracker_adapter_type_unsupported': 'Unsupported adapter_type: {adapter_type} (supported: {supported})',
   'errors.tracker_no_upload_profile': 'Tracker {tracker} has no upload profile.',

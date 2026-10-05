@@ -44,6 +44,7 @@ from nazgarr.library.seed_refresh import refresh_seeded_torrent
 from nazgarr.library.seeding import seeding_media_file_ids
 from nazgarr.reseed import full_check
 from nazgarr.reseed.executor import ExecutionError, execute_review, reconcile_seed_job, retry_seed_job
+from nazgarr.torrents import client_labels
 
 logger = logging.getLogger(__name__)
 
@@ -233,6 +234,26 @@ def _client_for(session: Session, preferred_id: int | None):
         if row is not None and row.enabled:
             return build_torrent_client_adapter(row), row.id
     return _build_torrent_client_adapter_or_none(session)
+
+
+def client_row_for_candidate(session: Session, candidate: Candidate) -> TorrentClient | None:
+    """Il client dove andrà il reseed di questo candidato (come
+    _client_for_candidate), senza costruirne l'adapter: per mostrarne
+    categorie e tag nella coda."""
+    tracker = candidate.tracker
+    if tracker is not None and tracker.torrent_client_id is not None:
+        row = session.get(TorrentClient, tracker.torrent_client_id)
+        if row is not None and row.enabled:
+            return row
+    return session.query(TorrentClient).filter_by(enabled=True).first()
+
+
+def set_client_labels(session: Session, review: MatchReview, category: str | None, tags: str | None) -> None:
+    """Categoria e tag nel client scelti a mano per questo reseed: None
+    torna ai default del client, "" vuol dire nessuno."""
+    review.client_category = category.strip() if category is not None else None
+    review.client_tags = ",".join(client_labels.split_tags(tags)) if tags is not None else None
+    session.commit()
 
 
 def _client_for_candidate(session: Session, candidate: Candidate):

@@ -34,6 +34,10 @@ export const reseeding = {
   'reseeding.added': 'Aggiunto',
   'reseeding.status': 'Stato',
   'reseeding.retry': 'Riprova',
+  'reseeding.clientLabels': 'Nel client',
+  'reseeding.clientCategory': 'Categoria',
+  'reseeding.clientTags': 'Tag',
+  'reseeding.clientLabelsDefault': 'Torna ai default del client',
   'reseeding.deleteJob': 'Elimina',
   'reseeding.deleteJobTitle': 'Eliminare questa esecuzione?',
   'reseeding.deleteJobDescription':

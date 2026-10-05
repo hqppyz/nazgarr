@@ -833,6 +833,10 @@ class MatchReview(Base):
     verify_status: Mapped[str | None]
     verify_detail: Mapped[str | None]
     verify_check_id: Mapped[str | None]  # id del controllo in memoria (nazgarr/reseed/full_check.py), per l'avanzamento
+    # Categoria e tag nel client scelti a mano per questo reseed, come per un
+    # upload: NULL = i default del client, "" = nessuno.
+    client_category: Mapped[str | None]
+    client_tags: Mapped[str | None]
 
     candidate: Mapped["Candidate"] = relationship()
     media_file: Mapped["MediaFile | None"] = relationship()

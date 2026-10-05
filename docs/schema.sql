@@ -539,7 +539,10 @@ CREATE TABLE IF NOT EXISTS match_review (
     verify_status   TEXT,                   -- full piece check before executing: verifying|passed|failed
                                             -- (nazgarr/review.py::request_approval). Additive, nullable.
     verify_detail   TEXT,                   -- outcome of that check, shown in the queue
-    verify_check_id TEXT                    -- in-memory check id (nazgarr/full_check.py), for progress
+    verify_check_id TEXT,                   -- in-memory check id (nazgarr/full_check.py), for progress
+    client_category TEXT,                   -- category in the client for this reseed, chosen by hand:
+                                            -- NULL = the client default (anime check included), '' = none
+    client_tags     TEXT                    -- tags, comma separated: NULL = the client's reseed tags, '' = none
 );
 
 -- One row per (tracker, orphan file) already searched on that tracker, so a

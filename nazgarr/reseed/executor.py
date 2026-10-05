@@ -92,13 +92,19 @@ def execute_review(
     return _execute_torrent_to_client(session, review, adapter, torrent_client_id, skip_recheck)
 
 
-def _labels(session: Session, torrent_client_id: int | None, candidate) -> dict:
+def _labels(session: Session, torrent_client_id: int | None, candidate, review: MatchReview | None = None) -> dict:
     """Categoria (per tipo di contenuto) e tag per i reseed del client
     (nazgarr/torrents/client_labels.py). TMDB, per sapere se è un anime, solo se il
-    client ha una categoria per gli anime; senza TMDB non lo è."""
+    client ha una categoria per gli anime; senza TMDB non lo è. Quelli scelti
+    a mano sulla review vincono (NULL = default, "" = nessuno)."""
     client = session.get(TorrentClient, torrent_client_id) if torrent_client_id is not None else None
     if client is None:
         return {}
+    chosen_category = review.client_category if review is not None else None
+    chosen_tags = review.client_tags if review is not None else None
+    tags = chosen_tags if chosen_tags is not None else client_labels.default_tags(client, "reseed")
+    if chosen_category is not None:
+        return client_labels.add_kwargs(chosen_category or None, tags)
     item = candidate.media_item
     content_type = item.content_type if item is not None else None
     anime = False
@@ -110,9 +116,7 @@ def _labels(session: Session, torrent_client_id: int | None, candidate) -> dict:
             )
         except Exception:
             logger.warning("TMDB non disponibile per il riconoscimento anime di %s", item.tmdb_id, exc_info=True)
-    return client_labels.add_kwargs(
-        client_labels.default_category(client, content_type, anime), client_labels.default_tags(client, "reseed"),
-    )
+    return client_labels.add_kwargs(client_labels.default_category(client, content_type, anime), tags)
 
 
 def _add_to_client(
@@ -339,7 +343,7 @@ def _execute_layout_media_to_torrent(
 
         save_root = resolve_scoped(target_root, placement.save_dir) if placement.save_dir else target_root
         client_save_path = client_visible_path(session, disk, torrent_client_id, save_root)
-        labels = _labels(session, torrent_client_id, candidate)
+        labels = _labels(session, torrent_client_id, candidate, review)
         add_sent = True
         info_hash = _add_to_client(adapter, candidate, client_save_path, seed_job, skip_recheck, labels,
                                    placement.layout)
@@ -416,7 +420,7 @@ def _execute_layout_torrent_to_client(
     add_sent = False
     try:
         client_save_path = client_visible_path(session, disk, torrent_client_id, save_path_local)
-        labels = _labels(session, torrent_client_id, candidate)
+        labels = _labels(session, torrent_client_id, candidate, review)
         add_sent = True
         info_hash = _add_to_client(adapter, candidate, client_save_path, seed_job, skip_recheck, labels)
         seed_job.info_hash = info_hash
@@ -479,7 +483,7 @@ def _execute_media_to_torrent(
 
     return _create_hardlink_then_seed(
         session, seed_job, candidate, adapter, source_path, target_path, disk, save_root, torrent_client_id,
-        skip_recheck, reuse=reuse, layout=placement.layout,
+        skip_recheck, reuse=reuse, layout=placement.layout, review=review,
     )
 
 
@@ -496,6 +500,7 @@ def _create_hardlink_then_seed(
     skip_recheck: bool = False,
     reuse: bool = False,
     layout: str = "Original",
+    review: MatchReview | None = None,
 ) -> SeedJob:
     if not candidate.download_link:
         seed_job.final_status = "failed"
@@ -512,7 +517,7 @@ def _create_hardlink_then_seed(
         logger.info("Hardlink %s per candidate %s: %s", "riusato" if reuse else "creato", candidate.id, target_path)
 
         client_save_path = client_visible_path(session, disk, torrent_client_id, target_root)
-        labels = _labels(session, torrent_client_id, candidate)
+        labels = _labels(session, torrent_client_id, candidate, review)
         add_sent = True
         info_hash = _add_to_client(adapter, candidate, client_save_path, seed_job, skip_recheck, labels, layout)
         seed_job.info_hash = info_hash
@@ -562,7 +567,7 @@ def _execute_torrent_to_client(
     add_sent = False
     try:
         client_save_path = client_visible_path(session, disk, torrent_client_id, save_path_local)
-        labels = _labels(session, torrent_client_id, candidate)
+        labels = _labels(session, torrent_client_id, candidate, review)
         add_sent = True
         info_hash = _add_to_client(adapter, candidate, client_save_path, seed_job, skip_recheck, labels)
         seed_job.info_hash = info_hash
