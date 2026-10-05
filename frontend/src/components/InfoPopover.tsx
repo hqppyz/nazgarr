@@ -1,0 +1,36 @@
+import type { ReactNode } from 'react'
+
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { cn } from '@/lib/utils'
+
+// Una spiegazione che prima stava solo in un title (visibile solo al
+// passaggio del mouse): ora si apre anche al tocco, come ErrorsPopover.
+export function InfoPopover({
+  children,
+  content,
+  className,
+  align = 'start',
+}: {
+  children: ReactNode
+  content: ReactNode
+  className?: string
+  align?: 'start' | 'center' | 'end'
+}) {
+  if (!content) return <>{children}</>
+  return (
+    <Popover>
+      <PopoverTrigger
+        openOnHover
+        delay={250}
+        render={<span role="button" tabIndex={0} />}
+        className={cn('cursor-help', className)}
+        onClick={(event) => event.stopPropagation()}
+      >
+        {children}
+      </PopoverTrigger>
+      <PopoverContent align={align} className="w-80 max-w-[calc(100vw-2rem)] text-xs break-words">
+        {content}
+      </PopoverContent>
+    </Popover>
+  )
+}

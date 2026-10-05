@@ -7,6 +7,7 @@ export const common = {
   'common.saved': 'Salvato.',
   'common.itemSaved': '{item} salvato.',
   'common.delete': 'Elimina',
+  'common.moreActions': 'Altre azioni',
   'common.edit': 'Modifica',
   'common.cancel': 'Annulla',
   'common.loading': 'Caricamento…',

@@ -214,3 +214,13 @@
   font-size: 0.75rem;
   color: var(--primary);
 }
+
+/* Su touch un campo con testo sotto i 16px fa zoomare iOS a ogni tocco: lì
+   il testo dei campi è almeno 16px (2026-10-05). Fuori dai layer, perché
+   vinca anche sulle utility text-xs dei singoli campi. */
+@media (pointer: coarse) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  textarea {
+    font-size: max(16px, 1em) !important;
+  }
+}
