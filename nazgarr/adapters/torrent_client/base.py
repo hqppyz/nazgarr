@@ -150,6 +150,13 @@ class TorrentClientAdapter(ABC):
         "Original", e può ignorarlo."""
         raise NotImplementedError
 
+    def start(self, info_hash: str) -> None:
+        """Avvia un torrent fermo. Un reseed o un upload deve condividere:
+        qBittorrent e qui, con "non avviare automaticamente" o la condizione
+        di arresto "file controllati", lo lascerebbero fermo dopo il recheck.
+        Default: niente, il client lo avvia da sé (Deluge, Transmission e
+        rTorrent lo aggiungono già avviato)."""
+
     def content_layout(self) -> str:
         """La preferenza dell'utente per la struttura dei torrent aggiunti
         (qBittorrent: Opzioni › Download › Layout del contenuto), per

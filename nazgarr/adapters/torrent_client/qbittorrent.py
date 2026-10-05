@@ -119,13 +119,22 @@ class QBittorrentAdapter(TorrentClientAdapter):
             is_skip_checking=skip_check_verified,
             use_auto_torrent_management=False,
             content_layout=content_layout,
+            # Avviato e senza condizione di arresto, qualunque cosa dicano le
+            # preferenze del client ("non avviare automaticamente", "fermati
+            # dopo il controllo dei file"): un reseed o un upload deve seedare.
+            is_stopped=False,
+            stop_condition="None",
             **({"category": category} if category else {}),
             **({"tags": ",".join(tags)} if tags else {}),
         )
         info_hash = self._wait_for_new_hash(before_hashes, expected)
         if not skip_check_verified:
             self._client.torrents_recheck(torrent_hashes=info_hash)
+        self.start(info_hash)  # una versione che ignora "stopped" all'aggiunta
         return info_hash
+
+    def start(self, info_hash: str) -> None:
+        self._client.torrents_start(torrent_hashes=info_hash)
 
     def content_layout(self) -> str:
         prefs = self._client.app_preferences()

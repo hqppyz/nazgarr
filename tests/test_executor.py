@@ -464,3 +464,27 @@ def test_the_recheck_is_skipped_only_by_a_client_that_can(can_skip):
     # Transmission e rTorrent ricontrollano comunque: il seed job non lo registra come saltato.
     assert adapter.kwargs == ({"skip_check_verified": True} if can_skip else {})
     assert seed_job.recheck_skipped is (True if can_skip else None)
+
+
+def test_a_torrent_stopped_after_a_good_recheck_is_started(db_session, tmp_path):
+    # qBittorrent con la condizione di arresto "file controllati" (qui non la
+    # lascia cambiare all'aggiunta): il recheck riesce e il torrent resta fermo.
+    _root, review = _movie_review(db_session, tmp_path)
+
+    class StopsAfterCheck(FakeAdapter):
+        def __init__(self):
+            super().__init__()
+            self.started = []
+
+        def get_torrent_status(self, info_hash):
+            return TorrentStatus(info_hash=info_hash, state="stoppedUP", recheck_status="ok", progress=1.0)
+
+        def start(self, info_hash):
+            self.started.append(info_hash)
+
+    adapter = StopsAfterCheck()
+    seed_job = executor.execute_review(db_session, review, adapter)
+    executor.reconcile_seed_job(db_session, seed_job, adapter)
+
+    assert seed_job.final_status == "seeding"
+    assert adapter.started == ["deadbeef"]

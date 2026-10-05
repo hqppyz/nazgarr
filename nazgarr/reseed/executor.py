@@ -29,6 +29,7 @@ from nazgarr.adapters.torrent_client.base import (
     TorrentAddTimeoutError,
     TorrentAlreadyInClientError,
     TorrentClientAdapter,
+    is_stopped_state,
     layout_kwargs,
 )
 from nazgarr.core import settings_repo
@@ -604,6 +605,14 @@ def reconcile_seed_job(session: Session, seed_job: SeedJob, adapter: TorrentClie
             seed_job.id, status.amount_left,
         )
     seed_job.recheck_status = recheck_status
+    if recheck_status == "ok" and is_stopped_state(status.state):
+        # Recheck riuscito ma fermo: la condizione di arresto "file
+        # controllati" del client (qui non la lascia cambiare all'aggiunta).
+        try:
+            adapter.start(seed_job.info_hash)
+            logger.info("Seed_job %s: torrent fermo dopo il recheck, avviato", seed_job.id)
+        except Exception:
+            logger.warning("Seed_job %s: torrent fermo dopo il recheck, avvio fallito", seed_job.id, exc_info=True)
     if recheck_status == "ok":
         seed_job.final_status = "seeding"
         logger.info("Recheck ok, seed_job %s in seeding (info_hash=%s)", seed_job.id, seed_job.info_hash)

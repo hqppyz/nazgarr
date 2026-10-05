@@ -152,6 +152,9 @@ class QuiTorrentClientAdapter(TorrentClientAdapter):
             "savepath": (None, save_path),
             "skip_checking": (None, "true" if skip_check_verified else "false"),
             "contentLayout": (None, content_layout),
+            # Avviato anche con "non avviare automaticamente" nelle preferenze
+            # del qBittorrent dietro (qui le confronta e lo forza se serve).
+            "paused": (None, "false"),
         }
         if category:
             files["category"] = (None, category)
@@ -170,7 +173,11 @@ class QuiTorrentClientAdapter(TorrentClientAdapter):
         info_hash = self._wait_for_new_hash(before_hashes, expected)
         if not skip_check_verified:
             self._bulk_action([info_hash], "recheck")
+        self.start(info_hash)
         return info_hash
+
+    def start(self, info_hash: str) -> None:
+        self._bulk_action([info_hash], "resume")
 
     def _wait_for_new_hash(self, before_hashes: set[str], expected: str | None = None) -> str:
         deadline = time.monotonic() + self.poll_timeout

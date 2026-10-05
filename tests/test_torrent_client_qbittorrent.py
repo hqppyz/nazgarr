@@ -34,6 +34,7 @@ class FakeQbtClient:
         self._files_by_hash = files_by_hash or {}
         self.added_calls: list[dict] = []
         self.rechecked: list[str] = []
+        self.started: list[str] = []
 
     def torrents_info(self, torrent_hashes=None):
         if torrent_hashes:
@@ -44,9 +45,10 @@ class FakeQbtClient:
         return self._files_by_hash.get(torrent_hash, [])
 
     def torrents_add(self, save_path, is_skip_checking, use_auto_torrent_management, urls=None, torrent_files=None,
-                     category=None, tags=None, content_layout=None):
+                     category=None, tags=None, content_layout=None, is_stopped=None, stop_condition=None):
         self.added_calls.append({"urls": urls, "torrent_files": torrent_files, "save_path": save_path,
                                  "is_skip_checking": is_skip_checking, "layout": content_layout,
+                                 "stopped": is_stopped, "stop_condition": stop_condition,
                                  "category": category, "tags": tags, "auto": use_auto_torrent_management})
         self._torrents.append(FakeTorrent(hash="new-hash", save_path=save_path))
 
@@ -55,6 +57,9 @@ class FakeQbtClient:
 
     def torrents_recheck(self, torrent_hashes):
         self.rechecked.append(torrent_hashes)
+
+    def torrents_start(self, torrent_hashes):
+        self.started.append(torrent_hashes)
 
 
 def _adapter(client):
@@ -197,6 +202,15 @@ def test_content_layout_reads_the_client_preference(prefs, expected):
     client = FakeQbtClient()
     client.app_preferences = lambda: prefs
     assert _adapter(client).content_layout() == expected
+
+
+def test_a_torrent_is_added_running_whatever_the_client_preferences():
+    # "Non avviare automaticamente" o "fermati dopo il controllo dei file"
+    # nelle preferenze lasciavano fermi i reseed dopo il recheck.
+    client = FakeQbtClient()
+    _adapter(client).add_torrent("magnet:?xt=...", save_path="/torrents/movie")
+    assert (client.added_calls[0]["stopped"], client.added_calls[0]["stop_condition"]) == (False, "None")
+    assert client.started == ["new-hash"]
 
 
 @pytest.mark.parametrize("delete_files", [False, True])

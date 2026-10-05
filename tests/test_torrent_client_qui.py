@@ -86,7 +86,10 @@ def test_add_torrent_via_url_sends_urls_field_and_forces_recheck():
 
     assert info_hash == "new-hash"
     assert mock.added_calls[0] == {"is_file_upload": False, "is_url": True}
-    assert mock.bulk_actions == [{"hashes": ["new-hash"], "action": "recheck"}]
+    # Il recheck e poi l'avvio: un reseed deve seedare anche con le preferenze
+    # "non avviare automaticamente" del qBittorrent dietro.
+    assert mock.bulk_actions == [{"hashes": ["new-hash"], "action": "recheck"},
+                                 {"hashes": ["new-hash"], "action": "resume"}]
 
 
 def test_add_torrent_via_local_file_sends_torrent_field(tmp_path):
@@ -105,6 +108,7 @@ def test_add_torrent_sends_the_content_layout():
     mock = _QuiMock()
     _adapter(mock).add_torrent("magnet:?xt=...", save_path="/torrents/movie")
     assert b'name="contentLayout"\r\n\r\nOriginal' in mock.bodies[0]
+    assert b'name="paused"\r\n\r\nfalse' in mock.bodies[0]
 
 
 @pytest.mark.parametrize(("prefs", "expected"), [
