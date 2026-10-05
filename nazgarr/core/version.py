@@ -32,3 +32,8 @@ except ImportError:
 __version__ = os.environ.get("NAZGARR_VERSION") or _BUILT_VERSION or f"{BASE_VERSION}-dev"
 # Commit breve da cui è stata costruita l'immagine, None in sviluppo locale.
 __commit__ = os.environ.get("NAZGARR_COMMIT") or _BUILT_COMMIT or None
+
+PROJECT_URL = "https://github.com/lktorrentz/nazgarr"
+# Il campo "created by" dei .torrent che Nazgarr crea (al posto di "torf X.Y"):
+# fuori dal dizionario info, quindi non cambia l'info hash.
+CREATED_BY = f"Nazgarr {__version__} ({PROJECT_URL})"

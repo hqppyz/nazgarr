@@ -247,3 +247,18 @@ def test_a_missing_extra_always_needs_the_client_recheck(db_session, tmp_path, m
     _, candidate = _setup(db_session, tmp_path, {"Movie.2001.mkv": FILES["Movie.2001.mkv"]})
     assert _approve_recording_skip(db_session, candidate, monkeypatch, skip_setting=True) == [False]
 
+
+
+def test_the_check_takes_the_torrent_folder_the_catalog_did_not_report(db_session, tmp_path):
+    # Segnalato (2026-10-06): un file solo dentro una cartella, il candidato
+    # senza cartella (dal catalogo). Il controllo prima di eseguire scarica il
+    # .torrent: la cartella si corregge prima che nasca un hardlink.
+    single = {"Movie.2001.mkv": FILES["Movie.2001.mkv"]}
+    _, candidate = _setup(db_session, tmp_path, single)
+    candidate.folder = None
+    db_session.commit()
+
+    result = full_check.run_full_check(db_session, candidate, fetch_torrent=lambda _: _torrent("Movie", single))
+
+    assert candidate.folder == "Movie"
+    assert result.ok == result.pieces
