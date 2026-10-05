@@ -341,6 +341,16 @@ function FolderList({
 
 const WARNING_STYLE = 'flex gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-xs'
 
+function AddMountButton({ path, onAdd, tour }: { path: string; onAdd: (preset: DiskPreset) => void; tour?: string }) {
+  return (
+    <Button size="sm" variant="outline" data-tour={tour}
+            onClick={() => onAdd({ label: path.split('/').filter(Boolean).pop() ?? 'disk', root: path })}>
+      <PlusIcon className="size-4" />
+      {t('disks.mounts.add')}
+    </Button>
+  )
+}
+
 // Le cartelle montate nel container (nazgarr/core/mounts.py): ognuna è un
 // disco possibile, e gli avvisi sui montaggi che rompono gli hardlink.
 function MountsPanel({ onAdd }: { onAdd: (preset: DiskPreset) => void }) {
@@ -369,13 +379,12 @@ function MountsPanel({ onAdd }: { onAdd: (preset: DiskPreset) => void }) {
             {mount.registered ? (
               <span className="text-xs text-muted-foreground">{t('disks.mounts.registered')}</span>
             ) : (
-              data.mounts.includes(mount.path) && (
-                <Button size="sm" variant="outline"
-                        onClick={() => onAdd({ label: mount.path.split('/').filter(Boolean).pop() ?? 'disk', root: mount.path })}>
-                  <PlusIcon className="size-4" />
-                  {t('disks.mounts.add')}
-                </Button>
-              )
+              data.mounts.includes(mount.path) &&
+              (data.mounts[0] === mount.path ? (
+                <AddMountButton tour="storage.mount-add" path={mount.path} onAdd={onAdd} />
+              ) : (
+                <AddMountButton path={mount.path} onAdd={onAdd} />
+              ))
             )}
           </div>
         ))}

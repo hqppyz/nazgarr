@@ -106,3 +106,11 @@ export function useClientPathCheck() {
       ),
   })
 }
+
+// Le istanze di un qui (GET /api/instances di qui, tramite Nazgarr): per
+// sceglierne una da un elenco. Senza token, quello del client salvato.
+export function useQuiInstances() {
+  return useMutation({
+    mutationFn: (body: Schemas['QuiInstancesRequest']) => unwrap(api.POST('/api/torrent-clients/qui-instances', { body })),
+  })
+}

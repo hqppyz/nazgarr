@@ -518,6 +518,44 @@ def test_a_release_leaves_the_watched_folder_once_it_seeds(db_session, tmp_path,
     assert "watch_source_moved" in [e.code for e in job.events]
 
 
+def test_a_watched_folder_inside_the_seeding_folder_still_moves_with_its_original_names(db_session, tmp_path, env):
+    """Decisione dell'utente, 2026-10-05: con i nomi originali la release
+    lascia comunque la cartella osservata (prima seedava sul posto, dentro
+    torrents/watch, e restava lì); i nomi non si toccano."""
+    env["disk"].watch_rel_path = "torrents/watch"
+    db_session.commit()
+    video = write_video(env["root"] / "torrents" / "watch" / "Original.Name.2024.mkv", 300 * KB)
+    job = _approved(db_session, env, "torrents/watch/" + video.name, {"a": _upload("Movie A"), "b": {"action": "skip"}})
+    job.origin = "watch"
+    db_session.commit()
+
+    _run(db_session, tmp_path, job)
+
+    assert job.status == "done", [e.code for e in job.events]
+    assert not video.exists()
+    seeding = env["root"] / "torrents" / "Original.Name.2024.mkv"  # la cartella degli upload, stesso nome
+    assert seeding.is_file() and seeding.stat().st_nlink == 1
+
+
+def test_a_watched_file_linked_elsewhere_is_kept_unless_this_upload_seeds_its_copy(db_session, tmp_path, env):
+    """Prima bastava un secondo link qualunque per cancellare il file della
+    cartella osservata, anche se a seedare era proprio lui."""
+    from nazgarr.upload import execute
+
+    video = _watched_job(db_session, env, "Linked.2024.mkv", {"a": _upload("Movie A"), "b": {"action": "skip"}})
+    (env["root"] / "downloads").mkdir()
+    os.link(video, env["root"] / "downloads" / "Linked.2024.mkv")  # un altro link, non di questo job
+    job = db_session.query(upload_jobs.UploadJob).one()
+    job.targets[0].status = "done"
+    db_session.commit()
+
+    execute._clear_watch_source(db_session, job, {}, {"seeded": {}})
+    assert video.is_file()
+    st = video.stat()
+    execute._clear_watch_source(db_session, job, {}, {"seeded": {(st.st_dev, st.st_ino): str(env["root"] / "x")}})
+    assert not video.exists()
+
+
 def test_a_release_stays_in_the_watched_folder_when_nothing_seeds(db_session, tmp_path, env):
     video = _watched_job(db_session, env, "My.Movie.2024.mkv", {"a": _upload("Movie A"), "b": {"action": "skip"}},
                          no_seed=True)

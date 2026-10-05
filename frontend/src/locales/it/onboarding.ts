@@ -70,6 +70,9 @@ export const onboarding = {
   'onboarding.tour.storage.intro.title': 'I tuoi dischi',
   'onboarding.tour.storage.intro.body':
     "Un disco è un filesystem così come lo vede questo container: una delle cartelle che hai montato. Gli hardlink funzionano solo dentro un singolo filesystem, quindi le cartelle dei torrent e quelle media (se ne hai) di un disco stanno sullo stesso.\nCon un solo mount condiviso (es. /data con dentro media/ e torrents/) ti basta un disco; con più dischi montati uno per uno (/mnt/disk1, /mnt/disk2) ne aggiungi uno per ciascuno.",
+  'onboarding.tour.storage.suggested.title': 'Una cartella che hai montato',
+  'onboarding.tour.storage.suggested.body':
+    'Nazgarr ha trovato le cartelle montate in questo container: parti da una di queste, già compilata. Clicca "Aggiungi come disco".',
   'onboarding.tour.storage.add.title': 'Aggiungi un disco',
   'onboarding.tour.storage.add.body': 'Clicca "Aggiungi disco" per registrare il primo.',
   'onboarding.tour.storage.label.title': 'Un nome',

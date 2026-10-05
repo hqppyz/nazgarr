@@ -85,4 +85,5 @@ export const trackers = {
   'trackers.restoreHelpCustom': "Profilo personalizzato. Puoi sostituirlo con uno di quelli inclusi, ad esempio dopo averlo modificato troppo.",
   'trackers.restoreConfirm': "Sostituire questo profilo con \"{profile}\" incluso? Id di categoria, tipo e risoluzione, regole di naming, descrizione e default tornano quelli inclusi: le tue modifiche si perdono.",
   'trackers.restored': "Profilo \"{profile}\" ripristinato.",
+  'trackers.announceUrlWhere': 'Lo trovi qui, nella pagina di upload del tracker:',
 } as const

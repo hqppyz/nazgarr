@@ -112,7 +112,7 @@ describe('TourRunner', () => {
     page('<div data-tour="storage.row"><button data-tour="storage.seeding-folder"></button></div>')
     act(() => {
       tourStore.start('storage')
-      tourStore.goTo(5) // le cartelle di seeding
+      tourStore.goTo(6) // le cartelle di seeding
     })
     tick()
     const before = highlights.length
@@ -126,6 +126,32 @@ describe('TourRunner', () => {
     tick()
     expect(highlights.length).toBeGreaterThan(before)
     expect(last().element?.getAttribute('data-tour')).toBe('storage.media-folder') // cartella scelta: avanti
+  })
+
+  it('does not wait for a list that is closed but still in the page', () => {
+    setup()
+    page('<div data-tour="storage.row"><button data-tour="storage.seeding-folder"></button></div><div role="listbox" data-closed="">old list</div>')
+    act(() => {
+      tourStore.start('storage')
+      tourStore.goTo(6)
+    })
+    tick()
+    expect(last().element?.getAttribute('data-tour')).toBe('storage.seeding-folder')
+  })
+
+  it('follows an anchor that the page draws again', () => {
+    setup()
+    page('<div data-tour="storage.row"><button data-tour="storage.seeding-folder">old</button></div>')
+    act(() => {
+      tourStore.start('storage')
+      tourStore.goTo(6)
+    })
+    tick()
+    const first = last().element
+    page('<div data-tour="storage.row"><button data-tour="storage.seeding-folder">new</button></div>')
+    tick()
+    expect(last().element).not.toBe(first)
+    expect(last().element?.textContent).toBe('new')
   })
 
   it('goes to the screen of each step in the tour of the views', () => {

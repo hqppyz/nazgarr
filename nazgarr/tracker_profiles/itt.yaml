@@ -16,6 +16,8 @@ adapter_type: unit3d
 # Host dell'API UNIT3D, non l'announce URL (personale, mai bundlato) —
 # verificato contro il codice reale di Upload-Assistant (src/trackers/ITT.py).
 base_url: "https://itatorrents.xyz"
+# Dove l'utente trova il suo announce URL (con la passkey): mostrato sotto il campo.
+announce_url_page: "https://itatorrents.xyz/torrents/create"
 upload:
   # La lingua del tracker (ISO 639-1): alla creazione del profilo va sul
   # tracker (tracker.language, modificabile nelle sue impostazioni) e da lì

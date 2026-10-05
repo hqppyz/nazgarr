@@ -527,6 +527,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/torrent-clients/qui-instances": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Qui Instances
+         * @description Le istanze di un qui, per sceglierne una da un elenco (sola lettura).
+         *     Senza api_token si usa quello del client salvato, ma solo verso lo
+         *     stesso host: mai mandare un token salvato a un indirizzo nuovo.
+         */
+        post: operations["qui_instances_api_torrent_clients_qui_instances_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/torrent-clients/{torrent_client_id}/test": {
         parameters: {
             query?: never;
@@ -2417,6 +2439,8 @@ export interface components {
             adapter_type: string;
             /** Base Url */
             base_url: string | null;
+            /** Announce Url Page */
+            announce_url_page?: string | null;
         };
         /** CandidateAuditResponse */
         CandidateAuditResponse: {
@@ -3769,6 +3793,40 @@ export interface components {
         QueueOrderRequest: {
             /** Job Ids */
             job_ids: number[];
+        };
+        /** QuiInstance */
+        QuiInstance: {
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
+            /** Host */
+            host: string | null;
+            /** Active */
+            active: boolean;
+            /** Connected */
+            connected: boolean;
+        };
+        /** QuiInstancesRequest */
+        QuiInstancesRequest: {
+            /** Base Url */
+            base_url: string;
+            /** Api Token */
+            api_token?: string | null;
+            /** Torrent Client Id */
+            torrent_client_id?: number | null;
+        };
+        /** QuiInstancesResponse */
+        QuiInstancesResponse: {
+            /** Status */
+            status: string;
+            /**
+             * Instances
+             * @default []
+             */
+            instances: components["schemas"]["QuiInstance"][];
+            /** Error */
+            error?: string | null;
         };
         /** RadarrConnectionTestRequest */
         RadarrConnectionTestRequest: {
@@ -5998,6 +6056,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TorrentClientResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    qui_instances_api_torrent_clients_qui_instances_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["QuiInstancesRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuiInstancesResponse"];
                 };
             };
             /** @description Validation Error */

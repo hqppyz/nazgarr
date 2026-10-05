@@ -85,4 +85,5 @@ export const trackers = {
   'trackers.restoreHelpCustom': "Custom profile. You can replace it with one of the bundled ones, for example after changing it too much.",
   'trackers.restoreConfirm': "Replace this profile with the bundled \"{profile}\"? Category, type and resolution ids, naming rules, description and defaults go back to the bundled ones: your changes are lost.",
   'trackers.restored': "Profile \"{profile}\" restored.",
+  'trackers.announceUrlWhere': 'You find it here, on the tracker’s upload page:',
 } as const

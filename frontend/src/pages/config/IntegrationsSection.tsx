@@ -325,7 +325,7 @@ function ArrInstancesCard({
   testInstanceMutation: UseMutationResult<ArrInstanceTestResult, Error, number>
 }) {
   return (
-    <Card data-tour={tour}>
+    <Card data-tour={tour} data-tour-filled={instances?.length ? 'true' : undefined}>
       <CardHeader>
         <div className="flex w-full items-center justify-between gap-3">
           <div className="flex items-center gap-3">

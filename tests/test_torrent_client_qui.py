@@ -247,3 +247,40 @@ def test_remove_torrent_uses_the_bulk_delete_with_delete_files(delete_files):
     _adapter(mock).remove_torrent("h1", delete_files=delete_files)
 
     assert mock.bulk_actions == [{"hashes": ["h1"], "action": "delete", "deleteFiles": delete_files}]
+
+
+def test_the_instances_are_listed_in_qui_order():
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert (request.url.path, request.headers["X-API-Key"]) == ("/api/instances", "tok123")
+        return httpx.Response(200, json=[
+            {"id": 3, "name": "seedbox", "host": "http://qb2:8080", "connected": True, "isActive": True,
+             "sortOrder": 2},
+            {"id": 1, "name": "home", "host": "http://qb1:8080", "connected": True, "isActive": True,
+             "sortOrder": 1},
+            {"id": 9, "name": "old", "host": "http://qb3", "connected": True, "isActive": False, "sortOrder": 3},
+            {"name": "no id"},
+        ])
+
+    client = httpx.Client(base_url="http://qui:7476", headers={"X-API-Key": "tok123"},
+                          transport=httpx.MockTransport(handler))
+    instances = QuiTorrentClientAdapter.list_instances("http://qui:7476", "tok123", http_client=client)
+
+    assert [(i["id"], i["name"], i["active"], i["connected"]) for i in instances] == [
+        (1, "home", True, True), (3, "seedbox", True, True), (9, "old", False, False)]
+
+
+def test_the_api_lists_qui_instances_and_never_sends_a_saved_token_to_a_new_host(client, monkeypatch):
+    seen = []
+    monkeypatch.setattr(QuiTorrentClientAdapter, "list_instances",
+                        staticmethod(lambda base_url, token, http_client=None: seen.append((base_url, token))
+                                     or [{"id": 1, "name": "home", "host": None, "active": True, "connected": True}]))
+    listed = client.post("/api/torrent-clients/qui-instances", json={"base_url": "http://qui:7476", "api_token": "k"})
+    assert listed.json()["instances"][0]["name"] == "home"
+
+    tc = client.post("/api/torrent-clients", json={"label": "qui", "adapter_type": "qui", "base_url": "http://qui:7476",
+                                                   "api_token": "saved", "qui_instance_id": 1}).json()["id"]
+    client.post("/api/torrent-clients/qui-instances", json={"base_url": "http://qui:7476", "torrent_client_id": tc})
+    assert seen[-1] == ("http://qui:7476", "saved")
+    moved = client.post("/api/torrent-clients/qui-instances",
+                        json={"base_url": "http://evil:1", "torrent_client_id": tc})
+    assert moved.status_code == 400 and seen[-1][1] == "saved" and len(seen) == 2

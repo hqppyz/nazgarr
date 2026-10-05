@@ -174,6 +174,47 @@ def create_torrent_client(body: TorrentClientCreateRequest, session: Session = D
     return TorrentClientResponse.from_model(tc, [])
 
 
+class QuiInstancesRequest(BaseModel):
+    base_url: HttpUrlStr
+    api_token: str | None = None  # assente: quello salvato del client (stesso host)
+    torrent_client_id: int | None = None
+
+
+class QuiInstance(BaseModel):
+    id: int
+    name: str
+    host: str | None
+    active: bool
+    connected: bool
+
+
+class QuiInstancesResponse(BaseModel):
+    status: str  # "ok" | "error"
+    instances: list[QuiInstance] = []
+    error: str | None = None
+
+
+@router.post("/qui-instances", response_model=QuiInstancesResponse)
+def qui_instances(body: QuiInstancesRequest, session: Session = Depends(get_session)):
+    """Le istanze di un qui, per sceglierne una da un elenco (sola lettura).
+    Senza api_token si usa quello del client salvato, ma solo verso lo
+    stesso host: mai mandare un token salvato a un indirizzo nuovo."""
+    from nazgarr.adapters.torrent_client.qui import QuiTorrentClientAdapter
+
+    token = (body.api_token or "").strip()
+    if not token and body.torrent_client_id is not None:
+        tc = _get_torrent_client_or_404(session, body.torrent_client_id)
+        require_secrets_for_new_host(tc.base_url, body.base_url, ["api_token"] if tc.api_token else [])
+        token = tc.api_token or ""
+    if not token:
+        return QuiInstancesResponse(status="error", error="api_token required")
+    try:
+        instances = QuiTorrentClientAdapter.list_instances(body.base_url, token)
+    except Exception as exc:
+        return QuiInstancesResponse(status="error", error=safe_error(exc))
+    return QuiInstancesResponse(status="ok", instances=[QuiInstance(**i) for i in instances])
+
+
 @router.post("/{torrent_client_id}/test", response_model=TorrentClientTestResponse)
 def test_torrent_client(torrent_client_id: int, session: Session = Depends(get_session)):
     """Sola lettura: chiama adapter.list_torrents() e riporta successo/errore,

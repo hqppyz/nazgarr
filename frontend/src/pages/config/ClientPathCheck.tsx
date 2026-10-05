@@ -142,6 +142,8 @@ export function PathCheckButton({ clientId, clientLabel }: { clientId: number; c
         variant="outline"
         size="sm"
         data-tour="clients.path-check"
+        // Per il tour: dopo una verifica riuscita si va avanti (prima il passo ricompariva).
+        data-tour-filled={result?.status === 'ok' ? 'true' : undefined}
         disabled={check.isPending}
         onClick={() => {
           setOpen(true)

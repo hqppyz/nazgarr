@@ -101,4 +101,10 @@ export const torrentClients = {
   'torrentClients.mappingExamples.unraid': 'Nazgarr mounts /mnt/disk1 and /mnt/disk2, the client the share /mnt/user/data (on each disk)',
   'torrentClients.mappingExamples.unraidValue': 'data = /mnt/user/data',
   'torrentClients.mappingExamples.check': 'When in doubt, "Check paths" on the client card suggests it for you.',
+  'torrentClients.quiLoadInstances': 'Load instances',
+  'torrentClients.quiPickInstance': 'Pick an instance',
+  'torrentClients.quiDisabled': 'disabled in qui',
+  'torrentClients.quiDisconnected': 'not connected',
+  'torrentClients.quiLoadFailed': 'Could not read the instances from qui: {error}. Type the number by hand.',
+  'torrentClients.quiNoInstances': 'This qui has no instances.',
 } as const

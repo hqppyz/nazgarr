@@ -101,4 +101,10 @@ export const torrentClients = {
   'torrentClients.mappingExamples.unraid': 'Nazgarr monta /mnt/disk1 e /mnt/disk2, il client la share /mnt/user/data (su ogni disco)',
   'torrentClients.mappingExamples.unraidValue': 'data = /mnt/user/data',
   'torrentClients.mappingExamples.check': 'Nel dubbio, "Verifica percorsi" sulla card del client la propone da sola.',
+  'torrentClients.quiLoadInstances': 'Carica le istanze',
+  'torrentClients.quiPickInstance': 'Scegli un’istanza',
+  'torrentClients.quiDisabled': 'disattivata in qui',
+  'torrentClients.quiDisconnected': 'non connessa',
+  'torrentClients.quiLoadFailed': 'Impossibile leggere le istanze da qui: {error}. Scrivi il numero a mano.',
+  'torrentClients.quiNoInstances': 'Questo qui non ha istanze.',
 } as const

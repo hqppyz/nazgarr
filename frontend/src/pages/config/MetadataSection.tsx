@@ -1,9 +1,12 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { ServiceLogo } from '@/components/ServiceLogo'
 import { SettingField } from '@/components/SettingField'
+import { useSetting } from '@/api/hooks/settings'
 import { t } from '@/lib/i18n'
 
 export function MetadataSection() {
+  // Per il tour: TVDB impostato, si va avanti da soli dopo il salvataggio.
+  const { data: tvdb } = useSetting('tvdb_api_key')
   return (
     <>
       <Card data-tour="metadata.tmdb">
@@ -24,7 +27,7 @@ export function MetadataSection() {
         </CardContent>
       </Card>
 
-      <Card data-tour="metadata.tvdb">
+      <Card data-tour="metadata.tvdb" data-tour-filled={tvdb?.value ? 'true' : undefined}>
         <CardHeader className="flex flex-row gap-3">
           <ServiceLogo src="/logos/tvdb.svg" alt="TVDB" />
           <div>

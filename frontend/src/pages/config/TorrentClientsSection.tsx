@@ -48,6 +48,7 @@ import { PASSWORD_ONLY, torrentClientPayload, type TorrentClientForm } from '@/l
 import { CLIENT_NAMES } from '@/lib/services'
 import { ClientLogo } from '@/pages/config/ServiceIcons'
 import { PathCheckButton } from '@/pages/config/ClientPathCheck'
+import { QuiInstanceField } from '@/pages/config/QuiInstanceField'
 import { DiskBrowserDialog } from '@/pages/config/DiskBrowserDialog'
 
 type TorrentClient = Schemas['TorrentClientResponse']
@@ -234,17 +235,15 @@ function TorrentClientDialog({ tc }: { tc?: TorrentClient }) {
                   placeholder={keepPlaceholder ?? t('torrentClients.apiKeyPlaceholder')}
                 />
               </div>
-              <div className="grid gap-1.5">
-                <Label htmlFor={`${idPrefix}-qui-instance-id`}>{t('torrentClients.instance')}</Label>
-                <Input
-                  id={`${idPrefix}-qui-instance-id`}
-                  type="number"
-                  value={form.quiInstanceId}
-                  onChange={(e) => set('quiInstanceId')(e.target.value)}
-                  placeholder={editing ? undefined : t('torrentClients.instanceIdPlaceholder')}
-                />
-                {!editing && <p className="text-xs text-muted-foreground">{t('torrentClients.instanceHelp')}</p>}
-              </div>
+              <QuiInstanceField
+                idPrefix={idPrefix}
+                baseUrl={form.baseUrl}
+                apiToken={form.apiToken}
+                clientId={tc?.id}
+                value={form.quiInstanceId}
+                onChange={set('quiInstanceId')}
+                editing={editing}
+              />
             </div>
           ) : (
             <div className="grid gap-3" data-tour="clients.dialog.credentials">

@@ -166,6 +166,18 @@ function AddTrackerDialog() {
   const [rssKey, setRssKey] = useState('')
   const createTracker = useCreateTracker()
   const { data: bundled } = useBundledUploadProfiles()
+  // Dove il tracker mostra il proprio announce URL: dal preset scelto, o da
+  // quello dello stesso indirizzo (come fa il server per il profilo).
+  const hostOf = (url: string | null | undefined) => {
+    try {
+      return new URL(url ?? '').hostname.replace(/^www\./, '')
+    } catch {
+      return ''
+    }
+  }
+  const matched = bundled?.find((p) => p.key === presetKey)
+    ?? bundled?.find((p) => p.base_url && hostOf(p.base_url) === hostOf(baseUrl))
+  const announcePage = matched?.announce_url_page
 
   function applyPreset(key: string) {
     setPresetKey(key)
@@ -285,6 +297,12 @@ function AddTrackerDialog() {
               onChange={(e) => setAnnounceUrl(e.target.value)}
               placeholder="https://mytracker.example/announce/passkey"
             />
+            {announcePage && (
+              <p className="text-xs text-muted-foreground">
+                {t('trackers.announceUrlWhere')}{' '}
+                <a href={announcePage} target="_blank" rel="noreferrer" className="underline">{announcePage}</a>
+              </p>
+            )}
           </div>
           <RssKeyField id="t-rss-key" value={rssKey} onChange={setRssKey} placeholder={t('trackers.rssKeyPlaceholder')} />
           {pluginSpec && (

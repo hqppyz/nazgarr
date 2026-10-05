@@ -70,6 +70,9 @@ export const onboarding = {
   'onboarding.tour.storage.intro.title': 'Your disks',
   'onboarding.tour.storage.intro.body':
     "A disk is a filesystem as this container sees it: one of the folders you mounted. Hardlinks only work inside one filesystem, so a disk keeps its torrent folders and its media folders (if any) on the same one.\nWith a single shared mount (e.g. /data with media/ and torrents/ inside) one disk is enough; with disks mounted one by one (/mnt/disk1, /mnt/disk2) you add one for each.",
+  'onboarding.tour.storage.suggested.title': 'A folder you mounted',
+  'onboarding.tour.storage.suggested.body':
+    'Nazgarr found the folders mounted in this container: start from one of them, already filled in. Click "Add as a disk".',
   'onboarding.tour.storage.add.title': 'Add a disk',
   'onboarding.tour.storage.add.body': 'Click "Add disk" to register the first one.',
   'onboarding.tour.storage.label.title': 'A name',

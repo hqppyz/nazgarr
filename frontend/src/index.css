@@ -166,6 +166,27 @@
   font-size: 0.7rem;
   color: var(--muted-foreground);
 }
+/* Il piede del fumetto: l'avanzamento su una riga sua, sopra, e i pulsanti
+   a destra senza andare a capo (prima "Esclusioni · 2/2" si schiacciava
+   accanto a pulsanti spezzati su due righe). */
+.driver-popover.nazgarr-tour .driver-popover-footer {
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+.driver-popover.nazgarr-tour .driver-popover-footer .driver-popover-progress-text {
+  flex-basis: 100%;
+}
+.driver-popover.nazgarr-tour .driver-popover-navigation-btns {
+  margin-left: auto;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.driver-popover.nazgarr-tour .driver-popover-navigation-btns button {
+  white-space: nowrap;
+  margin: 0;
+}
 .driver-popover.nazgarr-tour .driver-popover-navigation-btns button {
   text-shadow: none;
   font-family: inherit;
