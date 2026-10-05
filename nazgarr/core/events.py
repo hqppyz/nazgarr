@@ -33,7 +33,7 @@ CATALOG: dict[str, str] = {
     "upload.detected": "A new release in a watched folder started an upload.",
     "upload.ready": "An upload is analysed and waits for your decision.",
     "upload.finished": "An upload job finished: done, partial, failed or cancelled.",
-    "test": "Sent by \"Send a test\", to try a webhook.",
+    "test": "Sent by \"Send a test\", to try a webhook or a notification service.",
 }
 ALL = "*"
 _PENDING = "nazgarr_pending_events"
@@ -61,7 +61,7 @@ def webhook_targets(session: Session, name: str) -> list:
     return out
 
 
-def notification_targets(session: Session, name: str) -> list[str]:
+def notification_targets(session: Session, name: str) -> list:
     """I servizi di notifica iscritti all'evento (step 6)."""
     from nazgarr.integrations import notifications
 
@@ -70,21 +70,22 @@ def notification_targets(session: Session, name: str) -> list[str]:
 
 def store(
     session: Session, name: str, data: dict, *, only_webhook_id: int | None = None,
-    only_notification: str | None = None,
+    only_notification_id: int | None = None,
 ) -> object | None:
     """Salva l'evento e le sue consegne (senza commit). None se nessuno è
     iscritto. only_*: una consegna sola a quel destinatario (l'invio di prova)."""
-    from nazgarr.core.models import Event, EventDelivery, Webhook
+    from nazgarr.core.models import Event, EventDelivery, NotificationService, Webhook
 
-    only = only_webhook_id is not None or only_notification is not None
+    only = only_webhook_id is not None or only_notification_id is not None
     with session.no_autoflush:
         webhooks = webhook_targets(session, name) if not only else []
         notifications = notification_targets(session, name) if not only else []
         if only_webhook_id is not None:
             webhook = session.get(Webhook, only_webhook_id)
             webhooks = [webhook] if webhook is not None else []
-        if only_notification is not None:
-            notifications = [only_notification]
+        if only_notification_id is not None:
+            service = session.get(NotificationService, only_notification_id)
+            notifications = [service] if service is not None else []
     if not webhooks and not notifications:
         return None
     now = datetime.now(UTC)
@@ -92,7 +93,7 @@ def store(
     event.deliveries = [
         EventDelivery(webhook_id=w.id, status="pending", next_attempt_at=now, created_at=now) for w in webhooks
     ] + [
-        EventDelivery(notification_type=n, status="pending", next_attempt_at=now, created_at=now)
+        EventDelivery(notification_id=n.id, status="pending", next_attempt_at=now, created_at=now)
         for n in notifications
     ]
     session.add(event)

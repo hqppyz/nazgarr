@@ -57,10 +57,17 @@ class AdapterSpec:
     config_fields: tuple[ConfigField, ...] = ()
     description: str | None = None
     plugin: str | None = None  # None = integrato; se no il nome del pacchetto del plugin
+    # Un'icona per la UI, come immagine "data:image/..." (un SVG o un PNG
+    # piccolo): la UI la mostra in un <img>, dove uno script non gira. Gli
+    # adapter integrati hanno la loro nella UI.
+    icon: str | None = None
 
     @property
     def required_fields(self) -> tuple[ConfigField, ...]:
         return tuple(f for f in self.config_fields if f.required)
+
+
+MAX_ICON = 64 * 1024
 
 
 class AdapterAlreadyRegisteredError(ValueError):
@@ -91,6 +98,9 @@ class Registry:
             spec = replace(spec, plugin=plugin)
         if spec.kind not in KINDS:
             raise ValueError(f"kind sconosciuto: {spec.kind!r} (validi: {', '.join(KINDS)})")
+        if spec.icon is not None and (not spec.icon.startswith("data:image/") or len(spec.icon) > MAX_ICON):
+            raise ValueError(f"icona di {spec.adapter_type!r}: serve un'immagine data:image/... di al massimo "
+                             f"{MAX_ICON // 1024} KB")
         key = (spec.kind, spec.adapter_type)
         if key in self._specs:
             owner = self._specs[key].plugin or "Nazgarr"

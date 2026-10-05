@@ -12,7 +12,8 @@ export function usePlugins() {
 }
 
 // Configurazione di un adapter globale di un plugin (host di immagini,
-// resolver, notifiche): i segreti non tornano mai, solo quali sono impostati.
+// resolver): i segreti non tornano mai, solo quali sono impostati. I servizi
+// di notifica hanno le loro istanze (hooks/notifications.ts).
 export function useAdapterConfig(kind: string, adapterType: string) {
   return useQuery({
     queryKey: ['plugins', 'config', kind, adapterType],
@@ -24,19 +25,10 @@ export function useAdapterConfig(kind: string, adapterType: string) {
 export function useSaveAdapterConfig(kind: string, adapterType: string) {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (body: { enabled?: boolean; config?: Record<string, unknown>; events?: string[] }) =>
+    mutationFn: (body: { enabled?: boolean; config?: Record<string, unknown> }) =>
       unwrap(
         api.PUT('/api/plugins/config/{kind}/{adapter_type}', { params: { path: { kind, adapter_type: adapterType } }, body }),
       ),
     onSuccess: (data) => queryClient.setQueryData(['plugins', 'config', kind, adapterType], data),
-  })
-}
-
-export function useTestNotification(adapterType: string) {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: () =>
-      unwrap(api.POST('/api/plugins/config/notification/{adapter_type}/test', { params: { path: { adapter_type: adapterType } } })),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['plugins', 'config', 'notification', adapterType] }),
   })
 }

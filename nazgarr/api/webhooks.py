@@ -71,7 +71,8 @@ def _response(session: Session, webhook: Webhook) -> WebhookResponse:
     )
 
 
-def _events(names: list[str]) -> list[str]:
+def validated_events(names: list[str]) -> list[str]:
+    """Nomi del catalogo (o "*"), almeno uno; anche per i servizi di notifica."""
     unknown = [n for n in names if n != events.ALL and n not in events.CATALOG]
     if unknown:
         raise HTTPException(status_code=400, detail=coded_detail("webhook_event_unknown", event=unknown[0]))
@@ -89,6 +90,14 @@ def _url(url: str) -> str:
     except net_guard.ForbiddenDestination as exc:
         raise HTTPException(status_code=400, detail=coded_detail("webhook_url_invalid")) from exc
     return url
+
+
+def delivery_response(d: EventDelivery) -> DeliveryResponse:
+    return DeliveryResponse(
+        id=d.id, event_id=d.event_id, event=d.event.name, status=d.status, attempts=d.attempts,
+        next_attempt_at=d.next_attempt_at, last_status_code=d.last_status_code, last_error=d.last_error,
+        delivered_at=d.delivered_at, created_at=d.created_at,
+    )
 
 
 def _get(session: Session, webhook_id: int) -> Webhook:
@@ -114,7 +123,7 @@ def create_webhook(body: WebhookRequest, session: Session = Depends(get_session)
         raise HTTPException(status_code=400, detail=coded_detail("webhook_name_required"))
     secret = secrets.token_hex(32)
     webhook = Webhook(name=body.name.strip(), url=_url(body.url or ""), secret=secret,
-                      events_json=json.dumps(_events(body.events or [])), enabled=body.enabled is not False)
+                      events_json=json.dumps(validated_events(body.events or [])), enabled=body.enabled is not False)
     session.add(webhook)
     session.commit()
     return WebhookWithSecret(**_response(session, webhook).model_dump(), secret=secret)
@@ -130,7 +139,7 @@ def update_webhook(webhook_id: int, body: WebhookRequest, session: Session = Dep
     if body.url is not None:
         webhook.url = _url(body.url)
     if body.events is not None:
-        webhook.events_json = json.dumps(_events(body.events))
+        webhook.events_json = json.dumps(validated_events(body.events))
     if body.enabled is not None:
         webhook.enabled = body.enabled
     session.commit()
@@ -156,14 +165,7 @@ def list_deliveries(webhook_id: int, session: Session = Depends(get_session)):
     _get(session, webhook_id)
     rows = (session.query(EventDelivery).filter_by(webhook_id=webhook_id)
             .order_by(EventDelivery.id.desc()).limit(50).all())
-    return [
-        DeliveryResponse(
-            id=d.id, event_id=d.event_id, event=d.event.name, status=d.status, attempts=d.attempts,
-            next_attempt_at=d.next_attempt_at, last_status_code=d.last_status_code, last_error=d.last_error,
-            delivered_at=d.delivered_at, created_at=d.created_at,
-        )
-        for d in rows
-    ]
+    return [delivery_response(d) for d in rows]
 
 
 @router.post("/{webhook_id}/test", response_model=DeliveryResponse)

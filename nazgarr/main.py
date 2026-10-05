@@ -18,6 +18,7 @@ from nazgarr.api.instances import remote_router
 from nazgarr.api.instances import router as instances_router
 from nazgarr.api.library import router as library_router
 from nazgarr.api.metadata import router as metadata_router
+from nazgarr.api.notifications import router as notifications_router
 from nazgarr.api.plugins import router as plugins_router
 from nazgarr.api.radarr_instances import router as radarr_instances_router
 from nazgarr.api.reviews import router as reviews_router
@@ -124,6 +125,7 @@ app.include_router(metadata_router, dependencies=[_protected])
 app.include_router(system_router, dependencies=[_protected])
 app.include_router(plugins_router, dependencies=[_protected])
 app.include_router(webhooks_router, dependencies=[_protected])
+app.include_router(notifications_router, dependencies=[_protected])
 # Le API key si gestiscono solo con il login, mai con un'altra API key.
 app.include_router(api_keys_router, dependencies=[Depends(auth.require_login)])
 # Le altre istanze e il proxy verso di loro: solo con il login, mai con una API

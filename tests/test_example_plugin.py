@@ -10,6 +10,7 @@ import pytest
 
 import nazgarr.sdk as sdk
 from nazgarr.core import events
+from nazgarr.core.models import NotificationService
 from nazgarr.integrations import webhooks
 from nazgarr.plugins import REGISTRY, loader
 from nazgarr.plugins import config as plugin_config
@@ -42,7 +43,11 @@ def test_the_entry_point_in_pyproject_is_the_one_nazgarr_loads(ntfy_module):
 def test_it_sends_nazgarr_events_to_ntfy(db_session, ntfy_module):
     ntfy_module.setup()
     spec = REGISTRY.get("notification", "ntfy")
-    plugin_config.save_global(db_session, spec, {"topic": "my-nazgarr", "token": "tk_1"}, enabled=True)
+    db_session.add(NotificationService(
+        name="ntfy", adapter_type=spec.adapter_type, events_json='["*"]',
+        config_json=plugin_config.dumps(plugin_config.validate(spec, {"topic": "my-nazgarr", "token": "tk_1"})),
+    ))
+    db_session.commit()
     seen = []
     client = httpx.Client(transport=httpx.MockTransport(lambda r: (seen.append(r), httpx.Response(200))[1]))
     original = ntfy_module.NtfyNotifier.__init__

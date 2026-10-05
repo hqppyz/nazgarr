@@ -23,4 +23,12 @@ export const application = {
   'application.channelStable': 'Canale stable (immagine :stable / :latest): vengono proposte solo le release stable.',
   'application.channelTest': 'Canale nightly (immagine :nightly): viene proposta ogni nuova build.',
   'application.updateAvailable': 'Aggiornamento disponibile: {version}',
+  'application.creditsTitle': 'Crediti',
+  'application.creditsDescription': 'I servizi e le risorse di altri su cui Nazgarr si appoggia.',
+  'application.creditTmdb': 'Questo prodotto usa l’API di TMDB ma non è approvato né certificato da TMDB.',
+  'application.creditTvdb': 'Ordini degli episodi forniti da TheTVDB. Se manca qualcosa, valuta di aggiungerlo o di abbonarti.',
+  'application.creditIcons':
+    'Loghi di client, servizi e siti collegati (Apache-2.0), solo per riconoscerli: i marchi sono dei rispettivi proprietari, nessuna affiliazione.',
+  'application.creditTwemoji': 'Bandiere dei paesi sui sistemi che non le hanno (CC-BY 4.0, Twitter, Inc. e altri contributori).',
+  'application.creditGeist': 'Il carattere dell’interfaccia (SIL Open Font License 1.1).',
 } as const

@@ -1,11 +1,5 @@
 export const webhooks = {
-  'webhooks.title': 'Webhooks',
-  'webhooks.description':
-    'Nazgarr sends a signed JSON POST to these URLs when something happens. Failed deliveries are retried for a few hours.',
-  'webhooks.add': 'Add webhook',
-  'webhooks.none': 'No webhook yet.',
   'webhooks.addTitle': 'New webhook',
-  'webhooks.editTitle': 'Edit webhook',
   'webhooks.dialogHelp': 'The URL receives the events you choose. The secret to verify them is shown once, after saving.',
   'webhooks.name': 'Name',
   'webhooks.url': 'URL',
@@ -35,5 +29,15 @@ export const webhooks = {
   'webhooks.signatureHelp':
     'Every request has X-Nazgarr-Timestamp and X-Nazgarr-Signature: sha256=HMAC-SHA256(secret, "<timestamp>.<body>"). Compute it on the raw body and reject old timestamps.',
   'webhooks.deleteTitle': 'Delete {name}?',
-  'webhooks.deleteDescription': 'Its deliveries are deleted too.',
+  'webhooks.deleteDescription': 'Its deliveries are deleted too, including the queued ones.',
+  // Impostazioni › Notifiche: servizi (un'istanza per card) e webhook insieme.
+  'notifications.add': 'Add',
+  'notifications.none': 'Nothing set up yet. Add a Discord or Telegram service (as many as you like), or a webhook.',
+  'notifications.addTitle': 'New {type} service',
+  'notifications.editTitle': 'Edit {name}',
+  'notifications.dialogHelp': 'Choose the events it receives. Send a test before saving to check the settings.',
+  'notifications.typeWebhook': 'Webhook',
+  'notifications.typeWebhookHelp': 'A signed JSON POST to any URL',
+  'notifications.secretSet': 'set',
+  'notifications.unavailable': '{type} is not available (plugin removed?)',
 } as const

@@ -45,7 +45,7 @@ It isn't tied to Unraid or to the \*arr stack. Separate disks without FUSE or RA
 - Several torrent clients at once ([qBittorrent](https://www.qbittorrent.org/), [qui](https://github.com/autobrr/qui), [Deluge](https://deluge-torrent.org/), [Transmission](https://transmissionbt.com/), [rTorrent](https://github.com/rakshasa/rtorrent)/[ruTorrent](https://github.com/Novik/ruTorrent)), [UNIT3D](https://github.com/HDInnovations/UNIT3D) trackers, optional [Radarr](https://radarr.video/) and [Sonarr](https://sonarr.tv/).
 - Works without a media folder too, just for your torrents and uploads.
 - More instances in one web UI: add another Nazgarr (say a seedbox) with one of its API keys and switch between them, or see them all in one overview.
-- Notifications on Discord and Telegram, plus plugins, signed webhooks and API keys to extend it ([docs/SDK.md](docs/SDK.md)).
+- Notifications on Discord and Telegram (as many services as you like), plus plugins, signed webhooks and API keys to extend it ([docs/SDK.md](docs/SDK.md)).
 - English and Italian interface, and a guided tour that sets everything up at the first access.
 
 ## Who it is for
@@ -220,8 +220,8 @@ Design decisions live in [`docs/SPEC.md`](docs/SPEC.md), the plan in [`docs/ROAD
 
 ## Credits
 
-- **Metadata:** this product uses the TMDB API but is not endorsed or certified by TMDB.
-- **Fonts and images:** [Geist](https://vercel.com/font) (SIL Open Font License 1.1). Country flags on systems without them come from [Twemoji](https://github.com/jdecked/twemoji) graphics (CC-BY 4.0, by Twitter, Inc. and other contributors), through [country-flag-emoji-polyfill](https://github.com/talkjs/country-flag-emoji-polyfill) (MIT).
+- **Metadata:** this product uses the TMDB API but is not endorsed or certified by TMDB. Episode orders are provided by [TheTVDB](https://thetvdb.com).
+- **Fonts and images:** [Geist](https://vercel.com/font) (SIL Open Font License 1.1). Logos of the clients, trackers and services Nazgarr connects to from [Dashboard Icons](https://github.com/homarr-labs/dashboard-icons) (Apache-2.0), used only to identify them: the marks belong to their owners, with no affiliation implied. Country flags on systems without them come from [Twemoji](https://github.com/jdecked/twemoji) graphics (CC-BY 4.0, by Twitter, Inc. and other contributors), through [country-flag-emoji-polyfill](https://github.com/talkjs/country-flag-emoji-polyfill) (MIT).
 - **Backend:** FastAPI, SQLAlchemy, APScheduler, httpx, qbittorrent-api, pymediainfo and MediaInfo, guessit, torf, FFmpeg. Deluge, Transmission and rTorrent are reached through their own APIs (JSON-RPC, RPC, XML-RPC) with httpx and the Python standard library, no extra client library.
 - **Frontend:** React, TanStack Query, Base UI and shadcn/ui, Tailwind CSS, three.js, GSAP, Recharts, driver.js, Lucide icons.
 - **Domain reference:** [Upload-Assistant](https://github.com/Audionut/Upload-Assistant), for tracker conventions in the upload flow. No code is reused from it.

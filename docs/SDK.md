@@ -6,7 +6,7 @@ Nazgarr can be extended in three ways:
 - **Webhooks**: signed HTTP calls for the events you choose.
 - **API keys**: scripts and other services can use the same JSON API as the web UI.
 
-SDK version: **1.0.0** (`nazgarr.sdk.SDK_VERSION`, [semantic versioning](https://semver.org): a breaking change bumps the major version).
+SDK version: **1.1.0** (`nazgarr.sdk.SDK_VERSION`, [semantic versioning](https://semver.org): a breaking change bumps the major version). 1.1 added `AdapterSpec.icon`: a plugin that uses it needs `REQUIRES_SDK = ">=1.1,<2"`.
 
 ## Rules that apply to everything here
 
@@ -35,7 +35,9 @@ Each line is a package (a name, `name==version`, or a `git+https://…` URL). Li
 
 - the plugins that were loaded, with their version and the adapters they add;
 - the plugins that failed to install or load, or that need another SDK version, with the error. They stay off and the rest of Nazgarr works as usual;
-- a form for the adapters that have no row of their own (image hosts and media resolvers under Plugins, notification services under Notifications, next to the built-in Discord and Telegram): their fields, an on/off switch and, for notifications, the events to send and a test.
+- a form for the image hosts and media resolvers of plugins, which have no row of their own: their fields and an on/off switch.
+
+Notification services from plugins appear under **Settings > Extensions > Notifications**, next to the built-in Discord and Telegram and the webhooks: "Add" lists every type, and each instance (there can be several per type, such as two ntfy topics) is a card with its own fields, events and a test.
 
 Tracker and torrent client adapters from plugins appear as new types in the "Add tracker" and "Add client" dialogs, with their own fields.
 
@@ -88,6 +90,7 @@ Import only from `nazgarr.sdk`, never from the rest of `nazgarr`: `nazgarr.sdk` 
 | `kind` | `"tracker"`, `"torrent_client"`, `"media_resolver"`, `"image_host"` or `"notification"` |
 | `adapter_type` | Unique name for this kind. A plugin cannot replace a built-in adapter (`qbittorrent`, `qui`, `unit3d`, the built-in image hosts). |
 | `label`, `description` | What the UI shows |
+| `icon` | Optional (SDK 1.1): an image as a `data:image/...` URI (a small SVG or PNG, at most 64 KB), shown next to the label. Built-in adapters have their own. |
 | `config_fields` | The settings your adapter needs (below) |
 | `build(ctx)` | Returns an instance of your adapter; called every time Nazgarr needs one |
 
@@ -122,7 +125,7 @@ An adapter whose required fields are not all filled in is skipped, like a built-
 | `torrent_client` | on the client, in Settings > Clients | indexing torrents, reseeding, uploads |
 | `media_resolver` | Settings > Extensions > Plugins | recognizing files: plugin resolvers are tried **before** Radarr/Sonarr and TMDB, and the first that recognizes a file wins; they also work without a TMDB key |
 | `image_host` | Settings > Extensions > Plugins | upload screenshots: plugin hosts go at the end of the image host priority |
-| `notification` | Settings > Extensions > Notifications, with the events to send | the events below, as readable messages |
+| `notification` | Settings > Extensions > Notifications: any number of instances, each with its fields and the events to send | the events below, as readable messages |
 
 ---
 

@@ -85,7 +85,7 @@ for adapter_type, label, cls in (
 register(AdapterSpec("image_host", "imgbox", "Imgbox", lambda ctx: ImgboxAdapter()))
 register(AdapterSpec("image_host", "pixhost", "Pixhost", lambda ctx: PixhostAdapter()))
 
-# Notifiche: la configurazione sta in adapter_config (cifrata), come per i plugin.
+# Notifiche: ogni istanza ha la sua riga in notification_service (cifrata), come per i plugin.
 register(AdapterSpec(
     "notification", "discord", "Discord",
     lambda ctx: DiscordNotificationAdapter(ctx.config["webhook_url"], ctx.config.get("username")),

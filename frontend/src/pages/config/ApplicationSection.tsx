@@ -1,8 +1,10 @@
-import { BugIcon, ExternalLinkIcon, GitPullRequestIcon, RefreshCwIcon, TagIcon } from 'lucide-react'
+import { BugIcon, ExternalLinkIcon, GitPullRequestIcon, ImagesIcon, RefreshCwIcon, SmileIcon, TagIcon, TypeIcon } from 'lucide-react'
+import type { ReactNode } from 'react'
 
 import { useAppInfo, useUpdateCheck } from '@/api/hooks/system'
 import { GitHubMark } from '@/components/GitHubMark'
 import { RingLogo } from '@/components/RingLogo'
+import { ServiceLogo } from '@/components/ServiceLogo'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { RestartTourCard } from '@/onboarding/RestartTourCard'
@@ -72,6 +74,46 @@ function ContributeCard() {
   )
 }
 
+// Crediti: i servizi di metadati che Nazgarr interroga (TMDB e TheTVDB
+// chiedono l'attribuzione nell'app, con il loro logo) e le risorse grafiche
+// che distribuisce. Lo stesso elenco sta nel README.
+function CreditsCard() {
+  const credits: { key: string; icon: ReactNode; name: string; href: string; text: string }[] = [
+    { key: 'tmdb', icon: <ServiceLogo src="/logos/tmdb.svg" alt="TMDB" />, name: 'TMDB',
+      href: 'https://www.themoviedb.org', text: t('application.creditTmdb') },
+    { key: 'tvdb', icon: <ServiceLogo src="/logos/tvdb.svg" alt="TheTVDB" />, name: 'TheTVDB',
+      href: 'https://thetvdb.com', text: t('application.creditTvdb') },
+    { key: 'icons', icon: <ImagesIcon className="size-5 text-muted-foreground" />, name: 'Dashboard Icons',
+      href: 'https://github.com/homarr-labs/dashboard-icons', text: t('application.creditIcons') },
+    { key: 'twemoji', icon: <SmileIcon className="size-5 text-muted-foreground" />, name: 'Twemoji',
+      href: 'https://github.com/jdecked/twemoji', text: t('application.creditTwemoji') },
+    { key: 'geist', icon: <TypeIcon className="size-5 text-muted-foreground" />, name: 'Geist',
+      href: 'https://vercel.com/font', text: t('application.creditGeist') },
+  ]
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{t('application.creditsTitle')}</CardTitle>
+        <CardDescription>{t('application.creditsDescription')}</CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-1">
+        {credits.map((credit) => (
+          <div key={credit.key} className="flex items-start gap-3 border-b py-2 last:border-b-0">
+            <div className="flex size-7 shrink-0 items-center justify-center">{credit.icon}</div>
+            <div className="grid min-w-0 gap-0.5 text-sm">
+              <a href={credit.href} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-medium hover:underline">
+                {credit.name}
+                <ExternalLinkIcon className="size-3 text-muted-foreground" />
+              </a>
+              <p className="text-xs text-muted-foreground">{credit.text}</p>
+            </div>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  )
+}
+
 export function ApplicationSection() {
   const { data: info } = useAppInfo()
   const { data: updateCheck, isFetching, refetch } = useUpdateCheck(false)
@@ -129,7 +171,10 @@ export function ApplicationSection() {
         </Card>
         <RestartTourCard />
       </div>
-      <ContributeCard />
+      <div className="grid content-start gap-6">
+        <ContributeCard />
+        <CreditsCard />
+      </div>
     </>
   )
 }

@@ -477,6 +477,84 @@ def migrate_disk_folders(engine: Engine) -> int:
     return moved
 
 
+def migrate_notification_services(engine: Engine) -> int:
+    """I servizi di notifica diventano istanze (decisione dell'utente,
+    2026-10-05): la configurazione di Discord, Telegram o di un plugin, che
+    stava in adapter_config (una per tipo), diventa una riga di
+    notification_service, e le consegne (event_delivery) puntano all'istanza
+    invece che al tipo. event_delivery si rifà per togliere notification_type
+    e dare a notification_id la sua FK (un ALTER TABLE non la aggiunge). Le
+    consegne verso un tipo senza configurazione si perdono: non avevano un
+    destinatario. Idempotente. Restituisce i servizi creati."""
+    from nazgarr.plugins import REGISTRY
+
+    inspector = inspect(engine)
+    if not inspector.has_table("event_delivery"):
+        return 0
+    delivery_columns = [c["name"] for c in inspector.get_columns("event_delivery")]
+    config_columns = ({c["name"] for c in inspector.get_columns("adapter_config")}
+                      if inspector.has_table("adapter_config") else set())
+    created = 0
+    raw_conn = engine.raw_connection()
+    try:
+        cursor = raw_conn.cursor()
+        cursor.execute("PRAGMA foreign_keys=OFF")
+        if config_columns:
+            events = "events_json" if "events_json" in config_columns else "NULL"
+            rows = cursor.execute(
+                f"SELECT adapter_type, enabled, config_json, {events} FROM adapter_config WHERE kind = 'notification'"
+            ).fetchall()
+            for adapter_type, enabled, config_json, events_json in rows:
+                spec = REGISTRY.get("notification", adapter_type)
+                cursor.execute(
+                    "INSERT INTO notification_service (name, adapter_type, enabled, config_json, events_json) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    (spec.label if spec else adapter_type, adapter_type, enabled, config_json, events_json or '["*"]'),
+                )
+                created += 1
+            cursor.execute("DELETE FROM adapter_config WHERE kind = 'notification'")
+        if "notification_type" in delivery_columns:
+            cursor.execute("""
+                CREATE TABLE event_delivery__rebuild (
+                    id              INTEGER PRIMARY KEY,
+                    event_id        INTEGER NOT NULL REFERENCES event(id) ON DELETE CASCADE,
+                    webhook_id      INTEGER REFERENCES webhook(id) ON DELETE CASCADE,
+                    notification_id INTEGER REFERENCES notification_service(id) ON DELETE CASCADE,
+                    status          TEXT NOT NULL DEFAULT 'pending'
+                                    CHECK (status IN ('pending','delivered','failed')),
+                    attempts        INTEGER NOT NULL DEFAULT 0,
+                    next_attempt_at TIMESTAMP,
+                    last_status_code INTEGER,
+                    last_error      TEXT,
+                    delivered_at    TIMESTAMP,
+                    created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            # Il servizio creato qui sopra per quel tipo (uno solo per tipo, fino a ora).
+            cursor.execute("""
+                INSERT INTO event_delivery__rebuild
+                    (id, event_id, webhook_id, notification_id, status, attempts, next_attempt_at,
+                     last_status_code, last_error, delivered_at, created_at)
+                SELECT d.id, d.event_id, d.webhook_id,
+                       (SELECT MIN(s.id) FROM notification_service s WHERE s.adapter_type = d.notification_type),
+                       d.status, d.attempts, d.next_attempt_at, d.last_status_code, d.last_error,
+                       d.delivered_at, d.created_at
+                FROM event_delivery d
+                WHERE d.notification_type IS NULL
+                   OR EXISTS (SELECT 1 FROM notification_service s WHERE s.adapter_type = d.notification_type)
+            """)
+            cursor.execute("DROP TABLE event_delivery")
+            cursor.execute("ALTER TABLE event_delivery__rebuild RENAME TO event_delivery")
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS ix_event_delivery_due ON event_delivery(status, next_attempt_at)"
+            )
+        raw_conn.commit()
+        cursor.execute("PRAGMA foreign_keys=ON")
+    finally:
+        raw_conn.close()
+    return created
+
+
 # Colonne diventate cifrate (EncryptedString) dopo che c'erano già dati.
 _NOW_ENCRYPTED = (("tracker", "announce_url"), ("tracker", "history_session_cookie"))
 

@@ -48,3 +48,38 @@ def test_a_failed_step_does_not_move_the_version(tmp_path, monkeypatch):
     with pytest.raises(RuntimeError):
         migrations.upgrade(engine)
     assert migrations.current_version(engine) == 0
+
+
+def test_notification_services_become_instances(tmp_path):
+    """Migrazione 6: la configurazione per tipo (adapter_config) diventa una
+    riga di notification_service e le consegne puntano all'istanza."""
+    engine = db.make_engine(str(tmp_path / "db.db"))
+    migrations.upgrade(engine)
+    with engine.begin() as conn:  # la forma di prima
+        conn.execute(text("DROP TABLE event_delivery"))
+        conn.execute(text(
+            "CREATE TABLE event_delivery (id INTEGER PRIMARY KEY, event_id INTEGER NOT NULL, webhook_id INTEGER, "
+            "notification_type TEXT, status TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0, "
+            "next_attempt_at TIMESTAMP, last_status_code INTEGER, last_error TEXT, delivered_at TIMESTAMP, "
+            "created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)"
+        ))
+        conn.execute(text("ALTER TABLE adapter_config ADD COLUMN events_json TEXT"))
+        conn.execute(text("INSERT INTO adapter_config (kind, adapter_type, enabled, config_json, events_json) "
+                          "VALUES ('notification', 'telegram', 1, 'enc:x', '[\"run.finished\"]'), "
+                          "('image_host', 'ntfy_img', 1, NULL, NULL)"))
+        conn.execute(text("INSERT INTO event (id, name, payload_json) VALUES (1, 'run.finished', '{}')"))
+        conn.execute(text("INSERT INTO event_delivery (id, event_id, notification_type) "
+                          "VALUES (1, 1, 'telegram'), (2, 1, 'gone')"))
+        conn.execute(text("PRAGMA user_version = 5"))
+
+    migrations.upgrade(engine)
+
+    with engine.connect() as conn:
+        services = conn.execute(text(
+            "SELECT id, name, adapter_type, config_json, events_json FROM notification_service")).all()
+        assert [tuple(s[1:]) for s in services] == [("Telegram", "telegram", "enc:x", '["run.finished"]')]
+        assert conn.execute(text("SELECT id, notification_id FROM event_delivery")).all() == [(1, services[0][0])]
+        assert conn.execute(text("SELECT kind FROM adapter_config")).scalars().all() == ["image_host"]
+        fks = conn.execute(text("PRAGMA foreign_key_list(event_delivery)")).all()
+        assert {fk[2] for fk in fks} == {"event", "webhook", "notification_service"}
+    assert "notification_type" not in {c["name"] for c in inspect(engine).get_columns("event_delivery")}
