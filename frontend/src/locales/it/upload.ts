@@ -45,7 +45,7 @@ export const upload = {
 
   'upload.picker.title': 'Scegli la sorgente',
   'upload.picker.description':
-    'Clicca un file o una cartella per selezionarlo, la freccia (o un doppio clic) apre una cartella.',
+    'Clicca un file o una cartella per selezionarlo; la freccia, un doppio clic o un secondo tocco aprono una cartella.',
   'upload.picker.noDisks': 'Ancora nessun disco configurato.',
   'upload.picker.nothingSelected': 'Niente di selezionato',
   'upload.picker.useFile': 'Usa questo file',

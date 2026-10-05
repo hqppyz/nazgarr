@@ -28,7 +28,9 @@ export function InfoPopover({
       >
         {children}
       </PopoverTrigger>
-      <PopoverContent align={align} className="w-80 max-w-[calc(100vw-2rem)] text-xs break-words">
+      {/* I click non risalgono alla riga sotto (gli eventi di React passano dai portali). */}
+      <PopoverContent align={align} className="w-80 max-w-[calc(100vw-2rem)] text-xs break-words"
+                      onClick={(event) => event.stopPropagation()}>
         {content}
       </PopoverContent>
     </Popover>

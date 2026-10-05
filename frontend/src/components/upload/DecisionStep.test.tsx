@@ -56,7 +56,8 @@ describe('DecisionStep', () => {
 
     fireEvent.change(screen.getByLabelText('Release name'), { target: { value: ' ' } })
 
-    expect(screen.getByText('the release name is empty')).toBeTruthy()
+    // Due volte: nell'elenco per telefono e nella tabella (una delle due nascosta via CSS).
+    expect(screen.getAllByText('the release name is empty')).toHaveLength(2)
     expect(screen.getByText('1 tracker(s) still need something before approving.')).toBeTruthy()
     expect((screen.getByRole('button', { name: 'Approve' }) as HTMLButtonElement).disabled).toBe(true)
   })

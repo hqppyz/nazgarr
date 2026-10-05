@@ -11,6 +11,7 @@ import { editDraft, type TargetDraft } from '@/lib/upload'
 import { cn } from '@/lib/utils'
 
 const FLAGS = ['anonymous', 'personal_release', 'internal', 'stream'] as const
+const ACTION_ITEM = 'min-w-24 px-4 max-sm:min-w-0 max-sm:flex-1 max-sm:shrink max-sm:px-2'
 
 function IdSelect({
   label,
@@ -119,18 +120,21 @@ export function TargetDecisionForm({
   return (
     <div className="grid min-w-0 gap-4 rounded-md border bg-muted/30 p-3">
       <div className="flex flex-wrap items-center gap-3">
+        {/* Sul telefono il gruppo prende tutta la riga e le tre voci se la
+            dividono: con min-w-24 ciascuna a 360px la terza veniva tagliata. */}
         <ToggleGroupSingle
+          className="max-sm:w-full"
           aria-label={t('upload.decision.action')}
           value={draft.action}
           onValueChange={(value) => set({ action: value as TargetDraft['action'] })}
           variant="outline"
           disabled={disabled}
         >
-          <ToggleGroupItem value="upload" className="min-w-24 px-4">{t('upload.action.upload')}</ToggleGroupItem>
-          <ToggleGroupItem value="reseed" className="min-w-24 px-4" disabled={identical.length === 0}>
+          <ToggleGroupItem value="upload" className={ACTION_ITEM}>{t('upload.action.upload')}</ToggleGroupItem>
+          <ToggleGroupItem value="reseed" className={ACTION_ITEM} disabled={identical.length === 0}>
             {t('upload.action.reseed')}
           </ToggleGroupItem>
-          <ToggleGroupItem value="skip" className="min-w-24 px-4">{t('upload.action.skip')}</ToggleGroupItem>
+          <ToggleGroupItem value="skip" className={ACTION_ITEM}>{t('upload.action.skip')}</ToggleGroupItem>
         </ToggleGroupSingle>
       </div>
 
@@ -180,7 +184,8 @@ export function TargetDecisionForm({
           {target.freeleech_options.length > 0 && (
             <div className="flex flex-wrap items-center gap-2">
               <Label className="text-xs">{t('upload.decision.freeleech')}</Label>
-              <div className="inline-flex overflow-hidden rounded-md border">
+              {/* Con molte percentuali va a capo invece di uscire dal riquadro. */}
+              <div className="inline-flex flex-wrap overflow-hidden rounded-md border">
                 {[0, ...target.freeleech_options].map((value) => (
                   <button
                     key={value}
@@ -228,8 +233,11 @@ export function TargetDecisionForm({
           <Select value={draft.reseed_torrent_id} onValueChange={(v) => v != null && set({ reseed_torrent_id: v })}>
             {/* Stesso aspetto del campo del nome di un upload. */}
             <SelectTrigger className="h-8 w-full min-w-0 font-mono text-xs">
-              <SelectValue placeholder={t('upload.decision.choose')}>
-                {(v: string | null) => identical.find((d) => d.torrent_id_remote === v)?.name ?? t('upload.decision.choose')}
+              {/* Un nome lungo senza spazi si tronca dentro il campo invece di allargarlo. */}
+              <SelectValue className="min-w-0" placeholder={t('upload.decision.choose')}>
+                {(v: string | null) => (
+                  <span className="truncate">{identical.find((d) => d.torrent_id_remote === v)?.name ?? t('upload.decision.choose')}</span>
+                )}
               </SelectValue>
             </SelectTrigger>
             <SelectContent>

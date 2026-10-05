@@ -32,6 +32,12 @@ export const library = {
   'library.torrentRightClickHint':
     'Right-click a file or folder to upload or reseed an orphaned torrent, or to exclude it.',
   'library.mediaRightClickHint': 'Right-click a file or folder to upload an orphaned file, or to exclude it.',
+  'library.torrentTouchHint':
+    'Long-press a file or folder, or tap ⋯, to upload or reseed an orphaned torrent, or to exclude it.',
+  'library.mediaTouchHint': 'Long-press a file or folder, or tap ⋯, to upload an orphaned file, or to exclude it.',
+  'library.packSelectShown': 'Pick all shown ({count})',
+  'library.packDeselectShown': 'Unpick all shown',
+  'library.closeSheet': 'Close',
   'library.seedingCopy': 'seeding from another copy',
   'library.seedingCopyTitle': 'Nobody seeds this path, but the same file (hardlink) is seeding from:',
   'library.menu.excludeFile': 'Exclude file',

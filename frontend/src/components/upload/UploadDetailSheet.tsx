@@ -69,7 +69,8 @@ export function UploadDetailSheet({ uploadId, onClose }: { uploadId: number | nu
         {job && (
           <>
             <SheetHeader>
-              <SheetTitle className="flex flex-wrap items-center gap-2 break-words">
+              {/* pr-10: il titolo non passa sotto la X di chiusura. */}
+              <SheetTitle className="flex flex-wrap items-center gap-2 pr-10 break-words">
                 {job.title ? `${job.title}${job.year ? ` (${job.year})` : ''}` : t('upload.untitled')}
                 {job.kind && <Badge variant="outline">{t(`upload.kind.${job.kind}`)}</Badge>}
                 <UploadStatusBadge status={job.status} />
@@ -86,7 +87,7 @@ export function UploadDetailSheet({ uploadId, onClose }: { uploadId: number | nu
                     tmdbId={job.tmdb_id}
                     hasPoster
                     url={posterUrl({ content_type: job.content_type as 'movie' | 'tv', tmdb_id: job.tmdb_id, poster_path: job.poster_path })}
-                    className="aspect-[2/3] w-28 shrink-0 overflow-hidden rounded-md"
+                    className="aspect-[2/3] w-20 shrink-0 overflow-hidden rounded-md sm:w-28"
                   />
                 )}
                 <div className="grid min-w-0 content-start gap-2">
@@ -120,7 +121,7 @@ export function UploadDetailSheet({ uploadId, onClose }: { uploadId: number | nu
                         )}
                       </div>
                       {target.approved_name && <p className="font-mono break-all">{target.approved_name}</p>}
-                      {target.info_hash && <p className="truncate font-mono text-muted-foreground">{target.info_hash}</p>}
+                      {target.info_hash && <p className="font-mono break-all text-muted-foreground">{target.info_hash}</p>}
                       {target.error_message && <p className="text-red-600 dark:text-red-400">{target.error_message}</p>}
                       {matches.length > 0 && (
                         <div className="grid min-w-0 gap-0.5">

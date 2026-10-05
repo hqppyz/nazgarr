@@ -12,6 +12,7 @@ import {
   type Webhook,
 } from '@/api/hooks/webhooks'
 import { Badge } from '@/components/ui/badge'
+import { InfoPopover } from '@/components/InfoPopover'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
@@ -154,6 +155,17 @@ export function WebhookDialog({ webhook, onClose, onCreated }: {
   )
 }
 
+// L'esito di una consegna in una riga: codice HTTP, errore, prossimo tentativo.
+function deliveryResult(d: Schemas['DeliveryResponse']) {
+  return [
+    d.last_status_code ? `HTTP ${d.last_status_code}` : '',
+    d.last_error ?? '',
+    d.status === 'pending' && d.next_attempt_at
+      ? `· ${t('webhooks.nextAttempt', { when: relativeFromNow(d.next_attempt_at) })}`
+      : '',
+  ].filter(Boolean).join(' ')
+}
+
 // Le ultime consegne di un webhook o di un servizio di notifica.
 export function DeliveriesDialog({ name, deliveries, onClose }: {
   name: string | null
@@ -170,7 +182,25 @@ export function DeliveriesDialog({ name, deliveries, onClose }: {
         {(deliveries ?? []).length === 0 ? (
           <p className="text-sm text-muted-foreground">{t('webhooks.noDeliveries')}</p>
         ) : (
-          <div className="max-h-[60vh] overflow-auto">
+          <div className="max-h-[60dvh] overflow-auto">
+            {/* Da telefono cinque colonne lasciano all'esito pochi pixel e
+                l'errore stava solo nel title: righe impilate, errore intero. */}
+            <ul className="divide-y sm:hidden">
+              {deliveries!.map((d) => (
+                <li key={d.id} className="grid gap-1 py-2 text-xs">
+                  <div className="flex items-center gap-2">
+                    <span className="min-w-0 flex-1 truncate font-mono">{d.event}</span>
+                    <StatusBadge status={d.status} />
+                  </div>
+                  <p className="break-words text-muted-foreground">{deliveryResult(d)}</p>
+                  <p className="text-muted-foreground">
+                    {t('webhooks.attempts')}: <span className="tabular-nums">{d.attempts}</span> ·{' '}
+                    {relativeFromNow(d.delivered_at ?? d.created_at)}
+                  </p>
+                </li>
+              ))}
+            </ul>
+            <div className="hidden sm:block">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -188,13 +218,9 @@ export function DeliveriesDialog({ name, deliveries, onClose }: {
                     <TableCell><StatusBadge status={d.status} /></TableCell>
                     <TableCell className="tabular-nums">{d.attempts}</TableCell>
                     <TableCell className="max-w-0 text-xs text-muted-foreground">
-                      <span className="block truncate" title={d.last_error ?? undefined}>
-                        {d.last_status_code ? `HTTP ${d.last_status_code}` : ''}
-                        {d.last_error ? ` ${d.last_error}` : ''}
-                        {d.status === 'pending' && d.next_attempt_at
-                          ? ` · ${t('webhooks.nextAttempt', { when: relativeFromNow(d.next_attempt_at) })}`
-                          : ''}
-                      </span>
+                      <InfoPopover content={d.last_error} className="block truncate">
+                        {deliveryResult(d)}
+                      </InfoPopover>
                     </TableCell>
                     <TableCell className="text-xs whitespace-nowrap text-muted-foreground">
                       {relativeFromNow(d.delivered_at ?? d.created_at)}
@@ -203,6 +229,7 @@ export function DeliveriesDialog({ name, deliveries, onClose }: {
                 ))}
               </TableBody>
             </Table>
+            </div>
           </div>
         )}
       </DialogContent>
@@ -242,9 +269,9 @@ export function DestinationCard({
           <CardTitle className="flex items-center gap-2 truncate text-base">
             <span className="truncate">{name}</span>
             {lastStatus && (
-              <span title={lastStatus === 'failed' ? (lastError ?? undefined) : undefined}>
+              <InfoPopover content={lastStatus === 'failed' ? lastError : null}>
                 <StatusBadge status={lastStatus} />
-              </span>
+              </InfoPopover>
             )}
           </CardTitle>
           <span className="truncate text-xs text-muted-foreground">{subtitle}</span>
@@ -318,7 +345,10 @@ export function WebhookCard({ webhook, onEdit, onDelete, onDeliveries, onSecret 
         </Button>
       }
     >
-      <span className="truncate font-mono text-xs text-muted-foreground" title={webhook.url}>{webhook.url}</span>
+      {/* Al tocco il title non si vede: l'URL va a capo invece di troncarsi. */}
+      <span className="truncate font-mono text-xs text-muted-foreground pointer-coarse:break-all pointer-coarse:whitespace-normal" title={webhook.url}>
+        {webhook.url}
+      </span>
     </DestinationCard>
   )
 }

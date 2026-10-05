@@ -107,4 +107,6 @@ export const torrentClients = {
   'torrentClients.quiDisconnected': 'not connected',
   'torrentClients.quiLoadFailed': 'Could not read the instances from qui: {error}. Type the number by hand.',
   'torrentClients.quiNoInstances': 'This qui has no instances.',
+  'torrentClients.deleteTitle': 'Delete the client {label}?',
+  'torrentClients.deleteDescription': 'Nazgarr forgets this client and the torrents it read from it. Nothing changes in the client itself.',
 } as const

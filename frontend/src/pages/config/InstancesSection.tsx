@@ -15,6 +15,7 @@ import { instanceDot } from '@/components/instances/InstanceSwitcher'
 import { SettingsHeader } from '@/components/SettingsHeader'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { ConfirmButton } from '@/components/ConfirmButton'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   Dialog,
@@ -172,7 +173,7 @@ export function InstancesSection() {
           <CardContent className="py-6 text-center text-sm text-muted-foreground">{t('instances.none')}</CardContent>
         </Card>
       )}
-      <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
+      <div className="grid gap-4 xl:grid-cols-2 2xl:grid-cols-3">
         {data?.instances.map((instance) => (
           <Card key={instance.id} className="min-w-0">
             <CardHeader className="flex flex-row items-center gap-3">
@@ -201,17 +202,20 @@ export function InstancesSection() {
                 </Button>
                 <span className="flex-1" />
                 <InstanceDialog instance={instance} />
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  title={t('common.delete')}
-                  onClick={() => {
-                    if (!window.confirm(t('instances.removeConfirm', { label: instance.label }))) return
+                {/* La stessa conferma degli altri elimina, non window.confirm. */}
+                <ConfirmButton
+                  trigger={
+                    <Button variant="ghost" size="icon-sm" title={t('common.delete')}>
+                      <TrashIcon className="size-4" />
+                    </Button>
+                  }
+                  title={t('instances.removeTitle', { label: instance.label })}
+                  description={t('instances.removeDescription')}
+                  pending={remove.isPending}
+                  onConfirm={() =>
                     remove.mutate(instance.id, { onSuccess: () => current === instance.id && switchInstance(null) })
-                  }}
-                >
-                  <TrashIcon className="size-4" />
-                </Button>
+                  }
+                />
               </div>
             </CardContent>
           </Card>

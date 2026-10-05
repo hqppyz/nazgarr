@@ -33,6 +33,9 @@ const VERDICT_STYLE: Record<Dupe['verdict'], string> = {
   different: 'border-zinc-400/40 bg-zinc-400/15 text-zinc-600 dark:text-zinc-300',
 }
 
+// Il nome di un dupe: sul telefono va a capo (fino a tre righe), da sm si tronca.
+const DUPE_NAME = 'font-mono max-sm:line-clamp-3 max-sm:break-all sm:truncate'
+
 const ACTION_STYLE: Record<string, string> = {
   upload: 'border-sky-500/40 bg-sky-500/15 text-sky-700 dark:text-sky-300',
   reseed: 'border-emerald-500/40 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300',
@@ -47,16 +50,24 @@ export function ActionBadge({ action }: { action: string }) {
   )
 }
 
-function Verification({ dupe }: { dupe: Dupe }) {
+function verificationText(dupe: Dupe): string | null {
   const v = dupe.verification
   if (!v) return null
-  if (v.status === 'passed') {
-    return <span className="text-emerald-600 dark:text-emerald-400">{t('upload.dupes.verifyPassed', { pieces: v.pieces })}</span>
-  }
-  if (v.status === 'failed') {
-    return <span className="text-red-600 dark:text-red-400">{t('upload.dupes.verifyFailed', { reason: v.reason })}</span>
-  }
-  return <span className="text-red-600 dark:text-red-400">{t('upload.dupes.verifyError', { reason: v.reason })}</span>
+  if (v.status === 'passed') return t('upload.dupes.verifyPassed', { pieces: v.pieces })
+  if (v.status === 'failed') return t('upload.dupes.verifyFailed', { reason: v.reason })
+  return t('upload.dupes.verifyError', { reason: v.reason })
+}
+
+function Verification({ dupe }: { dupe: Dupe }) {
+  const text = verificationText(dupe)
+  if (!text) return null
+  const ok = dupe.verification?.status === 'passed'
+  return <span className={ok ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}>{text}</span>
+}
+
+// Motivi e verifica in una riga: per il title quando su desktop si tronca.
+function dupeDetails(dupe: Dupe): string {
+  return [...dupe.reasons.map((reason) => t(`upload.dupes.reason.${reason}`)), verificationText(dupe)].filter(Boolean).join(' · ')
 }
 
 function languageName(code: string) {
@@ -144,7 +155,9 @@ export function TrackerCheckCard({
                   <li
                     key={dupe.torrent_id_remote}
                     className={cn(
-                      'grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 px-3 py-2 text-xs',
+                      // Sul telefono le azioni vanno su una riga loro: accanto lasciavano
+                      // al nome pochi pixel. Da sm tre colonne, come prima.
+                      'grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-1 px-3 py-2 text-xs sm:grid-cols-[auto_minmax(0,1fr)_auto]',
                       dupe.verdict === 'different' && 'opacity-70',
                     )}
                   >
@@ -153,26 +166,26 @@ export function TrackerCheckCard({
                     </Badge>
                     <div className="grid min-w-0">
                       {url ? (
-                        <a href={safeHref(url)} target="_blank" rel="noreferrer" className="truncate font-mono hover:underline" title={dupe.name}>
+                        <a href={safeHref(url)} target="_blank" rel="noreferrer" className={cn(DUPE_NAME, 'hover:underline')} title={dupe.name}>
                           {dupe.name}
                         </a>
                       ) : (
-                        <span className="truncate font-mono" title={dupe.name}>{dupe.name}</span>
+                        <span className={DUPE_NAME} title={dupe.name}>{dupe.name}</span>
                       )}
                       {(dupe.reasons.length > 0 || dupe.verification) && (
-                        <span className="truncate text-muted-foreground">
+                        <span className="text-muted-foreground max-sm:break-words sm:truncate" title={dupeDetails(dupe)}>
                           {dupe.reasons.map((reason) => t(`upload.dupes.reason.${reason}`)).join(' · ')}
                           {dupe.reasons.length > 0 && dupe.verification && ' · '}
                           <Verification dupe={dupe} />
                         </span>
                       )}
                     </div>
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-3 max-sm:col-span-full max-sm:justify-self-end">
                       {dupe.verdict === 'identical' && !dupe.verification && (
                         <Button
                           size="sm"
                           variant="outline"
-                          className="h-7"
+                          className="h-7 pointer-coarse:h-9"
                           disabled={!canVerify || verify.isPending}
                           onClick={() =>
                             verify.mutate(

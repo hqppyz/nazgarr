@@ -1,10 +1,10 @@
-import { PackageIcon, XIcon } from 'lucide-react'
+import { ListChecksIcon, PackageIcon, XIcon } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 
 import { Button } from '@/components/ui/button'
 import { t } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
-import { packProblem, packUploadTarget, type PackSelection } from '@/lib/pack'
+import { packProblem, packUploadTarget, type PackFile, type PackSelection } from '@/lib/pack'
 
 // Il pulsante che accende la selezione per un pack.
 export function PackSelectButton({ selection }: { selection: PackSelection }) {
@@ -29,11 +29,13 @@ export function PackSelectButton({ selection }: { selection: PackSelection }) {
 }
 
 // In fondo alla vista mentre si scelgono gli episodi: quanti sono e "Crea
-// pack", che porta al nuovo upload con la lista.
-export function PackBar({ selection, tmdb }: { selection: PackSelection; tmdb?: string }) {
+// pack", che porta al nuovo upload con la lista. Con shown (i video che i
+// filtri mostrano) anche "Scegli tutti i mostrati": su touch non c'è SHIFT+clic.
+export function PackBar({ selection, tmdb, shown }: { selection: PackSelection; tmdb?: string; shown?: PackFile[] }) {
   const navigate = useNavigate()
   if (!selection.active) return null
   const problem = packProblem(selection.files)
+  const allShown = shown != null && shown.length > 0 && shown.every((f) => selection.has(f))
   return (
     <div className="sticky bottom-3 z-20 flex flex-wrap items-center gap-3 rounded-lg border bg-background/95 p-3 shadow-lg backdrop-blur">
       <PackageIcon className="size-4 shrink-0 text-primary" />
@@ -43,6 +45,12 @@ export function PackBar({ selection, tmdb }: { selection: PackSelection; tmdb?: 
           {problem ? t(`pack.problem.${problem}`) : t('pack.ready')}
         </span>
       </div>
+      {shown != null && shown.length > 0 && (
+        <Button size="sm" variant="outline" onClick={() => selection.setMany(shown, !allShown)}>
+          <ListChecksIcon className="size-4" />
+          {allShown ? t('library.packDeselectShown') : t('library.packSelectShown', { count: shown.length })}
+        </Button>
+      )}
       <Button size="sm" variant="ghost" onClick={() => selection.setActive(false)}>
         <XIcon className="size-4" />
         {t('common.cancel')}

@@ -87,9 +87,11 @@ export function UploadJobView({ id }: { id: number | null }) {
 
   // Dopo il match la testata è la scheda del contenuto (con poster); la
   // pagina di decisione la mette nella sua griglia.
+  // Spazio in fondo per la barra delle attività fluttuante: sul telefono è
+  // più alta (va a capo) e copriva il pulsante Approva.
   const matched = job.tmdb_id != null && !['identifying', 'awaiting_match'].includes(job.status)
   return (
-    <div className="grid min-w-0 gap-4 pb-16 [&>*]:min-w-0">
+    <div className="grid min-w-0 gap-4 pb-28 lg:pb-16 [&>*]:min-w-0">
       <JobToolbar job={job} />
       {!matched && <JobHeader job={job} />}
       {matched && !['analyzing', 'awaiting_decision'].includes(job.status) && <MatchSummaryCard job={job} />}

@@ -58,34 +58,40 @@ function LayoutFiles({ layout }: { layout: Layout }) {
       <Table>
         <TableHeader>
           <TableRow>
+            {/* Sotto sm una sola colonna con i due percorsi, a capo: due
+                colonne troncate non mostravano niente di utile. */}
             <TableHead>{t('reseeding.fileInTorrent')}</TableHead>
-            <TableHead>{t('reseeding.localFile')}</TableHead>
+            <TableHead className="hidden sm:table-cell">{t('reseeding.localFile')}</TableHead>
             <TableHead className="w-24 text-right">{t('library.columnSize')}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
-          {layout.files.map((f) => (
-            <TableRow key={f.torrent_path}>
-              <TableCell className="max-w-0 truncate font-mono text-xs" title={f.torrent_path}>
-                {f.torrent_path}
-              </TableCell>
-              <TableCell className="max-w-0 truncate text-xs" title={f.local_path ?? undefined}>
-                {f.local_path ? (
-                  <span className={cn(f.piece_verified === false && 'text-destructive')}>
-                    {f.local_path}
-                    {f.piece_verified && <Badge variant="secondary" className="ml-1.5">{t('reseeding.verified')}</Badge>}
-                  </span>
-                ) : (
-                  <span className="text-muted-foreground">
-                    {f.is_video ? t('reseeding.missingVideo') : t('reseeding.clientDownloads')}
-                  </span>
-                )}
-              </TableCell>
-              <TableCell className="text-right text-xs tabular-nums">
-                {f.size_bytes != null ? formatBytes(f.size_bytes) : '—'}
-              </TableCell>
-            </TableRow>
-          ))}
+          {layout.files.map((f) => {
+            const local = f.local_path ? (
+              <span className={cn(f.piece_verified === false && 'text-destructive')}>
+                {f.local_path}
+                {f.piece_verified && <Badge variant="secondary" className="ml-1.5">{t('reseeding.verified')}</Badge>}
+              </span>
+            ) : (
+              <span className="text-muted-foreground">
+                {f.is_video ? t('reseeding.missingVideo') : t('reseeding.clientDownloads')}
+              </span>
+            )
+            return (
+              <TableRow key={f.torrent_path}>
+                <TableCell className="max-w-0 font-mono text-xs max-sm:break-all max-sm:whitespace-normal sm:truncate" title={f.torrent_path}>
+                  {f.torrent_path}
+                  <span className="mt-0.5 block font-sans sm:hidden">{local}</span>
+                </TableCell>
+                <TableCell className="hidden max-w-0 truncate text-xs sm:table-cell" title={f.local_path ?? undefined}>
+                  {local}
+                </TableCell>
+                <TableCell className="text-right text-xs tabular-nums">
+                  {f.size_bytes != null ? formatBytes(f.size_bytes) : '—'}
+                </TableCell>
+              </TableRow>
+            )
+          })}
         </TableBody>
       </Table>
     </div>
@@ -104,7 +110,7 @@ function CandidateAudit({ mediaItemId }: { mediaItemId: number }) {
       </p>
       {data?.map((c) => (
         <div key={c.id} className="flex items-center justify-between gap-2 text-xs">
-          <span className="truncate font-mono">{c.name}</span>
+          <span className="min-w-0 truncate font-mono pointer-coarse:break-all pointer-coarse:whitespace-normal">{c.name}</span>
           <div className="flex shrink-0 items-center gap-2">
             {c.ambiguity_reason && <span className="text-muted-foreground">{c.ambiguity_reason}</span>}
             <span>{(c.confidence * 100).toFixed(0)}%</span>
@@ -123,13 +129,20 @@ function ReviewRow({ review }: { review: Review }) {
 
   return (
     <Collapsible open={open} onOpenChange={setOpen} className="border-b last:border-b-0">
-      <div className="flex items-center gap-2 px-3 py-2">
-        <CollapsibleTrigger>
+      {/* Sotto sm Approva/Rifiuta vanno a capo, sotto il nome: accanto lo
+          riducevano a poche lettere. */}
+      <div className="flex flex-wrap items-center gap-2 px-3 py-2 sm:flex-nowrap">
+        <CollapsibleTrigger
+          aria-label={review.candidate_name}
+          className="-m-1 shrink-0 self-start rounded p-1 pointer-coarse:-m-2 pointer-coarse:p-2 sm:self-center"
+        >
           <ChevronRightIcon className={cn('size-4 text-muted-foreground transition-transform', open && 'rotate-90')} />
         </CollapsibleTrigger>
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium">{review.candidate_name}</p>
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <div className="min-w-0 flex-1 basis-[calc(100%-2rem)] sm:basis-auto">
+          <p className="truncate text-sm font-medium max-sm:break-all max-sm:whitespace-normal pointer-coarse:break-all pointer-coarse:whitespace-normal">
+            {review.candidate_name}
+          </p>
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
             <Badge variant="secondary">{review.direction}</Badge>
             <span>{(review.confidence * 100).toFixed(0)}%</span>
             {review.ambiguity_reason && <span>{review.ambiguity_reason}</span>}
@@ -144,6 +157,7 @@ function ReviewRow({ review }: { review: Review }) {
           {review.layout && <p className="text-xs text-muted-foreground">{layoutSummary(review.layout)}</p>}
           <VerifyStatus review={review} />
         </div>
+        <div className="flex shrink-0 gap-2 max-sm:ml-6">
         <Button
           size="sm"
           variant="outline"
@@ -163,6 +177,7 @@ function ReviewRow({ review }: { review: Review }) {
         >
           {t('reseeding.reject')}
         </Button>
+        </div>
       </div>
       <CollapsibleContent>
         {review.layout && <LayoutFiles layout={review.layout} />}
@@ -202,7 +217,7 @@ function ExecutionRow({ job }: { job: SeedJob }) {
   return (
     <TableRow>
       <TableCell className="max-w-0 w-full">
-        <p className="truncate font-mono text-xs" title={job.candidate_name ?? undefined}>
+        <p className="truncate font-mono text-xs pointer-coarse:break-all pointer-coarse:whitespace-normal" title={job.candidate_name ?? undefined}>
           {job.candidate_name ?? t('reseeding.candidateHash', { id: job.candidate_id })}
         </p>
         <p className="truncate text-xs text-muted-foreground">
@@ -210,8 +225,10 @@ function ExecutionRow({ job }: { job: SeedJob }) {
             .filter(Boolean)
             .join(' · ')}
         </p>
+        {/* Sotto sm la colonna Aggiunto non c'è: il quando va qui. */}
+        {when && <p className="text-xs text-muted-foreground sm:hidden">{relativeFromNow(when)}</p>}
       </TableCell>
-      <TableCell className="whitespace-nowrap text-xs text-muted-foreground" title={when ? parseApiDate(when).toLocaleString() : undefined}>
+      <TableCell className="hidden whitespace-nowrap text-xs text-muted-foreground sm:table-cell" title={when ? parseApiDate(when).toLocaleString() : undefined}>
         {when ? relativeFromNow(when) : '—'}
       </TableCell>
       <TableCell>
@@ -233,12 +250,14 @@ function ExecutionRow({ job }: { job: SeedJob }) {
             <FullCheckButton
               target={{ candidateId: job.candidate_id, seedJobId: job.id }}
               label={job.candidate_name ?? t('reseeding.candidateHash', { id: job.candidate_id })}
+              iconOnlyOnPhone
             />
           )}
           {job.final_status === 'failed' && (
             <Button
               size="xs"
               variant="outline"
+              title={t('reseeding.retry')}
               disabled={retry.isPending}
               onClick={() =>
                 retry.mutate(job.id, {
@@ -248,7 +267,8 @@ function ExecutionRow({ job }: { job: SeedJob }) {
               }
             >
               <RotateCcwIcon className="size-3" />
-              {t('reseeding.retry')}
+              {/* Sotto sm solo l'icona: con le etichette il nome del torrent spariva. */}
+              <span className="max-sm:sr-only">{t('reseeding.retry')}</span>
             </Button>
           )}
         </div>
@@ -269,10 +289,12 @@ function ExecutionsCard() {
 
   return (
     <Card>
-      <CardHeader>
+      {/* Sotto sm il filtro va sotto il titolo, a tutta larghezza, e scorre:
+          a destra del titolo veniva tagliato. */}
+      <CardHeader className="max-sm:grid-cols-1!">
         <CardTitle>{t('reseeding.executions')}</CardTitle>
         <CardDescription>{t('reseeding.executionsHint')}</CardDescription>
-        <CardAction>
+        <CardAction className="max-w-full overflow-x-auto max-sm:col-start-1 max-sm:row-span-1 max-sm:row-start-3 max-sm:justify-self-stretch">
           <ToggleGroupSingle value={filter} onValueChange={(v) => setFilter(v as ExecutionFilter)} variant="outline" size="sm">
             {FILTERS.map((f) => (
               <ToggleGroupItem key={f} value={f}>
@@ -288,7 +310,7 @@ function ExecutionsCard() {
           <TableHeader>
             <TableRow>
               <TableHead>{t('reseeding.torrent')}</TableHead>
-              <TableHead>{t('reseeding.added')}</TableHead>
+              <TableHead className="hidden sm:table-cell">{t('reseeding.added')}</TableHead>
               <TableHead>{t('reseeding.status')}</TableHead>
               <TableHead />
             </TableRow>

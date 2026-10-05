@@ -77,4 +77,9 @@ export const disks = {
     'Both the Unraid user share ({share}) and single disks ({disks}) are mounted: the same files would be seen twice. Keep only the share, or only the disks.',
   'disks.mounts.warning.mounts_outside_scan_root':
     '{paths} is mounted but outside disk_scan_root ({root}): it cannot become a disk. Remove disk_scan_root from config.yaml (Docker does not need it) and restart.',
+  'disks.deleteTitle': 'Delete the disk {label}?',
+  'disks.deleteDescription': 'Nazgarr forgets this disk and its folders. No file on the disk is touched.',
+  'disks.removeFolderTitle': 'Remove the folder {path}?',
+  'disks.removeFolderDescription': 'Nazgarr stops using it. The files inside stay where they are.',
+  'disks.removeFolderConfirm': 'Remove',
 } as const

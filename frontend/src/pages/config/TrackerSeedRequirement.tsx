@@ -73,7 +73,7 @@ export function TrackerSeedRequirement({ tracker, onChange }: { tracker: Tracker
           saveSeedTime(seedTime, v as Unit)
         }}
       >
-        <SelectTrigger size="sm" className="h-7 w-20">
+        <SelectTrigger size="sm" className="h-7 w-full max-w-20">
           <SelectValue>{(v: string | null) => selectLabel(units, v, (o) => o.value, (o) => o.label, '')}</SelectValue>
         </SelectTrigger>
         <SelectContent>
@@ -95,7 +95,7 @@ export function TrackerSeedRequirement({ tracker, onChange }: { tracker: Tracker
       />
       {tracker.min_seed_time_seconds != null && tracker.min_ratio != null && (
         <Select value={tracker.seed_rule} onValueChange={(v) => v && v !== tracker.seed_rule && onChange({ seed_rule: v as 'any' | 'all' })}>
-          <SelectTrigger size="sm" className="h-7 w-36" aria-label={t('trackers.seedRequirement.rule')}>
+          <SelectTrigger size="sm" className="h-7 w-full max-w-36" aria-label={t('trackers.seedRequirement.rule')}>
             <SelectValue>{(v: string | null) => selectLabel(rules, v, (o) => o.value, (o) => o.label, '')}</SelectValue>
           </SelectTrigger>
           <SelectContent>

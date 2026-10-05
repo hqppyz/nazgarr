@@ -39,7 +39,10 @@ describe('DisksSection', () => {
     for (const folder of ['torrents', 'movies', 'tv']) expect(screen.getByText(folder)).toBeTruthy()
     expect(screen.getAllByRole('button', { name: /Add/ }).length).toBeGreaterThanOrEqual(2)
 
+    // Togliere una cartella ora chiede conferma.
     fireEvent.click(screen.getAllByRole('button', { name: 'Remove the folder (nothing changes on disk)' })[2])
+    expect(remove).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Remove' }))
     expect(remove).toHaveBeenCalledWith({ diskId: 1, folderId: 12 }, expect.anything())
   })
 })

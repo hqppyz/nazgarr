@@ -2,7 +2,7 @@ import { useDeferredValue, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
 import { FileFilterBar } from '@/components/FileFilterBar'
-import { FileTree, type TreeFileEntry, type TreeRowActions } from '@/components/FileTree'
+import { FileTree, packable, packFile, type TreeFileEntry, type TreeRowActions } from '@/components/FileTree'
 import { LibrarySummaryCards } from '@/components/LibrarySummaryCards'
 import { PackBar, PackSelectButton } from '@/components/upload/PackBar'
 import { Card } from '@/components/ui/card'
@@ -53,9 +53,14 @@ export function FileBrowser({
   const deferredFilters = useDeferredValue(filters)
   const filtered = useMemo(
     () => filterFiles(files, deferredFilters, duplicateKeys), [files, deferredFilters, duplicateKeys])
+  // I video sceglibili fra quelli filtrati: "Scegli tutti i mostrati" del
+  // PackBar, l'equivalente touch di SHIFT+clic.
+  const shownPackable = useMemo(() => filtered.filter(packable).map(packFile), [filtered])
 
   return (
-    <div className="grid gap-4">
+    // Una colonna che non supera lo schermo: un figlio largo (le tab) scorre
+    // dentro di sé invece di allargare la pagina sul telefono.
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-4">
       {header}
       <LibrarySummaryCards
         statusOptions={statusOptions}
@@ -86,7 +91,7 @@ export function FileBrowser({
           }
         />
       </Card>
-      <PackBar selection={selection} />
+      <PackBar selection={selection} shown={shownPackable} />
       <ItemDetailSheet item={openItem} onClose={() => setOpenItem(null)} />
     </div>
   )

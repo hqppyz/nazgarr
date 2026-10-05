@@ -14,6 +14,8 @@ import {
 } from '@/api/hooks/disks'
 import type { Schemas } from '@/api/client'
 import { Button } from '@/components/ui/button'
+import { ConfirmButton } from '@/components/ConfirmButton'
+import { InfoPopover } from '@/components/InfoPopover'
 import { SettingsHeader } from '@/components/SettingsHeader'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
@@ -284,7 +286,8 @@ function FolderList({
   return (
     <div className="grid gap-1.5">
       <div className="flex items-center justify-between gap-2">
-        <span className="text-xs font-medium" title={help}>{title}</span>
+        {/* La spiegazione si apre anche al tocco (prima solo nel title). */}
+        <InfoPopover content={help} className="text-xs font-medium pointer-coarse:underline pointer-coarse:decoration-dotted pointer-coarse:underline-offset-2">{title}</InfoPopover>
         <Button
           variant="ghost"
           size="xs"
@@ -307,17 +310,27 @@ function FolderList({
                 {folder.relative_path}
               </span>
               {folder.id != null && (
-                <button
-                  className="text-muted-foreground hover:text-foreground"
-                  title={t('disks.removeFolder')}
-                  aria-label={t('disks.removeFolder')}
-                  disabled={remove.isPending}
-                  onClick={() =>
+                // Un'area da size-7 (prima solo l'icona da 14px) e una
+                // conferma: al tocco era facile toglierla per sbaglio.
+                <ConfirmButton
+                  trigger={
+                    <button
+                      className="-my-1 -mr-1.5 flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+                      title={t('disks.removeFolder')}
+                      aria-label={t('disks.removeFolder')}
+                      disabled={remove.isPending}
+                    >
+                      <XIcon className="size-3.5" />
+                    </button>
+                  }
+                  title={t('disks.removeFolderTitle', { path: folder.relative_path })}
+                  description={t('disks.removeFolderDescription')}
+                  confirmLabel={t('disks.removeFolderConfirm')}
+                  pending={remove.isPending}
+                  onConfirm={() =>
                     remove.mutate({ diskId: disk.id, folderId: folder.id as number }, autosaveFeedback(title))
                   }
-                >
-                  <XIcon className="size-3.5" />
-                </button>
+                />
               )}
             </li>
           ))}
@@ -438,7 +451,7 @@ export function DisksSection() {
       {/* Una scheda per disco, come client e tracker: le sue cartelle media e
           di seeding (più di una), poi quelle per i nuovi hardlink, gli upload
           e le release. */}
-      <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
+      <div className="grid gap-4 xl:grid-cols-2 2xl:grid-cols-3">
         {disks?.map((disk) => (
           <Card key={disk.id} data-tour="storage.row" className="min-w-0">
             <CardHeader className="flex flex-row items-center gap-3">
@@ -470,9 +483,9 @@ export function DisksSection() {
                 tour="storage.media-folder"
               />
               <div className="grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-1.5 text-xs">
-                <span className="text-muted-foreground" title={t('disks.newHardlinkFolderHelp')}>
+                <InfoPopover content={t('disks.newHardlinkFolderHelp')} className="text-muted-foreground pointer-coarse:underline pointer-coarse:decoration-dotted pointer-coarse:underline-offset-2">
                   {t('disks.newHardlinkFolderColumn')}
-                </span>
+                </InfoPopover>
                 {/* Dove l'executor crea i NUOVI hardlink: vuoto = la prima cartella di seeding. */}
                 <RelPathCell
                   diskId={disk.id}
@@ -492,9 +505,9 @@ export function DisksSection() {
                   tour="storage.upload-folder"
                   emptyLabel={t('disks.sameAsSeedingFolder')}
                 />
-                <span className="text-muted-foreground" title={t('disks.watchFolderHelp')}>
+                <InfoPopover content={t('disks.watchFolderHelp')} className="text-muted-foreground pointer-coarse:underline pointer-coarse:decoration-dotted pointer-coarse:underline-offset-2">
                   {t('disks.watchFolderColumn')}
-                </span>
+                </InfoPopover>
                 {/* Le release nuove qui dentro partono da sole fino alla decisione (nazgarr/upload/watch.py). */}
                 <RelPathCell
                   diskId={disk.id}
@@ -509,9 +522,17 @@ export function DisksSection() {
                 <DiskTestButton diskId={disk.id} />
                 <span className="flex-1" />
                 <EditDiskDialog disk={disk} />
-                <Button variant="ghost" size="icon-sm" title={t('common.delete')} onClick={() => deleteDisk.mutate(disk.id)}>
-                  <TrashIcon className="size-4" />
-                </Button>
+                <ConfirmButton
+                  trigger={
+                    <Button variant="ghost" size="icon-sm" title={t('common.delete')}>
+                      <TrashIcon className="size-4" />
+                    </Button>
+                  }
+                  title={t('disks.deleteTitle', { label: disk.label })}
+                  description={t('disks.deleteDescription')}
+                  pending={deleteDisk.isPending}
+                  onConfirm={() => deleteDisk.mutate(disk.id)}
+                />
               </div>
             </CardContent>
           </Card>

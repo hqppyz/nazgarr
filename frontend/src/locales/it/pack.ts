@@ -2,7 +2,7 @@ export const pack = {
   'pack.select': 'Componi un pack',
   'pack.selectStop': 'Smetti di comporre',
   'pack.selectHelp':
-    'Scegli gli episodi uno per uno, anche quelli già in seed con il loro torrent, e fanne un season pack o un complete pack. I sottotitoli arrivano da soli. Con SHIFT+clic scegli tutti i video fra due.',
+    'Scegli gli episodi uno per uno, anche quelli già in seed con il loro torrent, e fanne un season pack o un complete pack. I sottotitoli arrivano da soli. Con SHIFT+clic scegli tutti i video fra due, o con «Scegli tutti i mostrati» quelli dei filtri attivi.',
   'pack.selected': '{count} video scelti',
   'pack.ready': "Pronto: l'upload parte con questi file, in una cartella nuova fatta di hardlink.",
   'pack.problem.tooFew': 'Scegli almeno due video.',

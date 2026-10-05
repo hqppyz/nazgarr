@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { toast } from 'sonner'
 
 import { useSetSetting, useSetting } from '@/api/hooks/settings'
+import { InfoPopover } from '@/components/InfoPopover'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -44,22 +45,36 @@ export function SettingField({
   }
 
   if (compact) {
+    // Da telefono etichetta (w-28, troncata) + input + Salva su una riga non
+    // ci stanno: l'etichetta va sopra, con la descrizione visibile (il title
+    // al tocco non si vede); da sm la riga di sempre, la descrizione si apre
+    // anche al tocco.
     return (
-      <div className="flex items-center gap-2">
-        <Label htmlFor={settingKey} title={description} className="w-28 shrink-0 truncate text-xs">
+      <div className="grid gap-1 sm:flex sm:items-center sm:gap-2">
+        <span className="hidden w-28 shrink-0 sm:block">
+          <InfoPopover content={description} className="block truncate">
+            <Label htmlFor={settingKey} className="block truncate text-xs">
+              {label}
+            </Label>
+          </InfoPopover>
+        </span>
+        <Label htmlFor={settingKey} className="text-xs sm:hidden">
           {label}
         </Label>
-        <Input
-          id={settingKey}
-          type={type}
-          value={value}
-          placeholder={isPending ? t('common.loading') : placeholder}
-          onChange={(e) => setDraft(e.target.value)}
-          className="h-8"
-        />
-        <Button variant="outline" size="sm" disabled={setSetting.isPending} onClick={save}>
-          {t('common.save')}
-        </Button>
+        <p className="text-xs break-words text-muted-foreground sm:hidden">{description}</p>
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <Input
+            id={settingKey}
+            type={type}
+            value={value}
+            placeholder={isPending ? t('common.loading') : placeholder}
+            onChange={(e) => setDraft(e.target.value)}
+            className="h-8"
+          />
+          <Button variant="outline" size="sm" disabled={setSetting.isPending} onClick={save}>
+            {t('common.save')}
+          </Button>
+        </div>
       </div>
     )
   }

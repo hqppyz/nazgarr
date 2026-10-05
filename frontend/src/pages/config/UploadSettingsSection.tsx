@@ -18,8 +18,8 @@ function TonemapSwitch() {
   const checked = data?.value === 'true'
 
   return (
-    <div className="flex items-center justify-between">
-      <div className="grid gap-0.5">
+    <div className="flex items-center justify-between gap-3">
+      <div className="grid min-w-0 gap-0.5">
         <Label htmlFor="upload-tonemap">{t('uploadSettings.tonemapLabel')}</Label>
         <p className="text-xs text-muted-foreground">{t('uploadSettings.tonemapDescription')}</p>
       </div>
@@ -103,7 +103,7 @@ export function UploadImagesSection() {
         </CardHeader>
         {/* content-start: le chiavi restano in cima con la loro spaziatura,
             non si allargano all'altezza della colonna delle priorità. */}
-        <CardContent className="grid items-start gap-6 md:grid-cols-2">
+        <CardContent className="grid items-start gap-6 xl:grid-cols-2">
           <ImageHostPriorityField />
           <div className="grid content-start gap-2">
             <div className="grid gap-1.5">

@@ -13,6 +13,7 @@ import { useSetting } from '@/api/hooks/settings'
 import { useConfirmMatch, useEpisodeOrders, useReidentify, type EpisodeOrder, type EpisodeOrders, type UploadJob } from '@/api/hooks/uploads'
 import { AuthedPoster } from '@/components/AuthedPoster'
 import { ChoiceCards } from '@/components/ChoiceCards'
+import { InfoPopover } from '@/components/InfoPopover'
 import { ForcedIdFields } from '@/components/upload/ForcedIdFields'
 import { MetadataLinks } from '@/components/upload/MetadataLinks'
 import { Badge } from '@/components/ui/badge'
@@ -80,9 +81,10 @@ function CandidateCard({
         </div>
         <div className="absolute inset-x-0 bottom-0 grid gap-0.5 bg-gradient-to-t from-black/90 via-black/60 to-transparent px-2 pt-8 pb-1.5">
           <p className="line-clamp-2 text-xs font-medium text-white">{candidate.title ?? `#${candidate.tmdb_id}`}</p>
-          <p className="flex items-center justify-between gap-1 text-[10px] text-white/70">
+          {/* Su un poster stretto (telefono) anno, origine e percentuale vanno a capo invece di sovrapporsi. */}
+          <p className="flex flex-wrap items-center justify-between gap-1 text-[10px] text-white/70">
             <span>{candidate.year ?? '—'}</span>
-            {label && <span className="rounded bg-white/15 px-1">{label}</span>}
+            {label && <span className="min-w-0 truncate rounded bg-white/15 px-1">{label}</span>}
             {/* Quanto è sicuro (nazgarr/upload/match_score.py): sopra la soglia la cartella osservata lo conferma da sola. */}
             {candidate.confidence != null && (
               <span
@@ -210,8 +212,9 @@ function CandidateGrid({
   selectedKey: string | null
   onSelect: (candidate: MetadataCandidate) => void
 }) {
+  // Due colonne sui telefoni stretti: a tre il titolo sul poster non si legge.
   return (
-    <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 xl:grid-cols-5">
+    <div className="grid grid-cols-2 gap-3 min-[400px]:grid-cols-3 sm:grid-cols-4 xl:grid-cols-5">
       {candidates.map((candidate) => (
         <CandidateCard
           key={keyOf(candidate)}
@@ -362,7 +365,8 @@ function SeasonPicker({
               aria-checked={active}
               onClick={() => toggle(n)}
               className={cn(
-                'flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-left text-xs transition',
+                // Su schermi stretti i conteggi vanno a capo; al tocco la riga è più alta.
+                'flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border px-2.5 py-1.5 text-left text-xs transition pointer-coarse:py-2.5',
                 active ? 'border-primary bg-primary/10' : 'hover:bg-muted',
               )}
             >
@@ -383,9 +387,10 @@ function SeasonPicker({
                   : t('upload.match.episodesFoundNoTotal', { found: episodes.length })}
               </span>
               {episodes.length > 0 && missing.length > 0 && kind !== 'episode' && (
-                <span className="text-amber-600 dark:text-amber-400" title={missing.map((e) => `E${e}`).join(' ')}>
+                // Quali mancano: al passaggio del mouse o al tocco, non solo in un title.
+                <InfoPopover align="end" className="text-amber-600 dark:text-amber-400" content={missing.map((e) => `E${e}`).join(' ')}>
                   {t('upload.match.missingCount', { count: missing.length })}
-                </span>
+                </InfoPopover>
               )}
             </button>
           )
@@ -568,9 +573,12 @@ export function MatchStep({ job }: { job: UploadJob }) {
     )
   }
 
+  // Sotto lg la colonna di sinistra si scioglie (contents) e la scheda
+  // "Selezionato" sale subito dopo i candidati: toccato un poster, dettagli e
+  // Conferma restano a portata di dito; la ricerca manuale scende dopo.
   return (
     <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_22rem]">
-      <div className="grid content-start gap-4">
+      <div className="grid content-start gap-4 max-lg:contents">
         <Card>
           <CardHeader>
             <CardTitle>{t('upload.match.title')}</CardTitle>
@@ -599,7 +607,7 @@ export function MatchStep({ job }: { job: UploadJob }) {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="max-lg:order-2">
           <CardHeader>
             <CardTitle className="text-base">{t('upload.match.searchTitle')}</CardTitle>
           </CardHeader>
@@ -663,7 +671,7 @@ export function MatchStep({ job }: { job: UploadJob }) {
         </Card>
       </div>
 
-      <Card className="h-fit lg:sticky lg:top-4">
+      <Card className="h-fit max-lg:order-1 lg:sticky lg:top-4">
         <CardHeader>
           <CardTitle className="text-base">{t('upload.match.selected')}</CardTitle>
           {selected && (

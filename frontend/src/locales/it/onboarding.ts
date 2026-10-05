@@ -227,7 +227,7 @@ export const onboarding = {
   'onboarding.tour.views.pack.title':
     'Componi un pack',
   'onboarding.tour.views.pack.body':
-    "Episodi scaricati uno alla volta, anche quelli già in seed con il loro torrent, diventano un season pack o un complete pack: sceglili (SHIFT+clic per un intervallo) e crea il pack. L'upload parte da una cartella nuova di hardlink, una sottocartella per stagione, sottotitoli compresi. Episodi di release diverse chiedono la tua conferma.",
+    "Episodi scaricati uno alla volta, anche quelli già in seed con il loro torrent, diventano un season pack o un complete pack: sceglili (SHIFT+clic per un intervallo, o «Scegli tutti i mostrati») e crea il pack. L'upload parte da una cartella nuova di hardlink, una sottocartella per stagione, sottotitoli compresi. Episodi di release diverse chiedono la tua conferma.",
   'onboarding.tour.views.torrents.title':
     'I tuoi torrent',
   'onboarding.tour.views.torrents.body':

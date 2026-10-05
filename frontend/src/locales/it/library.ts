@@ -32,6 +32,14 @@ export const library = {
   'library.torrentRightClickHint':
     'Fai clic destro su un file o una cartella per caricare o fare il reseed di un torrent orfano, o per escluderlo.',
   'library.mediaRightClickHint': 'Fai clic destro su un file o una cartella per caricare un file orfano, o per escluderlo.',
+  // Su touch non c'è il tasto destro: pressione lunga o il pulsante ⋯ della riga.
+  'library.torrentTouchHint':
+    'Tieni premuto un file o una cartella, o tocca ⋯, per caricare o fare il reseed di un torrent orfano, o per escluderlo.',
+  'library.mediaTouchHint': 'Tieni premuto un file o una cartella, o tocca ⋯, per caricare un file orfano, o per escluderlo.',
+  // Su touch non c'è SHIFT+clic: tutti i video mostrati dai filtri in un tocco.
+  'library.packSelectShown': 'Scegli tutti i mostrati ({count})',
+  'library.packDeselectShown': 'Togli tutti i mostrati',
+  'library.closeSheet': 'Chiudi',
   'library.seedingCopy': 'in seed da un’altra copia',
   'library.seedingCopyTitle': 'Nessuno ha in seed questo percorso, ma lo stesso file (hardlink) è in seed da:',
   'library.menu.excludeFile': 'Escludi file',

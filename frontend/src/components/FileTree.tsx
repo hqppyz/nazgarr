@@ -4,7 +4,8 @@ import { useMemo, useState } from "react";
 import { useIncrementalCount } from "@/hooks/use-incremental";
 
 import { HardlinkInfo } from "@/components/HardlinkInfo";
-import { RowContextMenu, type RowMenuItem } from "@/components/RowContextMenu";
+import { InfoPopover } from "@/components/InfoPopover";
+import { RowContextMenu, RowMenuButton, type RowMenuItem } from "@/components/RowContextMenu";
 import { StateBadge, StatusBadge, StoppedBadge } from "@/components/StateBadge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { t } from "@/lib/i18n";
@@ -108,19 +109,20 @@ export interface TreeRowActions {
 }
 
 // Un video che può entrare in un pack (nazgarr/upload/pack.py): su un disco, non escluso.
-function packable(file: TreeFileEntry): boolean {
+export function packable(file: TreeFileEntry): boolean {
   return file.disk_id != null && !file.excluded && isVideoPath(file.relative_path);
 }
 
-const packFile = (file: TreeFileEntry) => ({ diskId: file.disk_id as number, path: file.relative_path });
+export const packFile = (file: TreeFileEntry) => ({ diskId: file.disk_id as number, path: file.relative_path });
 
-// onPick riceve SHIFT (dal clic, non dal change: lì non c'è).
+// onPick riceve SHIFT (dal clic, non dal change: lì non c'è). Più grande su
+// touch: a 14 px una casella è difficile da centrare col dito.
 function PackCheckbox({ checked, indeterminate = false, label, onPick }: { checked: boolean; indeterminate?: boolean; label: string; onPick: (shift: boolean) => void }) {
   return (
     <input
       type="checkbox"
       aria-label={label}
-      className="size-3.5 shrink-0 accent-primary"
+      className="size-3.5 shrink-0 accent-primary pointer-coarse:size-5"
       checked={checked}
       ref={(el) => {
         if (el) el.indeterminate = indeterminate;
@@ -131,6 +133,55 @@ function PackCheckbox({ checked, indeterminate = false, label, onPick }: { check
       }}
       onChange={() => {}}
     />
+  );
+}
+
+// Lo spazio di una casella assente, per allineare le righe.
+const CHECKBOX_SPACER = <span className="size-3.5 shrink-0 pointer-coarse:size-5" />;
+
+function FileBadges({ file, duplicateKeys }: { file: TreeFileEntry; duplicateKeys?: Set<string> }) {
+  if (file.excluded) {
+    // Escluso = fuori da ogni controllo: nessuno stato, nessun "duplicate".
+    return (
+      <StatusBadge status="excluded" compact>
+        {t("library.excluded")}
+      </StatusBadge>
+    );
+  }
+  return (
+    <>
+      <StateBadge state={file.state} compact />
+      {file.stopped && <StoppedBadge compact />}
+      {file.state === "orphan_torrent" && file.linked_paths.length === 0 && (
+        // Né in seed né in libreria: nessuna identità, quindi mai cercato
+        // sui tracker; di solito spazio che si può recuperare.
+        <StatusBadge status="unmatched" compact>
+          {t("library.notInLibrary")}
+        </StatusBadge>
+      )}
+      {(file.seeding_copies?.length ?? 0) > 0 && (
+        // Da dove è in seed: al passaggio del mouse o al tocco, non solo in un title.
+        <InfoPopover
+          content={
+            <div className="grid gap-1">
+              <p>{t("library.seedingCopyTitle")}</p>
+              {file.seeding_copies?.map((path) => (
+                <p key={path} className="font-mono break-all">{path}</p>
+              ))}
+            </div>
+          }
+        >
+          <StatusBadge status="seeding" compact>
+            {t("library.seedingCopy")}
+          </StatusBadge>
+        </InfoPopover>
+      )}
+      {duplicateKeys?.has(fileKey(file)) && (
+        <StatusBadge status="duplicate" compact>
+          {t("library.duplicate")}
+        </StatusBadge>
+      )}
+    </>
   );
 }
 
@@ -181,22 +232,35 @@ export function FileTree({ files, expandAll = false, duplicateKeys, onOpenFile, 
     return <p className="p-4 text-sm text-muted-foreground">{t("library.noFilesMatchFilters")}</p>;
   }
 
+  // Il pulsante ⋯ ha una colonna sua solo se c'è un menu (le viste con useTreeMenu).
+  const withMenu = actions?.file != null || actions?.folder != null;
+
   return (
     <Table>
       <TableHeader>
         <TableRow>
           <TableHead>{t("library.columnName")}</TableHead>
-          <TableHead className="w-56">{t("library.columnState")}</TableHead>
-          <TableHead className="w-28 text-right">{t("library.columnSize")}</TableHead>
+          {/* Sotto sm stato e dimensione vanno sotto il nome: con le loro
+              colonne al nome non restava spazio. */}
+          <TableHead className="hidden w-56 sm:table-cell">{t("library.columnState")}</TableHead>
+          <TableHead className="hidden w-28 text-right sm:table-cell">{t("library.columnSize")}</TableHead>
+          {withMenu && <TableHead className="w-8 px-1" />}
         </TableRow>
       </TableHeader>
       {/* Mono per tutto il corpo: nomi di cartelle e file allineati, come in un terminale. */}
       <TableBody className="font-mono">
         {rows.slice(0, visible).map(({ node, depth, open }) => {
-          const indent = { paddingLeft: `${depth * 1.25 + 0.5}rem` };
+          // Rientro più stretto sul telefono: a 1.25rem per livello tre
+          // cartelle si mangiavano metà riga.
+          const indent = {
+            "--indent": `${depth * 0.75 + 0.5}rem`,
+            "--indent-sm": `${depth * 1.25 + 0.5}rem`,
+          } as React.CSSProperties;
+          const indentClass = "max-w-0 pl-(--indent) sm:pl-(--indent-sm)";
           if (!node.file) {
+            const items = actions?.folder?.(node) ?? [];
             return (
-              <RowContextMenu key={node.path} title={node.path} items={actions?.folder?.(node) ?? []}>
+              <RowContextMenu key={node.path} title={node.path} items={items}>
               <TableRow
                 // Cartelle aperte con uno sfondo tendente al primary: a colpo
                 // d'occhio si vede cosa è esploso e cosa no.
@@ -204,11 +268,11 @@ export function FileTree({ files, expandAll = false, duplicateKeys, onOpenFile, 
                 aria-expanded={open}
                 onClick={() => toggle(node.path)}
               >
-                <TableCell className="max-w-0" style={indent}>
+                <TableCell className={indentClass} style={indent}>
                   <div className="flex items-center gap-1.5">
                     {picking && selection && (() => {
                       const videos = filesUnder(node).filter(packable);
-                      if (videos.length === 0) return <span className="size-3.5 shrink-0" />;
+                      if (videos.length === 0) return CHECKBOX_SPACER;
                       const picked = videos.filter((f) => selection.has(packFile(f))).length;
                       return (
                         <PackCheckbox
@@ -221,84 +285,72 @@ export function FileTree({ files, expandAll = false, duplicateKeys, onOpenFile, 
                     })()}
                     <ChevronRightIcon className={cn("size-3.5 shrink-0 transition-transform", open && "rotate-90")} />
                     {open ? <FolderOpenIcon className="size-3.5 shrink-0 text-primary" /> : <FolderIcon className="size-3.5 shrink-0 text-primary" />}
-                    <span className="truncate font-medium">{node.name}</span>
+                    <span className="truncate font-medium pointer-coarse:break-all pointer-coarse:whitespace-normal">{node.name}</span>
                     <span className="ml-1.5 flex shrink-0 items-center gap-2 text-muted-foreground">
                       <span aria-hidden>·</span>
                       {t("library.filesCount", { count: node.fileCount })}
+                      <span className="tabular-nums sm:hidden">· {formatBytes(node.sizeBytes)}</span>
                     </span>
                   </div>
                 </TableCell>
-                <TableCell />
-                <TableCell className="text-right text-xs text-muted-foreground tabular-nums">{formatBytes(node.sizeBytes)}</TableCell>
+                <TableCell className="hidden sm:table-cell" />
+                <TableCell className="hidden text-right text-xs text-muted-foreground tabular-nums sm:table-cell">{formatBytes(node.sizeBytes)}</TableCell>
+                {withMenu && (
+                  <TableCell className="px-1 text-right">
+                    <RowMenuButton items={items} title={node.path} className="text-muted-foreground" />
+                  </TableCell>
+                )}
               </TableRow>
               </RowContextMenu>
             );
           }
           const file = node.file;
+          const items = actions?.file?.(file) ?? [];
           const openable = onOpenFile != null && file.tmdb_id != null && file.content_type != null;
           return (
-            <RowContextMenu key={node.path} title={file.relative_path} items={actions?.file?.(file) ?? []}>
+            <RowContextMenu key={node.path} title={file.relative_path} items={items}>
             <TableRow
               className={cn(file.excluded && "opacity-60", (openable || (picking && packable(file))) && "cursor-pointer", picking && "select-none")}
               onClick={picking && packable(file) ? (e) => selection?.pick(packFile(file), e.shiftKey, orderedPackable) : openable ? () => onOpenFile(file) : undefined}
             >
-              <TableCell className="max-w-0" style={indent}>
+              <TableCell className={indentClass} style={indent}>
                 <div className={cn("flex items-center gap-1.5", picking ? "pl-0" : "pl-5")}>
                   {picking && selection && (packable(file) ? (
                     <PackCheckbox label={file.relative_path} checked={selection.has(packFile(file))} onPick={(shift) => selection.pick(packFile(file), shift, orderedPackable)} />
                   ) : (
-                    <span className="size-3.5 shrink-0" />
+                    CHECKBOX_SPACER
                   ))}
                   {picking && <span className="w-1" />}
                   {isVideo(node.name) ? <FileVideoIcon className="size-3.5 shrink-0 text-muted-foreground" /> : <FileIcon className="size-3.5 shrink-0 text-muted-foreground" />}
-                  <span className="truncate text-xs" title={file.relative_path}>
+                  {/* Su touch il nome intero va a capo: il title lì non si vede. */}
+                  <span className="truncate text-xs pointer-coarse:break-all pointer-coarse:whitespace-normal" title={file.relative_path}>
                     {node.name}
                   </span>
                   <HardlinkInfo linkedPaths={file.linked_paths} />
                 </div>
-              </TableCell>
-              <TableCell>
-                <div className="flex items-center gap-1.5">
-                  {file.excluded ? (
-                    // Escluso = fuori da ogni controllo: nessuno stato, nessun "duplicate".
-                    <StatusBadge status="excluded" compact>
-                      {t("library.excluded")}
-                    </StatusBadge>
-                  ) : (
-                    <>
-                      <StateBadge state={file.state} compact />
-                      {file.stopped && <StoppedBadge compact />}
-                      {file.state === "orphan_torrent" && file.linked_paths.length === 0 && (
-                        // Né in seed né in libreria: nessuna identità, quindi mai cercato
-                        // sui tracker; di solito spazio che si può recuperare.
-                        <StatusBadge status="unmatched" compact>
-                          {t("library.notInLibrary")}
-                        </StatusBadge>
-                      )}
-                      {(file.seeding_copies?.length ?? 0) > 0 && (
-                        <span title={`${t("library.seedingCopyTitle")}\n${file.seeding_copies?.join("\n")}`}>
-                          <StatusBadge status="seeding" compact>
-                            {t("library.seedingCopy")}
-                          </StatusBadge>
-                        </span>
-                      )}
-                      {duplicateKeys?.has(fileKey(file)) && (
-                        <StatusBadge status="duplicate" compact>
-                          {t("library.duplicate")}
-                        </StatusBadge>
-                      )}
-                    </>
-                  )}
+                <div className={cn("mt-1 flex flex-wrap items-center gap-1.5 sm:hidden", picking ? "pl-0" : "pl-5")}>
+                  <FileBadges file={file} duplicateKeys={duplicateKeys} />
+                  <span className="text-xs text-muted-foreground tabular-nums">{formatBytes(file.size_bytes)}</span>
                 </div>
               </TableCell>
-              <TableCell className="text-right text-xs tabular-nums">{formatBytes(file.size_bytes)}</TableCell>
+              <TableCell className="hidden sm:table-cell">
+                <div className="flex items-center gap-1.5">
+                  <FileBadges file={file} duplicateKeys={duplicateKeys} />
+                </div>
+              </TableCell>
+              <TableCell className="hidden text-right text-xs tabular-nums sm:table-cell">{formatBytes(file.size_bytes)}</TableCell>
+              {withMenu && (
+                <TableCell className="px-1 text-right">
+                  <RowMenuButton items={items} title={file.relative_path} className="text-muted-foreground" />
+                </TableCell>
+              )}
             </TableRow>
             </RowContextMenu>
           );
         })}
         {hasMore && (
           <TableRow ref={sentinelRef} aria-hidden>
-            <TableCell colSpan={3} className="h-px p-0" />
+            <TableCell colSpan={withMenu ? 4 : 3} className="h-px p-0" />
           </TableRow>
         )}
       </TableBody>

@@ -42,10 +42,10 @@ function Poster({ job }: { job: UploadJobSummary }) {
 }
 
 // Un tracker per riga nella colonna di destra (in fila sotto il titolo da
-// telefono): con più tracker l'esito di ognuno resta leggibile.
+// telefono e tablet): con più tracker l'esito di ognuno resta leggibile.
 function TargetOutcomes({ job, className }: { job: UploadJobSummary; className?: string }) {
   return (
-    <div className={cn('flex flex-wrap gap-1.5 sm:grid sm:content-center sm:justify-items-start sm:gap-1', className)}>
+    <div className={cn('flex flex-wrap gap-1.5 lg:grid lg:content-center lg:justify-items-start lg:gap-1', className)}>
       {job.targets.map((target) => (
         <span key={target.id} className="inline-flex items-center gap-1 text-xs">
           <span className="text-muted-foreground">{target.tracker_label}</span>
@@ -85,8 +85,9 @@ function JobHeading({ job, status }: { job: UploadJobSummary; status?: React.Rea
 
 // Ogni upload una riga a sé, senza un contenitore intorno (decisione
 // dell'utente, 2026-10-02): poster, titolo e sorgente, esito per tracker,
-// data o avanzamento, azioni.
-const ROW = 'flex cursor-pointer flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border bg-card p-3 transition-colors hover:bg-muted/50 sm:flex-nowrap'
+// data o avanzamento, azioni. Su una riga sola solo da lg: fra sm e lg le
+// colonne fisse lasciavano al titolo pochi pixel.
+const ROW = 'flex cursor-pointer flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border bg-card p-3 transition-colors hover:bg-muted/50 lg:flex-nowrap'
 
 function ActiveList({ jobs }: { jobs: UploadJobSummary[] }) {
   const navigate = useNavigate()
@@ -120,8 +121,8 @@ function ActiveList({ jobs }: { jobs: UploadJobSummary[] }) {
                 </>
               }
             />
-            <TargetOutcomes job={job} className="sm:w-56 sm:shrink-0" />
-            <div className="w-full sm:w-40 sm:shrink-0">
+            <TargetOutcomes job={job} className="lg:w-56 lg:shrink-0" />
+            <div className="w-full lg:w-40 lg:shrink-0">
               {job.status === 'running' && pct !== null && (
                 <div className="grid gap-1">
                   <Progress value={pct} />
@@ -131,7 +132,8 @@ function ActiveList({ jobs }: { jobs: UploadJobSummary[] }) {
             </div>
             <div className="ml-auto flex shrink-0 items-center" onClick={(e) => e.stopPropagation()}>
               {job.status === 'queued' && queued.length > 1 && (
-                <div className="flex flex-col">
+                // Al tocco affiancate: impilate, due bersagli grandi non ci stanno nella riga.
+                <div className="flex flex-col pointer-coarse:flex-row">
                   <Button variant="ghost" size="icon-xs" disabled={index === 0} title={t('upload.history.moveUp')} onClick={() => move(job, -1)}>
                     <ArrowUpIcon className="size-4" />
                   </Button>
@@ -236,8 +238,8 @@ function HistoryList({ jobs, onOpen }: { jobs: UploadJobSummary[]; onOpen: (id: 
         <li key={job.id} className={cn(ROW, job.status === 'cancelled' && 'opacity-60')} onClick={() => onOpen(job.id)}>
           <Poster job={job} />
           <JobHeading job={job} status={<UploadStatusBadge status={job.status} />} />
-          <TargetOutcomes job={job} className="sm:w-56 sm:shrink-0" />
-          <span className="text-xs text-muted-foreground tabular-nums sm:w-40 sm:shrink-0 sm:text-right">
+          <TargetOutcomes job={job} className="lg:w-56 lg:shrink-0" />
+          <span className="text-xs text-muted-foreground tabular-nums lg:w-40 lg:shrink-0 lg:text-right">
             {job.finished_at && parseApiDate(job.finished_at).toLocaleString()}
           </span>
           <div className="ml-auto flex shrink-0" onClick={(e) => e.stopPropagation()}>

@@ -10,6 +10,7 @@ import {
   missingRequired,
   type ConfigValues,
 } from '@/components/AdapterConfigFields'
+import { InfoPopover } from '@/components/InfoPopover'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
@@ -176,12 +177,15 @@ export function PluginsSection() {
                 <p className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">{t(`plugins.kind.${kind}`)}</p>
                 <div className="flex flex-wrap gap-1.5">
                   {adapters.map((adapter) => (
-                    <Badge key={adapter.adapter_type} variant="secondary" title={adapter.description ?? undefined}>
-                      {adapter.label}
-                      <span className="ml-1 font-normal text-muted-foreground">
-                        {adapter.plugin ?? t('plugins.builtin')}
-                      </span>
-                    </Badge>
+                    // La descrizione si apre anche al tocco (prima solo nel title).
+                    <InfoPopover key={adapter.adapter_type} content={adapter.description}>
+                      <Badge variant="secondary">
+                        {adapter.label}
+                        <span className="ml-1 font-normal text-muted-foreground">
+                          {adapter.plugin ?? t('plugins.builtin')}
+                        </span>
+                      </Badge>
+                    </InfoPopover>
                   ))}
                 </div>
               </div>

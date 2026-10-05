@@ -30,7 +30,7 @@ export function ClientCategorySelect({
   ]
   return (
     <Select value={value ?? NONE} onValueChange={(v) => onChange(v === NONE || v == null ? null : v)}>
-      <SelectTrigger id={id} size="sm" className={cn('w-44', className)}>
+      <SelectTrigger id={id} size="sm" className={cn('w-full max-w-44', className)}>
         <SelectValue>{(v: string | null) => options.find((o) => o.value === v)?.label ?? options[0].label}</SelectValue>
       </SelectTrigger>
       <SelectContent>

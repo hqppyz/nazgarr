@@ -19,9 +19,10 @@ describe('FileTree badges', () => {
       />,
     )
 
-    expect(screen.getAllByText('not in library')).toHaveLength(1)
+    // I badge sono resi due volte (colonna Stato e, sotto sm, sotto il nome): si conta per riga.
     const row = screen.getByText('Gone.mkv').closest('tr')!
     expect(row.textContent).toContain('not in library')
+    expect(screen.getByText('Relinkable.mkv').closest('tr')!.textContent).not.toContain('not in library')
   })
 })
 

@@ -6,7 +6,8 @@ import type { Schemas } from '@/api/client'
 import { useNotImported, useRefreshNotImported } from '@/api/hooks/library'
 import { LibrarySummaryCards } from '@/components/LibrarySummaryCards'
 import { TorrentViewSwitch } from '@/components/LibraryViewSwitch'
-import { RowContextMenu, type RowMenuItem } from '@/components/RowContextMenu'
+import { InfoPopover } from '@/components/InfoPopover'
+import { RowContextMenu, RowMenuButton, type RowMenuItem } from '@/components/RowContextMenu'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -60,7 +61,8 @@ function WarningsPopover({ warnings }: { warnings: Warning[] }) {
         delay={150}
         aria-label={title}
         onClick={(e) => e.stopPropagation()}
-        className="inline-flex cursor-pointer items-center rounded p-0.5 text-amber-600 hover:bg-amber-500/15 dark:text-amber-400"
+        // Su touch un bersaglio più grande del triangolo da 14 px.
+        className="inline-flex cursor-pointer items-center rounded p-0.5 text-amber-600 hover:bg-amber-500/15 pointer-coarse:p-2 dark:text-amber-400"
       >
         <TriangleAlertIcon className="size-3.5" />
       </PopoverTrigger>
@@ -96,15 +98,16 @@ function SeedRequirementCell({
   if (status === 'met') {
     // "OK" in verde; con un problema in più, in giallo e il popover accanto.
     value = (
-      <span
-        title={t('notImported.removable.metHelp', { tracker: tracker ?? '', rule })}
-        className={cn(
-          'font-mono text-xs font-semibold',
-          warnings.length ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400',
-        )}
-      >
-        {t('notImported.removable.ok')}
-      </span>
+      <InfoPopover content={t('notImported.removable.metHelp', { tracker: tracker ?? '', rule })} align="end">
+        <span
+          className={cn(
+            'font-mono text-xs font-semibold',
+            warnings.length ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400',
+          )}
+        >
+          {t('notImported.removable.ok')}
+        </span>
+      </InfoPopover>
     )
   } else if (status === 'pending') {
     const left = [
@@ -112,12 +115,11 @@ function SeedRequirementCell({
       remaining.ratio != null && t('notImported.removable.ratioLeft', { ratio: remaining.ratio.toFixed(2) }),
     ].filter(Boolean).join(' · ')
     value = (
-      <span
-        className="font-mono text-xs text-amber-600 tabular-nums dark:text-amber-400"
-        title={t('notImported.removable.pendingHelp', { tracker: tracker ?? '', rule })}
-      >
-        {t('notImported.removable.left', { left })}
-      </span>
+      <InfoPopover content={t('notImported.removable.pendingHelp', { tracker: tracker ?? '', rule })} align="end">
+        <span className="font-mono text-xs text-amber-600 tabular-nums dark:text-amber-400">
+          {t('notImported.removable.left', { left })}
+        </span>
+      </InfoPopover>
     )
   } else {
     const help =
@@ -126,7 +128,11 @@ function SeedRequirementCell({
         : status === 'no_rules'
           ? t('notImported.removable.noRulesHelp', { tracker: tracker ?? '' })
           : t('notImported.removable.unknownTrackerHelp')
-    value = <span className="text-xs text-muted-foreground" title={help}>{status === 'unknown' ? '?' : '—'}</span>
+    value = (
+      <InfoPopover content={help} align="end">
+        <span className="text-xs text-muted-foreground">{status === 'unknown' ? '?' : '—'}</span>
+      </InfoPopover>
+    )
   }
   return (
     <span className="inline-flex items-center justify-end gap-1">
@@ -207,13 +213,16 @@ export function NotImportedView() {
   if (loader) return loader
 
   return (
-    <div className="grid gap-4">
+    // Una colonna larga quanto lo schermo: la tabella scorre dentro di sé.
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-4">
       <TorrentViewSwitch />
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="grid gap-1">
+        <div className="grid min-w-0 gap-1">
           <h1 className="text-lg font-semibold">{t('notImported.title')}</h1>
           <p className="max-w-3xl text-sm text-muted-foreground">{t('notImported.description')}</p>
-          <p className="text-xs text-muted-foreground">{t('notImported.rightClickHint')}</p>
+          {/* Clic destro col mouse, pressione lunga o ⋯ su touch. */}
+          <p className="text-xs text-muted-foreground pointer-coarse:hidden">{t('notImported.rightClickHint')}</p>
+          <p className="hidden text-xs text-muted-foreground pointer-coarse:block">{t('notImported.touchHint')}</p>
           <p className="text-xs text-muted-foreground" title={data?.computed_at ? parseApiDate(data.computed_at).toLocaleString() : undefined}>
             {data?.computed_at
               ? t(data.with_arr ? 'notImported.computedWithArr' : 'notImported.computedWithoutArr', {
@@ -246,7 +255,7 @@ export function NotImportedView() {
         <p className="text-sm text-muted-foreground">{t(`notImported.help.${category}`)}</p>
       )}
       <div className="flex flex-wrap items-center gap-3">
-        <div className="relative min-w-56 max-w-md flex-1">
+        <div className="relative min-w-0 max-w-md flex-1 basis-56">
           <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
             value={search}
@@ -281,15 +290,19 @@ export function NotImportedView() {
             <Table className="table-fixed">
               <TableHeader>
                 <TableRow>
+                  {/* Sotto lg via In libreria, Ratio e Seeding, sotto sm anche il
+                      perché e la dimensione (sotto il nome): con 544 px di
+                      colonne fisse al nome del torrent non restava niente. */}
                   <TableHead>{t('notImported.torrent')}</TableHead>
-                  <TableHead className="w-40">{t('notImported.why')}</TableHead>
-                  <TableHead className="w-[28%]">{t('notImported.inLibrary')}</TableHead>
-                  <TableHead className="w-24 text-right">{t('notImported.size')}</TableHead>
-                  <TableHead className="w-16 text-right">{t('notImported.ratio')}</TableHead>
-                  <TableHead className="w-24 text-right">{t('notImported.seeding')}</TableHead>
+                  <TableHead className="hidden w-40 sm:table-cell">{t('notImported.why')}</TableHead>
+                  <TableHead className="hidden w-[28%] lg:table-cell">{t('notImported.inLibrary')}</TableHead>
+                  <TableHead className="hidden w-24 text-right sm:table-cell">{t('notImported.size')}</TableHead>
+                  <TableHead className="hidden w-16 text-right lg:table-cell">{t('notImported.ratio')}</TableHead>
+                  <TableHead className="hidden w-24 text-right lg:table-cell">{t('notImported.seeding')}</TableHead>
                   <TableHead className="w-32 text-right" title={t('notImported.removable.columnHelp')}>
                     {t('notImported.removable.column')}
                   </TableHead>
+                  <TableHead className="w-8 px-1" />
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -319,14 +332,26 @@ export function NotImportedView() {
                       onClick={openable ? () => setOpenItem({ contentType: tor.content_type!, tmdbId: tor.tmdb_id! }) : undefined}
                     >
                       <TableCell title={tor.name}>
-                        <span className="block truncate font-mono text-xs">{tor.name}</span>
-                        <span className="block truncate text-[length:var(--text-xxs)] text-muted-foreground">
+                        {/* Su touch il nome intero va a capo: il title lì non si vede. */}
+                        <span className="block truncate font-mono text-xs pointer-coarse:break-all pointer-coarse:whitespace-normal">{tor.name}</span>
+                        <span className="block truncate text-[length:var(--text-xxs)] text-muted-foreground pointer-coarse:whitespace-normal">
                           {[contentLabel(tor), tor.quality, tor.tracker, tor.client, t('notImported.files', { count: tor.file_count })]
                             .filter(Boolean)
                             .join(' · ')}
                         </span>
+                        <div className="mt-1 flex flex-wrap items-center gap-1 sm:hidden">
+                          <CategoryBadge category={tor.category} />
+                          {tor.excluded && (
+                            <Badge variant="outline" className="h-auto py-0 font-mono text-[length:var(--text-xxs)] leading-4">
+                              {t('library.excluded')}
+                            </Badge>
+                          )}
+                          <span className="font-mono text-[length:var(--text-xxs)] text-muted-foreground tabular-nums">
+                            {formatBytes(tor.total_bytes)}
+                          </span>
+                        </div>
                       </TableCell>
-                      <TableCell title={tor.detail ?? undefined}>
+                      <TableCell className="hidden sm:table-cell" title={tor.detail ?? undefined}>
                         <div className="flex flex-wrap gap-1">
                           <CategoryBadge category={tor.category} />
                           {tor.excluded && (
@@ -336,7 +361,7 @@ export function NotImportedView() {
                           )}
                         </div>
                       </TableCell>
-                      <TableCell title={tor.replaced_by?.relative_path}>
+                      <TableCell className="hidden lg:table-cell" title={tor.replaced_by?.relative_path}>
                         {tor.replaced_by ? (
                           <span className="flex min-w-0 items-center gap-1.5">
                             <ArrowRightIcon className="size-3 shrink-0 text-muted-foreground" />
@@ -351,11 +376,11 @@ export function NotImportedView() {
                           <span className="text-xs text-muted-foreground">{tor.detail}</span>
                         )}
                       </TableCell>
-                      <TableCell className="text-right font-mono text-xs tabular-nums">{formatBytes(tor.total_bytes)}</TableCell>
-                      <TableCell className="text-right font-mono text-xs tabular-nums">
+                      <TableCell className="hidden text-right font-mono text-xs tabular-nums sm:table-cell">{formatBytes(tor.total_bytes)}</TableCell>
+                      <TableCell className="hidden text-right font-mono text-xs tabular-nums lg:table-cell">
                         {tor.ratio != null ? tor.ratio.toFixed(2) : '—'}
                       </TableCell>
-                      <TableCell className="text-right font-mono text-xs tabular-nums">
+                      <TableCell className="hidden text-right font-mono text-xs tabular-nums lg:table-cell">
                         {formatSeedTime(tor.seeding_time_seconds)}
                       </TableCell>
                       <TableCell className="text-right">
@@ -377,6 +402,10 @@ export function NotImportedView() {
                             </Button>
                           )}
                         </span>
+                      </TableCell>
+                      {/* Le stesse voci del tasto destro, per chi è su touch. */}
+                      <TableCell className="px-1 text-right">
+                        <RowMenuButton items={items} title={tor.name} className="text-muted-foreground" />
                       </TableCell>
                     </TableRow>
                     </RowContextMenu>

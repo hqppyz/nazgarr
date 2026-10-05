@@ -86,4 +86,8 @@ export const trackers = {
   'trackers.restoreConfirm': "Sostituire questo profilo con \"{profile}\" incluso? Id di categoria, tipo e risoluzione, regole di naming, descrizione e default tornano quelli inclusi: le tue modifiche si perdono.",
   'trackers.restored': "Profilo \"{profile}\" ripristinato.",
   'trackers.announceUrlWhere': 'Lo trovi qui, nella pagina di upload del tracker:',
+  'trackers.deleteTitle': 'Eliminare il tracker {label}?',
+  'trackers.deleteDescription': 'Nazgarr dimentica questo tracker, la sua chiave e il suo profilo di upload. Sul tracker non cambia niente.',
+  'trackers.deleteProfileTitle': 'Eliminare il profilo di upload di {trackerLabel}?',
+  'trackers.deleteProfileDescription': 'Nomi, descrizione e valori predefiniti di questo profilo vanno persi. Potrai crearne uno nuovo da zero o da un profilo incluso.',
 } as const

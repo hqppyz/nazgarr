@@ -45,4 +45,6 @@ export const integrations = {
   'integrations.testConnection': 'Test connection',
   'integrations.connectedSuccess': 'Connected — v{version}.',
   'integrations.connectionFailed': 'Connection failed: {message}',
+  'integrations.deleteInstanceTitle': 'Delete the instance {label}?',
+  'integrations.deleteInstanceDescription': 'Nazgarr stops reading from this {name} instance. The instance itself is not touched.',
 } as const

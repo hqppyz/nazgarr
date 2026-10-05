@@ -227,7 +227,7 @@ export const onboarding = {
   'onboarding.tour.views.pack.title':
     'Compose a pack',
   'onboarding.tour.views.pack.body':
-    'Episodes downloaded one at a time, even ones already seeding with their own torrent, become a season pack or a complete pack: pick them (Shift-click for a run) and create the pack. The upload starts from a new folder of hardlinks, one subfolder per season, subtitles included. Episodes from different releases need your confirmation.',
+    'Episodes downloaded one at a time, even ones already seeding with their own torrent, become a season pack or a complete pack: pick them (Shift-click for a run, or "Pick all shown") and create the pack. The upload starts from a new folder of hardlinks, one subfolder per season, subtitles included. Episodes from different releases need your confirmation.',
   'onboarding.tour.views.torrents.title':
     'Your torrents',
   'onboarding.tour.views.torrents.body':

@@ -107,4 +107,6 @@ export const torrentClients = {
   'torrentClients.quiDisconnected': 'non connessa',
   'torrentClients.quiLoadFailed': 'Impossibile leggere le istanze da qui: {error}. Scrivi il numero a mano.',
   'torrentClients.quiNoInstances': 'Questo qui non ha istanze.',
+  'torrentClients.deleteTitle': 'Eliminare il client {label}?',
+  'torrentClients.deleteDescription': 'Nazgarr dimentica questo client e i torrent che ne ha letto. Nel client non cambia niente.',
 } as const

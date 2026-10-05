@@ -186,10 +186,12 @@ export function NamingRulesEditor({
             <button
               key={name}
               type="button"
-              onMouseDown={(e) => e.preventDefault()}
+              // pointerdown e non mousedown: anche al tocco il campo resta
+              // attivo, e la variabile va dove c'è il cursore.
+              onPointerDown={(e) => e.preventDefault()}
               onClick={() => insert(name)}
               title={preview?.variables[name] ?? t('naming.noValue')}
-              className="rounded border bg-muted px-1.5 py-0.5 font-mono text-[11px] hover:border-primary hover:text-primary"
+              className="rounded border bg-muted px-1.5 py-0.5 font-mono text-[11px] hover:border-primary hover:text-primary pointer-coarse:h-8 pointer-coarse:px-2"
             >
               {`{${name}}`}
             </button>
@@ -233,7 +235,7 @@ export function NamingRulesEditor({
           )
         })}
         {missingKeys.length > 0 && (
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Select value={null} onValueChange={(key) => key && addTemplate(key)}>
               <SelectTrigger size="sm" className="w-auto">
                 <SelectValue placeholder={t('naming.addPatternFor')}>{() => t('naming.addPatternFor')}</SelectValue>

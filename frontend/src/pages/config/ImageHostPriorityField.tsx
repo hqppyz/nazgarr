@@ -1,5 +1,11 @@
-import { DndContext, type DragEndEvent, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
-import { arrayMove, SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
+import { DndContext, type DragEndEvent, KeyboardSensor, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { GripVerticalIcon, XIcon } from 'lucide-react'
 import { useState } from 'react'
@@ -60,12 +66,14 @@ function SortableRow({ id, label, onDisable }: { id: string; label: string; onDi
       <button
         {...attributes}
         {...listeners}
-        className="cursor-grab touch-none text-muted-foreground active:cursor-grabbing"
+        // Al tocco l'icona da 16px è un bersaglio troppo piccolo: size-9,
+        // con margini negativi così la riga resta alta uguale.
+        className="flex shrink-0 cursor-grab touch-none items-center justify-center text-muted-foreground active:cursor-grabbing pointer-coarse:-my-1.5 pointer-coarse:-ml-2 pointer-coarse:size-9"
         aria-label={t('uploadSettings.dragToReorder', { label })}
       >
         <GripVerticalIcon className="size-4" />
       </button>
-      <span className="flex-1">{label}</span>
+      <span className="min-w-0 flex-1 truncate">{label}</span>
       <Button variant="ghost" size="icon-sm" title={t('uploadSettings.disable')} onClick={onDisable}>
         <XIcon className="size-3.5" />
       </Button>
@@ -79,7 +87,11 @@ export function ImageHostPriorityField() {
   const [draft, setDraft] = useState<string[] | null>(null)
   const order = draft ?? parseOrder(data?.value)
   const disabled = disabledHosts(order)
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }))
+  // Anche da tastiera: spazio sulla maniglia, frecce per spostare.
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  )
 
   function save(next: string[], message: string) {
     setDraft(next)

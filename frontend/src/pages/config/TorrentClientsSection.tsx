@@ -25,6 +25,8 @@ import {
 import { ClientCategorySelect } from '@/components/ClientCategorySelect'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { ConfirmButton } from '@/components/ConfirmButton'
+import { InfoPopover } from '@/components/InfoPopover'
 import { SettingsHeader } from '@/components/SettingsHeader'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
@@ -330,7 +332,7 @@ function DiskAssociationRow({
   return (
     <div className="grid min-w-0 gap-3 rounded-md border px-3 py-2.5">
       <div className="flex min-w-0 items-center justify-between gap-2">
-        <span className="font-medium">{disk.label}</span>
+        <span className="max-w-[50%] truncate font-medium">{disk.label}</span>
         <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground" title={disk.root_path}>
           {disk.root_path}
         </span>
@@ -453,7 +455,7 @@ function TagsField({ tc, field, label }: { tc: TorrentClient; field: LabelField;
       </Label>
       <Input
         id={`tc-${tc.id}-${field}`}
-        className="h-7 w-44 text-xs"
+        className="h-7 w-full max-w-44 text-xs"
         value={value}
         placeholder={t('torrentClients.noTags')}
         onChange={(e) => setValue(e.target.value)}
@@ -482,9 +484,13 @@ function ClientLabels({ tc }: { tc: TorrentClient }) {
   ]
   return (
     <div className="grid gap-2 border-t pt-3">
-      <p className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase" title={t('torrentClients.labelsHelp')}>
+      {/* La spiegazione si apre anche al tocco (prima solo nel title). */}
+      <InfoPopover
+        content={t('torrentClients.labelsHelp')}
+        className="w-fit text-[11px] font-medium tracking-wide text-muted-foreground uppercase"
+      >
         {t('torrentClients.labelsTitle')}
-      </p>
+      </InfoPopover>
       <div className="grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-1.5 text-xs">
         {categories.length > 0 || rows.some(([field]) => tc[field]) ? (
           rows.map(([field, label, noneLabel]) => (
@@ -534,7 +540,7 @@ export function TorrentClientsSection() {
       )}
       {/* Una scheda per client: tipo con il suo logo, indirizzo, dischi, quanti
           torrent ha nell'indice dell'ultima scan, e le azioni. */}
-      <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
+      <div className="grid gap-4 xl:grid-cols-2 2xl:grid-cols-3">
         {torrentClients?.map((tc) => (
           <Card key={tc.id} data-tour="clients.card" className={cn('min-w-0', !tc.enabled && 'opacity-70')}>
             <CardHeader className="flex flex-row items-center gap-3">
@@ -586,9 +592,17 @@ export function TorrentClientsSection() {
                 <div className="ml-auto flex shrink-0 items-center gap-1">
                   <DisksDialog torrentClientId={tc.id} disks={tc.disks} />
                   <TorrentClientDialog tc={tc} />
-                  <Button variant="ghost" size="icon-sm" title={t('common.delete')} onClick={() => deleteTorrentClient.mutate(tc.id)}>
-                    <TrashIcon className="size-4" />
-                  </Button>
+                  <ConfirmButton
+                    trigger={
+                      <Button variant="ghost" size="icon-sm" title={t('common.delete')}>
+                        <TrashIcon className="size-4" />
+                      </Button>
+                    }
+                    title={t('torrentClients.deleteTitle', { label: tc.label })}
+                    description={t('torrentClients.deleteDescription')}
+                    pending={deleteTorrentClient.isPending}
+                    onConfirm={() => deleteTorrentClient.mutate(tc.id)}
+                  />
                 </div>
               </div>
             </CardContent>

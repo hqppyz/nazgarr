@@ -76,4 +76,9 @@ export const disks = {
     'Hai montato sia la user share di Unraid ({share}) sia dei dischi singoli ({disks}): gli stessi file si vedrebbero due volte. Tieni solo la share, o solo i dischi.',
   'disks.mounts.warning.mounts_outside_scan_root':
     '{paths} è montato ma fuori da disk_scan_root ({root}): non può diventare un disco. Togli disk_scan_root da config.yaml (non serve in Docker) e riavvia.',
+  'disks.deleteTitle': 'Eliminare il disco {label}?',
+  'disks.deleteDescription': 'Nazgarr dimentica questo disco e le sue cartelle. Nessun file sul disco viene toccato.',
+  'disks.removeFolderTitle': 'Togliere la cartella {path}?',
+  'disks.removeFolderDescription': 'Nazgarr smette di usarla. I file dentro restano dove sono.',
+  'disks.removeFolderConfirm': 'Togli',
 } as const

@@ -27,9 +27,10 @@ function formatUptime(startedAt: string): string {
 
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-center justify-between border-b py-2 text-sm last:border-b-0">
-      <span className="text-muted-foreground">{label}</span>
-      <span className="font-mono">{value}</span>
+    <div className="flex items-center justify-between gap-3 border-b py-2 text-sm last:border-b-0">
+      <span className="shrink-0 text-muted-foreground">{label}</span>
+      {/* Un valore lungo (percorso, versione) va a capo invece di uscire dalla card. */}
+      <span className="min-w-0 text-right font-mono break-all">{value}</span>
     </div>
   )
 }

@@ -52,8 +52,11 @@ import { UploadImagesSection, UploadReleasesSection } from '@/pages/config/Uploa
 // un'altra pagina porta dritto al tab giusto.
 //
 // Layout: le card piccole in un masonry a due colonne (components/Masonry.tsx,
-// da lg): ogni card nella colonna più corta, quelle con data-masonry="full"
-// a tutta larghezza. Le tabelle e le liste larghe restano impilate.
+// da xl: fra lg e xl, con la barra laterale e la colonna delle sezioni, due
+// card affiancate restano strette): ogni card nella colonna più corta, quelle
+// con data-masonry="full" a tutta larghezza. Le tabelle e le liste larghe
+// restano impilate.
+const MASONRY_QUERY = '(min-width: 1280px)'
 const PAIRS = 'masonry'
 const STACK = 'stack'
 
@@ -92,7 +95,7 @@ const GROUPS: { title: string; tabs: Tab[] }[] = [
         description: t('config.descIntegrations'),
         content: (
           <>
-            <Masonry gap={24}>
+            <Masonry gap={24} query={MASONRY_QUERY}>
               <MetadataSection />
             </Masonry>
             <IntegrationsSection />
@@ -196,11 +199,14 @@ export function ConfigurationPage() {
       value={current}
       onValueChange={(value) => select(String(value))}
       orientation="vertical"
-      className="flex-col gap-4 md:flex-row md:gap-6"
+      className="flex-col gap-4 lg:flex-row lg:gap-6"
     >
-      {/* Da telefono la colonna delle sezioni non ci sta: un select in cima. */}
+      {/* Sotto lg (telefono e tablet) la colonna delle sezioni toglie troppo
+          spazio alle card: un select in cima, che resta fermo mentre si
+          scorre un tab lungo per poter cambiare sezione in ogni momento. */}
+      <div className="sticky top-0 z-10 -mx-1 bg-background px-1 py-2 lg:hidden">
       <Select value={current} onValueChange={(value) => value != null && select(String(value))}>
-        <SelectTrigger className="w-full md:hidden" aria-label={t('nav.configuration')}>
+        <SelectTrigger className="w-full" aria-label={t('nav.configuration')}>
           <SelectValue>
             {() =>
               currentTab && (
@@ -226,8 +232,9 @@ export function ConfigurationPage() {
           ))}
         </SelectContent>
       </Select>
+      </div>
       {/* La colonna delle sezioni resta ferma mentre il contenuto scorre. */}
-      <TabsList className="sticky top-0 hidden max-h-[calc(100svh-6rem)] w-56 shrink-0 items-stretch gap-0.5 self-start overflow-y-auto bg-transparent p-0 md:flex">
+      <TabsList className="sticky top-0 hidden max-h-[calc(100svh-6rem)] w-56 shrink-0 items-stretch gap-0.5 self-start overflow-y-auto bg-transparent p-0 lg:flex">
         {VISIBLE_GROUPS.map((group, i) => (
           <div key={group.title} className={cn('grid gap-0.5', i > 0 && 'mt-3')}>
             <p className="px-3 pb-1 text-[length:var(--text-xxs)] font-medium tracking-wide text-muted-foreground uppercase">
@@ -251,7 +258,7 @@ export function ConfigurationPage() {
           <>
           {!tab.ownHeading && <SettingsHeader title={tab.label} description={tab.description} />}
           {tab.layout === 'masonry' ? (
-            <Masonry gap={24}>{tab.content}</Masonry>
+            <Masonry gap={24} query={MASONRY_QUERY}>{tab.content}</Masonry>
           ) : (
             <div className="grid min-w-0 content-start gap-6">{tab.content}</div>
           )}

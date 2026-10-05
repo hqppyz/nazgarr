@@ -1,5 +1,5 @@
 import { ChevronRightIcon, FileIcon, FileVideoIcon, FolderIcon, FolderOpenIcon } from 'lucide-react'
-import { useState } from 'react'
+import { useRef, useState, type CSSProperties } from 'react'
 
 import { useBrowseDisk, useDisks } from '@/api/hooks/disks'
 import { Button } from '@/components/ui/button'
@@ -30,6 +30,8 @@ function join(parent: string, name: string) {
   return parent ? `${parent}/${name}` : name
 }
 
+const INDENT = 'pl-[calc(var(--depth)*0.75rem+0.5rem)] sm:pl-[calc(var(--depth)*1.25rem+0.5rem)]'
+
 /** Una cartella del disco, caricata solo quando la si apre: lo stesso
  * aspetto della vista a cartelle (components/FileTree.tsx), ma sul disco
  * vero (/api/disks/{id}/browse), non sui file già scansionati, così si
@@ -49,17 +51,22 @@ function DirectoryRows({
 }) {
   const { data, isPending, isError } = useBrowseDisk(diskId, path)
   const [open, setOpen] = useState<Set<string>>(() => new Set())
-  const indent = { paddingLeft: `${depth * 1.25 + 0.5}rem` }
+  // Al tocco non c'è doppio click: toccare la cartella già selezionata la apre.
+  // Serve sapere con cosa è arrivato il click, perché col mouse il doppio
+  // click passa da due click sulla stessa cartella e la riaprirebbe due volte.
+  const pointerType = useRef('mouse')
+  // Rientro più stretto sul telefono: a 1.25rem per livello il nome sparisce in fretta.
+  const indent = { '--depth': depth } as CSSProperties
 
-  if (isPending) return <p className="py-1.5 text-xs text-muted-foreground" style={indent}>{t('common.loading')}</p>
-  if (isError) return <p className="py-1.5 text-xs text-destructive" style={indent}>{t('disks.cannotReadFolder')}</p>
+  if (isPending) return <p className={cn(INDENT, 'py-1.5 text-xs text-muted-foreground')} style={indent}>{t('common.loading')}</p>
+  if (isError) return <p className={cn(INDENT, 'py-1.5 text-xs text-destructive')} style={indent}>{t('disks.cannotReadFolder')}</p>
 
   // Cartelle prima dei file, poi alfabetico (come la vista a cartelle).
   const entries = [...(data?.entries ?? [])].sort(
     (a, b) => Number(b.is_dir) - Number(a.is_dir) || a.name.localeCompare(b.name),
   )
   if (entries.length === 0) {
-    return <p className="py-1.5 text-xs text-muted-foreground" style={indent}>{t('disks.emptyFolder')}</p>
+    return <p className={cn(INDENT, 'py-1.5 text-xs text-muted-foreground')} style={indent}>{t('disks.emptyFolder')}</p>
   }
 
   const toggle = (name: string) =>
@@ -83,12 +90,19 @@ function DirectoryRows({
               tabIndex={0}
               aria-selected={isSelected}
               className={cn(
-                'flex cursor-pointer items-center gap-1.5 rounded-sm py-1.5 pr-2 font-mono text-xs hover:bg-muted',
+                INDENT,
+                'flex cursor-pointer items-center gap-1.5 rounded-sm py-1.5 pr-2 font-mono text-xs hover:bg-muted pointer-coarse:min-h-10 pointer-coarse:py-1',
                 isOpen && 'bg-primary/5',
                 isSelected && 'bg-primary/15 ring-1 ring-primary/40 hover:bg-primary/20',
               )}
               style={indent}
-              onClick={() => onSelect(relativePath, entry.is_dir)}
+              onPointerDown={(e) => {
+                pointerType.current = e.pointerType
+              }}
+              onClick={() => {
+                if (entry.is_dir && isSelected && pointerType.current !== 'mouse') toggle(entry.name)
+                else onSelect(relativePath, entry.is_dir)
+              }}
               onDoubleClick={() => entry.is_dir && toggle(entry.name)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') onSelect(relativePath, entry.is_dir)
@@ -100,7 +114,8 @@ function DirectoryRows({
                   <button
                     type="button"
                     aria-label={isOpen ? t('upload.picker.collapse') : t('upload.picker.expand')}
-                    className="rounded p-0.5 hover:bg-background"
+                    // Al tocco un bersaglio da 32px invece della sola freccia.
+                    className="flex shrink-0 items-center justify-center rounded p-0.5 hover:bg-background pointer-coarse:size-8"
                     onClick={(e) => {
                       e.stopPropagation()
                       toggle(entry.name)
@@ -117,7 +132,7 @@ function DirectoryRows({
                 </>
               ) : (
                 <>
-                  <span className="w-[1.125rem] shrink-0" />
+                  <span className="w-[1.125rem] shrink-0 pointer-coarse:w-8" />
                   {isVideo(entry.name) ? (
                     <FileVideoIcon className="size-3.5 shrink-0 text-muted-foreground" />
                   ) : (
@@ -211,8 +226,13 @@ export function SourcePickerSheet({
           )}
         </div>
         <SheetFooter className="flex-row items-center gap-3">
-          <p className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground" title={selected?.relativePath}>
-            {selected ? selected.relativePath : t('upload.picker.nothingSelected')}
+          {/* Sul telefono si tronca l'inizio del percorso, non il nome del file
+              in fondo (direzione rtl, col testo isolato in un bdi). */}
+          <p
+            className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground max-sm:text-left max-sm:[direction:rtl]"
+            title={selected?.relativePath}
+          >
+            <bdi>{selected ? selected.relativePath : t('upload.picker.nothingSelected')}</bdi>
           </p>
           <Button
             disabled={selected === null || activeDiskId === null}

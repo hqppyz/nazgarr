@@ -40,10 +40,12 @@ function SuggestionRow({ clientId, suggestion, onApplied }: {
       {same ? (
         <span className="text-muted-foreground">{t('torrentClients.pathCheck.samePaths')}</span>
       ) : (
-        <span className="flex min-w-0 items-center gap-1.5 font-mono text-xs">
-          <span className="truncate">{suggestion.local_rel_path ?? t('torrentClients.mappingDiskRoot')}</span>
+        // Da telefono i percorsi troncati non si leggono (e il title non c'è):
+        // vanno a capo; da sm la riga di sempre.
+        <span className="flex min-w-0 flex-wrap items-center gap-1.5 font-mono text-xs sm:flex-nowrap">
+          <span className="min-w-0 break-all sm:truncate">{suggestion.local_rel_path ?? t('torrentClients.mappingDiskRoot')}</span>
           <span className="text-muted-foreground">=</span>
-          <span className="truncate">{suggestion.client_root_path}</span>
+          <span className="min-w-0 break-all sm:truncate">{suggestion.client_root_path}</span>
         </span>
       )}
       <span className="text-xs text-muted-foreground">
@@ -154,7 +156,7 @@ export function PathCheckButton({ clientId, clientLabel }: { clientId: number; c
         {t('torrentClients.pathCheck.button')}
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent data-tour="clients.path-check-dialog" className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+        <DialogContent data-tour="clients.path-check-dialog" className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>{t('torrentClients.pathCheck.title', { client: clientLabel })}</DialogTitle>
             <DialogDescription>{t('torrentClients.pathCheck.description')}</DialogDescription>

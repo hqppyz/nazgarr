@@ -15,7 +15,8 @@ import { NamingRulesEditor, type NamingRules } from '@/components/NamingRulesEdi
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { FreeleechField, Section } from '@/pages/config/UploadProfileParts'
 import { Button } from '@/components/ui/button'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { ConfirmButton } from '@/components/ConfirmButton'
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
@@ -119,7 +120,7 @@ export function UploadProfileDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-5xl">
+      <DialogContent className="max-h-[92dvh] overflow-y-auto sm:max-w-5xl">
         <DialogHeader>
           <DialogTitle>{t('trackers.uploadProfileTitle', { trackerLabel })}</DialogTitle>
         </DialogHeader>
@@ -315,14 +316,19 @@ export function UploadProfileDialog({
               </CollapsibleContent>
             </Collapsible>
 
-            <div className="flex justify-between">
-              <Button variant="destructive" onClick={() => deleteProfile.mutate()}>
-                {t('trackers.deleteProfile')}
-              </Button>
+            {/* DialogFooter: in un profilo lungo Salva resta sempre in vista. */}
+            <DialogFooter className="sm:justify-between">
+              <ConfirmButton
+                trigger={<Button variant="destructive">{t('trackers.deleteProfile')}</Button>}
+                title={t('trackers.deleteProfileTitle', { trackerLabel })}
+                description={t('trackers.deleteProfileDescription')}
+                pending={deleteProfile.isPending}
+                onConfirm={() => deleteProfile.mutate()}
+              />
               <Button onClick={save} disabled={updateProfile.isPending}>
                 {t('common.save')}
               </Button>
-            </div>
+            </DialogFooter>
           </div>
         )}
       </DialogContent>

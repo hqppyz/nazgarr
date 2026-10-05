@@ -98,7 +98,9 @@ function ResultView({ result, hasExecution }: { result: CheckResult; hasExecutio
   )
 }
 
-export function FullCheckButton({ target, label, size = 'xs' }: { target: FullCheckTarget; label: string; size?: 'xs' | 'sm' }) {
+// iconOnlyOnPhone: sotto sm solo l'icona, nelle tabelle dove l'etichetta
+// toglieva spazio al nome (Esecuzioni del reseeding).
+export function FullCheckButton({ target, label, size = 'xs', iconOnlyOnPhone = false }: { target: FullCheckTarget; label: string; size?: 'xs' | 'sm'; iconOnlyOnPhone?: boolean }) {
   const [open, setOpen] = useState(false)
   const [checkId, setCheckId] = useState<string | null>(() => lastCheck.get(keyOf(target)) ?? null)
   const start = useStartFullCheck()
@@ -119,10 +121,10 @@ export function FullCheckButton({ target, label, size = 'xs' }: { target: FullCh
     <>
       <Button size={size} variant="outline" title={t('fullCheck.hint')} onClick={() => setOpen(true)}>
         {active ? <Loader2Icon className="size-3 animate-spin" /> : <ScanSearchIcon className="size-3" />}
-        {t('fullCheck.button')}
+        <span className={cn(iconOnlyOnPhone && 'max-sm:sr-only')}>{t('fullCheck.button')}</span>
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
+        <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>{t('fullCheck.title')}</DialogTitle>
             <DialogDescription className="font-mono break-all">{label}</DialogDescription>

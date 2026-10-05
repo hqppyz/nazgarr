@@ -62,7 +62,7 @@ export function OverridesPanel({ job }: { job: UploadJob }) {
       <span className="truncate text-xs text-muted-foreground">{t(`upload.overrides.field.${key}`)}</span>
       <Input
         className={cn(
-          'h-7 px-2 font-mono text-xs',
+          'h-7 px-2 font-mono text-xs pointer-coarse:h-9', // più alto al tocco (il font sale già a 16px)
           text(key) ? 'border-primary/60 bg-primary/5' : 'border-transparent bg-muted/60 shadow-none',
           key === 'source' && missingSource && !text(key) && 'border-amber-500/70',
         )}

@@ -36,6 +36,7 @@ export const notImported = {
   'notImported.days': '{count}d',
   'notImported.hours': '{count}h',
   'notImported.rightClickHint': 'Right-click a torrent to upload or reseed it on your trackers.',
+  'notImported.touchHint': 'Long-press a torrent, or tap ⋯, to upload or reseed it on your trackers.',
   'notImported.removable.column': 'Removable',
   'notImported.removable.columnHelp':
     "Whether the torrent already met its tracker's seeding requirement (minimum seed time and/or ratio, set on the tracker) and can be removed without a hit and run.",

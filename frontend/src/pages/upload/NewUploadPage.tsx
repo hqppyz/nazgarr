@@ -182,56 +182,65 @@ export function NewUploadPage() {
             <div className="flex flex-wrap gap-2">
               {trackers?.map((tracker) => {
                 const active = selectedTrackers?.has(tracker.id) ?? false
+                // Il freeleech sta fuori dal pulsante del tracker (prima erano
+                // span cliccabili dentro un button, minuscoli al tocco): stessa
+                // scheda, pulsanti veri da 32px come nella decisione.
                 return (
-                  <button
+                  <div
                     key={tracker.id}
-                    type="button"
-                    aria-pressed={active}
-                    onClick={() => toggleTracker(tracker.id)}
                     className={cn(
-                      'flex items-center gap-2 rounded-md border px-3 py-2 text-left text-sm transition',
+                      'grid gap-2 rounded-md border px-3 py-2 text-sm transition',
                       active ? 'border-primary bg-primary/10' : 'text-muted-foreground hover:bg-muted',
                     )}
                   >
-                    <span
-                      className={cn(
-                        'flex size-4 items-center justify-center rounded-sm border',
-                        active && 'border-primary bg-primary text-primary-foreground',
-                      )}
+                    <button
+                      type="button"
+                      aria-pressed={active}
+                      onClick={() => toggleTracker(tracker.id)}
+                      className="flex items-center gap-2 text-left"
                     >
-                      {active && <CheckIcon className="size-3" />}
-                    </span>
-                    <span className="grid">
-                      <span className="font-medium text-foreground">{tracker.label}</span>
-                      <span className="text-xs text-muted-foreground">
-                        {tracker.torrent_client_label
-                          ? t('upload.seedsOn', { client: tracker.torrent_client_label })
-                          : t('upload.noClient')}
+                      <span
+                        className={cn(
+                          'flex size-4 items-center justify-center rounded-sm border',
+                          active && 'border-primary bg-primary text-primary-foreground',
+                        )}
+                      >
+                        {active && <CheckIcon className="size-3" />}
                       </span>
-                      {active && tracker.freeleech_options.length > 0 && (
-                        <span className="mt-1 flex flex-wrap gap-1" onClick={(e) => e.stopPropagation()}>
-                          {[0, ...tracker.freeleech_options].map((value) => (
-                            <span
-                              key={value}
-                              role="radio"
-                              aria-checked={freeleechOf(tracker.id) === value}
-                              tabIndex={0}
-                              onClick={() => setFreeleech((prev) => ({ ...prev, [tracker.id]: value }))}
-                              onKeyDown={(e) => e.key === 'Enter' && setFreeleech((prev) => ({ ...prev, [tracker.id]: value }))}
-                              className={cn(
-                                'cursor-pointer rounded border px-1.5 text-[11px] tabular-nums',
-                                freeleechOf(tracker.id) === value
-                                  ? 'border-primary bg-primary/10 text-primary'
-                                  : 'text-muted-foreground hover:bg-muted',
-                              )}
-                            >
-                              {value === 0 ? t('upload.noFreeleech') : `FL ${value}%`}
-                            </span>
-                          ))}
+                      <span className="grid">
+                        <span className="font-medium text-foreground">{tracker.label}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {tracker.torrent_client_label
+                            ? t('upload.seedsOn', { client: tracker.torrent_client_label })
+                            : t('upload.noClient')}
                         </span>
-                      )}
-                    </span>
-                  </button>
+                      </span>
+                    </button>
+                    {active && tracker.freeleech_options.length > 0 && (
+                      <div
+                        role="group"
+                        aria-label={t('upload.decision.freeleech')}
+                        className="inline-flex w-fit flex-wrap overflow-hidden rounded-md border bg-background"
+                      >
+                        {[0, ...tracker.freeleech_options].map((value) => (
+                          <button
+                            key={value}
+                            type="button"
+                            aria-pressed={freeleechOf(tracker.id) === value}
+                            onClick={() => setFreeleech((prev) => ({ ...prev, [tracker.id]: value }))}
+                            className={cn(
+                              'h-8 border-r px-3 text-xs tabular-nums last:border-r-0',
+                              freeleechOf(tracker.id) === value
+                                ? 'bg-primary/15 text-primary'
+                                : 'text-muted-foreground hover:bg-muted',
+                            )}
+                          >
+                            {value === 0 ? t('upload.noFreeleech') : `FL ${value}%`}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 )
               })}
             </div>

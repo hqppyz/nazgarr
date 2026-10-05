@@ -45,7 +45,7 @@ export const upload = {
 
   'upload.picker.title': 'Choose the source',
   'upload.picker.description':
-    'Click a file or a folder to select it, the arrow (or a double click) opens a folder.',
+    'Click a file or a folder to select it; the arrow, a double click or a second tap opens a folder.',
   'upload.picker.noDisks': 'No disk configured yet.',
   'upload.picker.nothingSelected': 'Nothing selected',
   'upload.picker.useFile': 'Use this file',

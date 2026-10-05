@@ -27,10 +27,10 @@ export function MatchSummaryCard({ job }: { job: UploadJob }) {
             tmdbId={job.tmdb_id}
             hasPoster
             url={posterUrl({ content_type: job.content_type as 'movie' | 'tv', tmdb_id: job.tmdb_id, poster_path: job.poster_path })}
-            className="aspect-[2/3] w-28 shrink-0 self-start overflow-hidden rounded-md sm:w-36"
+            className="aspect-[2/3] w-20 shrink-0 self-start overflow-hidden rounded-md sm:w-36"
           />
         ) : (
-          <div className="aspect-[2/3] w-28 shrink-0 rounded-md bg-muted sm:w-36" />
+          <div className="aspect-[2/3] w-20 shrink-0 rounded-md bg-muted sm:w-36" />
         )}
         {/* In colonna, con i link ai metadati in fondo alla scheda. */}
         <div className="flex min-w-0 flex-1 flex-col gap-2">

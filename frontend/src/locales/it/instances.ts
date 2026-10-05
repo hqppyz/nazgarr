@@ -18,7 +18,6 @@ export const instances = {
   'instances.none': 'Ancora nessuna altra istanza.',
   'instances.overview': 'Panoramica di tutte le istanze',
   'instances.manage': 'Gestisci istanze',
-  'instances.removeConfirm': "Togliere {label}? Su quell'istanza non cambia niente; revoca lì la sua chiave se non ti serve più.",
   'instances.status.ok': 'Connessa',
   'instances.status.unreachable': 'Non raggiungibile',
   'instances.status.bad_key': 'Chiave rifiutata',
@@ -51,4 +50,6 @@ export const instances = {
     "Il login, la password e le API key di un'istanza si gestiscono solo dalla sua interfaccia: la API key con cui questa istanza la raggiunge non può cambiarli, apposta.",
   'instances.localName': 'Nome di questa istanza',
   'instances.localNameHelp': 'Al posto di “Questa istanza” nel selettore e nella panoramica.',
+  'instances.removeTitle': 'Togliere {label}?',
+  'instances.removeDescription': "Su quell'istanza non cambia niente; revoca lì la sua chiave se non ti serve più.",
 } as const

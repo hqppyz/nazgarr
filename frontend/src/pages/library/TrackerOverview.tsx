@@ -51,13 +51,15 @@ function TrackerRow({ detail, group }: { detail: Detail; group: Group }) {
   const canUpload = group.configured && group.has_upload_profile && group.seeding < group.total && source !== null
   return (
     <div className="rounded-md border">
-      <div className="flex min-w-0 items-center gap-2.5 px-3 py-2">
+      {/* Sotto sm il pulsante di upload va a capo, a tutta larghezza: accanto
+          al tracker usciva dalla scheda. */}
+      <div className="flex min-w-0 flex-wrap items-center gap-2.5 px-3 py-2 sm:flex-nowrap">
         <button
           type="button"
           aria-expanded={open}
           disabled={group.entries.length === 0}
           onClick={() => setOpen((v) => !v)}
-          className="flex min-w-0 flex-1 items-center gap-2.5 text-left disabled:cursor-default"
+          className="flex min-w-0 flex-1 basis-full items-center gap-2.5 text-left disabled:cursor-default sm:basis-auto"
         >
           {/* Il logo grande quanto l'icona generica dei tracker non configurati. */}
           {group.tracker_id != null ? (
@@ -79,6 +81,7 @@ function TrackerRow({ detail, group }: { detail: Detail; group: Group }) {
           <Button
             size="xs"
             variant="outline"
+            className="max-sm:w-full"
             title={t('itemDetail.uploadToTrackerHelp')}
             onClick={() =>
               navigate(newUploadLink(source, `${detail.content_type}/${detail.tmdb_id}`, [group.tracker_id!]))
