@@ -2,11 +2,10 @@ export const disks = {
   'disks.createDiskFailed': 'Failed to create disk: {message}',
   'disks.addDisk': 'Add disk',
   'disks.label': 'Label',
-  'disks.rootPathHelp':
-    'Pre-filled with disk_scan_root — leave it as-is with a single mount (e.g. /data), otherwise enter the specific disk path.',
-  'disks.chooseSubfolder': 'Or choose from subfolders not yet registered',
+  'disks.rootPathHelp': 'The disk folder inside this container, not on your host: one of the mounted ones (e.g. /data with a single mount, /mnt/disk1 with several disks).',
+  'disks.chooseSubfolder': 'Or pick one of the proposed folders',
   'disks.subfolderPlaceholder': 'Subfolder of disk_scan_root…',
-  'disks.multiDiskHelp': 'Only useful for the multi-disk case (one mount per physical disk, e.g. /mnt/disk1).',
+  'disks.multiDiskHelp': 'The folders mounted in the container that are not a disk yet.',
   'disks.create': 'Create',
   'disks.verifyHardlink': 'Verify hardlink (st_dev)',
   'disks.diskConsistent': 'Disk consistent.',
@@ -66,4 +65,17 @@ export const disks = {
   'disks.noLibraryTitle': 'No media folder',
   'disks.noLibrary':
     'Nazgarr works like this too (torrents, Triage, uploads, packs), but reseeding finds nothing: today it recognizes content only from library files. Add a media folder to a disk to look for what you can seed again.',
+  // Folders mounted in the container (nazgarr/core/mounts.py)
+  'disks.mounts.title': 'Folders mounted in the container',
+  'disks.mounts.scopeMounts': 'Disks can only be in these folders, the ones you mounted in the Docker template. Each one is a disk of its own.',
+  'disks.mounts.scopeConfig': 'Disks are restricted to {root} (disk_scan_root in config.yaml).',
+  'disks.mounts.unraidShare': 'Unraid share',
+  'disks.mounts.registered': 'already a disk',
+  'disks.mounts.add': 'Add as a disk',
+  'disks.mounts.warning.split_mounts':
+    '{paths} are the same filesystem mounted at different points: Linux refuses hardlinks between two mounts, even on the same disk. Mount the folder that holds them (e.g. /data with media/ and torrents/ inside) instead of each one.',
+  'disks.mounts.warning.share_and_disks':
+    'Both the Unraid user share ({share}) and single disks ({disks}) are mounted: the same files would be seen twice. Keep only the share, or only the disks.',
+  'disks.mounts.warning.mounts_outside_scan_root':
+    '{paths} is mounted but outside disk_scan_root ({root}): it cannot become a disk. Remove disk_scan_root from config.yaml (Docker does not need it) and restart.',
 } as const

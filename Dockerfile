@@ -56,6 +56,10 @@ ENV NAZGARR_URL=http://127.0.0.1:8080 \
 # se manca config.yaml al suo interno viene seminato da config.example.yaml.
 ENV CONFIG_PATH=/app/config/config.yaml
 
+# Dentro un container il confine dei dischi sono le cartelle montate
+# (nazgarr/core/mounts.py): niente disk_scan_root da scrivere.
+ENV NAZGARR_CONTAINER=1
+
 # Versione e commit decisi dalla CI (.github/workflows/docker-publish.yml,
 # nazgarr/core/version.py): vuoti in una build locale, che si mostra come "-dev".
 ARG NAZGARR_VERSION=""

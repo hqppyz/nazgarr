@@ -2,11 +2,10 @@ export const disks = {
   'disks.createDiskFailed': 'Creazione del disco non riuscita: {message}',
   'disks.addDisk': 'Aggiungi disco',
   'disks.label': 'Etichetta',
-  'disks.rootPathHelp':
-    'Precompilato con disk_scan_root — lascialo così con un solo mount (es. /data), altrimenti inserisci il percorso del disco specifico.',
-  'disks.chooseSubfolder': 'Oppure scegli tra le sottocartelle non ancora registrate',
+  'disks.rootPathHelp': 'La cartella del disco dentro questo container, non sul tuo host: una di quelle montate (es. /data con un solo mount, /mnt/disk1 con più dischi).',
+  'disks.chooseSubfolder': 'Oppure scegli tra le cartelle proposte',
   'disks.subfolderPlaceholder': 'Sottocartella di disk_scan_root…',
-  'disks.multiDiskHelp': 'Utile solo nel caso multi-disco (un mount per disco fisico, es. /mnt/disk1).',
+  'disks.multiDiskHelp': 'Le cartelle montate nel container non ancora aggiunte come disco.',
   'disks.create': 'Crea',
   'disks.verifyHardlink': 'Verifica hardlink (st_dev)',
   'disks.diskConsistent': 'Disco coerente.',
@@ -65,4 +64,17 @@ export const disks = {
   'disks.noLibraryTitle': 'Nessuna cartella media',
   'disks.noLibrary':
     'Nazgarr funziona anche così (torrent, Triage, upload, pack), ma il reseed non trova nulla: oggi riconosce i contenuti solo dai file della libreria. Aggiungi una cartella media a un disco per cercare cosa puoi rimettere in seed.',
+  // Cartelle montate nel container (nazgarr/core/mounts.py)
+  'disks.mounts.title': 'Cartelle montate nel container',
+  'disks.mounts.scopeMounts': 'I dischi possono stare solo in queste cartelle, quelle che hai montato nel template Docker. Ognuna è un disco a sé.',
+  'disks.mounts.scopeConfig': 'I dischi sono limitati a {root} (disk_scan_root in config.yaml).',
+  'disks.mounts.unraidShare': 'share Unraid',
+  'disks.mounts.registered': 'già un disco',
+  'disks.mounts.add': 'Aggiungi come disco',
+  'disks.mounts.warning.split_mounts':
+    '{paths} sono lo stesso filesystem montato in punti diversi: fra due mount Linux rifiuta gli hardlink, anche sullo stesso disco. Monta la cartella che le contiene (es. /data con dentro media/ e torrents/) al posto di ognuna.',
+  'disks.mounts.warning.share_and_disks':
+    'Hai montato sia la user share di Unraid ({share}) sia dei dischi singoli ({disks}): gli stessi file si vedrebbero due volte. Tieni solo la share, o solo i dischi.',
+  'disks.mounts.warning.mounts_outside_scan_root':
+    '{paths} è montato ma fuori da disk_scan_root ({root}): non può diventare un disco. Togli disk_scan_root da config.yaml (non serve in Docker) e riavvia.',
 } as const

@@ -7,8 +7,9 @@ scoping condiviso (nazgarr/core/fs_scope.py), mai duplicato.
 
 Nazgarr è un'API JSON pura fin dall'inizio (a differenza di
 ratio-guardian, che ha ancora una Web UI Jinja2): anche l'elenco dei mount
-disponibili sotto disk_scan_root (usato lì solo dalla pagina web) è quindi
-esposto qui come endpoint proprio.
+disponibili (usato lì solo dalla pagina web) è quindi esposto qui come
+endpoint proprio. Il confine dei dischi è disk_scan_root se impostato, se no
+le cartelle di dati montate nel container (nazgarr/core/mounts.py).
 """
 
 import os
@@ -18,6 +19,7 @@ from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from nazgarr.core import mounts as container_mounts
 from nazgarr.core.errors import CodedError, coded_detail, from_coded_error
 from nazgarr.core.fs_scope import ScopeViolation, resolve_scoped
 from nazgarr.core.models import ClientTorrentFile, Disk, SeedFile
@@ -118,9 +120,29 @@ class DiskResponse(BaseModel):
         )
 
 
+class DetectedMount(BaseModel):
+    path: str
+    fstype: str
+    source: str
+    unraid_share: bool
+    registered: bool  # già un disco (o dentro uno)
+
+
+class MountWarning(BaseModel):
+    code: str  # split_mounts | share_and_disks | mounts_outside_scan_root
+    paths: list[str] = []
+    share: list[str] = []
+    disks: list[str] = []
+    scan_root: str | None = None
+
+
 class AvailableMountsResponse(BaseModel):
-    scan_root: str
-    mounts: list[str]
+    scan_root: str  # la prima radice: il valore proposto per un disco nuovo
+    scan_roots: list[str] = []
+    scope_source: str = "default"  # config | mounts | default
+    mounts: list[str]  # proposte per un disco nuovo, non ancora registrate
+    detected: list[DetectedMount] = []
+    warnings: list[MountWarning] = []
 
 
 class DiskValidationError(CodedError):
@@ -135,34 +157,42 @@ def _get_disk_or_404(session: Session, disk_id: int) -> Disk:
     return get_or_404(session, Disk, disk_id, "disk_not_found")
 
 
-def is_within_scan_root(path: str, scan_root: str) -> bool:
-    real = os.path.realpath(path)
-    real_root = os.path.realpath(scan_root)
-    return real == real_root or real.startswith(real_root + os.sep)
+def disk_scope(request: Request) -> container_mounts.Scope:
+    settings = request.app.state.settings
+    own = [settings.data_dir, os.path.dirname(os.path.abspath(os.environ.get("CONFIG_PATH", "config.yaml")))]
+    return container_mounts.scope(settings.disk_scan_root, own)
 
 
-def list_available_mounts(scan_root: str, used_paths: set[str]) -> list[str]:
-    """Sottocartelle di primo livello di scan_root non ancora assegnate a
-    un Disk — sono i bind mount dei dischi fisici (vedi docker-compose.yml,
-    che li monta 1:1 sotto scan_root, di default /mnt) non ancora aggiunti
-    dalla Web UI. Nessuna dipendenza da config.yaml: basta il bind mount
-    Docker perché un disco compaia qui."""
-    if not os.path.isdir(scan_root):
-        return []
-    used_real = {os.path.realpath(p) for p in used_paths}
-    mounts = [
-        entry.path
-        for entry in os.scandir(scan_root)
-        if entry.is_dir() and os.path.realpath(entry.path) not in used_real
-    ]
-    return sorted(mounts)
+def _inside(path: str, root: str) -> bool:
+    return path == root or path.startswith(root.rstrip(os.sep) + os.sep)
 
 
-def create_disk(session: Session, label: str, root_path: str, scan_root: str) -> Disk:
+def list_available_mounts(scope: container_mounts.Scope, used_paths: set[str]) -> list[str]:
+    """Le proposte per un disco nuovo, non ancora registrate (né dentro un
+    disco): con i mount rilevati, i mount stessi; con una radice
+    configurata, le sue sottocartelle di primo livello (i bind mount dei
+    dischi fisici sotto /mnt, come prima)."""
+    used_real = [os.path.realpath(p) for p in used_paths]
+    if scope.source == "mounts":
+        candidates = [m.mount_point for m in scope.mounts]
+    else:
+        candidates = [entry.path for root in scope.roots if os.path.isdir(root)
+                      for entry in os.scandir(root) if entry.is_dir()]
+    return sorted(c for c in candidates
+                  if not any(_inside(os.path.realpath(c), used) for used in used_real))
+
+
+def create_disk(session: Session, label: str, root_path: str, scope: container_mounts.Scope) -> Disk:
     if not os.path.isdir(root_path):
         raise DiskValidationError("disk_root_path_not_a_directory", path=root_path)
-    if not is_within_scan_root(root_path, scan_root):
-        raise DiskValidationError("disk_root_path_outside_scan_root", scan_root=scan_root)
+    if not scope.contains(root_path):
+        raise DiskValidationError("disk_root_path_outside_scan_root", scan_root=", ".join(scope.roots))
+    # Un disco dentro un altro (o che ne contiene uno): gli stessi file contati due volte.
+    real = os.path.realpath(root_path)
+    for other in session.query(Disk).all():
+        other_real = os.path.realpath(other.root_path)
+        if real != other_real and (_inside(real, other_real) or _inside(other_real, real)):
+            raise DiskValidationError("disk_root_nested", path=root_path, other=other.label)
     disk = Disk(label=label, root_path=root_path)
     session.add(disk)
     try:
@@ -202,9 +232,19 @@ def _resolve_or_400(disk: Disk, relative: str) -> str:
 
 @router.get("/available-mounts", response_model=AvailableMountsResponse)
 def available_mounts(request: Request, session: Session = Depends(get_session)):
-    scan_root = request.app.state.settings.disk_scan_root
+    scope = disk_scope(request)
     used_paths = {d.root_path for d in session.query(Disk).all()}
-    return AvailableMountsResponse(scan_root=scan_root, mounts=list_available_mounts(scan_root, used_paths))
+    used_real = [os.path.realpath(p) for p in used_paths]
+    return AvailableMountsResponse(
+        scan_root=scope.roots[0], scan_roots=scope.roots, scope_source=scope.source,
+        mounts=list_available_mounts(scope, used_paths),
+        detected=[
+            DetectedMount(path=m.mount_point, fstype=m.fstype, source=m.source, unraid_share=m.is_unraid_share,
+                          registered=any(_inside(os.path.realpath(m.mount_point), u) for u in used_real))
+            for m in scope.mounts
+        ],
+        warnings=[MountWarning(**w) for w in scope.warnings],
+    )
 
 
 def _browse_entry(entry: os.DirEntry) -> BrowseEntry:
@@ -260,7 +300,7 @@ def list_disks(session: Session = Depends(get_session)):
 @router.post("", response_model=DiskResponse, status_code=201)
 def create_disk_endpoint(body: DiskCreateRequest, request: Request, session: Session = Depends(get_session)):
     try:
-        disk = create_disk(session, body.label, body.root_path, request.app.state.settings.disk_scan_root)
+        disk = create_disk(session, body.label, body.root_path, disk_scope(request))
     except DiskValidationError as exc:
         raise HTTPException(status_code=400, detail=from_coded_error(exc)) from exc
     except DiskConflictError as exc:

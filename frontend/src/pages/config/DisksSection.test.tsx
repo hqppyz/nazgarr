@@ -18,7 +18,7 @@ const mutation = { mutate: vi.fn(), isPending: false }
 
 vi.mock('@/api/hooks/disks', () => ({
   useDisks: () => ({ data: [disk], isPending: false }),
-  useAvailableMounts: () => ({ data: { scan_root: '/data', mounts: [] } }),
+  useAvailableMounts: () => ({ data: { scan_root: '/data', scan_roots: ['/data'], scope_source: 'mounts', mounts: [], detected: [], warnings: [] } }),
   useCreateDisk: () => mutation,
   useUpdateDisk: () => mutation,
   useDeleteDisk: () => mutation,

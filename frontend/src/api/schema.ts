@@ -2366,8 +2366,28 @@ export interface components {
         AvailableMountsResponse: {
             /** Scan Root */
             scan_root: string;
+            /**
+             * Scan Roots
+             * @default []
+             */
+            scan_roots: string[];
+            /**
+             * Scope Source
+             * @default default
+             */
+            scope_source: string;
             /** Mounts */
             mounts: string[];
+            /**
+             * Detected
+             * @default []
+             */
+            detected: components["schemas"]["DetectedMount"][];
+            /**
+             * Warnings
+             * @default []
+             */
+            warnings: components["schemas"]["MountWarning"][];
         };
         /** BrowseEntry */
         BrowseEntry: {
@@ -2757,6 +2777,19 @@ export interface components {
             state: string;
             /** Torrent */
             torrent: string;
+        };
+        /** DetectedMount */
+        DetectedMount: {
+            /** Path */
+            path: string;
+            /** Fstype */
+            fstype: string;
+            /** Source */
+            source: string;
+            /** Unraid Share */
+            unraid_share: boolean;
+            /** Registered */
+            registered: boolean;
         };
         /** DiskAssociationResponse */
         DiskAssociationResponse: {
@@ -3371,6 +3404,28 @@ export interface components {
             path: string;
             /** Created */
             created: boolean;
+        };
+        /** MountWarning */
+        MountWarning: {
+            /** Code */
+            code: string;
+            /**
+             * Paths
+             * @default []
+             */
+            paths: string[];
+            /**
+             * Share
+             * @default []
+             */
+            share: string[];
+            /**
+             * Disks
+             * @default []
+             */
+            disks: string[];
+            /** Scan Root */
+            scan_root?: string | null;
         };
         /** NamingPreviewRequest */
         NamingPreviewRequest: {

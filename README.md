@@ -136,14 +136,16 @@ Nazgarr needs very little up front. Disks, folders, clients, trackers and thresh
 | `TZ` | Time zone for the schedule and the logs. |
 | `NAZGARR_SETUP_CODE` | Optional: your own one-time code to create the account (otherwise one is generated and printed in the log). |
 
-**`config/config.yaml`** is created on the first start with these defaults. It holds the only two settings that need a restart:
+**`config/config.yaml`** is created on the first start. It holds the only settings that need a restart:
 
 ```yaml
-disk_scan_root: /data      # where the disks are, inside the container
 data_dir: /app/config/data # database and cache
+# disk_scan_root: /data    # optional: restrict disks to one folder
 ```
 
-**Disks and paths.** Each disk is a folder under `disk_scan_root` that holds the torrents and the media of one filesystem. Hardlinks only work inside one filesystem, so a disk's folders must all be on the same one. A disk can have several seeding folders and several media folders (say `movies/` and `tv/` side by side, or a separate cross-seed folder). With the TRaSH Guides layout there is a single disk:
+In Docker the folders you mount are where disks can be: Nazgarr reads its own mounts, proposes each one as a disk and warns about the layouts that break hardlinks. `disk_scan_root` only restricts that further (outside Docker, `nazgarr init` writes it).
+
+**Disks and paths.** Each disk is a folder that holds the torrents and the media of one filesystem. Hardlinks only work inside one filesystem, so a disk's folders must all be on the same one. A disk can have several seeding folders and several media folders (say `movies/` and `tv/` side by side, or a separate cross-seed folder). With the TRaSH Guides layout there is a single disk:
 
 ```
 /data
@@ -155,17 +157,16 @@ data_dir: /app/config/data # database and cache
 └── releases/      optional: the watched folder for your own releases
 ```
 
-With several separate disks, mount each one under a common parent and point `disk_scan_root` at it:
+With several separate disks, mount each one on its own:
 
 ```yaml
     volumes:
       - ./config:/app/config
       - /mnt/disk1:/mnt/disk1
       - /mnt/disk2:/mnt/disk2
-# config.yaml: disk_scan_root: /mnt
 ```
 
-Every subfolder of `disk_scan_root` shows up in Configuration › Storage, ready to be added as a disk.
+Every mounted folder shows up in Configuration › Storage, ready to be added as a disk. Two layouts get a warning there: media and torrents mounted as two separate folders (hardlinks cannot cross mounts, even on the same disk: mount their common parent), and the Unraid user share mounted next to the single disks (the same files would be seen twice). The user share alone is fine: Unraid creates the hardlink on the same disk.
 
 **Torrent clients.** Added in Configuration › Clients, as many as you like, each with the address Nazgarr reaches it at:
 
@@ -207,7 +208,7 @@ Everything the UI does goes through a JSON API under `/api`. The interactive ref
 ```bash
 python3 -m venv .venv
 ./.venv/bin/pip install -r requirements.txt -r requirements-dev.txt
-cp config.example.yaml config.yaml          # point disk_scan_root/data_dir at local folders
+cp config.example.yaml config.yaml          # point data_dir (and disk_scan_root) at local folders
 export APP_SECRET_KEY=$(openssl rand -base64 32 | tr '+/' '-_')
 ./.venv/bin/uvicorn nazgarr.main:app --reload --port 8080
 

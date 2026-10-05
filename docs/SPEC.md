@@ -110,10 +110,15 @@ A disk has **any number of media folders and seeding folders** (`disk_folder`, `
 
 ### Two supported layouts: per-disk mounts or a single TrashGuide-style mount
 
-`disk_scan_root` (default `/data`, see `config.example.yaml`) supports two deployment styles without any code change:
+Where a disk can be (user decision, 2026-10-05, replacing a required `disk_scan_root`): inside a container, the data folders the user mounted. `nazgarr/core/mounts.py` reads `/proc/self/mountinfo` (only when `NAZGARR_CONTAINER=1`, set by the Dockerfile, or `/.dockerenv` exists), drops system filesystems and folders, mounted files (`/etc/hosts`) and Nazgarr's own config and data folders, and what is left is the scope: decided by the Docker template, not by a setting a browser could change, so it stays as safe as a static root. `disk_scan_root` in `config.yaml` is now optional: when set it is the scope (installs from before keep working), and mounts outside it are reported; outside a container `nazgarr init` writes it, and without it the scope is `/data`. Storage lists the detected mounts with their filesystem, proposes the ones that are not a disk yet ("Add as a disk") and refuses a disk inside another one (`disk_root_nested`). Two layouts get a warning, because Nazgarr can see them and the user cannot:
 
-- **Single mount (TrashGuide convention)**: mount one combined torrents+media folder at `/data` — the same host path shared with the download client and media manager, which is what makes hardlinks between them work. In this layout there's a single Disk, and it's registered with `root_path` equal to `disk_scan_root` itself (`create_disk()` explicitly allows this — the scoping check accepts `root_path == scan_root`, not just a subfolder of it).
-- **Per-disk mounts (classic Unraid layout)**: `disk_scan_root` points at a parent folder (e.g. `/mnt`) under which each physical disk is bind-mounted directly (`/mnt/disk1`, `/mnt/disk2`, ...), and each shows up as its own registerable Disk. This is the layout to use whenever a single share might span multiple physical disks in a way that could silently break a hardlink.
+- **`split_mounts`**: two mounts of the same filesystem (same device), e.g. `/data/media` and `/data/torrents` mounted separately, also from the Unraid share. The kernel refuses a hardlink between two different mounts even on the same disk: mount the common folder instead.
+- **`share_and_disks`**: the Unraid user share (`fuse.shfs`) mounted next to single disks: the same files would be seen twice. The share alone is fine: shfs creates a hardlink on the same physical disk as its source.
+
+The two usual layouts:
+
+- **Single mount (TrashGuide convention)**: mount one combined torrents+media folder at `/data` — the same host path shared with the download client and media manager, which is what makes hardlinks between them work. In this layout there's a single Disk, registered with `root_path` equal to the mount itself.
+- **Per-disk mounts (classic Unraid layout)**: each physical disk is bind-mounted directly (`/mnt/disk1`, `/mnt/disk2`, ...), and each shows up as its own registerable Disk. No common parent and no `disk_scan_root` are needed any more.
 
 Either way, the runtime `st_dev` check before every hardlink (§3, `create_disk`/`verify_disk`) is the actual safety net: even inside a single combined mount, individual files are tracked with their own `st_dev` (not just one value per Disk row) — see "The two FKs" below — so a hardlink attempted across two files that don't really share a device fails with an explicit error rather than silently corrupting anything, whichever layout is in use.
 
@@ -154,7 +159,7 @@ On read, every state query (§3) and every dashboard count (§10) is an indexed 
 ### Other extensions
 
 - **Poster cache**: `media_item.tmdb_poster_path` (relative TMDB path) + a local cache of the downloaded images (filesystem, not a DB blob — a predictable path like `data/posters/{tmdb_id}.jpg`, downloaded once and reused). Needed for the grid view (§7).
-- Static YAML (`disk_scan_root`, `data_dir`) / dynamic DB (disks, media paths, trackers, clients, thresholds) config split — unchanged from ratio-guardian §4.
+- Static YAML (`data_dir`, optional `disk_scan_root`) / dynamic DB (disks, media paths, trackers, clients, thresholds) config split, as in ratio-guardian §4; in a container the disk scope comes from the mounts (above).
 
 Matching/reseeding entities (`candidate`, `match_review`, `seed_job`) and the new upload entities (§9) stay as in ratio-guardian, adapted to reference `media_item`/`media_file` instead of ratio-guardian's merged row — full detail in `docs/schema.sql`. One real gap found while building Fase 4: `candidate.media_item_id` alone isn't enough to know *which physical file* a match applies to when a `media_item` has more than one `media_file` (different quality versions of the same content) — never an issue in ratio-guardian, where a media_item *was* the physical file. Fixed by adding `match_review.media_file_id`/`match_review.seed_file_id` (whichever applies to the candidate's `direction`), so the decision — not just the search result — carries the physical file it's about.
 

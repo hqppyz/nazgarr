@@ -12,15 +12,13 @@
 # ./data below follows the TrashGuide convention: a single folder shared
 # with your download client and media manager (torrents/ and media/ both
 # under it), so hardlinks between them work. Point it at wherever your
-# actual library + torrents live on the host. See config.example.yaml
-# for disk_scan_root - it defaults to /data to match this layout.
+# actual library + torrents live on the host. Nazgarr finds the folders
+# you mount on its own: Settings > Storage proposes each one as a disk.
 #
 # Multiple separate physical disks instead of one combined mount? Don't
-# pass /data at all - mount each disk under a shared parent folder (any
-# name, /mnt below is just the classic Unraid convention) and point
-# disk_scan_root at that parent instead of /data. Each subfolder then
-# shows up on its own in "Add disk", ready to register - no code change,
-# just these two edits. Example for three disks:
+# pass /data at all - mount each disk on its own (/mnt below is just the
+# classic Unraid convention). Each one then shows up on its own in
+# Settings > Storage, ready to add. Example for three disks:
 #
 #   volumes:
 #     - ./config:/app/config
@@ -28,7 +26,9 @@
 #     - /mnt/disk2:/mnt/disk2
 #     - /mnt/disk3:/mnt/disk3
 #
-# ...and in config/config.yaml: disk_scan_root: /mnt
+# Never mount the user share (/mnt/user/...) next to the single disks: the
+# same files would be seen twice. And mount media and torrents through one
+# common folder, never as two separate mounts: hardlinks cannot cross mounts.
 # A fourth disk later is just one more line here, no restart of the app
 # logic needed beyond restarting the container to pick up the new mount.
 
@@ -50,4 +50,4 @@ services:
       - ./data:/data
       # - /mnt/disk1:/mnt/disk1   # multi-disk layout: uncomment these,
       # - /mnt/disk2:/mnt/disk2   # remove the ./data line above, and set
-      # - /mnt/disk3:/mnt/disk3   # disk_scan_root: /mnt in config.yaml
+      # - /mnt/disk3:/mnt/disk3

@@ -34,17 +34,24 @@ import { autosaveFeedback } from '@/lib/autosave'
 
 type Disk = Schemas['DiskResponse']
 
-function AddDiskDialog() {
-  const [open, setOpen] = useState(false)
-  const [label, setLabel] = useState('')
-  const [rootPath, setRootPath] = useState('')
+type DiskPreset = { label: string; root: string }
+
+// Senza preset: il pulsante "Aggiungi disco". Con un preset (un mount
+// proposto): la stessa finestra, aperta da fuori e già compilata.
+function AddDiskDialog({ preset, onClose }: { preset?: DiskPreset | null; onClose?: () => void }) {
+  const controlled = preset !== undefined
+  const [openState, setOpenState] = useState(false)
+  const open = controlled ? preset !== null : openState
+  const setOpen = (value: boolean) => (controlled ? !value && onClose?.() : setOpenState(value))
+  const [label, setLabel] = useState(preset?.label ?? '')
+  const [rootPath, setRootPath] = useState(preset?.root ?? '')
   const { data: mounts } = useAvailableMounts()
   const createDisk = useCreateDisk()
 
-  // Precompila root_path con disk_scan_root (il mount unico, caso comune,
-  // es. /data) così il campo non parte vuoto — resta comunque modificabile.
+  // Precompila root_path con la prima cartella proposta (il mount unico, caso
+  // comune, es. /data) così il campo non parte vuoto — resta comunque modificabile.
   useEffect(() => {
-    if (mounts?.scan_root && rootPath === '') setRootPath(mounts.scan_root)
+    if (mounts?.scan_root && rootPath === '') setRootPath(mounts.mounts[0] ?? mounts.scan_root)
   }, [mounts?.scan_root]) // eslint-disable-line react-hooks/exhaustive-deps
 
   function submit() {
@@ -63,7 +70,9 @@ function AddDiskDialog() {
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger render={<Button data-tour="storage.add"><PlusIcon className="size-4" />{t('disks.addDisk')}</Button>} />
+      {!controlled && (
+        <DialogTrigger render={<Button data-tour="storage.add"><PlusIcon className="size-4" />{t('disks.addDisk')}</Button>} />
+      )}
       <DialogContent data-tour="storage.dialog">
         <DialogHeader>
           <DialogTitle>{t('disks.addDisk')}</DialogTitle>
@@ -79,7 +88,7 @@ function AddDiskDialog() {
               id="disk-root-path"
               value={rootPath}
               onChange={(e) => setRootPath(e.target.value)}
-              placeholder="/data/disk1"
+              placeholder="/mnt/disk1"
             />
             <p className="text-xs text-muted-foreground">{t('disks.rootPathHelp')}</p>
           </div>
@@ -330,9 +339,68 @@ function FolderList({
   )
 }
 
+const WARNING_STYLE = 'flex gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-xs'
+
+// Le cartelle montate nel container (nazgarr/core/mounts.py): ognuna è un
+// disco possibile, e gli avvisi sui montaggi che rompono gli hardlink.
+function MountsPanel({ onAdd }: { onAdd: (preset: DiskPreset) => void }) {
+  const { data } = useAvailableMounts()
+  // Tutto già registrato e nessun avviso: niente da dire.
+  if (!data || (data.detected.every((m) => m.registered) && data.warnings.length === 0)) return null
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">{t('disks.mounts.title')}</CardTitle>
+        <p className="text-xs text-muted-foreground">
+          {data.scope_source === 'config'
+            ? t('disks.mounts.scopeConfig', { root: data.scan_root })
+            : t('disks.mounts.scopeMounts')}
+        </p>
+      </CardHeader>
+      <CardContent className="grid gap-2 text-sm">
+        {data.detected.map((mount) => (
+          <div key={mount.path} className="flex flex-wrap items-center gap-2 rounded-md border px-3 py-2">
+            <HardDriveIcon className="size-4 shrink-0 text-muted-foreground" />
+            <span className="font-mono text-xs">{mount.path}</span>
+            <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
+              {mount.unraid_share ? t('disks.mounts.unraidShare') : mount.fstype}
+            </span>
+            <span className="flex-1" />
+            {mount.registered ? (
+              <span className="text-xs text-muted-foreground">{t('disks.mounts.registered')}</span>
+            ) : (
+              data.mounts.includes(mount.path) && (
+                <Button size="sm" variant="outline"
+                        onClick={() => onAdd({ label: mount.path.split('/').filter(Boolean).pop() ?? 'disk', root: mount.path })}>
+                  <PlusIcon className="size-4" />
+                  {t('disks.mounts.add')}
+                </Button>
+              )
+            )}
+          </div>
+        ))}
+        {data.warnings.map((warning) => (
+          <div key={warning.code} className={WARNING_STYLE}>
+            <InfoIcon className="mt-0.5 size-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
+            <span>
+              {t(`disks.mounts.warning.${warning.code}`, {
+                paths: warning.paths.join(', '),
+                share: warning.share.join(', '),
+                disks: warning.disks.join(', '),
+                root: warning.scan_root ?? '',
+              })}
+            </span>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  )
+}
+
 export function DisksSection() {
   const { data: disks, isPending } = useDisks()
   const deleteDisk = useDeleteDisk()
+  const [preset, setPreset] = useState<DiskPreset | null>(null)
 
   return (
     <div className="grid content-start gap-4">
@@ -340,6 +408,8 @@ export function DisksSection() {
         <SettingsHeader title={t('config.tabStorage')} description={t('config.descStorage')} action={<AddDiskDialog />} />
       </div>
       {isPending && <p className="text-sm text-muted-foreground">{t('common.loading')}</p>}
+      <MountsPanel onAdd={setPreset} />
+      {preset && <AddDiskDialog key={preset.root} preset={preset} onClose={() => setPreset(null)} />}
       {disks?.length === 0 && (
         <Card>
           <CardContent className="py-6 text-center text-sm text-muted-foreground">{t('disks.noDisksConfigured')}</CardContent>
