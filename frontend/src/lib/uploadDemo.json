@@ -6,7 +6,7 @@
    "detected": {
     "audio": null,
     "audio_languages": null,
-    "edition": null,
+    "edition": "AI Upscaled",
     "group": "MaTiTa",
     "hdr": null,
     "hybrid": null,
@@ -283,10 +283,10 @@
      "generated": {
       "count": 1,
       "files": [
-       "Hackers.1995.2160p.BluRay.x265-MaTiTa.mkv"
+       "Hackers.1995.AI.Upscaled.2160p.BluRay.x265-MaTiTa.mkv"
       ],
       "folder": null,
-      "name": "Hackers.1995.2160p.BluRay.x265-MaTiTa.mkv",
+      "name": "Hackers.1995.AI.Upscaled.2160p.BluRay.x265-MaTiTa.mkv",
       "single_file": false
      },
      "original": {
@@ -514,7 +514,7 @@
     "freeleech_options": [],
     "id": 1,
     "info_hash": null,
-    "proposed_name": "Hackers (1995) 2160p BluRay x265-MaTiTa",
+    "proposed_name": "Hackers (1995) AI Upscaled 2160p BluRay x265-MaTiTa",
     "remote_url": null,
     "reseed_torrent_id": null,
     "resolution_id": null,
@@ -555,7 +555,7 @@
     "freeleech_options": [],
     "id": 2,
     "info_hash": null,
-    "proposed_name": "Hackers (1995) 2160p BluRay x265-MaTiTa",
+    "proposed_name": "Hackers (1995) AI Upscaled 2160p BluRay x265-MaTiTa",
     "remote_url": null,
     "reseed_torrent_id": null,
     "resolution_id": null,
@@ -781,7 +781,7 @@
   "imdb_id": "tt0113243",
   "original_language": "en",
   "original_title": "Hackers",
-  "overview": "A group of teenage hackers stumbles on a plot to frame them for a crime they did not commit.",
+  "overview": "Teenage hackers stumble on a plot to frame them for a crime they did not commit.",
   "poster_path": null,
   "runtime": 105,
   "title": "Hackers",

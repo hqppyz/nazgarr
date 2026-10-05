@@ -37,7 +37,7 @@ def _build(client, tmp_path, setup, monkeypatch) -> dict:  # noqa: F811
                                                poster_path=None)
     details = {**tmdb_result(TMDB_ID, TITLE, YEAR), "genres": ["Action", "Crime", "Thriller", "Drama"],
                "runtime": 105, "imdb_id": IMDB_ID, "tvdb_id": None, "cast": [], "original_language": "en",
-               "overview": "A group of teenage hackers stumbles on a plot to frame them for a crime they did not commit."}
+               "overview": "Teenage hackers stumble on a plot to frame them for a crime they did not commit."}
     fake = FakeTMDB(search={("movie", TITLE, YEAR): [tmdb_result(TMDB_ID, TITLE, YEAR)]},
                     details={("movie", TMDB_ID): details})
     monkeypatch.setattr(upload_identify, "tmdb_client", lambda session: fake)

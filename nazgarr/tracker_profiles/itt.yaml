@@ -80,7 +80,7 @@ upload:
     # la sorgente (BluRay, UHD BluRay, HDTV, ...) per remux, encode e HDTV.
     templates:
       default: "{title} {year} {edition} {repack} {resolution} {format} {source_full} {hybrid} {type} {audio_all} {audio_languages} {subs} {hdr} {video_codec} {group}"
-      tv: "{title} {season} {repack} {resolution} {format} {source_full} {hybrid} {type} {audio_all} {audio_languages} {subs} {hdr} {video_codec} {group}"
+      tv: "{title} {season} {edition} {repack} {resolution} {format} {source_full} {hybrid} {type} {audio_all} {audio_languages} {subs} {hdr} {video_codec} {group}"
     type_labels:
       REMUX: "VU REMUX"
     # Un ibrido (DV profilo 8 aggiunto a un remux) non è video untouched:
