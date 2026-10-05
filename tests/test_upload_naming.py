@@ -498,3 +498,20 @@ def test_the_original_source_medium_of_mediainfo_names_the_disc():
     encode = release_values(_job(), detect("film.mkv"),
                             {"video": {**video, "writing_library": "x264 core 164"}}, {}, None)
     assert (encode["type"], encode["source"]) == ("ENCODE", "BluRay")
+
+
+def test_a_joined_bdremux_is_a_remux_and_profile_8_makes_it_hybrid():
+    # Segnalato (2026-10-05): guessit legge "BD-Remux" ma non "BDRemux" attaccato,
+    # e senza REMUX il controllo del Dolby Vision profilo 8 non partiva.
+    from nazgarr.upload.naming import detect, release_values
+
+    p8 = {"video": {"format": "HEVC", "height": 2160, "width": 3840, "bit_rate": 43_300_000, "writing_library": None,
+                    "hdr_format": "Dolby Vision / SMPTE ST 2086", "hdr_format_profile": "dvhe.08.06",
+                    "hdr_format_string": "Dolby Vision, Version 1.0, dvhe.08.06, BL+RPU, HDR10 compatible"}}
+    values = release_values(_job(), detect("The.Movie.2004.4K.HDR.DV.2160p.BDRemux Ita Eng x265-GRP"), p8, {}, None)
+    assert (values["type"], values["source"], values["video_codec"], values["hybrid"]) == (
+        "REMUX", "BluRay", "HEVC", "HYBRID")
+
+    assert (detect("Movie.2004.2160p.UHDRemux-GRP")["type"], detect("Movie.2004.2160p.UHDRemux-GRP")["source"]) == (
+        "REMUX", "BluRay")
+    assert detect("Movie.2004.576p.DVDRemux-GRP")["source"] == "DVD"

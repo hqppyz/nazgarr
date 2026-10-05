@@ -100,13 +100,24 @@ LANG3 = {
 # "VU" (video untouched, la convenzione dei remux su ITT) e "UNTOUCHED": un
 # remux anche se il nome non dice REMUX. guessit non li conosce.
 _UNTOUCHED = re.compile(r"(?:^|[ ._\-\[(])(?:VU|UNTOUCHED)(?:$|[ ._\-\])])")
+# "BDRemux", "UHDRemux", "DVDRemux" attaccati: guessit li riconosce solo
+# separati (BD-Remux, BluRay.Remux), ma nelle release italiane sono comuni.
+_JOINED_REMUX = re.compile(r"(?:^|[ ._\-\[(])(BD|UHD|BluRay|Blu-?Ray|HDDVD|DVD)Remux(?:$|[ ._\-\])])", re.IGNORECASE)
+
+
+def _joined_remux_source(name: str) -> str | None:
+    match = _JOINED_REMUX.search(name)
+    if not match:
+        return None
+    disc = match.group(1).upper().replace("-", "")
+    return {"DVD": "DVD", "HDDVD": "HDDVD"}.get(disc, "BluRay")
 
 
 def release_type(guess: dict, name: str = "") -> str:
     """Chiave type_id dei profili (REMUX, ENCODE, WEBDL, ...)."""
     others = {str(o) for o in as_list(guess.get("other"))}
     source = str(guess.get("source") or "").lower()
-    if "Remux" in others or _UNTOUCHED.search(name):
+    if "Remux" in others or _UNTOUCHED.search(name) or _JOINED_REMUX.search(name):
         return "REMUX"
     if source == "web":
         if "Mux" in others:  # guessit non distingue WEBMux da DLMux
@@ -232,7 +243,7 @@ def detect(source_name: str) -> dict:
     return {
         "type": release,
         "resolution": guess.get("screen_size"),
-        "source": _source_label(guess),
+        "source": _source_label(guess) or _joined_remux_source(source_name),
         "edition": _edition(guess, source_name),
         "repack": "REPACK" if traits.repack else None,
         "hybrid": "HYBRID" if _HYBRID.search(source_name) else None,
