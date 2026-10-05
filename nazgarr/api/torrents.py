@@ -178,6 +178,7 @@ class NotImportedResponse(BaseModel):
     # L'ultima scansione non l'ha ricalcolata (disco o client falliti): i dati sono di prima.
     skipped_at: datetime | None = None
     skipped_reason: str | None = None
+    no_library: bool = False  # nessuna cartella media: niente da classificare
     summary: dict[str, CategorySummary]  # solo i torrent non esclusi
     excluded_count: int = 0
     torrents: list[NotImportedItem]
@@ -236,7 +237,8 @@ def list_not_imported(session: Session = Depends(get_session)):
         classified=bool(rows) or status.get("computed_at") is not None,
         computed_at=status.get("computed_at"), with_arr=status.get("with_arr"),
         skipped_at=status.get("skipped_at"), skipped_reason=status.get("skipped_reason"),
-        summary=summary, excluded_count=sum(1 for r in rows if r.excluded), torrents=torrents,
+        no_library=bool(status.get("no_library")), summary=summary,
+        excluded_count=sum(1 for r in rows if r.excluded), torrents=torrents,
     )
 
 

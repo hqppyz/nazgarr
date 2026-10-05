@@ -62,4 +62,7 @@ export const disks = {
   'disks.check.no_folders': 'Nessuna cartella da provare: aggiungine una.',
   'disks.check.st_dev_changed': "L'identificativo del filesystem è cambiato ({old} → {new}): succede dopo un rimontaggio, ed è normale su FUSE (es. /mnt/user di Unraid). Gli hardlink funzionano, il riferimento è aggiornato.",
   'disks.check.st_dev_changed_kept': "L'identificativo del filesystem è cambiato ({old} → {new}): il riferimento resta quello di prima finché gli hardlink non funzionano.",
+  'disks.noLibraryTitle': 'Nessuna cartella media',
+  'disks.noLibrary':
+    'Nazgarr funziona anche così (torrent, Triage, upload, pack), ma il reseed non trova nulla: oggi riconosce i contenuti solo dai file della libreria. Aggiungi una cartella media a un disco per cercare cosa puoi rimettere in seed.',
 } as const

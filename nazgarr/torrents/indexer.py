@@ -70,16 +70,21 @@ def _resolve_seed_file_id(
     disks: list[Disk],
     mapping_by_disk_id: dict[int, client_paths.Mapping],
     seed_lookup_by_disk: dict[int, dict[str, int]],
-) -> int | None:
+) -> tuple[int | None, bool]:
+    """Il seed_file del percorso del client, e se il percorso è almeno
+    finito su un disco (tradotto, ma senza un file lì: una corrispondenza o
+    una cartella sbagliata, non un torrent di un disco che Nazgarr non ha)."""
+    mapped = False
     for disk in disks:
         mapping = mapping_by_disk_id.get(disk.id) or client_paths.Mapping(disk.root_path)
         rel_path = client_paths.to_disk_relative(mapping, client_abs_path)
         if rel_path is None:
             continue
+        mapped = True
         seed_file_id = seed_lookup_by_disk.get(disk.id, {}).get(rel_path)
         if seed_file_id is not None:
-            return seed_file_id
-    return None
+            return seed_file_id, True
+    return None, mapped
 
 
 def index_torrent_client(
@@ -207,11 +212,15 @@ def store_client_torrents(
     }
 
     file_rows = []
+    mapped_unlinked = 0
     for t in torrents:
         client_torrent_id = hash_to_id[t.info_hash]
         for f in t.files:
             client_abs_path = os.path.join(t.save_path, f.path_in_torrent)
-            seed_file_id = _resolve_seed_file_id(client_abs_path, disks, mapping_by_disk_id, seed_lookup_by_disk)
+            seed_file_id, mapped = _resolve_seed_file_id(client_abs_path, disks, mapping_by_disk_id,
+                                                         seed_lookup_by_disk)
+            if seed_file_id is None and mapped:
+                mapped_unlinked += 1
             file_rows.append({
                 "client_torrent_id": client_torrent_id,
                 "path_in_torrent": f.path_in_torrent,
@@ -239,4 +248,5 @@ def store_client_torrents(
             [(mapping_by_disk_id[d.id].client_root if d.id in mapping_by_disk_id else None) or d.root_path
              for d in disks],
         )
-    return {"torrents_indexed": len(torrent_rows), "files_indexed": len(file_rows), "files_linked": linked}
+    return {"torrents_indexed": len(torrent_rows), "files_indexed": len(file_rows), "files_linked": linked,
+            "files_mapped_unlinked": mapped_unlinked}

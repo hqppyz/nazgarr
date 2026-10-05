@@ -1,4 +1,4 @@
-import { FolderIcon, HardDriveIcon, PencilIcon, PlusIcon, TrashIcon, XIcon, ZapIcon } from 'lucide-react'
+import { FolderIcon, HardDriveIcon, InfoIcon, PencilIcon, PlusIcon, TrashIcon, XIcon, ZapIcon } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 
@@ -344,6 +344,17 @@ export function DisksSection() {
         <Card>
           <CardContent className="py-6 text-center text-sm text-muted-foreground">{t('disks.noDisksConfigured')}</CardContent>
         </Card>
+      )}
+      {/* Senza nessuna cartella media il reseed non trova nulla: oggi riconosce
+          solo i file della libreria (riconoscere i file in seed è un passo futuro). */}
+      {disks && disks.length > 0 && disks.every((disk) => disk.media_folders.length === 0) && (
+        <div className="flex gap-3 rounded-lg border border-amber-500/40 bg-amber-500/10 p-4 text-sm">
+          <InfoIcon className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-400" />
+          <div className="grid gap-1">
+            <p className="font-medium">{t('disks.noLibraryTitle')}</p>
+            <p className="text-muted-foreground">{t('disks.noLibrary')}</p>
+          </div>
+        </div>
       )}
       {/* Una scheda per disco, come client e tracker: le sue cartelle media e
           di seeding (più di una), poi quelle per i nuovi hardlink, gli upload

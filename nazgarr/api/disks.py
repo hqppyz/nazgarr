@@ -278,12 +278,14 @@ def update_disk(disk_id: int, body: DiskUpdateRequest, session: Session = Depend
             disk_folders.replace(session, disk, "media", body.media_rel_path or None)
         if body.torrents_rel_path is not None:
             disk_folders.replace(session, disk, "seeding", body.torrents_rel_path or None)
+        if body.new_torrent_rel_path is not None:
+            disk.new_torrent_rel_path = (disk_folders.validate_target(disk, body.new_torrent_rel_path)
+                                         if body.new_torrent_rel_path else None)
+        if body.upload_rel_path is not None:
+            disk.upload_rel_path = (disk_folders.validate_target(disk, body.upload_rel_path)
+                                    if body.upload_rel_path else None)
     except disk_folders.FolderError as exc:
         raise HTTPException(status_code=400, detail=from_coded_error(exc)) from exc
-    if body.new_torrent_rel_path is not None:
-        disk.new_torrent_rel_path = body.new_torrent_rel_path or None
-    if body.upload_rel_path is not None:
-        disk.upload_rel_path = body.upload_rel_path or None
     if body.watch_rel_path is not None and (body.watch_rel_path or None) != disk.watch_rel_path:
         disk.watch_rel_path = _watch_folder(session, disk, body.watch_rel_path or None)
     session.commit()

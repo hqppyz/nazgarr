@@ -25,6 +25,7 @@ from sqlalchemy.orm import Session
 
 from nazgarr.adapters.torrent_client.base import TorrentClientAdapter
 from nazgarr.core import settings_repo
+from nazgarr.core.errors import CodedError, english
 from nazgarr.core.fs_scope import ScopeViolation, resolve_scoped
 from nazgarr.core.models import Disk, DiskTorrentClient, MatchReview, SeedJob, TorrentClient
 from nazgarr.library import hardlinks
@@ -37,6 +38,13 @@ logger = logging.getLogger(__name__)
 
 class ExecutionError(Exception):
     """Errore esplicito che impedisce l'esecuzione — mai un fallimento silente."""
+
+
+def _error_text(exc: Exception) -> str:
+    """Il messaggio salvato sul seed_job e mostrato nella pagina Reseeding:
+    per un errore con codice il suo testo inglese con i parametri (prima
+    solo il codice, es. "client_cannot_see_path" senza dire quale percorso)."""
+    return english(exc.code, exc.params) if isinstance(exc, CodedError) else str(exc)
 
 
 def client_visible_path(session: Session, disk: Disk, torrent_client_id: int | None, local_path: str) -> str:
@@ -253,7 +261,7 @@ def _execute_layout_media_to_torrent(
         if seed_job.info_hash is None:
             hardlinks.remove_links(created)
         seed_job.final_status = "failed"
-        seed_job.error_message = str(exc)
+        seed_job.error_message = _error_text(exc)
         session.commit()
         raise ExecutionError(str(exc)) from exc
     return seed_job
@@ -315,7 +323,7 @@ def _execute_layout_torrent_to_client(
         logger.info("Torrent aggiunto al client (info_hash=%s) per file già presenti, recheck in corso", info_hash)
     except Exception as exc:
         seed_job.final_status = "failed"
-        seed_job.error_message = str(exc)
+        seed_job.error_message = _error_text(exc)
         session.commit()
         raise ExecutionError(str(exc)) from exc
     return seed_job
@@ -405,7 +413,7 @@ def _create_hardlink_then_seed(
         logger.info("Torrent aggiunto al client (info_hash=%s), recheck in corso", info_hash)
     except Exception as exc:
         seed_job.final_status = "failed"
-        seed_job.error_message = str(exc)
+        seed_job.error_message = _error_text(exc)
         session.commit()
         raise ExecutionError(str(exc)) from exc
 
@@ -453,7 +461,7 @@ def _execute_torrent_to_client(
         )
     except Exception as exc:
         seed_job.final_status = "failed"
-        seed_job.error_message = str(exc)
+        seed_job.error_message = _error_text(exc)
         session.commit()
         raise ExecutionError(str(exc)) from exc
 

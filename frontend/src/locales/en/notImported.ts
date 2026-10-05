@@ -65,4 +65,7 @@ export const notImported = {
   'notImported.remove.irreversible': "This cannot be undone. The library is not touched: this torrent has no hardlink there.",
   'notImported.remove.confirm': "Remove and delete the files",
   'notImported.remove.done': "{name} removed from the client, files deleted.",
+  'notImported.noLibraryTitle': 'No library to compare with',
+  'notImported.noLibrary':
+    'Triage shows the torrents that never made it into the library, but no disk has a media folder: every torrent would be "never imported". Add a media folder in Settings › Storage to see why each one is there.',
 } as const

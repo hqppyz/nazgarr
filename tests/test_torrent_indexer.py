@@ -47,7 +47,8 @@ def test_resolves_seed_file_by_path_same_root(db_session):
 
     counts = torrent_indexer.index_torrent_client(db_session, tc, adapter, run)
 
-    assert counts == {"torrents_indexed": 1, "files_indexed": 1, "files_linked": 1, "torrents_removed": 0}
+    assert counts == {"torrents_indexed": 1, "files_indexed": 1, "files_linked": 1, "files_mapped_unlinked": 0,
+                      "torrents_removed": 0}
     ctf = db_session.query(ClientTorrentFile).one()
     assert ctf.seed_file_id == seed_file.id
 
@@ -163,7 +164,8 @@ def test_client_with_no_disks_still_indexes_torrents_without_linking(db_session)
 
     counts = torrent_indexer.index_torrent_client(db_session, tc, adapter, run)
 
-    assert counts == {"torrents_indexed": 1, "files_indexed": 1, "files_linked": 0, "torrents_removed": 0}
+    assert counts == {"torrents_indexed": 1, "files_indexed": 1, "files_linked": 0, "files_mapped_unlinked": 0,
+                      "torrents_removed": 0}
     assert db_session.query(ClientTorrentFile).one().seed_file_id is None
 
 

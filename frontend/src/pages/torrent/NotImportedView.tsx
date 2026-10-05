@@ -232,6 +232,15 @@ export function NotImportedView() {
           {t('notImported.recompute')}
         </Button>
       </div>
+      {data?.no_library ? (
+        <Card>
+          <CardContent className="grid gap-1 py-6 text-center text-sm">
+            <p className="font-medium">{t('notImported.noLibraryTitle')}</p>
+            <p className="text-muted-foreground">{t('notImported.noLibrary')}</p>
+          </CardContent>
+        </Card>
+      ) : (
+      <>
       <LibrarySummaryCards statusOptions={OPTIONS} summary={summary} activeStatus={category} onSelect={setCategory} />
       {category !== 'all' && (
         <p className="text-sm text-muted-foreground">{t(`notImported.help.${category}`)}</p>
@@ -378,6 +387,8 @@ export function NotImportedView() {
           )}
         </CardContent>
       </Card>
+      </>
+      )}
       <ItemDetailSheet item={openItem} onClose={() => setOpenItem(null)} />
       <RemoveTorrentDialog torrent={removing} onClose={() => setRemoving(null)} />
     </div>

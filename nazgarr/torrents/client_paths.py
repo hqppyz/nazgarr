@@ -51,11 +51,10 @@ def to_client(mapping: Mapping, local_path: str) -> str:
     if local == base or local.startswith(base + os.sep):
         relative = os.path.relpath(local, base)
         return mapping.client_root if relative == "." else os.path.join(mapping.client_root, relative)
-    if mapping.local_rel:
-        # Il client vede solo quella sottocartella del disco.
-        raise ClientPathError("client_cannot_see_path", path=local_path, folder=mapping.local_base,
-                              client_root=mapping.client_root)
-    return local_path  # fuori dal disco: non dovrebbe succedere, non tocchiamo nulla
+    # Fuori dalla cartella mappata (o dal disco intero) il client non lo vede:
+    # mai un save_path che per lui non esiste.
+    raise ClientPathError("client_cannot_see_path", path=local_path, folder=mapping.local_base,
+                          client_root=mapping.client_root)
 
 
 def to_disk_relative(mapping: Mapping, client_path: str) -> str | None:

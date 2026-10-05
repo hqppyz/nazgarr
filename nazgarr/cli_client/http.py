@@ -3,13 +3,11 @@
 server arrivano come codice e parametri e si mostrano con lo stesso testo
 inglese dell'interfaccia (messages_en.json)."""
 
-import json
-from collections import defaultdict
 from collections.abc import Callable
-from functools import cache
-from importlib import resources
 
 import httpx
+
+from nazgarr.core.errors import english
 
 TIMEOUT_SECONDS = 60.0
 
@@ -22,17 +20,8 @@ def _default_client(base_url: str, headers: dict[str, str]) -> httpx.Client:
 CLIENT_FACTORY: Callable[[str, dict[str, str]], httpx.Client] = _default_client
 
 
-@cache
-def _messages() -> dict[str, str]:
-    return json.loads(resources.files("nazgarr.cli_client").joinpath("messages_en.json").read_text())
-
-
 def message(code: str, params: dict | None = None) -> str:
-    template = _messages().get(code)
-    if template is None:
-        details = ", ".join(f"{k}={v}" for k, v in (params or {}).items())
-        return f"{code}" + (f" ({details})" if details else "")
-    return template.format_map(defaultdict(lambda: "?", {k: v for k, v in (params or {}).items()}))
+    return english(code, params)
 
 
 class ApiError(Exception):

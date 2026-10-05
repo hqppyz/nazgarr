@@ -3,7 +3,16 @@
 endpoint che cattura una sottoclasse la traduce in
 HTTPException(detail={"code": exc.code, "params": exc.params}) — il
 frontend risolve il codice in inglese via t('errors.' + code, params)
-(frontend/src/lib/i18n.ts, locales/en/errors.ts, stessi codici)."""
+(frontend/src/lib/i18n.ts, locales/en/errors.ts, stessi codici).
+
+english() fa lo stesso lato server, per un testo che resta salvato (l'errore
+di un reseed) o stampato dalla CLI: i messaggi inglesi del frontend,
+esportati in nazgarr/cli_client/messages_en.json (scripts/export_cli_messages.py)."""
+
+import json
+from collections import defaultdict
+from functools import cache
+from importlib import resources
 
 
 class CodedError(Exception):
@@ -22,3 +31,18 @@ def coded_detail(code: str, **params) -> dict:
 
 def from_coded_error(exc: CodedError) -> dict:
     return {"code": exc.code, "params": exc.params}
+
+
+@cache
+def _english_messages() -> dict[str, str]:
+    return json.loads(resources.files("nazgarr.cli_client").joinpath("messages_en.json").read_text())
+
+
+def english(code: str, params: dict | None = None) -> str:
+    """Il messaggio inglese di un codice, con i parametri; il codice stesso
+    (con i parametri) se non è nel catalogo."""
+    template = _english_messages().get(code)
+    if template is None:
+        details = ", ".join(f"{k}={v}" for k, v in (params or {}).items())
+        return code + (f" ({details})" if details else "")
+    return template.format_map(defaultdict(lambda: "?", dict(params or {})))

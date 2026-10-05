@@ -3453,6 +3453,11 @@ export interface components {
             skipped_at?: string | null;
             /** Skipped Reason */
             skipped_reason?: string | null;
+            /**
+             * No Library
+             * @default false
+             */
+            no_library: boolean;
             /** Summary */
             summary: {
                 [key: string]: components["schemas"]["CategorySummary"];

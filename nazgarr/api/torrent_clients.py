@@ -335,9 +335,22 @@ def associate_disk(
         local_rel = os.path.relpath(folder, os.path.realpath(disk.root_path))
         if local_rel == ".":
             local_rel = None
-    link.torrent_client_root_path = body.torrent_client_root_path or None
+    link.torrent_client_root_path = _client_root(body.torrent_client_root_path)
     link.local_rel_path = local_rel
     session.commit()
+
+
+def _client_root(value: str | None) -> str | None:
+    """Come il client vede la cartella: un percorso assoluto in stile Unix
+    (i client girano in Docker o su Linux), senza spazi attorno né barra
+    finale. Prima si salvava com'era, e un " /downloads" o un "downloads"
+    non corrispondevano mai a niente, senza nessun errore."""
+    value = (value or "").strip()
+    if not value:
+        return None
+    if not value.startswith("/") or "\\" in value:
+        raise HTTPException(status_code=400, detail=coded_detail("client_root_not_absolute", path=value))
+    return os.path.normpath(value) if value != "/" else value
 
 
 @router.delete("/{torrent_client_id}/disks/{disk_id}", status_code=204)

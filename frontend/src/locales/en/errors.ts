@@ -160,6 +160,8 @@ export const errors = {
   'errors.instance_response_too_large': 'The answer from {label} is too large.',
   'errors.client_cannot_see_path': 'The client cannot see {path}: it sees only {folder} (as {client_root}). Pick a folder inside it, or change the client mapping.',
   'errors.client_mapping_needs_client_root': 'Also set how the client sees that folder.',
+  'errors.client_root_not_absolute': 'How the client sees the folder must be an absolute path, e.g. /downloads (not {path})',
+  'errors.folder_not_in_seeding': '{path} is not inside a seeding folder: torrents seeded there would not be linked to anything',
   'errors.removal_not_confirmed': "Confirm that the files will be deleted.",
   'errors.removal_not_in_not_imported': "Torrent #{id} is not among the not imported ones: it cannot be removed from here.",
   'errors.removal_requirement_not_met': "The tracker's seeding requirement is not met ({status}).",

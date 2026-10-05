@@ -160,6 +160,8 @@ export const errors = {
   'errors.instance_response_too_large': 'La risposta di {label} è troppo grande.',
   'errors.client_cannot_see_path': "Il client non vede {path}: vede solo {folder} (come {client_root}). Scegli una cartella dentro quella, o cambia la corrispondenza del client.",
   'errors.client_mapping_needs_client_root': 'Indica anche come il client vede quella cartella.',
+  'errors.client_root_not_absolute': 'Come il client vede la cartella dev’essere un percorso assoluto, es. /downloads (non {path})',
+  'errors.folder_not_in_seeding': '{path} non è dentro una cartella dei torrent: i torrent in seed lì non sarebbero collegati a niente',
   'errors.removal_not_confirmed': "Serve la conferma che i file saranno cancellati.",
   'errors.removal_not_in_not_imported': "Il torrent #{id} non è fra i non importati: da qui non si rimuove.",
   'errors.removal_requirement_not_met': "Il requisito di seed del tracker non risulta soddisfatto ({status}).",

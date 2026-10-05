@@ -63,4 +63,7 @@ export const disks = {
   'disks.check.no_folders': 'No folder to test: add one.',
   'disks.check.st_dev_changed': 'The filesystem id changed ({old} → {new}): it happens after a remount, and is normal on FUSE (e.g. Unraid /mnt/user). Hardlinks work, the reference is updated.',
   'disks.check.st_dev_changed_kept': "The filesystem id changed ({old} → {new}): the reference stays as it was until hardlinks work.",
+  'disks.noLibraryTitle': 'No media folder',
+  'disks.noLibrary':
+    'Nazgarr works like this too (torrents, Triage, uploads, packs), but reseeding finds nothing: today it recognizes content only from library files. Add a media folder to a disk to look for what you can seed again.',
 } as const
