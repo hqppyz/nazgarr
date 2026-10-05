@@ -242,6 +242,14 @@ export const upload = {
   'upload.decision.confirmDescription':
     'This is the final confirmation: from here Nazgarr creates the torrents and publishes them on its own, without asking again.',
   'upload.decision.confirm': 'Confirm and queue',
+  'upload.decision.nameWithoutSource':
+    'The name has no source (BluRay, WEB-DL…): none was found.',
+  'upload.decision.confirmWithoutSource':
+    'No source was found, so the proposed names have none. Unless you wrote it in the name yourself, add it before confirming.',
+  'upload.decision.addSource':
+    'Add the source',
+  'upload.decision.confirmAnyway':
+    'Queue anyway',
   'upload.decision.approveFailed': 'Could not approve: {message}',
 
   'upload.progress.stepsLabel': 'Steps',

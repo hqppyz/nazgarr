@@ -242,6 +242,14 @@ export const upload = {
   'upload.decision.confirmDescription':
     'Questa è la conferma finale: da qui Nazgarr crea i torrent e li pubblica da solo, senza chiedere di nuovo.',
   'upload.decision.confirm': 'Conferma e metti in coda',
+  'upload.decision.nameWithoutSource':
+    'Il nome non ha la sorgente (BluRay, WEB-DL…): non è stata trovata.',
+  'upload.decision.confirmWithoutSource':
+    'La sorgente non è stata trovata, quindi i nomi proposti non ce l’hanno. Se non l’hai scritta a mano nel nome, aggiungila prima di confermare.',
+  'upload.decision.addSource':
+    'Inserisci la sorgente',
+  'upload.decision.confirmAnyway':
+    'Metti in coda comunque',
   'upload.decision.approveFailed': 'Impossibile approvare: {message}',
 
   'upload.progress.stepsLabel': 'Passaggi',

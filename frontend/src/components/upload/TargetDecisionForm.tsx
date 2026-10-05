@@ -1,6 +1,8 @@
-import { useTorrentClientCategories } from '@/api/hooks/torrentClients'
 import type { UploadTarget } from '@/api/hooks/uploads'
 import { ClientCategorySelect } from '@/components/ClientCategorySelect'
+import { TriangleAlertIcon } from 'lucide-react'
+
+import { useTorrentClientCategories } from '@/api/hooks/torrentClients'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -106,11 +108,15 @@ export function TargetDecisionForm({
   draft,
   onChange,
   disabled,
+  missingSource = false,
+  onSetSource,
 }: {
   target: UploadTarget
   draft: TargetDraft
   onChange: (draft: TargetDraft) => void
   disabled: boolean
+  missingSource?: boolean
+  onSetSource?: () => void
 }) {
   const identical = (target.dupes as unknown as { torrent_id_remote: string; name: string; verdict: string }[]).filter(
     (d) => d.verdict === 'identical',
@@ -144,6 +150,17 @@ export function TargetDecisionForm({
             <Label htmlFor={`name-${target.id}`} className="text-xs">
               {t('upload.decision.name')}
             </Label>
+            {missingSource && (
+              <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-amber-700 dark:text-amber-400">
+                <TriangleAlertIcon className="size-3.5 shrink-0" />
+                <span className="min-w-0 flex-1">{t('upload.decision.nameWithoutSource')}</span>
+                {onSetSource && (
+                  <button type="button" className="shrink-0 font-medium underline underline-offset-2" onClick={onSetSource}>
+                    {t('upload.overrides.setSource')}
+                  </button>
+                )}
+              </p>
+            )}
             <Input
               id={`name-${target.id}`}
               className="font-mono text-xs"

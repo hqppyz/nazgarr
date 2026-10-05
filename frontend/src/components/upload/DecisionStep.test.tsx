@@ -36,7 +36,7 @@ const job = {
 
 describe('DecisionStep', () => {
   it('starts from the suggestions and sends every decision after the confirmation', () => {
-    render(<DecisionStep job={job} />)
+    render(<DecisionStep job={{ ...job, overrides: { source: 'WEB-DL' } } as UploadJob} />)
 
     expect(screen.getByText('Every tracker has a decision.')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Approve' }))
@@ -74,6 +74,19 @@ describe('DecisionStep', () => {
     const detected = { ...job.analysis, detected: { group: 'GRP', source: 'WEB-DL' } }
     render(<DecisionStep job={{ ...job, analysis: detected } as UploadJob} />)
     expect(screen.queryByText(/Source not found/)).toBeNull()
+  })
+
+  it('warns above the name and in the confirmation without blocking the upload', () => {
+    const before = approve.mock.calls.length
+    render(<DecisionStep job={job} />)
+
+    expect(screen.getByText(/The name has no source/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Approve' }))
+    expect(screen.getByText(/No source was found/)).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Add the source' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Queue anyway' }))
+
+    expect(approve.mock.calls.length).toBe(before + 1)
   })
 
   it('suggests the values the trackers accept in the detected details, still free to write', () => {
