@@ -53,6 +53,9 @@ _SPECS = [
     # Aggiornamenti: controllo automatico ogni 12 ore (nazgarr/core/updates.py),
     # spento di default: contatta GitHub solo se l'utente lo accende.
     SettingSpec("update_check_auto", "bool", False),
+    # Webhook di Radarr/Sonarr: cercare sui tracker un file appena importato
+    # (nazgarr/integrations/arr_webhooks.py). Spento: la scansione lo fa comunque.
+    SettingSpec("arr_webhook_search", "bool", False),
 ]
 
 REGISTRY: dict[str, SettingSpec] = {spec.key: spec for spec in _SPECS}

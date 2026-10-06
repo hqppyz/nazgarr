@@ -157,7 +157,9 @@ CREATE TABLE IF NOT EXISTS radarr_instance (
     priority              INTEGER,          -- higher = queried first, once a resolver adapter exists; null = 0
     timeout_seconds       INTEGER,          -- null = app default (15s)
     basic_auth_username   TEXT,             -- for Radarr behind a reverse proxy with HTTP basic auth
-    basic_auth_password   TEXT              -- encrypted at rest
+    basic_auth_password   TEXT,             -- encrypted at rest
+    webhook_token         TEXT              -- encrypted at rest: the password Radarr sends to its webhook
+                                            -- (POST /api/arr-hooks/radarr/{id}); null = no webhook
 );
 
 CREATE TABLE IF NOT EXISTS sonarr_instance (
@@ -169,8 +171,27 @@ CREATE TABLE IF NOT EXISTS sonarr_instance (
     priority              INTEGER,
     timeout_seconds       INTEGER,
     basic_auth_username   TEXT,
-    basic_auth_password   TEXT              -- encrypted at rest
+    basic_auth_password   TEXT,             -- encrypted at rest
+    webhook_token         TEXT              -- encrypted at rest, as for radarr_instance
 );
+
+-- Events received from the Radarr/Sonarr webhooks (nazgarr/integrations/arr_webhooks.py):
+-- an import, upgrade, rename or file deletion updates only those files, without a
+-- scan. Queued here and processed by the scheduler after a few seconds of quiet,
+-- never during a run; a restart does not lose them. The last few hundred are kept.
+CREATE TABLE IF NOT EXISTS arr_webhook_event (
+    id            INTEGER PRIMARY KEY,
+    source        TEXT NOT NULL CHECK (source IN ('radarr','sonarr')),
+    instance_id   INTEGER NOT NULL,        -- radarr_instance.id / sonarr_instance.id (two tables: no FK)
+    event_type    TEXT NOT NULL,           -- Radarr/Sonarr eventType: Test, Download, Rename, ...FileDelete
+    payload_json  TEXT NOT NULL,
+    status        TEXT NOT NULL DEFAULT 'pending'
+                  CHECK (status IN ('pending','done','ignored','failed')),
+    detail        TEXT,                    -- what was done, or why not
+    received_at   TIMESTAMP NOT NULL,
+    processed_at  TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_arr_webhook_event_status ON arr_webhook_event(status, id);
 
 -- Configuration of the adapters that have no row of their own (image hosts,
 -- media resolvers) when they come from a plugin (nazgarr/plugins/config.py).

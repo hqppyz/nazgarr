@@ -115,6 +115,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/arr-hooks/{source}/{instance_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Receive */
+        post: operations["receive_api_arr_hooks__source___instance_id__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/disks/available-mounts": {
         parameters: {
             query?: never;
@@ -929,6 +946,28 @@ export interface paths {
         patch: operations["update_radarr_instance_api_radarr_instances__instance_id__patch"];
         trace?: never;
     };
+    "/api/radarr-instances/{instance_id}/webhook": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Setup Radarr Webhook
+         * @description Crea (o rigenera) la password del webhook: quella vecchia smette
+         *     subito di valere. Si vede solo qui (nazgarr/integrations/arr_webhooks.py).
+         */
+        post: operations["setup_radarr_webhook_api_radarr_instances__instance_id__webhook_post"];
+        /** Remove Radarr Webhook */
+        delete: operations["remove_radarr_webhook_api_radarr_instances__instance_id__webhook_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/sonarr-instances": {
         parameters: {
             query?: never;
@@ -1002,6 +1041,28 @@ export interface paths {
         head?: never;
         /** Update Sonarr Instance */
         patch: operations["update_sonarr_instance_api_sonarr_instances__instance_id__patch"];
+        trace?: never;
+    };
+    "/api/sonarr-instances/{instance_id}/webhook": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Setup Sonarr Webhook
+         * @description Crea (o rigenera) la password del webhook: quella vecchia smette
+         *     subito di valere. Si vede solo qui (nazgarr/integrations/arr_webhooks.py).
+         */
+        post: operations["setup_sonarr_webhook_api_sonarr_instances__instance_id__webhook_post"];
+        /** Remove Sonarr Webhook */
+        delete: operations["remove_sonarr_webhook_api_sonarr_instances__instance_id__webhook_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/reviews": {
@@ -2496,6 +2557,39 @@ export interface components {
              * Format: date-time
              */
             started_at: string;
+        };
+        /** ArrHookResponse */
+        ArrHookResponse: {
+            /** Status */
+            status: string;
+        };
+        /**
+         * ArrWebhookEventSummary
+         * @description L'ultimo evento ricevuto dal webhook: per dire che il collegamento funziona.
+         */
+        ArrWebhookEventSummary: {
+            /** Event Type */
+            event_type: string;
+            /** Status */
+            status: string;
+            /** Detail */
+            detail: string | null;
+            /**
+             * Received At
+             * Format: date-time
+             */
+            received_at: string;
+        };
+        /**
+         * ArrWebhookSetupResponse
+         * @description La password del webhook, mostrata solo quando la si crea: il percorso
+         *     va sull'indirizzo con cui Radarr/Sonarr raggiungono Nazgarr.
+         */
+        ArrWebhookSetupResponse: {
+            /** Path */
+            path: string;
+            /** Token */
+            token: string;
         };
         /** AssociateDiskRequest */
         AssociateDiskRequest: {
@@ -4056,6 +4150,12 @@ export interface components {
             timeout_seconds: number;
             /** Basic Auth Username */
             basic_auth_username: string | null;
+            /**
+             * Webhook Enabled
+             * @default false
+             */
+            webhook_enabled: boolean;
+            webhook_last_event?: components["schemas"]["ArrWebhookEventSummary"] | null;
         };
         /** RadarrInstanceTestResponse */
         RadarrInstanceTestResponse: {
@@ -4485,6 +4585,12 @@ export interface components {
             timeout_seconds: number;
             /** Basic Auth Username */
             basic_auth_username: string | null;
+            /**
+             * Webhook Enabled
+             * @default false
+             */
+            webhook_enabled: boolean;
+            webhook_last_event?: components["schemas"]["ArrWebhookEventSummary"] | null;
         };
         /** SonarrInstanceTestResponse */
         SonarrInstanceTestResponse: {
@@ -5516,6 +5622,38 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    receive_api_arr_hooks__source___instance_id__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                source: string;
+                instance_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArrHookResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
             };
         };
     };
@@ -7219,6 +7357,66 @@ export interface operations {
             };
         };
     };
+    setup_radarr_webhook_api_radarr_instances__instance_id__webhook_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                instance_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArrWebhookSetupResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    remove_radarr_webhook_api_radarr_instances__instance_id__webhook_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                instance_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_sonarr_instances_api_sonarr_instances_get: {
         parameters: {
             query?: never;
@@ -7388,6 +7586,66 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["SonarrInstanceResponse"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    setup_sonarr_webhook_api_sonarr_instances__instance_id__webhook_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                instance_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArrWebhookSetupResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    remove_sonarr_webhook_api_sonarr_instances__instance_id__webhook_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                instance_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

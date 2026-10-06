@@ -47,4 +47,54 @@ export const integrations = {
   'integrations.connectionFailed': 'Connection failed: {message}',
   'integrations.deleteInstanceTitle': 'Delete the instance {label}?',
   'integrations.deleteInstanceDescription': 'Nazgarr stops reading from this {name} instance. The instance itself is not touched.',
+  'integrations.webhook.title':
+    'Webhook',
+  'integrations.webhook.dialogTitle':
+    '{label} webhook',
+  'integrations.webhook.description':
+    'When {name} imports, upgrades, renames or deletes a file, Nazgarr updates just that file at once: no scan, only its disk wakes up, and the torrent it came from shows as linked right away.',
+  'integrations.webhook.why':
+    'The full scan stays, and also catches what the webhook cannot see (files copied by hand, events lost during a restart).',
+  'integrations.webhook.enable':
+    'Enable the webhook',
+  'integrations.webhook.url':
+    'URL',
+  'integrations.webhook.password':
+    'Password',
+  'integrations.webhook.copy':
+    'Copy {what}',
+  'integrations.webhook.shownOnce':
+    'The password is shown only now: if you lose it, regenerate it.',
+  'integrations.webhook.step1':
+    'In {name}: Settings › Connect › + › Webhook.',
+  'integrations.webhook.step2':
+    'Paste the URL, method POST; any username, and the password above.',
+  'integrations.webhook.step3Radarr':
+    'Turn on On Import, On Upgrade, On Rename and On Movie File Delete.',
+  'integrations.webhook.step3Sonarr':
+    'Turn on On Import, On Upgrade, On Rename and On Episode File Delete.',
+  'integrations.webhook.step4':
+    'Press Test and save: the event shows up here.',
+  'integrations.webhook.reachability':
+    'The URL is the one you are using to open Nazgarr: if {name} runs in another container, use the address it reaches Nazgarr at (e.g. http://nazgarr:3019).',
+  'integrations.webhook.lastEvent':
+    'Last event: {event}, {when} ({detail}).',
+  'integrations.webhook.noEventYet':
+    'Webhook on, no event received from {name} yet: press Test in its connection.',
+  'integrations.webhook.regenerate':
+    'Regenerate the password',
+  'integrations.webhook.regenerateTitle':
+    'Regenerate the webhook password?',
+  'integrations.webhook.regenerateDescription':
+    'The current one stops working at once: paste the new one in {name}.',
+  'integrations.webhook.disable':
+    'Disable',
+  'integrations.webhook.disableTitle':
+    'Disable the webhook?',
+  'integrations.webhook.disableDescription':
+    'Events from {name} will be refused: remove the connection from {name} too.',
+  'integrations.webhook.searchLabel':
+    'Search the trackers for a file just imported',
+  'integrations.webhook.searchHelp':
+    'For every instance. Off: a new file is searched at the next scan, as always.',
 } as const

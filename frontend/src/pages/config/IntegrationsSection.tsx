@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { toast } from 'sonner'
 
 import {
+  type ArrKind,
   useCreateRadarrInstance,
   useCreateSonarrInstance,
   useDeleteRadarrInstance,
@@ -17,6 +18,7 @@ import {
   useUpdateRadarrInstance,
   useUpdateSonarrInstance,
 } from '@/api/hooks/arrInstances'
+import type { Schemas } from '@/api/client'
 import { Button } from '@/components/ui/button'
 import { ConfirmButton } from '@/components/ConfirmButton'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -31,6 +33,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ServiceLogo } from '@/components/ServiceLogo'
+import { ArrWebhookDialog } from '@/pages/config/ArrWebhookDialog'
 import { Switch } from '@/components/ui/switch'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { t } from '@/lib/i18n'
@@ -51,6 +54,8 @@ interface ArrInstance {
   priority: number
   timeout_seconds: number
   basic_auth_username: string | null
+  webhook_enabled?: boolean
+  webhook_last_event?: Schemas['ArrWebhookEventSummary'] | null
 }
 
 interface ArrInstanceWriteBody {
@@ -301,6 +306,7 @@ function ArrInstanceDialog({
 }
 
 function ArrInstancesCard({
+  kind,
   title,
   logoSrc,
   urlPlaceholder,
@@ -313,6 +319,7 @@ function ArrInstancesCard({
   testInstanceMutation,
   tour,
 }: {
+  kind: ArrKind
   tour: string
   title: string
   logoSrc: string
@@ -327,6 +334,7 @@ function ArrInstancesCard({
 }) {
   const actions = (instance: ArrInstance) => (
     <>
+      <ArrWebhookDialog kind={kind} instance={instance} serviceName={title} />
       <ArrInstanceDialog
         serviceName={title}
         instance={instance}
@@ -465,6 +473,7 @@ export function IntegrationsSection() {
   return (
     <>
       <ArrInstancesCard
+        kind="radarr"
         tour="integrations.radarr"
         title="Radarr"
         logoSrc="/logos/radarr.svg"
@@ -479,6 +488,7 @@ export function IntegrationsSection() {
       />
 
       <ArrInstancesCard
+        kind="sonarr"
         tour="integrations.sonarr"
         title="Sonarr"
         logoSrc="/logos/sonarr.svg"

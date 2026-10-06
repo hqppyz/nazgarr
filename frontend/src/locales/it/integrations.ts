@@ -47,4 +47,54 @@ export const integrations = {
   'integrations.connectionFailed': 'Connessione non riuscita: {message}',
   'integrations.deleteInstanceTitle': 'Eliminare l’istanza {label}?',
   'integrations.deleteInstanceDescription': 'Nazgarr smette di leggere da questa istanza di {name}. L’istanza stessa non viene toccata.',
+  'integrations.webhook.title':
+    'Webhook',
+  'integrations.webhook.dialogTitle':
+    'Webhook di {label}',
+  'integrations.webhook.description':
+    'Quando {name} importa, aggiorna, rinomina o cancella un file, Nazgarr aggiorna subito solo quel file: niente scansione, si sveglia solo il suo disco, e il torrent da cui è stato importato risulta subito collegato.',
+  'integrations.webhook.why':
+    'La scansione completa resta, e prende anche quello che il webhook non vede (file copiati a mano, eventi persi durante un riavvio).',
+  'integrations.webhook.enable':
+    'Attiva il webhook',
+  'integrations.webhook.url':
+    'URL',
+  'integrations.webhook.password':
+    'Password',
+  'integrations.webhook.copy':
+    'Copia {what}',
+  'integrations.webhook.shownOnce':
+    'La password si vede solo adesso: se la perdi, rigenerala.',
+  'integrations.webhook.step1':
+    'In {name}: Settings › Connect › + › Webhook.',
+  'integrations.webhook.step2':
+    'Incolla l’URL, metodo POST; come nome utente scrivi quello che vuoi, come password quella qui sopra.',
+  'integrations.webhook.step3Radarr':
+    'Accendi On Import, On Upgrade, On Rename e On Movie File Delete.',
+  'integrations.webhook.step3Sonarr':
+    'Accendi On Import, On Upgrade, On Rename e On Episode File Delete.',
+  'integrations.webhook.step4':
+    'Premi Test e salva: qui comparirà l’evento ricevuto.',
+  'integrations.webhook.reachability':
+    'L’URL è quello con cui apri Nazgarr ora: se {name} gira in un altro container, usa l’indirizzo con cui lui raggiunge Nazgarr (es. http://nazgarr:3019).',
+  'integrations.webhook.lastEvent':
+    'Ultimo evento: {event}, {when} ({detail}).',
+  'integrations.webhook.noEventYet':
+    'Webhook attivo, nessun evento ricevuto da {name}: premi Test nella sua connessione.',
+  'integrations.webhook.regenerate':
+    'Rigenera la password',
+  'integrations.webhook.regenerateTitle':
+    'Rigenerare la password del webhook?',
+  'integrations.webhook.regenerateDescription':
+    'Quella di adesso smette subito di valere: dovrai incollare la nuova in {name}.',
+  'integrations.webhook.disable':
+    'Disattiva',
+  'integrations.webhook.disableTitle':
+    'Disattivare il webhook?',
+  'integrations.webhook.disableDescription':
+    'Gli eventi di {name} verranno rifiutati: togli anche la connessione da {name}.',
+  'integrations.webhook.searchLabel':
+    'Cerca sui tracker un file appena importato',
+  'integrations.webhook.searchHelp':
+    'Per tutte le istanze. Spento: un file nuovo si cerca alla prossima scansione, come sempre.',
 } as const
