@@ -7,9 +7,17 @@ import json
 import os
 from datetime import UTC, datetime, timedelta
 
-from nazgarr.core.models import ArrWebhookEvent, Disk, MediaFile, RadarrInstance, SeedFile, SonarrInstance
+from nazgarr.core.models import (
+    ArrWebhookEvent,
+    Disk,
+    FileChange,
+    MediaFile,
+    RadarrInstance,
+    SeedFile,
+    SonarrInstance,
+)
 from nazgarr.integrations import arr_webhooks
-from nazgarr.library import scanner
+from nazgarr.library import file_changes, resolution, scanner
 from nazgarr.library.scan_state import is_current, latest_scan_by_disk
 from nazgarr.reseed import pipeline
 
@@ -30,10 +38,17 @@ def _library(db_session, tmp_path):
     db_session.add(disk)
     db_session.commit()
     for _ in range(2):  # due scansioni: un file sparito torna a quella prima
-        run = pipeline.start_run(db_session, "manual")
-        scanner.scan_disk(db_session, disk, run)
-        _finish(db_session, run)
+        _scan(db_session, disk)
     return root, disk
+
+
+def _scan(db_session, disk):
+    """Una scansione con la sua fotografia per la Dashboard, come la pipeline."""
+    run = pipeline.start_run(db_session, "manual")
+    scanner.scan_disk(db_session, disk, run)
+    _finish(db_session, run)
+    file_changes.record_changes(db_session, run)
+    return run
 
 
 def _radarr(db_session):
@@ -69,9 +84,7 @@ def test_an_import_enters_the_library_identified_and_linked_to_its_torrent(db_se
     # Il torrent era già in seed (scansionato), Radarr lo importa con un hardlink.
     torrent_file = root / "torrents" / "The.Matrix.1999.1080p.BluRay-GRP.mkv"
     torrent_file.write_bytes(b"x" * 100)
-    run = pipeline.start_run(db_session, "manual")
-    scanner.scan_disk(db_session, disk, run)
-    _finish(db_session, run)
+    _scan(db_session, disk)
     (root / "media" / "movies" / "The Matrix (1999)").mkdir()
     library_file = root / "media" / "movies" / "The Matrix (1999)" / "The Matrix (1999).mkv"
     os.link(torrent_file, library_file)
@@ -182,3 +195,32 @@ def test_the_endpoint_wants_the_password_of_that_instance(client):
     client.post(f"/api/radarr-instances/{created['id']}/webhook")
     assert client.post(setup["path"], content=json.dumps({"eventType": "Test"}),
                        headers=_basic(setup["token"])).status_code == 401
+
+
+def test_an_import_gets_its_poster_and_shows_on_the_dashboard_as_from_radarr(db_session, tmp_path, monkeypatch):
+    # Segnalato (2026-10-07): un file importato dal webhook restava senza
+    # poster, e la Dashboard non diceva che era arrivato.
+    root, disk = _library(db_session, tmp_path)
+    torrent_file = root / "torrents" / "Movie.2020.mkv"
+    torrent_file.write_bytes(b"m" * 64)
+    _scan(db_session, disk)
+    (root / "media" / "movies" / "Movie (2020)").mkdir()
+    os.link(torrent_file, root / "media" / "movies" / "Movie (2020)" / "Movie (2020).mkv")
+    downloaded = []
+    monkeypatch.setattr(resolution, "download_poster", lambda d, kind, tmdb, path: downloaded.append((tmdb, path)))
+    payload = _download("/movies/Movie (2020)/Movie (2020).mkv", 64, tmdb=42)
+    payload["movie"]["images"] = [{"coverType": "poster", "remoteUrl": "https://image.tmdb.org/t/p/original/abc.jpg"}]
+
+    arr_webhooks.receive(db_session, "radarr", _radarr(db_session), payload)
+    arr_webhooks.process_pending(db_session, now=LATER, data_dir=str(tmp_path / "data"))
+
+    media_file = db_session.query(MediaFile).filter_by(
+        relative_path="media/movies/Movie (2020)/Movie (2020).mkv").one()
+    assert media_file.media_item.tmdb_poster_path == "/abc.jpg"
+    assert downloaded == [(42, "/abc.jpg")]
+    changes = {(c.side, c.change, c.origin) for c in db_session.query(FileChange).all()}
+    assert ("media", "added", "radarr") in changes
+    # La fotografia è aggiornata: la scansione dopo non lo conta di nuovo.
+    run = _scan(db_session, disk)
+    again = db_session.query(FileChange).filter_by(run_id=run.id).all()
+    assert not any(c.relative_path.endswith("Movie (2020).mkv") for c in again)

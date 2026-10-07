@@ -138,6 +138,12 @@ export function ChangesCard({ className }: { className?: string }) {
                             anche quando il percorso intero non ci sta. */}
                         <span className="block truncate font-mono text-xs">{fileName(c.relative_path)}</span>
                         <span className="block truncate font-mono text-[length:var(--text-xxs)] text-muted-foreground">
+                          {/* Arrivato da un webhook dopo la scansione, non trovato da lei. */}
+                          {c.origin && (
+                            <span className="mr-1.5 font-sans font-medium text-primary">
+                              {t('changes.fromOrigin', { origin: c.origin === 'sonarr' ? 'Sonarr' : 'Radarr' })}
+                            </span>
+                          )}
                           {folderOf(c.relative_path)}
                         </span>
                       </TableCell>

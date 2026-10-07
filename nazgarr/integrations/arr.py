@@ -250,7 +250,7 @@ def _index_history(api: ArrApi, index: ArrIndex, content_of: Callable[[dict], tu
                 index.add_grab(path, size, grab)
 
 
-def _tmdb_poster_path(item: dict) -> str | None:
+def tmdb_poster_path(item: dict) -> str | None:
     for image in item.get("images") or []:
         if image.get("coverType") == "poster":
             match = _TMDB_POSTER_RE.match(image.get("remoteUrl") or "")
@@ -283,7 +283,7 @@ def _index_radarr(api: ArrApi, index: ArrIndex) -> None:
             movie_file["path"], movie_file["size"],
             ArrIdentity(
                 source="radarr", content_type="movie", tmdb_id=movie["tmdbId"],
-                poster_path=_tmdb_poster_path(movie), title=movie.get("title"), year=movie.get("year") or None,
+                poster_path=tmdb_poster_path(movie), title=movie.get("title"), year=movie.get("year") or None,
                 imdb_id=movie.get("imdbId") or None, instance_id=api.instance_id, slug=movie.get("titleSlug"),
                 scene_name=_scene_name(movie_file),
             ),

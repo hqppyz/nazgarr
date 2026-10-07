@@ -636,7 +636,9 @@ CREATE TABLE IF NOT EXISTS file_change (
     state           TEXT,
     previous_state  TEXT,
     content_type    TEXT,
-    tmdb_id         INTEGER
+    tmdb_id         INTEGER,
+    origin          TEXT                  -- null = found by the scan; 'radarr' | 'sonarr' = from their webhook
+                                          -- after that scan (nazgarr/integrations/arr_webhooks.py)
 );
 
 CREATE TABLE IF NOT EXISTS seed_job (

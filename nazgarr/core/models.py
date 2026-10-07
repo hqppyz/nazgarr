@@ -912,6 +912,9 @@ class FileChange(Base):
     previous_state: Mapped[str | None]  # stato prima (None se nuovo)
     content_type: Mapped[str | None]  # per aprire la scheda di dettaglio
     tmdb_id: Mapped[int | None]
+    # None = trovato dalla scansione; "radarr"/"sonarr" = dal loro webhook, dopo
+    # quella scansione (nazgarr/integrations/arr_webhooks.py).
+    origin: Mapped[str | None]
 
 
 class MatchAttempt(Base):

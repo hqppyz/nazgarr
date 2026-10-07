@@ -3250,6 +3250,8 @@ export interface components {
             content_type: string | null;
             /** Tmdb Id */
             tmdb_id: number | null;
+            /** Origin */
+            origin?: string | null;
         };
         /** FileCheckResponse */
         FileCheckResponse: {

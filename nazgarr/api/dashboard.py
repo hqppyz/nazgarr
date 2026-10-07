@@ -91,6 +91,7 @@ class FileChangeItem(BaseModel):
     previous_state: str | None
     content_type: str | None
     tmdb_id: int | None
+    origin: str | None = None  # None = dalla scansione; "radarr"/"sonarr" = dal loro webhook, dopo
 
 
 class ChangesResponse(BaseModel):
@@ -240,7 +241,7 @@ def get_changes(limit: int = 1000, session: Session = Depends(get_session)):
             items.append(FileChangeItem(
                 side=row.side, kind=kind, disk_id=row.disk_id, relative_path=row.relative_path,
                 size_bytes=row.size_bytes, state=row.state, previous_state=row.previous_state,
-                content_type=row.content_type, tmdb_id=row.tmdb_id,
+                content_type=row.content_type, tmdb_id=row.tmdb_id, origin=row.origin,
             ))
     delta = (
         current.health_snapshot - previous.health_snapshot

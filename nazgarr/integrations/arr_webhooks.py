@@ -39,8 +39,9 @@ from nazgarr.adapters.media_resolver.base import ResolvedMedia
 from nazgarr.core import settings_registry
 from nazgarr.core.fs_scope import ScopeViolation, resolve_scoped
 from nazgarr.core.models import ArrWebhookEvent, Disk, MediaFile, RadarrInstance, SonarrInstance, Tracker
-from nazgarr.library import disk_folders, scanner
-from nazgarr.library.resolution import get_or_create_media_item
+from nazgarr.integrations import arr
+from nazgarr.library import disk_folders, file_changes, scanner
+from nazgarr.library.resolution import complete_media_items, get_or_create_media_item
 from nazgarr.library.scan_state import latest_scan_by_disk
 
 logger = logging.getLogger(__name__)
@@ -146,7 +147,8 @@ def _identity(source: str, instance_id: int, payload: dict, episode: dict | None
             return None
         return ResolvedMedia(tmdb_id=movie["tmdbId"], content_type="movie", source="radarr",
                              title=movie.get("title"), year=movie.get("year") or None,
-                             imdb_id=movie.get("imdbId") or None, arr_instance_id=instance_id)
+                             imdb_id=movie.get("imdbId") or None, arr_instance_id=instance_id,
+                             poster_path=arr.tmdb_poster_path(movie))
     series = payload.get("series") or {}
     if not series.get("tmdbId"):
         return None  # Sonarr senza tmdbId: la prossima scansione lo identifica come sempre
@@ -179,31 +181,35 @@ def _first_episode(payload: dict) -> dict | None:
     return min(episodes, key=lambda e: (e.get("seasonNumber") or 0, e.get("episodeNumber") or 0)) if episodes else None
 
 
-def _forget(session: Session, arr_file: dict) -> bool:
+def _forget(session: Session, arr_file: dict) -> MediaFile | None:
     row = known_file(session, arr_file.get("path") or "", arr_file.get("size"))
-    return row is not None and scanner.forget_media_file(session, row)
+    return row if row is not None and scanner.forget_media_file(session, row) else None
 
 
-def _download(session: Session, event: ArrWebhookEvent, payload: dict) -> tuple[str, list[int]]:
+def _download(session: Session, event: ArrWebhookEvent, payload: dict) -> tuple[str, list[int], list[int]]:
     arr_file = _file_of(event.source, payload)
-    gone = sum(_forget(session, f) for f in payload.get("deletedFiles") or [])
+    gone = [row.id for row in (_forget(session, f) for f in payload.get("deletedFiles") or []) if row is not None]
     found = locate(session, arr_file.get("path") or "", arr_file.get("size"))
     if found is None:
-        return f"file not found on the disks: {arr_file.get('path')}", []
+        return f"file not found on the disks: {arr_file.get('path')}", [], gone
     disk, full_path = found
     media_file = scanner.record_media_file(session, disk, full_path)
     if media_file is None:
-        return f"{full_path}: the disk was never scanned, the first scan will add it", []
-    _identify(session, media_file, _identity(event.source, event.instance_id, payload, _first_episode(payload)))
+        return f"{full_path}: the disk was never scanned, the first scan will add it", [], gone
+    resolved = _identity(event.source, event.instance_id, payload, _first_episode(payload))
+    _identify(session, media_file, resolved)
     note = f"added {media_file.relative_path}"
+    if resolved is None:
+        note += " (not identified: the next scan will try TMDB)"
     if gone:
-        note += f", {gone} replaced file(s) removed"
-    return note, [media_file.id]
+        note += f", {len(gone)} replaced file(s) removed"
+    return note, [media_file.id], [media_file.id, *gone]
 
 
-def _rename(session: Session, event: ArrWebhookEvent, payload: dict) -> tuple[str, list[int]]:
+def _rename(session: Session, event: ArrWebhookEvent, payload: dict) -> tuple[str, list[int], list[int]]:
     renamed = payload.get("renamedMovieFiles" if event.source == "radarr" else "renamedEpisodeFiles") or []
     moved = 0
+    touched: list[int] = []
     for f in renamed:
         old = known_file(session, f.get("previousPath") or "", f.get("size"))
         found = locate(session, f.get("path") or "", f.get("size"))
@@ -217,13 +223,17 @@ def _rename(session: Session, event: ArrWebhookEvent, payload: dict) -> tuple[st
                 media_file.media_item_id, media_file.resolver_source = old.media_item_id, old.resolver_source
                 session.commit()
             scanner.forget_media_file(session, old)
+            touched.append(old.id)
+        touched.append(media_file.id)
         moved += 1
-    return f"{moved} of {len(renamed)} renamed file(s) updated", []
+    return f"{moved} of {len(renamed)} renamed file(s) updated", [], touched
 
 
-def _delete(session: Session, event: ArrWebhookEvent, payload: dict) -> tuple[str, list[int]]:
-    arr_file = _file_of(event.source, payload)
-    return ("file removed" if _forget(session, arr_file) else "file not in the library, or nothing to do"), []
+def _delete(session: Session, event: ArrWebhookEvent, payload: dict) -> tuple[str, list[int], list[int]]:
+    row = _forget(session, _file_of(event.source, payload))
+    if row is None:
+        return "file not in the library, or nothing to do", [], []
+    return "file removed", [], [row.id]
 
 
 HANDLERS = {"Download": _download, "Rename": _rename, "MovieFileDelete": _delete, "EpisodeFileDelete": _delete}
@@ -247,9 +257,27 @@ def _search(session: Session, media_file_ids: list[int]) -> None:
                 adapter_factory.close_adapter(adapter)
 
 
-def process_pending(session: Session, now: datetime | None = None) -> int:
+def _complete(session: Session, data_dir: str | None) -> None:
+    """Titolo e poster dei contenuti appena arrivati, come alla fine della
+    risoluzione di una scansione: dal poster che Radarr ha mandato, o da
+    TMDB se c'è la chiave. Solo per quelli che non li hanno."""
+    if data_dir is None:
+        return
+    from nazgarr.core import settings_repo
+    from nazgarr.library.tmdb_client import TMDBClient
+
+    key = settings_repo.get_setting(session, "tmdb_api_key")
+    try:
+        complete_media_items(session, os.path.join(data_dir, "posters"), None,
+                             TMDBClient(api_key=key).details if key else None)
+    except Exception:
+        logger.warning("Titoli e poster dopo i webhook non completati", exc_info=True)
+
+
+def process_pending(session: Session, now: datetime | None = None, data_dir: str | None = None) -> int:
     """Dallo scheduler: gli eventi in coda da almeno QUIET, uno alla volta.
-    Mai durante una run (lo scheduler riprova al giro dopo)."""
+    Mai durante una run (lo scheduler riprova al giro dopo). Poi titoli e
+    poster dei contenuti nuovi, e i cambiamenti per la Dashboard."""
     from nazgarr.reseed import pipeline
 
     if pipeline.run_in_progress(session):
@@ -261,14 +289,16 @@ def process_pending(session: Session, now: datetime | None = None) -> int:
         .order_by(ArrWebhookEvent.id).all()
     )
     imported: list[int] = []
+    touched: dict[int, str] = {}
     for event in events:
         try:
             if event.event_type == "Test":
                 event.detail = "connection works"
             else:
                 payload = json.loads(event.payload_json)
-                event.detail, ids = HANDLERS[event.event_type](session, event, payload)
+                event.detail, ids, changed = HANDLERS[event.event_type](session, event, payload)
                 imported.extend(ids)
+                touched.update(dict.fromkeys(changed, event.source))
             event.status = "done"
         except Exception as exc:
             logger.exception("Evento %s %s (#%s) non applicato", event.source, event.event_type, event.id)
@@ -276,6 +306,14 @@ def process_pending(session: Session, now: datetime | None = None) -> int:
             event.status, event.detail = "failed", f"{type(exc).__name__}: {exc}"
         event.processed_at = datetime.now(UTC)
         session.commit()
+    if imported:
+        _complete(session, data_dir)
+    if touched:
+        try:
+            file_changes.record_webhook_changes(session, touched)
+        except Exception:
+            logger.warning("Cambiamenti dei webhook non registrati per la Dashboard", exc_info=True)
+            session.rollback()
     if imported and settings_registry.get_bool(session, SEARCH_SETTING):
         _search(session, imported)
     _prune(session)
