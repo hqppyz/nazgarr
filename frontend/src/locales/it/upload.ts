@@ -38,7 +38,7 @@ export const upload = {
   'upload.activity': 'Attività',
   'upload.deleteConfirmTitle': 'Eliminare questo upload?',
   'upload.deleteConfirmDescription':
-    'Sparisce dalla coda e dallo storico. Non viene rimosso niente dai tracker, dai client o dal disco.',
+    'Sparisce dalla coda e dallo storico, con i suoi .torrent e screenshot salvati da Nazgarr. Non viene rimosso niente dai tracker, dai client o dai file in libreria e in seed.',
   'upload.failedTitle': 'Qualcosa è andato storto',
 
   'upload.picker.title': 'Scegli la sorgente',

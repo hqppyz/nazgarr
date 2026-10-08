@@ -38,7 +38,7 @@ export const upload = {
   'upload.activity': 'Activity',
   'upload.deleteConfirmTitle': 'Delete this upload?',
   'upload.deleteConfirmDescription':
-    'It disappears from the queue and the history. Nothing is removed from the trackers, the clients or the disk.',
+    'It disappears from the queue and the history, with the .torrent files and screenshots Nazgarr kept for it. Nothing is removed from the trackers, the clients or the files in the library and in seed.',
   'upload.failedTitle': 'Something went wrong',
 
   'upload.picker.title': 'Choose the source',
