@@ -21,4 +21,5 @@ export const changes = {
   'changes.kind.stopped': 'Fermato',
   'changes.kind.resumed': 'Ripreso',
   'changes.kind.state_changed': 'Stato cambiato',
+  'changes.fromOrigin': 'da {origin}',
 } as const

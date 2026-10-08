@@ -21,4 +21,5 @@ export const changes = {
   'changes.kind.stopped': 'Stopped',
   'changes.kind.resumed': 'Resumed',
   'changes.kind.state_changed': 'State changed',
+  'changes.fromOrigin': 'from {origin}',
 } as const

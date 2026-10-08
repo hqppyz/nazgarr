@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session, object_session
 
 from nazgarr.core.errors import coded_detail
-from nazgarr.core.models import Candidate, MatchReview, SeedJob, TorrentClient
+from nazgarr.core.models import Candidate, MatchReview, SeedJob, TorrentClient, Tracker
 from nazgarr.library import seeding
 from nazgarr.reseed import pipeline, review
 from nazgarr.reseed.executor import ExecutionError
@@ -127,6 +127,19 @@ class ReviewResponse(BaseModel):
     verify_check_id: str | None = None
     # Dove il file è già in seed (tracker o host): non vuoto = un cross-seed.
     seeding_on: list[str] = []
+    tracker_id: int
+    tracker: str | None = None
+    # "pack" (più video) o "single" (nazgarr/library/seeding.py), e i formati in
+    # cui il file è già in seed sul tracker di questa review: non vuoto = il
+    # secondo formato dello stesso tracker ("pack e singoli").
+    format: str
+    seeding_here: list[str] = []
+    # Il contenuto: per raggruppare in coda gli episodi della stessa stagione.
+    content_type: str | None = None
+    tmdb_id: int | None = None
+    title: str | None = None
+    season_number: int | None = None
+    episode_number: int | None = None
     # Il client dove andrà il reseed, coi suoi default per categoria e tag e
     # quelli scelti a mano su questa review (None = i default, "" = nessuno).
     # Il default della categoria non sa se è un anime: lo decide TMDB quando
@@ -138,7 +151,10 @@ class ReviewResponse(BaseModel):
     client_tags: str | None = None
 
     @classmethod
-    def from_model(cls, r: MatchReview) -> "ReviewResponse":
+    def from_model(cls, r: MatchReview, formats_here: dict[tuple[int, int], set[str]] | None = None
+                   ) -> "ReviewResponse":
+        """formats_here: (tracker, media_file) -> formati in seed lì, già letti
+        per tutta la coda (_formats_here); None = solo per questa review."""
         session = object_session(r)
         seed_job = (
             session.query(SeedJob).filter_by(candidate_id=r.candidate_id).order_by(SeedJob.id.desc()).first()
@@ -146,6 +162,9 @@ class ReviewResponse(BaseModel):
         )
         client = review.client_row_for_candidate(session, r.candidate) if session is not None else None
         item = r.candidate.media_item
+        if formats_here is None and session is not None:
+            formats_here = _formats_here(session, [r])
+        here = (formats_here or {}).get((r.candidate.tracker_id, r.media_file_id), set())
         return cls(
             torrent_client_id=client.id if client else None,
             default_client_category=client_labels.default_category(client, item.content_type if item else None),
@@ -159,7 +178,29 @@ class ReviewResponse(BaseModel):
             seed_job=SeedJobResponse.from_model(seed_job) if seed_job is not None else None,
             verify_status=r.verify_status, verify_detail=r.verify_detail, verify_check_id=r.verify_check_id,
             seeding_on=seeding.seeding_on(session, r.media_file_id) if session is not None and r.media_file_id else [],
+            tracker_id=r.candidate.tracker_id, tracker=r.candidate.tracker.label if r.candidate.tracker else None,
+            format=review.candidate_format(r.candidate), seeding_here=sorted(here),
+            content_type=item.content_type if item else None, tmdb_id=item.tmdb_id if item else None,
+            title=item.title if item else None, season_number=item.season_number if item else None,
+            episode_number=item.episode_number if item else None,
         )
+
+
+def _formats_here(session: Session, rows: list[MatchReview]) -> dict[tuple[int, int], set[str]]:
+    """Per ogni tracker della coda, i formati in cui i suoi file sono già in
+    seed lì: una lettura per tracker, non per review."""
+    by_tracker: dict[int, list[int]] = {}
+    for r in rows:
+        if r.media_file_id is not None:
+            by_tracker.setdefault(r.candidate.tracker_id, []).append(r.media_file_id)
+    result = {}
+    for tracker_id, media_file_ids in by_tracker.items():
+        tracker = session.get(Tracker, tracker_id)
+        if tracker is None:
+            continue
+        for media_file_id, found in seeding.seeding_formats(session, tracker, media_file_ids).items():
+            result[(tracker_id, media_file_id)] = found
+    return result
 
 
 def _get_review_or_404(session: Session, review_id: int) -> MatchReview:
@@ -168,7 +209,9 @@ def _get_review_or_404(session: Session, review_id: int) -> MatchReview:
 
 @router.get("", response_model=list[ReviewResponse])
 def list_reviews(session: Session = Depends(get_session)):
-    return [ReviewResponse.from_model(r) for r in review.list_ready_for_review(session)]
+    rows = review.list_ready_for_review(session)
+    formats_here = _formats_here(session, rows)
+    return [ReviewResponse.from_model(r, formats_here) for r in rows]
 
 
 @router.post("/{review_id}/approve", response_model=ReviewResponse)

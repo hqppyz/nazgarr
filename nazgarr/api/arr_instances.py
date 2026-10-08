@@ -7,14 +7,17 @@ un router solo, costruito per ognuno da make_router
 (nazgarr/api/radarr_instances.py, nazgarr/api/sonarr_instances.py, che
 tengono i nomi dei modelli dello schema OpenAPI usati dal frontend)."""
 
+from datetime import datetime
+
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, object_session
 
 from nazgarr.api.types import HttpUrlStr, require_secrets_for_new_host
 from nazgarr.core.errors import coded_detail
 from nazgarr.core.logs import safe_error
+from nazgarr.integrations import arr_webhooks
 from nazgarr.web.deps import get_session
 
 DEFAULT_PRIORITY = 0
@@ -44,6 +47,21 @@ class ArrInstanceUpdateRequest(BaseModel):
     basic_auth_password: str | None = None
 
 
+class ArrWebhookEventSummary(BaseModel):
+    """L'ultimo evento ricevuto dal webhook: per dire che il collegamento funziona."""
+    event_type: str
+    status: str  # pending | done | ignored | failed
+    detail: str | None
+    received_at: datetime
+
+
+class ArrWebhookSetupResponse(BaseModel):
+    """La password del webhook, mostrata solo quando la si crea: il percorso
+    va sull'indirizzo con cui Radarr/Sonarr raggiungono Nazgarr."""
+    path: str
+    token: str
+
+
 class ArrInstanceResponse(BaseModel):
     id: int
     label: str
@@ -52,14 +70,22 @@ class ArrInstanceResponse(BaseModel):
     priority: int
     timeout_seconds: int
     basic_auth_username: str | None  # mai api_key/basic_auth_password: write-only, non tornano mai indietro
+    webhook_enabled: bool = False  # la password del webhook non torna mai, solo se c'è
+    webhook_last_event: ArrWebhookEventSummary | None = None
 
     @classmethod
-    def from_model(cls, row):
+    def from_model(cls, row, kind: str | None = None):
+        session = object_session(row)
+        last = arr_webhooks.last_event(session, kind, row.id) if session is not None and kind else None
         return cls(
             id=row.id, label=row.label, base_url=row.base_url, enabled=row.enabled,
             priority=row.priority if row.priority is not None else DEFAULT_PRIORITY,
             timeout_seconds=row.timeout_seconds if row.timeout_seconds is not None else DEFAULT_TIMEOUT_SECONDS,
             basic_auth_username=row.basic_auth_username,
+            webhook_enabled=bool(row.webhook_token),
+            webhook_last_event=ArrWebhookEventSummary(
+                event_type=last.event_type, status=last.status, detail=last.detail, received_at=last.received_at,
+            ) if last is not None else None,
         )
 
 
@@ -112,7 +138,7 @@ def make_router(
 
     @router.get("", response_model=list[response], name=f"list_{kind}_instances")
     def list_instances(session: Session = Depends(get_session)):
-        return [response.from_model(row) for row in session.query(model).all()]
+        return [response.from_model(row, kind) for row in session.query(model).all()]
 
     @router.post("", response_model=response, status_code=201, name=f"create_{kind}_instance")
     def create_instance(body: create_request, session: Session = Depends(get_session)):  # type: ignore[valid-type]
@@ -123,7 +149,7 @@ def make_router(
         )
         session.add(instance)
         session.commit()
-        return response.from_model(instance)
+        return response.from_model(instance, kind)
 
     @router.post("/test", response_model=test_response, name=f"test_{kind}_connection")
     def test_new_connection(body: connection_request):  # type: ignore[valid-type]
@@ -159,7 +185,22 @@ def make_router(
         if body.basic_auth_password is not None:
             instance.basic_auth_password = body.basic_auth_password or None
         session.commit()
-        return response.from_model(instance)
+        return response.from_model(instance, kind)
+
+    @router.post("/{instance_id}/webhook", response_model=ArrWebhookSetupResponse, name=f"setup_{kind}_webhook")
+    def setup_webhook(instance_id: int, session: Session = Depends(get_session)):
+        """Crea (o rigenera) la password del webhook: quella vecchia smette
+        subito di valere. Si vede solo qui (nazgarr/integrations/arr_webhooks.py)."""
+        instance = get_or_404(session, instance_id)
+        instance.webhook_token = arr_webhooks.new_token()
+        session.commit()
+        return ArrWebhookSetupResponse(path=f"/api/arr-hooks/{kind}/{instance.id}", token=instance.webhook_token)
+
+    @router.delete("/{instance_id}/webhook", status_code=204, name=f"remove_{kind}_webhook")
+    def remove_webhook(instance_id: int, session: Session = Depends(get_session)):
+        instance = get_or_404(session, instance_id)
+        instance.webhook_token = None
+        session.commit()
 
     @router.delete("/{instance_id}", status_code=204, name=f"delete_{kind}_instance")
     def delete_instance(instance_id: int, session: Session = Depends(get_session)):

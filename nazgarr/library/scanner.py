@@ -259,3 +259,82 @@ def scan_disk(
     session.commit()
 
     return {"media_files_scanned": len(media_rows), "seed_files_scanned": len(seed_rows)}
+
+
+# --- un file alla volta, senza scansione (webhook di Radarr/Sonarr) -----------------
+#
+# nazgarr/integrations/arr_webhooks.py aggiorna solo i file che un'importazione, un
+# rename o una cancellazione ha toccato: un stat e, per un video, l'hash dei
+# primi 128KB, quindi si sveglia solo il suo disco. Le righe seguono le
+# stesse regole della scansione: un file nuovo è "attuale" perché porta il
+# numero dell'ultima scansione del suo disco, uno sparito esce dallo stato
+# attuale con il numero di una scansione precedente, mai cancellato.
+
+
+def _current_media_scan(session: Session, disk: Disk) -> int | None:
+    return latest_scan_by_disk(session, MediaFile).get(disk.id)
+
+
+def _link_seed_files(session: Session, disk: Disk, media_file: MediaFile) -> int:
+    """I file lato torrent attuali con lo stesso inode: l'hardlink appena creato
+    da un'importazione. Il torrent da cui viene smette di essere orfano."""
+    seed_scan = latest_scan_by_disk(session, SeedFile).get(disk.id)
+    if seed_scan is None:
+        return 0
+    return (
+        session.query(SeedFile)
+        .filter_by(disk_id=disk.id, st_dev=media_file.st_dev, inode=media_file.inode, last_scan_id=seed_scan)
+        .update({"media_file_id": media_file.id}, synchronize_session=False)
+    )
+
+
+def record_media_file(session: Session, disk: Disk, full_path: str) -> MediaFile | None:
+    """Un file della libreria appena arrivato o cambiato. None se il disco non
+    è mai stato scansionato (niente stato attuale a cui aggiungerlo: ci penserà
+    la prima scansione) o se il file non si legge."""
+    scan_id = _current_media_scan(session, disk)
+    if scan_id is None:
+        return None
+    relative = os.path.relpath(full_path, disk.root_path)
+    known = (
+        session.query(MediaFile.st_dev, MediaFile.inode, MediaFile.size_bytes, MediaFile.mtime_ns,
+                      MediaFile.content_hash)
+        .filter_by(disk_id=disk.id, relative_path=relative).first()
+    )
+    _, st, content_hash = _stat_one(full_path, True, {full_path: tuple(known)} if known else None)
+    if st is None:
+        return None
+    bulk_upsert(
+        session, MediaFile.__table__, [{
+            "disk_id": disk.id, "relative_path": relative, "size_bytes": st.st_size, "st_dev": st.st_dev,
+            "inode": st.st_ino, "nlink": st.st_nlink, "content_hash": content_hash, "mtime_ns": st.st_mtime_ns,
+            "last_scan_id": scan_id, "last_seen_at": datetime.now(UTC),
+        }],
+        conflict_cols=["disk_id", "relative_path"],
+        update_cols=["size_bytes", "st_dev", "inode", "nlink", "content_hash", "mtime_ns", "last_scan_id",
+                     "last_seen_at"],
+    )
+    session.commit()
+    media_file = session.query(MediaFile).filter_by(disk_id=disk.id, relative_path=relative).one()
+    _link_seed_files(session, disk, media_file)
+    session.commit()
+    return media_file
+
+
+def forget_media_file(session: Session, media_file: MediaFile) -> bool:
+    """Un file della libreria cancellato: esce dallo stato attuale con il numero
+    della scansione precedente, e i file lato torrent collegati tornano senza
+    collegamento. False se non c'è una scansione precedente a cui riportarlo
+    (un disco scansionato una volta sola): ci penserà la prossima."""
+    older = (
+        session.query(func.max(RunLog.id))
+        .filter(RunLog.id < media_file.last_scan_id)
+        .scalar()
+    )
+    if older is None:
+        return False
+    media_file.last_scan_id = older
+    session.query(SeedFile).filter_by(media_file_id=media_file.id).update(
+        {"media_file_id": None}, synchronize_session=False)
+    session.commit()
+    return True

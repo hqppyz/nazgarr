@@ -122,7 +122,7 @@ def link_files(pairs: list[tuple[str, str]], root: str) -> list[str]:
 
 
 def _job_dir(worker, job: UploadJob) -> str:
-    path = os.path.join(worker.data_dir, "uploads", str(job.id))
+    path = upload_jobs.job_folder(worker.data_dir, job.id)
     os.makedirs(path, exist_ok=True)
     return path
 

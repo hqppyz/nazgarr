@@ -96,6 +96,23 @@ def _deliver_events(session_factory: sessionmaker) -> None:
         session.close()
 
 
+ARR_HOOKS_JOB_ID = "arr_webhook_events"
+ARR_HOOKS_INTERVAL_SECONDS = 15
+
+
+def _apply_arr_webhook_events(session_factory: sessionmaker, data_dir: str) -> None:
+    """Gli eventi dei webhook di Radarr/Sonarr in coda (nazgarr/integrations/arr_webhooks.py)."""
+    from nazgarr.integrations import arr_webhooks
+
+    session = session_factory()
+    try:
+        arr_webhooks.process_pending(session, data_dir=data_dir)
+    except Exception:
+        logger.exception("Eventi dei webhook di Radarr/Sonarr non applicati")
+    finally:
+        session.close()
+
+
 UPDATE_JOB_ID = "update_check"
 UPDATE_INTERVAL_SECONDS = 3600
 
@@ -155,6 +172,10 @@ def build_scheduler(session_factory: sessionmaker, data_dir: str) -> BackgroundS
     scheduler.add_job(
         _deliver_events, IntervalTrigger(seconds=EVENTS_INTERVAL_SECONDS),
         args=[session_factory], id=EVENTS_JOB_ID, replace_existing=True, max_instances=1, coalesce=True,
+    )
+    scheduler.add_job(
+        _apply_arr_webhook_events, IntervalTrigger(seconds=ARR_HOOKS_INTERVAL_SECONDS),
+        args=[session_factory, data_dir], id=ARR_HOOKS_JOB_ID, replace_existing=True, max_instances=1, coalesce=True,
     )
     scheduler.add_job(
         _check_updates, IntervalTrigger(seconds=UPDATE_INTERVAL_SECONDS),

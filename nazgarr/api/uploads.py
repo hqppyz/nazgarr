@@ -493,10 +493,10 @@ def resume_upload(upload_id: int, request: Request, session: Session = Depends(g
 
 
 @router.delete("/{upload_id}", status_code=204)
-def delete_upload(upload_id: int, session: Session = Depends(get_session)):
+def delete_upload(upload_id: int, request: Request, session: Session = Depends(get_session)):
     job = _get_job_or_404(session, upload_id)
     try:
-        upload_jobs.delete_job(session, job)
+        upload_jobs.delete_job(session, job, request.app.state.settings.data_dir)
     except UploadJobError as exc:
         raise HTTPException(status_code=400, detail=from_coded_error(exc)) from exc
 

@@ -42,6 +42,8 @@ _SPECS = [
     SettingSpec("confidence_threshold_auto_torrent_to_client", "float", 0.98, safety=True, minimum=0, maximum=1),
     # Reseeding
     SettingSpec("cross_seed_search", "bool", True),
+    # Pack e singoli dello stesso tracker (nazgarr/library/seeding.py), spento di default.
+    SettingSpec("reseed_pack_and_singles", "bool", False),
     SettingSpec("rematch_interval_days", "float", 7.0, minimum=0),
     # Upload
     SettingSpec("upload_auto_match_threshold", "float", 0.9, minimum=0, maximum=1),
@@ -53,6 +55,9 @@ _SPECS = [
     # Aggiornamenti: controllo automatico ogni 12 ore (nazgarr/core/updates.py),
     # spento di default: contatta GitHub solo se l'utente lo accende.
     SettingSpec("update_check_auto", "bool", False),
+    # Webhook di Radarr/Sonarr: cercare sui tracker un file appena importato
+    # (nazgarr/integrations/arr_webhooks.py). Spento: la scansione lo fa comunque.
+    SettingSpec("arr_webhook_search", "bool", False),
 ]
 
 REGISTRY: dict[str, SettingSpec] = {spec.key: spec for spec in _SPECS}

@@ -132,3 +132,62 @@ def record_changes(session: Session, run: RunLog) -> int:
     session.commit()
     logger.info("Run #%s: %d cambiamenti di file rispetto alla scansione precedente", run.id, len(rows))
     return len(rows)
+
+
+def record_webhook_changes(session: Session, touched: dict[int, str]) -> int:
+    """I cambiamenti dei file che un webhook di Radarr/Sonarr ha toccato
+    (media_file.id -> "radarr"/"sonarr"), più i file lato torrent con lo
+    stesso inode (un import li collega, una cancellazione li scollega). Si
+    aggiungono all'ultima scansione confrontata, così la Dashboard li mostra
+    subito, segnati con la loro origine; la fotografia si aggiorna per quei
+    file, e la scansione successiva non li conta di nuovo."""
+    from nazgarr.core.models import MediaFile, SeedFile
+
+    run = (
+        session.query(RunLog).filter(RunLog.snapshot_saved.is_(True)).order_by(RunLog.id.desc()).first()
+    )
+    if run is None or not touched:
+        return 0
+    keys: dict[tuple[str, int, str], str] = {}
+    for media_file in session.query(MediaFile).filter(MediaFile.id.in_(touched)).all():
+        origin = touched[media_file.id]
+        keys[("media", media_file.disk_id, media_file.relative_path)] = origin
+        for seed in session.query(SeedFile).filter_by(
+                disk_id=media_file.disk_id, st_dev=media_file.st_dev, inode=media_file.inode).all():
+            keys[("torrent", seed.disk_id, seed.relative_path)] = origin
+    current = _current(session)
+    exclusions = load_exclusions(session)
+    rows = []
+    for key, origin in keys.items():
+        side, disk_id, path = key
+        snapshot = session.query(FileStateSnapshot).filter_by(side=side, disk_id=disk_id, relative_path=path).first()
+        before = (
+            _FileState(snapshot.size_bytes, snapshot.state, bool(snapshot.stopped), None, None) if snapshot else None
+        )
+        after = current.get(key)
+        if after is not None and before is not None:
+            change = _state_change(before, after)
+        elif after is not None:
+            change = "added"
+        else:
+            change = "removed" if before is not None else None
+        if change and not exclusions.is_excluded(path):
+            shown = after or before
+            rows.append({
+                "run_id": run.id, "side": side, "disk_id": disk_id, "relative_path": path,
+                "size_bytes": shown.size_bytes, "change": change,
+                "state": after.state if after else None, "previous_state": before.state if before else None,
+                "content_type": after.content_type if after else None, "tmdb_id": after.tmdb_id if after else None,
+                "origin": origin,
+            })
+        # La fotografia segue: il prossimo confronto parte da qui.
+        if after is None and snapshot is not None:
+            session.delete(snapshot)
+        elif after is not None and snapshot is None:
+            session.add(FileStateSnapshot(side=side, disk_id=disk_id, relative_path=path,
+                                          size_bytes=after.size_bytes, state=after.state, stopped=after.stopped))
+        elif after is not None:
+            snapshot.size_bytes, snapshot.state, snapshot.stopped = after.size_bytes, after.state, after.stopped
+    bulk_insert(session, FileChange.__table__, rows)
+    session.commit()
+    return len(rows)

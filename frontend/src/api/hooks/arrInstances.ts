@@ -100,3 +100,29 @@ export function useTestSonarrConnection() {
       unwrap(api.POST('/api/sonarr-instances/test', { body })),
   })
 }
+
+// Webhook di Radarr/Sonarr (nazgarr/integrations/arr_webhooks.py): la password si
+// vede solo quando la si crea o la si rigenera.
+export type ArrKind = 'radarr' | 'sonarr'
+
+export function useSetupArrWebhook(kind: ArrKind) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) =>
+      kind === 'radarr'
+        ? unwrap(api.POST('/api/radarr-instances/{instance_id}/webhook', { params: { path: { instance_id: id } } }))
+        : unwrap(api.POST('/api/sonarr-instances/{instance_id}/webhook', { params: { path: { instance_id: id } } })),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: [`${kind}-instances`] }),
+  })
+}
+
+export function useRemoveArrWebhook(kind: ArrKind) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) =>
+      kind === 'radarr'
+        ? unwrap(api.DELETE('/api/radarr-instances/{instance_id}/webhook', { params: { path: { instance_id: id } } }))
+        : unwrap(api.DELETE('/api/sonarr-instances/{instance_id}/webhook', { params: { path: { instance_id: id } } })),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: [`${kind}-instances`] }),
+  })
+}

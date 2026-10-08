@@ -15,6 +15,7 @@ che il worker stava finendo.
 import json
 import logging
 import os
+import shutil
 from datetime import UTC, datetime
 from enum import StrEnum
 
@@ -319,13 +320,23 @@ def resume_job(session: Session, job: UploadJob) -> str:
     return previous
 
 
-def delete_job(session: Session, job: UploadJob) -> None:
+def job_folder(data_dir: str, job_id: int) -> str:
+    """Dove l'esecuzione tiene i file di un upload: i .torrent (creato, copia
+    del tracker, reseed) e gli screenshot."""
+    return os.path.join(data_dir, "uploads", str(job_id))
+
+
+def delete_job(session: Session, job: UploadJob, data_dir: str) -> None:
     """Solo job fermi (a un punto di approvazione o finiti): uno che il
-    worker sta lavorando va prima annullato."""
+    worker sta lavorando va prima annullato. Con lui va la sua cartella: il
+    client ha già la sua copia del .torrent, e SQLite può ridare lo stesso id
+    al prossimo upload, che non deve trovarci i file di questo."""
     if job.status in WORKER_STATES:
         raise UploadJobError("upload_job_wrong_status", status=job.status)
+    job_id = job.id
     session.delete(job)
     session.commit()
+    shutil.rmtree(job_folder(data_dir, job_id), ignore_errors=True)
 
 
 def next_queue_position(session: Session) -> int:

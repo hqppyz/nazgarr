@@ -233,6 +233,8 @@ class RadarrInstance(Base):
     timeout_seconds: Mapped[int | None]
     basic_auth_username: Mapped[str | None]  # per Radarr dietro un reverse proxy con HTTP basic auth
     basic_auth_password: Mapped[str | None] = mapped_column(EncryptedString)
+    # La password che Radarr/Sonarr mandano al loro webhook (nazgarr/integrations/arr_webhooks.py).
+    webhook_token: Mapped[str | None] = mapped_column(EncryptedString)
 
 
 class SonarrInstance(Base):
@@ -250,6 +252,8 @@ class SonarrInstance(Base):
     timeout_seconds: Mapped[int | None]
     basic_auth_username: Mapped[str | None]
     basic_auth_password: Mapped[str | None] = mapped_column(EncryptedString)
+    # La password che Radarr/Sonarr mandano al loro webhook (nazgarr/integrations/arr_webhooks.py).
+    webhook_token: Mapped[str | None] = mapped_column(EncryptedString)
 
 
 class Webhook(Base):
@@ -908,6 +912,9 @@ class FileChange(Base):
     previous_state: Mapped[str | None]  # stato prima (None se nuovo)
     content_type: Mapped[str | None]  # per aprire la scheda di dettaglio
     tmdb_id: Mapped[int | None]
+    # None = trovato dalla scansione; "radarr"/"sonarr" = dal loro webhook, dopo
+    # quella scansione (nazgarr/integrations/arr_webhooks.py).
+    origin: Mapped[str | None]
 
 
 class MatchAttempt(Base):
@@ -962,3 +969,24 @@ class SeedJob(Base):
     torrent_client_id: Mapped[int | None]  # dove è stato aggiunto il torrent (e dove se ne controlla il recheck)
 
     candidate: Mapped["Candidate"] = relationship()
+
+
+class ArrWebhookEvent(Base):
+    """Vedi docs/schema.sql: un evento di un webhook di Radarr/Sonarr, in coda
+    finché lo scheduler non lo applica (nazgarr/integrations/arr_webhooks.py)."""
+
+    __tablename__ = "arr_webhook_event"
+    __table_args__ = (
+        CheckConstraint("source IN ('radarr','sonarr')", name="ck_arr_webhook_event_source"),
+        CheckConstraint("status IN ('pending','done','ignored','failed')", name="ck_arr_webhook_event_status"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    source: Mapped[str] = mapped_column(nullable=False)
+    instance_id: Mapped[int] = mapped_column(nullable=False)
+    event_type: Mapped[str] = mapped_column(nullable=False)
+    payload_json: Mapped[str] = mapped_column(nullable=False)
+    status: Mapped[str] = mapped_column(nullable=False, server_default=text("'pending'"))
+    detail: Mapped[str | None]
+    received_at: Mapped[datetime] = mapped_column(nullable=False)
+    processed_at: Mapped[datetime | None]

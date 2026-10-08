@@ -91,17 +91,25 @@ def test_cancel_and_delete(db_session, tmp_path):
     make_tracker(db_session)
     job = _job(db_session, tmp_path)
 
+    data_dir = str(tmp_path / "data")
+    folder = tmp_path / "data" / "uploads" / str(job.id)
+    (folder / "screenshots").mkdir(parents=True)
+    (folder / "Movie.torrent").write_bytes(b"d4:infod")
+
     with pytest.raises(UploadJobError):
-        upload_jobs.delete_job(db_session, job)  # il worker ci sta lavorando
+        upload_jobs.delete_job(db_session, job, data_dir)  # il worker ci sta lavorando
+    assert folder.is_dir()
     upload_jobs.cancel_job(db_session, job)
     assert job.status == "cancelled"
     with pytest.raises(UploadJobError):
         upload_jobs.cancel_job(db_session, job)
 
     job_id = job.id
-    upload_jobs.delete_job(db_session, job)
+    upload_jobs.delete_job(db_session, job, data_dir)
     assert db_session.get(UploadJob, job_id) is None
     assert db_session.query(UploadTarget).count() == 0
+    # Con la sua cartella: un upload nuovo con lo stesso id non ci trova niente.
+    assert not folder.exists()
 
 
 def test_reset_interrupted_never_repeats_an_upload(db_session, tmp_path):

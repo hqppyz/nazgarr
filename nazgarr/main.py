@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 from nazgarr import scheduler
 from nazgarr.api.api_keys import router as api_keys_router
+from nazgarr.api.arr_hooks import router as arr_hooks_router
 from nazgarr.api.auth import router as auth_router
 from nazgarr.api.dashboard import router as dashboard_router
 from nazgarr.api.disks import router as disks_router
@@ -105,6 +106,9 @@ app = FastAPI(title="Nazgarr", lifespan=lifespan)
 app.add_middleware(GZipMiddleware, minimum_size=1024)
 app.add_middleware(SecurityMiddleware)
 app.include_router(auth_router)
+# I webhook di Radarr/Sonarr: fuori dal login, con la password del webhook di
+# ogni istanza (nazgarr/api/arr_hooks.py).
+app.include_router(arr_hooks_router)
 
 # API JSON pura sotto /api/* fin dall'inizio (docs/SPEC.md §10). Protette da
 # require_auth: il login è obbligatorio, e finché l'account non esiste tutto
