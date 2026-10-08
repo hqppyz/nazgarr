@@ -49,7 +49,7 @@ def test_a_release_moved_in_starts_right_away(db_session, tmp_path, watched):
     assert kicked == [(job_id, "identifying")]
     # Una volta sola, anche dopo aver cancellato il job.
     upload_jobs.cancel_job(db_session, job)
-    upload_jobs.delete_job(db_session, job)
+    upload_jobs.delete_job(db_session, job, str(tmp_path / "data"))
     assert upload_watch.scan(db_session, now=T0 + timedelta(hours=1)) == []
 
 
