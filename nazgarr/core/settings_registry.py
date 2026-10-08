@@ -42,6 +42,8 @@ _SPECS = [
     SettingSpec("confidence_threshold_auto_torrent_to_client", "float", 0.98, safety=True, minimum=0, maximum=1),
     # Reseeding
     SettingSpec("cross_seed_search", "bool", True),
+    # Pack e singoli dello stesso tracker (nazgarr/library/seeding.py), spento di default.
+    SettingSpec("reseed_pack_and_singles", "bool", False),
     SettingSpec("rematch_interval_days", "float", 7.0, minimum=0),
     # Upload
     SettingSpec("upload_auto_match_threshold", "float", 0.9, minimum=0, maximum=1),

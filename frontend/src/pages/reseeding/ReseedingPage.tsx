@@ -5,6 +5,7 @@ import { toast } from 'sonner'
 import {
   useApproveReview,
   useCandidateAudit,
+  useDecideReviews,
   useDeleteSeedJob,
   useRecentSeedJobs,
   useRejectReview,
@@ -28,11 +29,36 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { ToggleGroupItem, ToggleGroupSingle } from '@/components/ui/toggle-group'
 import { t } from '@/lib/i18n'
 import { formatBytes } from '@/lib/library-filters'
+import { episodeRanges, groupBySeason, seasonLabel } from '@/lib/reviewGroups'
 import { parseApiDate, relativeFromNow } from '@/lib/time'
 import { cn } from '@/lib/utils'
 
 type Review = NonNullable<ReturnType<typeof useReviews>['data']>[number]
 type Layout = NonNullable<Review['layout']>
+
+// Dove il file è già in seed, tolto il tracker della review: lì è il secondo
+// formato (pack e singoli), non un cross-seed.
+function crossSeedTrackers(review: Review): string[] {
+  return (review.seeding_on ?? []).filter((tracker) => tracker !== review.tracker)
+}
+
+function CrossSeedBadge({ trackers }: { trackers: string[] }) {
+  return (
+    <Badge variant="outline" title={t('reseeding.crossSeedHelp', { trackers })}>
+      {t('reseeding.crossSeed', { trackers })}
+    </Badge>
+  )
+}
+
+// Già in seed su questo tracker nell'altro formato (nel pack, o come singoli).
+function SecondFormatBadge({ review }: { review: Review }) {
+  const key = review.format === 'pack' ? 'reseeding.secondFormatPack' : 'reseeding.secondFormatSingle'
+  return (
+    <Badge variant="outline" title={t('reseeding.secondFormatHelp')}>
+      {t(key, { tracker: review.tracker ?? '' })}
+    </Badge>
+  )
+}
 
 // Riepilogo di un torrent multi-file (film con extra, season pack), dai
 // dati di candidate_file: cosa verrà ricreato da file locali e cosa
@@ -202,11 +228,8 @@ function ReviewRow({ review }: { review: Review }) {
             {review.ambiguity_reason && <span>{review.ambiguity_reason}</span>}
             {review.status === 'auto_approved' && <Badge>{t('reseeding.autoApproved')}</Badge>}
             {/* Il file seeda già altrove: è un cross-seed, non un file da salvare. */}
-            {(review.seeding_on?.length ?? 0) > 0 && (
-              <Badge variant="outline" title={t('reseeding.crossSeedHelp', { trackers: review.seeding_on ?? [] })}>
-                {t('reseeding.crossSeed', { trackers: review.seeding_on ?? [] })}
-              </Badge>
-            )}
+            {crossSeedTrackers(review).length > 0 && <CrossSeedBadge trackers={crossSeedTrackers(review)} />}
+            {(review.seeding_here?.length ?? 0) > 0 && <SecondFormatBadge review={review} />}
           </div>
           {review.layout && <p className="text-xs text-muted-foreground">{layoutSummary(review.layout)}</p>}
           <VerifyStatus review={review} />
@@ -242,6 +265,87 @@ function ReviewRow({ review }: { review: Review }) {
   )
 }
 
+// Gli episodi singoli di una stagione sullo stesso tracker, in una riga: il
+// dettaglio di ognuno si apre sotto, perché non sempre ci sono tutti.
+function SeasonRow({ reviews }: { reviews: Review[] }) {
+  const [open, setOpen] = useState(false)
+  const decide = useDecideReviews()
+  const first = reviews[0]
+  const percents = reviews.map((r) => Math.round(r.confidence * 100))
+  const low = Math.min(...percents)
+  const high = Math.max(...percents)
+  const recommended = reviews.filter((r) => r.status === 'auto_approved').length
+  const toApprove = reviews.filter((r) => r.verify_status !== 'verifying').map((r) => r.id)
+  const crossSeed = [...new Set(reviews.flatMap(crossSeedTrackers))]
+  const secondFormat = reviews.find((r) => (r.seeding_here?.length ?? 0) > 0)
+  const name = `${first.title ?? first.candidate_name} · ${seasonLabel(first.season_number ?? 0)}`
+  const episodes = episodeRanges(reviews.map((r) => r.episode_number ?? 0))
+
+  return (
+    <Collapsible open={open} onOpenChange={setOpen} className="border-b last:border-b-0">
+      <div className="flex flex-wrap items-center gap-2 px-3 py-2 sm:flex-nowrap">
+        <CollapsibleTrigger
+          aria-label={name}
+          className="-m-1 shrink-0 self-start rounded p-1 pointer-coarse:-m-2 pointer-coarse:p-2 sm:self-center"
+        >
+          <ChevronRightIcon className={cn('size-4 text-muted-foreground transition-transform', open && 'rotate-90')} />
+        </CollapsibleTrigger>
+        <div className="min-w-0 flex-1 basis-[calc(100%-2rem)] sm:basis-auto">
+          <p className="truncate text-sm font-medium max-sm:whitespace-normal pointer-coarse:whitespace-normal">{name}</p>
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+            <Badge variant="secondary">{first.direction}</Badge>
+            <span>{low === high ? `${low}%` : `${low}–${high}%`}</span>
+            {recommended > 0 && (
+              <Badge>
+                {recommended === reviews.length
+                  ? t('reseeding.autoApproved')
+                  : t('reseeding.recommendedCount', { count: recommended })}
+              </Badge>
+            )}
+            {crossSeed.length > 0 && <CrossSeedBadge trackers={crossSeed} />}
+            {secondFormat && <SecondFormatBadge review={secondFormat} />}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {t('reseeding.seasonSingles', { count: reviews.length, tracker: first.tracker ?? '' })}
+            {' · '}
+            {t('reseeding.seasonEpisodes', { episodes })}
+          </p>
+        </div>
+        <div className="flex shrink-0 gap-2 max-sm:ml-6">
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={decide.isPending || toApprove.length === 0}
+            onClick={() => decide.mutate({ ids: toApprove, action: 'approve' })}
+          >
+            {decide.isPending && <Loader2Icon className="size-4 animate-spin" />}
+            {t('reseeding.approveAll')}
+          </Button>
+          <ConfirmButton
+            trigger={
+              <Button size="sm" variant="ghost" disabled={decide.isPending}>
+                {t('reseeding.rejectAll')}
+              </Button>
+            }
+            title={t('reseeding.rejectAllTitle', { count: reviews.length })}
+            description={t('reseeding.rejectAllDescription')}
+            confirmLabel={t('reseeding.rejectAll')}
+            pending={decide.isPending}
+            onConfirm={() => decide.mutate({ ids: reviews.map((r) => r.id), action: 'reject' })}
+          />
+        </div>
+      </div>
+      <CollapsibleContent>
+        <div className="border-t bg-muted/20 sm:pl-6">
+          {reviews.map((r) => (
+            <ReviewRow key={r.id} review={r} />
+          ))}
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
+  )
+}
+
 function ReviewCard() {
   const { data: reviews, isPending } = useReviews()
 
@@ -252,9 +356,13 @@ function ReviewCard() {
       </CardHeader>
       <CardContent className="p-0">
         {isPending && <p className="p-3 text-sm text-muted-foreground">{t('common.loading')}</p>}
-        {reviews?.map((r) => (
-          <ReviewRow key={r.id} review={r} />
-        ))}
+        {groupBySeason(reviews ?? []).map((group) =>
+          group.length > 1 ? (
+            <SeasonRow key={`season-${group[0].id}`} reviews={group} />
+          ) : (
+            <ReviewRow key={group[0].id} review={group[0]} />
+          ),
+        )}
         {reviews?.length === 0 && <p className="p-3 text-sm text-muted-foreground">{t('reseeding.noPendingReviews')}</p>}
       </CardContent>
     </Card>

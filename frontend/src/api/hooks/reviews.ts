@@ -45,6 +45,46 @@ export function useApproveReview() {
   })
 }
 
+// Più review insieme (gli episodi singoli di una stagione): una alla volta,
+// come dal bottone di ognuna, con una notifica sola. Con la verifica accesa
+// ogni approvazione mette in coda il suo controllo, che si vede sulla riga.
+export function useDecideReviews() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ ids, action }: { ids: number[]; action: 'approve' | 'reject' }) => {
+      const errors: string[] = []
+      for (const id of ids) {
+        const params = { params: { path: { review_id: id } } }
+        try {
+          if (action === 'approve') await unwrap(api.POST('/api/reviews/{review_id}/approve', params))
+          else await unwrap(api.POST('/api/reviews/{review_id}/reject', params))
+        } catch (error) {
+          errors.push(error instanceof Error ? error.message : String(error))
+        }
+      }
+      return { done: ids.length - errors.length, errors }
+    },
+    onMutate: ({ ids, action }) => ({
+      activityId: pushActivity({
+        status: 'running',
+        title: t(action === 'approve' ? 'activity.approvingMany' : 'activity.rejectingMany', { count: ids.length }),
+      }),
+    }),
+    onSettled: (result, error, { action }, context) => {
+      if (context) {
+        const done = t(action === 'approve' ? 'activity.approvedMany' : 'activity.rejectedMany', { count: result?.done ?? 0 })
+        const failed = error ? [error.message] : (result?.errors ?? [])
+        updateActivity(context.activityId, failed.length > 0
+          ? { status: 'error', title: `${done} · ${t('activity.someFailed', { count: failed.length })}`, detail: failed[0] }
+          : { status: 'success', title: done })
+      }
+      queryClient.invalidateQueries({ queryKey: ['reviews'] })
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      queryClient.invalidateQueries({ queryKey: ['library'] })
+    },
+  })
+}
+
 export function useRejectReview() {
   const queryClient = useQueryClient()
   return useMutation({

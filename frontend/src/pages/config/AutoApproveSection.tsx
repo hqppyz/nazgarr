@@ -20,6 +20,9 @@ const SKIP_RECHECK_KEY = 'skip_client_recheck_when_verified'
 // Accesa di default (nazgarr/library/seeding.py cross_seed_enabled): un file in seed su
 // un tracker si cerca anche sugli altri.
 const CROSS_SEED_KEY = 'cross_seed_search'
+// Spenta di default (nazgarr/library/seeding.py pack_and_singles_enabled): un
+// episodio in seed in un formato si cerca sullo stesso tracker anche nell'altro.
+const PACK_AND_SINGLES_KEY = 'reseed_pack_and_singles'
 
 function SettingSwitch({
   settingKey,
@@ -108,6 +111,12 @@ function SearchCard() {
           first
           label={t('reseeding.crossSeedLabel')}
           help={t('reseeding.crossSeedSettingHelp')}
+        />
+        <SettingSwitch
+          settingKey={PACK_AND_SINGLES_KEY}
+          defaultOn={false}
+          label={t('reseeding.packAndSinglesLabel')}
+          help={t('reseeding.packAndSinglesHelp')}
         />
       </CardContent>
     </Card>

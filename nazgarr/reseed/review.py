@@ -1,9 +1,13 @@
 """Coda di revisione: crea e gestisce le righe match_review.
 
 Vedi docs/SPEC.md sezione 8. Ogni file orfano (media_file o seed_file)
-produce al massimo UNA riga di review, sul suo candidate a confidence più
-alta — le alternative restano visibili in `candidate` per audit ma non
-generano righe di review proprie. Sopra soglia -> auto_approved, cioè
+produce al massimo UNA riga di review per tracker, sul suo candidate a
+confidence più alta — le alternative restano visibili in `candidate` per
+audit ma non generano righe di review proprie. Per un episodio vince il
+pack, se ce n'è uno plausibile (decisione dell'utente, 2026-10-08: di
+solito, uscito il pack, i singoli non si caricano più); con "pack e singoli
+dello stesso tracker" acceso le review sono una per formato
+(nazgarr/library/seeding.py). Sopra soglia -> auto_approved, cioè
 "consigliata": viene eseguita da sola SOLO se l'utente ha acceso
 l'esecuzione automatica (auto_execute_enabled, spenta di default),
 altrimenti aspetta la sua approvazione come le altre (approve()).
@@ -26,6 +30,7 @@ from sqlalchemy.orm import Session
 from nazgarr.core import settings_registry
 from nazgarr.core.models import (
     Candidate,
+    CandidateFile,
     ClientTorrent,
     ClientTorrentFile,
     MatchAttempt,
@@ -41,7 +46,16 @@ from nazgarr.integrations.adapter_factory import build_torrent_client_adapter, c
 from nazgarr.library.exclusions import load_exclusions
 from nazgarr.library.scan_state import is_current, latest_scan_by_disk
 from nazgarr.library.seed_refresh import refresh_seeded_torrent
-from nazgarr.library.seeding import seeding_media_file_ids
+from nazgarr.library.seeding import (
+    FORMATS,
+    PACK,
+    SINGLE,
+    is_episode,
+    pack_and_singles_enabled,
+    seeding_formats,
+    seeding_media_file_ids,
+    torrent_format,
+)
 from nazgarr.reseed import full_check
 from nazgarr.reseed.executor import ExecutionError, execute_review, reconcile_seed_job, retry_seed_job
 from nazgarr.torrents import client_labels
@@ -56,15 +70,33 @@ def get_confidence_threshold(session: Session, direction: str) -> float:
     return settings_registry.get_float(session, f"confidence_threshold_auto_{direction}")
 
 
+def candidate_format(candidate: Candidate) -> str:
+    """"pack" (più video) o "single" (un video, anche con extra)."""
+    return torrent_format(sum(1 for f in candidate.files if f.is_video))
+
+
+def _reject_by_system(session: Session, reviews: list[MatchReview]) -> int:
+    for review in reviews:
+        review.status = "rejected"
+        review.decided_by = "system"
+        review.decided_at = datetime.now(UTC)
+    if reviews:
+        session.commit()
+    return len(reviews)
+
+
 def _supersede_active_reviews(
-    session: Session, *, media_file_id: int | None, seed_file_id: int | None, tracker_id: int | None = None
+    session: Session, *, media_file_id: int | None, seed_file_id: int | None, tracker_id: int | None = None,
+    formats: frozenset[str] = FORMATS,
 ) -> int:
     """Marca come 'rejected' ogni review ancora attiva per lo stesso file
     orfano sullo stesso tracker. Senza questo, ogni nuovo run che rimatcha lo
     stesso file aggiungerebbe una nuova review lasciando quella vecchia in
     coda per sempre — mai più di una valutazione attiva alla volta per file e
     tracker. Per tracker e non per file: con i cross-seed (nazgarr/library/seeding.py) lo
-    stesso file può avere una proposta su ogni tracker."""
+    stesso file può avere una proposta su ogni tracker. formats: solo le
+    review di questi formati, quelli appena cercati (con "pack e singoli" un
+    episodio ha una proposta per formato)."""
     query = session.query(MatchReview).filter(MatchReview.status.in_(READY_FOR_DECISION_STATUSES))
     if tracker_id is not None:
         query = query.join(Candidate, Candidate.id == MatchReview.candidate_id)
@@ -73,33 +105,62 @@ def _supersede_active_reviews(
         query = query.filter(MatchReview.media_file_id == media_file_id)
     else:
         query = query.filter(MatchReview.seed_file_id == seed_file_id)
-    stale = query.all()
-    for review in stale:
-        review.status = "rejected"
-        review.decided_by = "system"
-        review.decided_at = datetime.now(UTC)
-    if stale:
-        session.commit()
-    return len(stale)
+    return _reject_by_system(session, [r for r in query.all() if candidate_format(r.candidate) in formats])
 
 
 def _user_rejected_torrents(
     session: Session, *, media_file_id: int | None, seed_file_id: int | None
 ) -> set[tuple[int, str]]:
     """(tracker_id, torrent_id_remote) che l'utente ha già rifiutato per
-    questo file. Le review rifiutate dal sistema (superate da una run più
-    recente, vedi _supersede_active_reviews) non contano: solo una
-    decisione umana esplicita è un "no" da ricordare."""
-    query = (
+    questo file, anche come parte di un pack proposto per un altro episodio
+    (lo stesso "no" per tutta la stagione). Le review rifiutate dal sistema
+    (superate da una run più recente, vedi _supersede_active_reviews) non
+    contano: solo una decisione umana esplicita è un "no" da ricordare."""
+    rejected = (
         session.query(Candidate.tracker_id, Candidate.torrent_id_remote)
         .join(MatchReview, MatchReview.candidate_id == Candidate.id)
         .filter(MatchReview.status == "rejected", MatchReview.decided_by != "system")
     )
     if media_file_id is not None:
-        query = query.filter(MatchReview.media_file_id == media_file_id)
+        own = rejected.filter(MatchReview.media_file_id == media_file_id)
+        inside = rejected.join(CandidateFile, CandidateFile.candidate_id == Candidate.id).filter(
+            CandidateFile.media_file_id == media_file_id)
     else:
-        query = query.filter(MatchReview.seed_file_id == seed_file_id)
-    return {(tracker_id, remote) for tracker_id, remote in query.all()}
+        own = rejected.filter(MatchReview.seed_file_id == seed_file_id)
+        inside = rejected.join(CandidateFile, CandidateFile.candidate_id == Candidate.id).filter(
+            CandidateFile.seed_file_id == seed_file_id)
+    return {(tracker_id, remote) for tracker_id, remote in [*own.all(), *inside.all()]}
+
+
+def _covered_by_pack(session: Session, media_file_id: int, tracker_id: int) -> bool:
+    """Un pack di questo tracker già in coda o approvato per un altro
+    episodio contiene anche questo file: il singolo non serve (pack preferito)."""
+    rows = (
+        session.query(Candidate)
+        .join(MatchReview, MatchReview.candidate_id == Candidate.id)
+        .join(CandidateFile, CandidateFile.candidate_id == Candidate.id)
+        .filter(Candidate.tracker_id == tracker_id, CandidateFile.media_file_id == media_file_id,
+                MatchReview.media_file_id != media_file_id,
+                MatchReview.status.in_(READY_FOR_DECISION_STATUSES + ("approved",)))
+        .all()
+    )
+    return any(candidate_format(c) == PACK for c in rows)
+
+
+def _supersede_singles_in_pack(session: Session, pack: Candidate) -> int:
+    """Le proposte di singoli degli altri episodi del pack appena proposto,
+    sullo stesso tracker, escono dalla coda (rifiuto di sistema)."""
+    episodes = {f.media_file_id for f in pack.files if f.is_video and f.media_file_id is not None}
+    if not episodes:
+        return 0
+    active = (
+        session.query(MatchReview)
+        .join(Candidate, Candidate.id == MatchReview.candidate_id)
+        .filter(Candidate.tracker_id == pack.tracker_id, MatchReview.media_file_id.in_(episodes),
+                MatchReview.status.in_(READY_FOR_DECISION_STATUSES), MatchReview.candidate_id != pack.id)
+        .all()
+    )
+    return _reject_by_system(session, [r for r in active if candidate_format(r.candidate) == SINGLE])
 
 
 def hashes_in_clients(session: Session) -> set[str]:
@@ -155,10 +216,15 @@ def _torrents_already_in_progress(
 
 def _create_review(
     session: Session, candidates: list[Candidate], *, media_file_id: int | None, seed_file_id: int | None,
-    in_client: set[str] | None = None,
+    in_client: set[str] | None = None, formats: frozenset[str] = FORMATS, both_formats: bool = False,
+    prefer_pack: bool = False,
 ) -> MatchReview | None:
     """in_client: gli info hash nei client, se il chiamante li ha già letti
-    (il matching li legge una volta per tracker invece che per ogni file)."""
+    (il matching li legge una volta per tracker invece che per ogni file).
+    formats: quelli cercati per il file. Solo per un episodio: both_formats
+    ("pack e singoli dello stesso tracker") fa una review per formato,
+    prefer_pack una sola, col pack se ce n'è uno plausibile. Restituisce la
+    prima creata (il pack, se c'è)."""
     if not candidates:
         return None  # il caso più comune nel matching: niente da leggere
     # Un torrent già rifiutato dall'utente per questo file non torna mai in
@@ -175,36 +241,55 @@ def _create_review(
     ]
     if not candidates:
         return None
+    tracker_id = candidates[0].tracker_id
+    if prefer_pack and _covered_by_pack(session, media_file_id, tracker_id):
+        candidates = [c for c in candidates if candidate_format(c) == PACK]
 
     _supersede_active_reviews(
-        session, media_file_id=media_file_id, seed_file_id=seed_file_id, tracker_id=candidates[0].tracker_id
+        session, media_file_id=media_file_id, seed_file_id=seed_file_id, tracker_id=tracker_id, formats=formats,
     )
 
-    best = max(candidates, key=lambda c: c.confidence)
-    if best.confidence <= 0.0:
+    plausible = [c for c in candidates if c.confidence > 0.0]
+    if not plausible:
         return None
-
-    direction = best.direction
-    threshold = get_confidence_threshold(session, direction)
-    if best.confidence >= threshold:
-        review = MatchReview(
-            candidate_id=best.id, media_file_id=media_file_id, seed_file_id=seed_file_id,
-            status="auto_approved", decided_by="system", decided_at=datetime.now(UTC),
-        )
+    packs = [c for c in plausible if candidate_format(c) == PACK]
+    if both_formats:
+        singles = [c for c in plausible if candidate_format(c) == SINGLE]
+        picks = [max(group, key=lambda c: c.confidence) for group in (packs, singles) if group]
+    elif prefer_pack:
+        picks = [max(packs or plausible, key=lambda c: c.confidence)]
     else:
-        review = MatchReview(
-            candidate_id=best.id, media_file_id=media_file_id, seed_file_id=seed_file_id, status="pending"
-        )
+        picks = [max(plausible, key=lambda c: c.confidence)]
 
-    session.add(review)
+    reviews = []
+    for best in picks:
+        threshold = get_confidence_threshold(session, best.direction)
+        if best.confidence >= threshold:
+            review = MatchReview(
+                candidate_id=best.id, media_file_id=media_file_id, seed_file_id=seed_file_id,
+                status="auto_approved", decided_by="system", decided_at=datetime.now(UTC),
+            )
+        else:
+            review = MatchReview(
+                candidate_id=best.id, media_file_id=media_file_id, seed_file_id=seed_file_id, status="pending"
+            )
+        session.add(review)
+        reviews.append(review)
     session.commit()
-    return review
+    if prefer_pack and candidate_format(picks[0]) == PACK:
+        _supersede_singles_in_pack(session, picks[0])
+    return reviews[0]
 
 
 def create_review_for_media_file(
     session: Session, media_file: MediaFile, candidates: list[Candidate], in_client: set[str] | None = None,
+    formats: frozenset[str] = FORMATS, both_formats: bool = False,
 ) -> MatchReview | None:
-    return _create_review(session, candidates, media_file_id=media_file.id, seed_file_id=None, in_client=in_client)
+    # Un film con dei contenuti extra in video non è un pack: formati solo per gli episodi.
+    episode = is_episode(media_file.media_item)
+    return _create_review(session, candidates, media_file_id=media_file.id, seed_file_id=None, in_client=in_client,
+                          formats=formats, both_formats=both_formats and episode,
+                          prefer_pack=episode and not both_formats)
 
 
 def create_review_for_seed_file(
@@ -444,13 +529,27 @@ def close_resolved_reviews(session: Session) -> int:
         return 0
     # In seed davvero (un client lo segue), e con i cross-seed per tracker:
     # una review si chiude quando il file seeda sul tracker del suo candidato.
+    # Con "pack e singoli", per un episodio, quando seeda lì nel formato della
+    # review: in seed come singolo, la proposta del pack serve ancora.
     seeding_by_tracker: dict[int | None, set[int]] = {}
+    formats_by_tracker: dict[int, dict[int, set[str]]] = {}
+    both_formats = pack_and_singles_enabled(session)
 
     def seeding_for(tracker_id: int | None) -> set[int]:
         if tracker_id not in seeding_by_tracker:
             tracker = session.get(Tracker, tracker_id) if tracker_id is not None else None
             seeding_by_tracker[tracker_id] = seeding_media_file_ids(session, tracker)
         return seeding_by_tracker[tracker_id]
+
+    def still_needed(review: MatchReview, mf: MediaFile, tracker_id: int | None) -> bool:
+        if mf.id not in seeding_for(tracker_id):
+            return True
+        if not both_formats or tracker_id is None or not is_episode(mf.media_item):
+            return False
+        if tracker_id not in formats_by_tracker:
+            formats_by_tracker[tracker_id] = seeding_formats(session, session.get(Tracker, tracker_id))
+        here = formats_by_tracker[tracker_id].get(mf.id, set())
+        return bool(here) and candidate_format(review.candidate) not in here
 
     tracked = {
         row[0]
@@ -468,7 +567,7 @@ def close_resolved_reviews(session: Session) -> int:
         if review.media_file_id is not None:
             mf = review.media_file
             tracker_id = review.candidate.tracker_id if review.candidate is not None else None
-            resolved = (mf is None or not is_current(mf, latest_media) or mf.id in seeding_for(tracker_id)
+            resolved = (mf is None or not is_current(mf, latest_media) or not still_needed(review, mf, tracker_id)
                         or exclusions.is_excluded(mf.relative_path) or _identity_changed(review, mf))
         else:
             sf = review.seed_file
