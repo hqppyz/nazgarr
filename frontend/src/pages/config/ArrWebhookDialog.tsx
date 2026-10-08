@@ -1,10 +1,11 @@
-import { CheckIcon, CopyIcon, WebhookIcon } from 'lucide-react'
+import { WebhookIcon } from 'lucide-react'
 import { useState } from 'react'
 
 import { type ArrKind, useRemoveArrWebhook, useSetupArrWebhook } from '@/api/hooks/arrInstances'
 import { useSetSetting, useSetting } from '@/api/hooks/settings'
 import type { Schemas } from '@/api/client'
 import { ConfirmButton } from '@/components/ConfirmButton'
+import { CopyButton } from '@/components/CopyButton'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
@@ -22,20 +23,12 @@ interface Instance {
 }
 
 function CopyField({ label, value }: { label: string; value: string }) {
-  const [copied, setCopied] = useState(false)
   return (
     <div className="grid gap-1">
       <span className="text-xs text-muted-foreground">{label}</span>
       <div className="flex items-center gap-2">
         <code className="min-w-0 flex-1 rounded bg-muted px-2 py-1.5 font-mono text-xs break-all">{value}</code>
-        <Button size="icon-sm" variant="outline" aria-label={t('integrations.webhook.copy', { what: label })}
-                onClick={() => {
-                  void navigator.clipboard?.writeText(value)
-                  setCopied(true)
-                  window.setTimeout(() => setCopied(false), 1500)
-                }}>
-          {copied ? <CheckIcon className="size-4" /> : <CopyIcon className="size-4" />}
-        </Button>
+        <CopyButton text={value} label={t('integrations.webhook.copy', { what: label })} />
       </div>
     </div>
   )

@@ -1,11 +1,10 @@
-import { CheckIcon, CopyIcon, InfoIcon, PlusIcon } from 'lucide-react'
+import { InfoIcon, PlusIcon } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
-import { toast } from 'sonner'
 
+import { CopyButton } from '@/components/CopyButton'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { copyText } from '@/lib/clipboard'
 import { t } from '@/lib/i18n'
 import { formatBytes } from '@/lib/library-filters'
 import {
@@ -46,16 +45,14 @@ function Block({ title, children }: { title: string; children: ReactNode }) {
 // con lo scroll orizzontale (le righe di mediainfo sono lunghissime).
 export function MediaInfoPreview({ summary, fullText }: { summary: MediaInfoSummary | null; fullText: string | null }) {
   const [fullOpen, setFullOpen] = useState(false)
-  const [copied, setCopied] = useState(false)
-  const copy = () =>
-    fullText &&
-    copyText(fullText).then((ok) => {
-      if (!ok) return toast.error(t('upload.mediainfo.copyFailed'))
-      toast.success(t('upload.mediainfo.copied'))
-      setCopied(true)
-      setTimeout(() => setCopied(false), 1500)
-    })
   if (!summary && !fullText) return null
+  const copyProps = {
+    text: fullText,
+    label: t('upload.mediainfo.copy'),
+    successMessage: t('upload.mediainfo.copied'),
+    failMessage: t('upload.mediainfo.copyFailed'),
+    size: 'sm' as const,
+  }
   const { general, video } = summary ?? { general: null, video: null }
 
   return (
@@ -78,14 +75,9 @@ export function MediaInfoPreview({ summary, fullText }: { summary: MediaInfoSumm
             </Button>
           )}
           {fullText && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={copy}
-            >
-              {copied ? <CheckIcon className="size-4" /> : <CopyIcon className="size-4" />}
+            <CopyButton {...copyProps} variant="ghost">
               {t('upload.mediainfo.copy')}
-            </Button>
+            </CopyButton>
           )}
         </div>
       </CardHeader>
@@ -153,10 +145,7 @@ export function MediaInfoPreview({ summary, fullText }: { summary: MediaInfoSumm
                 <DialogTitle className="min-w-0 truncate">
                   MediaInfo{summary?.file_name ? ` · ${summary.file_name}` : ''}
                 </DialogTitle>
-                <Button variant="outline" size="sm" onClick={copy}>
-                  {copied ? <CheckIcon className="size-4" /> : <CopyIcon className="size-4" />}
-                  {t('upload.mediainfo.copy')}
-                </Button>
+                <CopyButton {...copyProps}>{t('upload.mediainfo.copy')}</CopyButton>
               </DialogHeader>
               <pre className="min-h-0 overflow-auto rounded bg-muted p-3 font-mono text-[11px] leading-snug">{fullText}</pre>
             </DialogContent>
