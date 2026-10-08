@@ -9,6 +9,8 @@ Due lati, stessa valutazione:
   per un pack l'abbinamento viene, in ordine, dalla history di Sonarr
   (droppedPath -> importedPath, esatto anche con file rinominati) o da
   guessit sul nome del file nel pack (stagione/episodio) + stessa size.
+  I video rimasti senza abbinamento si cercano per size esatta sullo stesso
+  disco, accettandoli solo con hash piece verificati e senza ambiguità.
 - torrent (torrent_to_client): la cartella del torrent è ancora su disco,
   i nomi sono quelli originali — basta ritrovare ogni file sotto la stessa
   radice dell'anchor.
@@ -24,20 +26,24 @@ locale vengono usati, se mancano li scarica il client dopo il recheck
 """
 
 import os
+import stat
 from collections import defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from functools import lru_cache
+from itertools import islice, product
 
 from sqlalchemy.orm import Session, selectinload
 
 from nazgarr.core.file_types import is_video
+from nazgarr.core.fs_scope import ScopeViolation, resolve_scoped
 from nazgarr.core.models import MediaFile, SeedFile
 from nazgarr.integrations.arr import ArrIndex, path_key
+from nazgarr.library.exclusions import load_exclusions
 from nazgarr.library.guess import guess as guess_name
 from nazgarr.library.scan_state import is_current, latest_scan_by_disk
 from nazgarr.torrents.metainfo import TorrentInfo
-from nazgarr.torrents.pieces import verify_file_pieces
+from nazgarr.torrents.pieces import verify_file_pieces, verify_mapped_piece
 
 CONFIDENCE_PIECE_VERIFIED = 0.99
 CONFIDENCE_SIZE_AND_MEDIAINFO_MATCH = 0.9
@@ -47,6 +53,12 @@ CONFIDENCE_NO_MATCH = 0.0
 # Piece verificati per file video (nazgarr/torrents/pieces.py max_pieces): un
 # campione distribuito lungo il file, mai la rilettura dell'intero file.
 PIECE_SAMPLE_SIZE = 8
+
+# A crowded size bucket or a combinatorial boundary search must remain
+# inconclusive rather than accepting the first candidate examined.
+CONTENT_MAX_CANDIDATES = 128
+CONTENT_MAX_PROPOSALS = 128
+CONTENT_MAX_READ_BYTES = 1024 * 1024 * 1024
 
 # Piece che un file extra mancante condivide con i vicini: il client li
 # riscarica interi. Stima prudente quando la piece length non è nota.
@@ -117,6 +129,7 @@ class FileMatch:
     piece_verified: bool | None = None
     piece_boundary_count: int | None = None
     confidence: float = CONFIDENCE_NO_MATCH
+    content_match_reason: str | None = None
 
 
 @dataclass
@@ -156,6 +169,7 @@ class LocalFiles:
     media_by_dir: dict[tuple[int, str], list[MediaFile]] = field(default_factory=lambda: defaultdict(list))
     episodes_by_series: dict[int, set[tuple[int, int]]] = field(default_factory=lambda: defaultdict(set))
     seed_by_path: dict[tuple[int, str], SeedFile] = field(default_factory=dict)
+    media_by_size: dict[tuple[int, int], list[MediaFile]] = field(default_factory=lambda: defaultdict(list))
 
     @classmethod
     def load(cls, session: Session) -> "LocalFiles":
@@ -164,11 +178,14 @@ class LocalFiles:
         index = cls()
         latest_media = latest_scan_by_disk(session, MediaFile)
         latest_seed = latest_scan_by_disk(session, SeedFile)
+        exclusions = load_exclusions(session)
         for mf in session.query(MediaFile).options(selectinload(MediaFile.media_item)).all():
             if not is_current(mf, latest_media):
                 continue
             index.media_by_key[(path_key(mf.relative_path), mf.size_bytes)].append(mf)
             index.media_by_dir[(mf.disk_id, os.path.dirname(mf.relative_path))].append(mf)
+            if is_video(mf.relative_path) and not exclusions.is_excluded(mf.relative_path):
+                index.media_by_size[(mf.disk_id, mf.size_bytes)].append(mf)
             item = mf.media_item
             if item is not None and item.season_number is not None and item.episode_number is not None:
                 index.media_by_episode[(item.tmdb_id, item.season_number, item.episode_number)].append(mf)
@@ -249,12 +266,22 @@ def map_media_side(
             if mf is not None:
                 matches[i] = FileMatch(layout.files[i], _media_local(mf))
 
+    result = [matches.get(i, FileMatch(lf, None)) for i, lf in enumerate(layout.files)]
+    _map_media_extras(result, anchor, local)
+    if layout.torrent is not None:
+        _map_content(result, layout.torrent, anchor, local)
+        _map_media_extras(result, anchor, local)
+    return result
+
+
+def _map_media_extras(matches: list[FileMatch], anchor: MediaFile, local: LocalFiles) -> None:
     # Extra: stesse cartelle dei video abbinati, per nome o (sottotitoli
     # rinominati da Sonarr/Radarr) per estensione + size esatta, se univoca.
-    dirs = {os.path.dirname(m.local.relative_path) for m in matches.values() if m.local}
+    dirs = {os.path.dirname(m.local.relative_path) for m in matches if m.layout_file.is_video and m.local}
     neighbours = [mf for d in dirs for mf in local.media_by_dir.get((anchor.disk_id, d), [])]
-    used = {m.local.id for m in matches.values() if m.local}
-    for i, lf in enumerate(layout.files):
+    used = {m.local.id for m in matches if m.layout_file.is_video and m.local}
+    for i, m in enumerate(matches):
+        lf = m.layout_file
         if lf.is_video:
             continue
         found = _match_extra(lf, [n for n in neighbours if n.id not in used])
@@ -262,7 +289,155 @@ def map_media_side(
             used.add(found.id)
         matches[i] = FileMatch(lf, _media_local(found) if found is not None else None)
 
-    return [matches[i] for i in range(len(layout.files))]
+
+def _content_path(root: str, relative_path: str, size: int, device: int) -> str | None:
+    """Revalidate scanned files before reading: same filesystem, scoped, regular, exact size."""
+    try:
+        path = resolve_scoped(root, relative_path)
+        if os.path.islink(os.path.join(root, relative_path)):
+            return None
+        info = os.stat(path)
+        if not stat.S_ISREG(info.st_mode) or info.st_dev != device or info.st_size != size:
+            return None
+    except (OSError, ScopeViolation):
+        return None
+    return path
+
+
+def _map_content(matches: list[FileMatch], parsed: TorrentInfo, anchor: MediaFile, local: LocalFiles) -> None:
+    """Resolve unmatched videos by bounded hash evidence, never by size alone.
+
+    Interior samples prune candidates before considering complete, injective
+    mappings. Boundary hashes use every mapped neighbour, including extras.
+    An unreadable alternative or an exhausted search cannot prove uniqueness.
+    """
+    missing = [i for i, m in enumerate(matches) if m.layout_file.is_video and m.local is None]
+    if not missing:
+        return
+
+    def fail(reason):
+        for i in missing:
+            matches[i].content_match_reason = reason
+
+    try:
+        device = os.stat(os.path.join(anchor.disk.root_path, anchor.relative_path)).st_dev
+    except OSError:
+        fail("content_match_inconclusive")
+        return
+    used = {m.local.id for m in matches if m.local}
+    entries = {e.path: e for e in parsed.files}
+    pools = {}
+    evidence = {}
+    read_bytes = attempts = 0
+    for i in missing:
+        entry = entries.get(matches[i].layout_file.path)
+        if entry is None:
+            continue
+        candidates = []
+        saw_mismatch = False
+        for mf in local.media_by_size.get((anchor.disk_id, entry.length), []):
+            if mf.id in used:
+                continue
+            attempts += 1
+            if attempts > CONTENT_MAX_CANDIDATES:
+                fail("content_verification_limit")
+                return
+            path = _content_path(mf.disk.root_path, mf.relative_path, mf.size_bytes, device)
+            if path is None:
+                continue
+            candidate = LocalFile("media", mf.id, mf.disk_id, mf.relative_path, path, mf.size_bytes)
+            # Conservative upper bound for this interior sample's disk reads.
+            cost = min(entry.length, PIECE_SAMPLE_SIZE * parsed.piece_length)
+            if read_bytes + cost > CONTENT_MAX_READ_BYTES:
+                fail("content_verification_limit")
+                return
+            read_bytes += cost
+            result = verify_file_pieces(
+                candidate.abs_path, parsed.piece_length, parsed.pieces, parsed.total_length,
+                entry.offset, entry.length, max_pieces=PIECE_SAMPLE_SIZE,
+            )
+            if result.mismatches:
+                saw_mismatch = True
+                continue
+            candidates.append(candidate)
+            evidence[(i, candidate.id)] = result.ok > 0
+        if candidates:
+            pools[i] = candidates
+        elif saw_mismatch:
+            matches[i].content_match_reason = "content_mismatch"
+
+    if not pools:
+        return
+    slots = list(pools)
+    viable = []
+    cache = {}
+    saw_boundary_mismatch = False
+    for count, choice in enumerate(islice(product(*(pools[i] for i in slots)), CONTENT_MAX_PROPOSALS + 1)):
+        if count == CONTENT_MAX_PROPOSALS:
+            fail("content_verification_limit")
+            return
+        if len({f.id for f in choice}) != len(choice):
+            continue  # one local file cannot supply two torrent entries
+        proposal = [FileMatch(m.layout_file, m.local) for m in matches]
+        proven = {i: evidence[(i, f.id)] for i, f in zip(slots, choice, strict=True)}
+        for i, candidate in zip(slots, choice, strict=True):
+            proposal[i].local = candidate
+        _map_media_extras(proposal, anchor, local)
+        paths = {}
+        for m in proposal:
+            if m.local is not None:
+                path = _content_path(anchor.disk.root_path, m.local.relative_path, m.local.size, device)
+                if path is not None:
+                    paths[m.layout_file.path] = path
+        boundaries = defaultdict(set)
+        for i in slots:
+            entry = entries[matches[i].layout_file.path]
+            if entry.length <= 0:
+                continue
+            for index in {entry.offset // parsed.piece_length,
+                          (entry.offset + entry.length - 1) // parsed.piece_length}:
+                start = index * parsed.piece_length
+                end = min(start + parsed.piece_length, parsed.total_length)
+                if start < entry.offset or end > entry.offset + entry.length:
+                    boundaries[index].add(i)
+        mismatch = False
+        for index, touched in boundaries.items():
+            start = index * parsed.piece_length
+            end = min(start + parsed.piece_length, parsed.total_length)
+            neighbours = [e for e in parsed.files if e.offset < end and e.offset + e.length > start]
+            key = (index, tuple(paths.get(e.path) for e in neighbours))
+            if key not in cache:
+                if any(e.path not in paths for e in neighbours if e.length > 0):
+                    cache[key] = None
+                else:
+                    if read_bytes + end - start > CONTENT_MAX_READ_BYTES:
+                        fail("content_verification_limit")
+                        return
+                    read_bytes += end - start
+                    cache[key] = verify_mapped_piece(parsed, paths, index)
+            good = cache[key]
+            if good is False:
+                mismatch = saw_boundary_mismatch = True
+                break
+            if good is True:
+                for i in touched:
+                    proven[i] = True
+        if not mismatch:
+            viable.append((choice, proven))
+
+    for position, i in enumerate(slots):
+        ids = {choice[position].id for choice, _ in viable}
+        fully_proven = bool(viable) and all(proven[i] for _, proven in viable)
+        if len(ids) == 1 and fully_proven:
+            m = matches[i]
+            m.local = viable[0][0][position]
+            m.size_match = m.piece_verified = True
+            m.confidence = CONFIDENCE_PIECE_VERIFIED
+        else:
+            matches[i].content_match_reason = (
+                "content_match_ambiguous" if len(ids) > 1 and fully_proven else
+                "content_mismatch" if not viable and saw_boundary_mismatch else "content_match_inconclusive"
+            )
 
 
 def _match_extra(lf: LayoutFile, neighbours: list[MediaFile]) -> MediaFile | None:
@@ -315,7 +490,8 @@ def evaluate(
     if not videos:
         reason = "no_video_in_torrent"
     elif any(m.local is None for m in videos):
-        reason = "season_pack_partial" if len(videos) > 1 else "no_local_file"
+        reason = next((m.content_match_reason for m in videos if m.content_match_reason), None)
+        reason = reason or ("season_pack_partial" if len(videos) > 1 else "no_local_file")
     elif not any(m.local.id == anchor_id for m in matches if m.local):
         reason = "anchor_not_in_torrent"
 
@@ -393,6 +569,8 @@ def _score_video(m: FileMatch, video_count: int, unique_ids: dict[str, str] | No
         m.confidence = CONFIDENCE_NO_MATCH
     else:
         m.confidence = CONFIDENCE_SIZE_ONLY
+    if m.piece_verified is True and m.confidence > CONFIDENCE_NO_MATCH:
+        m.confidence = CONFIDENCE_PIECE_VERIFIED
 
 
 def _verify_pieces(m: FileMatch, folder: str | None, parsed: TorrentInfo) -> None:

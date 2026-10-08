@@ -160,8 +160,19 @@ def _map(ctx: MatchContext, layout: Layout, anchor: MediaFile | SeedFile):
 
 def _evaluate(ctx: MatchContext, layout: Layout, anchor, *, download_link: str | None,
               unique_ids: dict[str, str] | None, single_unique_id: str | None) -> LayoutEvaluation:
+    matches = _map(ctx, layout, anchor)
+    if ctx.direction == "media_to_torrent" and layout.torrent is None:
+        # A partial catalog mapping used to stop evaluation before hashes could
+        # run. Fetch the authoritative layout when a content fallback is possible.
+        missing = [m.layout_file for m in matches if m.layout_file.is_video and m.local is None]
+        if any(f.size is None or ctx.local_files().media_by_size.get((anchor.disk_id, f.size)) for f in missing):
+            parsed = ctx.fetch_torrent(download_link)
+            if parsed is not None:
+                authoritative = layout_from_torrent(parsed)
+                layout.folder, layout.files, layout.torrent = authoritative.folder, authoritative.files, parsed
+                matches = _map(ctx, layout, anchor)
     return evaluate(
-        _map(ctx, layout, anchor), layout,
+        matches, layout,
         anchor_id=anchor.id,
         unique_ids=unique_ids,
         single_unique_id=single_unique_id,
@@ -241,6 +252,8 @@ def match_file(ctx: MatchContext, anchor: MediaFile | SeedFile, media_item_id: i
             ctx, layout, anchor, download_link=tc.download_link,
             unique_ids=tc.mediainfo_unique_ids_by_filename, single_unique_id=tc.mediainfo_unique_id,
         )
+        if torrent_format(len(layout.videos)) not in formats:
+            continue
         if evaluation.ambiguity_reason in _UNRELATED_REASONS:
             continue
         if evaluation.confidence > CONFIDENCE_NO_MATCH:
@@ -252,19 +265,21 @@ def match_file(ctx: MatchContext, anchor: MediaFile | SeedFile, media_item_id: i
             # un file solo: può stare in una cartella (2026-10-06, segnalato).
             parsed = layout.torrent or ctx.fetch_torrent(tc.download_link)
             if parsed is not None:
-                layout = layout_from_torrent(parsed)
-                if torrent_format(len(layout.videos)) not in formats:
+                authoritative = layout_from_torrent(parsed)
+                if torrent_format(len(authoritative.videos)) not in formats:
                     continue  # il catalogo non elencava tutti i video
-                evaluation = _evaluate(
-                    ctx, layout, anchor, download_link=tc.download_link,
-                    unique_ids=tc.mediainfo_unique_ids_by_filename, single_unique_id=tc.mediainfo_unique_id,
-                )
+                if layout.folder != authoritative.folder or layout.files != authoritative.files:
+                    layout = authoritative
+                    evaluation = _evaluate(
+                        ctx, layout, anchor, download_link=tc.download_link,
+                        unique_ids=tc.mediainfo_unique_ids_by_filename, single_unique_id=tc.mediainfo_unique_id,
+                    )
             elif len(layout.files) > 1:
                 evaluation.confidence = CONFIDENCE_NO_MATCH
                 evaluation.ambiguity_reason = "torrent_structure_unknown"
             # Un file solo senza .torrent resta come il catalogo lo descrive:
             # il controllo completo prima di eseguire ne corregge la cartella.
-        if multi_video:
+        if len(layout.videos) > 1:
             ctx.evaluated_packs.add(tc.torrent_id_remote)
         persisted.append(_persist(
             ctx, media_item_id=media_item_id, torrent_id_remote=tc.torrent_id_remote, name=tc.name,

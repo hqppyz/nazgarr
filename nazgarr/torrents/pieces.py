@@ -21,6 +21,8 @@ Porting diretto da ratio-guardian/app/torrent_pieces.py."""
 import hashlib
 from dataclasses import dataclass
 
+from nazgarr.torrents.metainfo import TorrentInfo
+
 
 @dataclass
 class PieceVerifyResult:
@@ -35,9 +37,9 @@ class PieceVerifyResult:
     @property
     def clean(self) -> bool:
         """Nessun mismatch reale, e almeno un dato utile è stato ottenuto
-        (una piece verificata o di boundary) — mai True su un risultato
+        (almeno una piece verificata) — mai True su un risultato
         vuoto (es. file illeggibile, vedi verify_file_pieces)."""
-        return self.mismatches == 0 and (self.ok > 0 or self.boundary > 0)
+        return self.mismatches == 0 and self.ok > 0
 
 
 def verify_file_pieces(
@@ -96,6 +98,8 @@ def verify_file_pieces(
                 piece_end = min(piece_start + piece_length, total_length)
                 fh.seek(piece_start - file_offset)
                 chunk = fh.read(piece_end - piece_start)
+                if len(chunk) != piece_end - piece_start:
+                    return PieceVerifyResult(ok=0, mismatches=0, boundary=boundary)
                 if hashlib.sha1(chunk).digest() == pieces[idx]:
                     ok += 1
                 else:
@@ -104,3 +108,41 @@ def verify_file_pieces(
         return PieceVerifyResult(ok=0, mismatches=0, boundary=0)
 
     return PieceVerifyResult(ok=ok, mismatches=mismatches, boundary=boundary)
+
+
+def verify_mapped_piece(parsed: TorrentInfo, paths: dict[str, str], index: int) -> bool | None:
+    """Verify one piece using its complete proposed mapping, including file boundaries.
+
+    Missing mappings, short reads and I/O errors provide no hash evidence.
+    Memory stays bounded even when the torrent declares very large pieces.
+    """
+    if not 0 <= index < len(parsed.pieces):
+        return None
+    start = index * parsed.piece_length
+    end = min(start + parsed.piece_length, parsed.total_length)
+    digest = hashlib.sha1()
+    read = 0
+    try:
+        for entry in parsed.files:
+            lo = max(start, entry.offset)
+            hi = min(end, entry.offset + entry.length)
+            if lo >= hi:
+                continue
+            path = paths.get(entry.path)
+            if path is None:
+                return None
+            with open(path, "rb") as handle:
+                handle.seek(lo - entry.offset)
+                remaining = hi - lo
+                while remaining:
+                    data = handle.read(min(remaining, 1024 * 1024))
+                    if not data:
+                        return None
+                    digest.update(data)
+                    read += len(data)
+                    remaining -= len(data)
+    except OSError:
+        return None
+    if read != end - start:
+        return None
+    return digest.digest() == parsed.pieces[index]

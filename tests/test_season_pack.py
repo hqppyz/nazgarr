@@ -144,6 +144,313 @@ def _no_mediainfo(monkeypatch):
     monkeypatch.setattr(matching, "compute_unique_id", lambda path: None)
 
 
+class ContentPackTracker(PackTracker):
+    def __init__(self, files):
+        candidate = _pack_candidate()
+        candidate.file_list = list(files)
+        candidate.file_sizes = {name: len(data) for name, data in files.items()}
+        candidate.size_bytes = sum(map(len, files.values()))
+        super().__init__([candidate])
+        self.files = files
+
+    def download_torrent(self, url):
+        self.downloads.append(url)
+        stream = b"".join(self.files.values())
+        return _bencode({"info": {
+            "name": FOLDER, "piece length": PIECE,
+            "pieces": b"".join(hashlib.sha1(stream[i:i + PIECE]).digest()
+                               for i in range(0, len(stream), PIECE)),
+            "files": [{"length": len(data), "path": name.split("/")} for name, data in self.files.items()],
+        }})
+
+
+@pytest.mark.parametrize("force_unparseable", [False, True])
+def test_content_fallback_maps_renamed_unparseable_pack(db_session, tmp_path, monkeypatch, force_unparseable):
+    from nazgarr.reseed import full_check
+    from nazgarr.torrents import layout
+
+    _no_mediainfo(monkeypatch)
+    if force_unparseable:
+        monkeypatch.setattr(layout, "_episode_numbers", lambda name: None)
+    _disk, tracker, (e01, e02) = _library(db_session, tmp_path, with_srt=False, names=(
+        "Modern Family (2009) - S01E01 - Pilot.mkv", "Modern Family (2009) - S01E02 - Second.mkv",
+    ))
+    adapter = ContentPackTracker({
+        "Modern Family - S01 - 01 - La nostra famiglia.mkv": E01,
+        "renamed episode without numbers.mkv": E02,
+    })
+
+    matching.run_media_to_torrent_matching(db_session, tracker, adapter)
+
+    candidate = db_session.query(Candidate).one()
+    assert candidate.confidence == matching.CONFIDENCE_PIECE_VERIFIED
+    assert [f.media_file_id for f in candidate.files] == [e01.id, e02.id]
+    assert len(adapter.downloads) == 1
+    result = full_check.run_full_check(db_session, candidate, fetch_torrent=lambda _: adapter.download_torrent("test"))
+    assert result.ok == result.pieces and result.mismatched == result.unreadable == 0
+
+
+def test_boundary_only_is_not_piece_verified(tmp_path):
+    from nazgarr.torrents.pieces import verify_file_pieces
+
+    path = tmp_path / "short.mkv"
+    path.write_bytes(b"a" * 4)
+    result = verify_file_pieces(str(path), 16, [hashlib.sha1(b"a" * 4 + b"b" * 12).digest()], 16, 0, 4)
+
+    assert result.ok == 0 and result.boundary == 1
+    assert not result.clean
+
+
+def test_short_hash_read_is_inconclusive_not_a_mismatch(tmp_path):
+    from nazgarr.torrents.pieces import verify_file_pieces
+
+    path = tmp_path / "short.mkv"
+    path.write_bytes(b"a" * 15)
+    result = verify_file_pieces(str(path), 16, [hashlib.sha1(b"a" * 16).digest()], 16, 0, 16)
+
+    assert result.ok == result.mismatches == 0 and not result.clean
+
+
+def _set_video_content(db_session, tmp_path, video, data):
+    (tmp_path / video.relative_path).write_bytes(data)
+    video.size_bytes = len(data)
+    db_session.commit()
+
+
+@pytest.mark.parametrize("contents,expected", [
+    ((b"a" * 8, b"b" * 8), matching.CONFIDENCE_PIECE_VERIFIED),
+    ((b"a" * 8, b"x" * 8), matching.CONFIDENCE_NO_MATCH),
+])
+def test_content_fallback_verifies_joint_boundary_only_mapping(db_session, tmp_path, monkeypatch, contents, expected):
+    from nazgarr.reseed import full_check
+
+    _no_mediainfo(monkeypatch)
+    _disk, tracker, videos = _library(db_session, tmp_path, with_srt=False)
+    for video, data in zip(videos, contents, strict=True):
+        _set_video_content(db_session, tmp_path, video, data)
+    adapter = ContentPackTracker({"first-renamed.mkv": b"a" * 8, "second-renamed.mkv": b"b" * 8})
+
+    matching.run_media_to_torrent_matching(db_session, tracker, adapter)
+
+    candidate = db_session.query(Candidate).one()
+    assert candidate.confidence == expected
+    if expected:
+        assert [f.media_file_id for f in candidate.files] == [f.id for f in videos]
+        result = full_check.run_full_check(db_session, candidate,
+                                          fetch_torrent=lambda _: adapter.download_torrent("test"))
+        assert result.ok == result.pieces == 1 and result.unreadable == result.mismatched == 0
+    else:
+        assert candidate.ambiguity_reason == "content_mismatch"
+        assert all(f.media_file_id is None for f in candidate.files)
+
+
+def test_content_fallback_missing_neighbour_is_inconclusive(db_session, tmp_path, monkeypatch):
+    _no_mediainfo(monkeypatch)
+    _disk, tracker, (e01, e02) = _library(db_session, tmp_path, with_srt=False)
+    _set_video_content(db_session, tmp_path, e01, b"a" * 4)
+    _set_video_content(db_session, tmp_path, e02, b"b" * 4)
+    adapter = ContentPackTracker({"first.mkv": b"a" * 4, "missing.nfo": b"n" * 4, "second.mkv": b"b" * 4})
+
+    matching.run_media_to_torrent_matching(db_session, tracker, adapter)
+
+    candidate = db_session.query(Candidate).one()
+    assert candidate.confidence == 0 and candidate.ambiguity_reason == "content_match_inconclusive"
+    assert all(f.media_file_id is None for f in candidate.files)
+    assert candidate.piece_verified is None
+
+
+def test_content_fallback_uses_extras_from_proposed_video_directories(db_session, tmp_path, monkeypatch):
+    _no_mediainfo(monkeypatch)
+    disk, tracker, (e01, e02) = _library(db_session, tmp_path, with_srt=False)
+    _set_video_content(db_session, tmp_path, e01, b"a" * 4)
+    _set_video_content(db_session, tmp_path, e02, b"b" * 4)
+    relative = os.path.dirname(e01.relative_path) + "/notes.nfo"
+    (tmp_path / relative).write_bytes(b"n" * 4)
+    db_session.add(MediaFile(disk_id=disk.id, relative_path=relative, size_bytes=4, st_dev=1, inode=99,
+                             last_scan_id=e01.last_scan_id, last_seen_at=datetime.now(UTC)))
+    db_session.commit()
+    adapter = ContentPackTracker({"first.mkv": b"a" * 4, "notes.nfo": b"n" * 4, "second.mkv": b"b" * 4})
+
+    matching.run_media_to_torrent_matching(db_session, tracker, adapter)
+
+    candidate = db_session.query(Candidate).one()
+    assert candidate.confidence == matching.CONFIDENCE_PIECE_VERIFIED
+    assert all(f.media_file_id is not None for f in candidate.files)
+
+
+@pytest.mark.parametrize("boundary_only", [False, True])
+def test_content_fallback_never_picks_first_identical_candidate(db_session, tmp_path, monkeypatch, boundary_only):
+    _no_mediainfo(monkeypatch)
+    _disk, tracker, (e01, e02) = _library(db_session, tmp_path, with_srt=False)
+    data = b"a" * 8 if boundary_only else E01
+    _set_video_content(db_session, tmp_path, e01, data)
+    _set_video_content(db_session, tmp_path, e02, data)
+    adapter = ContentPackTracker({"first.mkv": data, "second.mkv": data})
+
+    matching.run_media_to_torrent_matching(db_session, tracker, adapter)
+
+    candidate = db_session.query(Candidate).one()
+    assert candidate.confidence == 0 and candidate.ambiguity_reason == "content_match_ambiguous"
+    assert all(f.media_file_id is None for f in candidate.files)
+    assert db_session.query(MatchReview).count() == 0
+
+
+def test_content_fallback_reports_different_same_size_content(db_session, tmp_path, monkeypatch):
+    _no_mediainfo(monkeypatch)
+    _disk, tracker, _ = _library(db_session, tmp_path, with_srt=False)
+    adapter = ContentPackTracker({"first.mkv": b"x" * len(E01), "second.mkv": b"y" * len(E02)})
+
+    matching.run_media_to_torrent_matching(db_session, tracker, adapter)
+
+    candidate = db_session.query(Candidate).one()
+    assert candidate.confidence == 0 and candidate.ambiguity_reason == "content_mismatch"
+    assert all(f.media_file_id is None for f in candidate.files)
+
+
+def test_content_fallback_does_not_reuse_already_mapped_file(db_session, tmp_path, monkeypatch):
+    _no_mediainfo(monkeypatch)
+    _disk, tracker, (e01, _e02) = _library(db_session, tmp_path, with_srt=False)
+    adapter = ContentPackTracker({"Show.S01E01.mkv": E01, "renamed.mkv": E01})
+
+    matching.run_media_to_torrent_matching(db_session, tracker, adapter)
+
+    candidate = db_session.query(Candidate).one()
+    assert candidate.confidence == 0
+    assert [f.media_file_id for f in candidate.files] == [e01.id, None]
+
+
+@pytest.mark.parametrize("limit", ["CONTENT_MAX_CANDIDATES", "CONTENT_MAX_PROPOSALS", "CONTENT_MAX_READ_BYTES"])
+def test_content_fallback_limits_are_inconclusive(db_session, tmp_path, monkeypatch, limit):
+    from nazgarr.torrents import layout
+
+    _no_mediainfo(monkeypatch)
+    _disk, tracker, _ = _library(db_session, tmp_path, with_srt=False)
+    monkeypatch.setattr(layout, limit, 1)
+    data = b"a" * 8
+    if limit == "CONTENT_MAX_PROPOSALS":
+        for video in db_session.query(MediaFile).all():
+            _set_video_content(db_session, tmp_path, video, data)
+    else:
+        data = E01
+    adapter = ContentPackTracker({"first.mkv": data, "second.mkv": data})
+
+    matching.run_media_to_torrent_matching(db_session, tracker, adapter)
+
+    candidate = db_session.query(Candidate).one()
+    assert candidate.confidence == 0 and candidate.ambiguity_reason == "content_verification_limit"
+    assert all(f.media_file_id is None for f in candidate.files)
+
+
+def test_content_fallback_without_torrent_hashes_never_accepts_size(db_session, tmp_path, monkeypatch):
+    _no_mediainfo(monkeypatch)
+    _disk, tracker, _ = _library(db_session, tmp_path, with_srt=False)
+    adapter = ContentPackTracker({"first.mkv": E01, "second.mkv": E02})
+    monkeypatch.setattr(adapter, "download_torrent", lambda url: b"invalid torrent")
+
+    matching.run_media_to_torrent_matching(db_session, tracker, adapter)
+
+    candidate = db_session.query(Candidate).one()
+    assert candidate.confidence == 0 and candidate.ambiguity_reason == "season_pack_partial"
+    assert all(f.media_file_id is None for f in candidate.files)
+
+
+@pytest.mark.parametrize("ineligible", ["disk", "device", "stale", "symlink", "scope", "excluded", "nonvideo", "size"])
+def test_content_fallback_only_reads_eligible_size_bucket(db_session, tmp_path, monkeypatch, ineligible):
+    from nazgarr.core import settings_repo
+    from nazgarr.torrents import layout
+
+    _no_mediainfo(monkeypatch)
+    disk, tracker, (e01, e02) = _library(db_session, tmp_path, with_srt=False)
+    relative = os.path.dirname(e01.relative_path) + "/duplicate.mkv"
+    (tmp_path / relative).write_bytes(E01)
+    extra = MediaFile(disk_id=disk.id, relative_path=relative, size_bytes=len(E01), st_dev=1, inode=99,
+                      last_scan_id=e01.last_scan_id, last_seen_at=datetime.now(UTC))
+    if ineligible == "disk":
+        other = Disk(label="other", root_path=str(tmp_path / "other"),
+                     media_rel_path="media", torrents_rel_path="torrents")
+        db_session.add(other)
+        db_session.flush()
+        extra.disk_id = other.id
+    elif ineligible == "device":
+        real_stat = os.stat
+
+        def changed_device(path, *args, **kwargs):
+            result = real_stat(path, *args, **kwargs)
+            if str(path) == str(tmp_path / relative):
+                values = list(result)
+                values[2] += 1
+                return os.stat_result(values)
+            return result
+
+        monkeypatch.setattr(os, "stat", changed_device)
+    elif ineligible == "stale":
+        new_scan = pipeline.start_run(db_session, "manual")
+        e01.last_scan_id = e02.last_scan_id = new_scan.id
+    elif ineligible == "symlink":
+        (tmp_path / relative).unlink()
+        (tmp_path / relative).symlink_to(tmp_path / e01.relative_path)
+    elif ineligible == "scope":
+        extra.relative_path = "../outside.mkv"
+    elif ineligible == "excluded":
+        settings_repo.set_setting(db_session, "exclusion_patterns", "duplicate.mkv")
+    elif ineligible == "nonvideo":
+        extra.relative_path = relative + ".nfo"
+        (tmp_path / extra.relative_path).write_bytes(E01)
+    else:
+        extra.size_bytes += 1
+    db_session.add(extra)
+    db_session.commit()
+    reads = []
+    real_verify = layout.verify_file_pieces
+
+    def verify(path, *args, **kwargs):
+        reads.append(path)
+        return real_verify(path, *args, **kwargs)
+
+    monkeypatch.setattr(layout, "verify_file_pieces", verify)
+    adapter = ContentPackTracker({"first.mkv": E01, "second.mkv": E02})
+
+    matching.run_media_to_torrent_matching(db_session, tracker, adapter)
+
+    candidate = db_session.query(Candidate).one()
+    assert candidate.confidence == matching.CONFIDENCE_PIECE_VERIFIED
+    assert [f.media_file_id for f in candidate.files] == [e01.id, e02.id]
+    assert set(reads) == {str(tmp_path / e01.relative_path), str(tmp_path / e02.relative_path)}
+    assert len(reads) == 4  # two equal-sized candidates per entry; no repeat of the completed mapping
+
+
+def test_content_fallback_fetches_sizes_and_paths_missing_from_catalog(db_session, tmp_path, monkeypatch):
+    _no_mediainfo(monkeypatch)
+    _disk, tracker, (e01, e02) = _library(db_session, tmp_path, with_srt=False)
+    adapter = ContentPackTracker({"episodes/first.mkv": E01, "episodes/second.mkv": E02})
+    adapter.candidates[0].file_sizes = None
+    adapter.candidates[0].folder = None
+    adapter.candidates[0].file_list = ["first.mkv", "second.mkv"]
+
+    matching.run_media_to_torrent_matching(db_session, tracker, adapter)
+
+    candidate = db_session.query(Candidate).one()
+    assert candidate.confidence == matching.CONFIDENCE_PIECE_VERIFIED and candidate.folder == FOLDER
+    assert [f.torrent_path for f in candidate.files] == ["episodes/first.mkv", "episodes/second.mkv"]
+    assert [f.media_file_id for f in candidate.files] == [e01.id, e02.id]
+
+
+def test_content_fallback_handles_hash_read_errors_as_inconclusive(db_session, tmp_path, monkeypatch):
+    from nazgarr.torrents import layout
+    from nazgarr.torrents.pieces import PieceVerifyResult
+
+    _no_mediainfo(monkeypatch)
+    _disk, tracker, _ = _library(db_session, tmp_path, with_srt=False)
+    monkeypatch.setattr(layout, "verify_file_pieces", lambda *args, **kwargs: PieceVerifyResult(0, 0, 0))
+    adapter = ContentPackTracker({"first.mkv": E01, "second.mkv": E02})
+
+    matching.run_media_to_torrent_matching(db_session, tracker, adapter)
+
+    candidate = db_session.query(Candidate).one()
+    assert candidate.confidence == 0 and candidate.ambiguity_reason == "content_match_inconclusive"
+    assert all(f.media_file_id is None for f in candidate.files)
+
+
 def test_pack_matched_via_guessit_is_evaluated_and_downloaded_once(db_session, tmp_path, monkeypatch):
     _no_mediainfo(monkeypatch)
     _disk, tracker, (e01, e02) = _library(db_session, tmp_path)
