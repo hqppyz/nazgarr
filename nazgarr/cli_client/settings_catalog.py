@@ -27,6 +27,8 @@ CATALOG = [
     Setting("exclusion_presets", "Enabled exclusion presets, comma separated (see the web UI for the list)."),
     # Reseeding
     Setting("cross_seed_search", "Search files seeding on one tracker on the others too (true/false).", "bool"),
+    Setting("reseed_pack_and_singles",
+            "Seed an episode both in its season pack and alone on the same tracker (off by default).", "bool"),
     Setting("rematch_interval_days", "Days before an unmatched file is searched again.", "int"),
     Setting("confidence_threshold_auto_media_to_torrent",
             "Confidence (0-1) above which a library→torrent match is recommended.", "float", safety=True),

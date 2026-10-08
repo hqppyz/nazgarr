@@ -11,6 +11,10 @@ verificato ("season_pack_partial" altrimenti, confidence 0).
 Le due direzioni (docs/SPEC.md sezione 3) condividono la stessa
 valutazione, cambia solo da quale lato si cercano i file locali e quale
 soglia si applica poi in fase di revisione (nazgarr/reseed/review.py).
+
+Ogni file si cerca nei formati che gli servono (nazgarr/library/seeding.py):
+un orfano in tutti, un episodio già in seed su questo tracker, con "pack e
+singoli" acceso, solo in quello che gli manca.
 """
 
 import json
@@ -44,7 +48,16 @@ from nazgarr.library.exclusions import CompiledExclusions, load_exclusions
 from nazgarr.library.hardlinks import seed_copies_by_inode
 from nazgarr.library.mediainfo import compute_unique_id
 from nazgarr.library.scan_state import is_current, latest_scan_by_disk
-from nazgarr.library.seeding import seeding_media_file_ids
+from nazgarr.library.seeding import (
+    FORMATS,
+    PACK,
+    SINGLE,
+    is_episode,
+    pack_and_singles_enabled,
+    seeding_formats,
+    seeding_media_file_ids,
+    torrent_format,
+)
 from nazgarr.reseed import review
 from nazgarr.torrents.layout import (
     CONFIDENCE_NO_MATCH,
@@ -90,6 +103,7 @@ class MatchContext:
     local: LocalFiles | None = None
     translator: object | None = None  # nazgarr/library/episode_orders.py Translator, creato alla prima serie
     evaluated_packs: set[str] = field(default_factory=set)
+    both_formats: bool = False  # "pack e singoli dello stesso tracker" acceso
     _torrents: dict[str, TorrentInfo | None] = field(default_factory=dict)
     _info_hashes: dict[str, str] = field(default_factory=dict)
 
@@ -206,16 +220,23 @@ def _persist(
     return candidate
 
 
-def match_file(ctx: MatchContext, anchor: MediaFile | SeedFile, media_item_id: int, tmdb_id: int) -> list[Candidate]:
+def match_file(ctx: MatchContext, anchor: MediaFile | SeedFile, media_item_id: int, tmdb_id: int,
+               formats: frozenset[str] = FORMATS, skip: frozenset[str] = frozenset()) -> list[Candidate]:
     """Cerca sul catalogo del tracker per tmdb_id e valuta ogni torrent
     trovato contro i file locali. Persiste anche i candidati a confidence 0
-    (audit trail), tranne quelli che non riguardano affatto questo file."""
+    (audit trail), tranne quelli che non riguardano affatto questo file.
+    formats: solo i torrent di questi formati; skip: torrent già valutati
+    (dalla history)."""
     persisted = []
     for tc in ctx.tracker_adapter.search_by_tmdb(tmdb_id):
+        if tc.torrent_id_remote in skip:
+            continue
         layout = layout_from_catalog(tc.file_list, tc.file_sizes, tc.folder, tc.size_bytes, tc.name)
         multi_video = len(layout.videos) > 1
         if multi_video and tc.torrent_id_remote in ctx.evaluated_packs:
             continue  # già valutato in questa run per un altro episodio dello stesso pack
+        if torrent_format(len(layout.videos)) not in formats:
+            continue
         evaluation = _evaluate(
             ctx, layout, anchor, download_link=tc.download_link,
             unique_ids=tc.mediainfo_unique_ids_by_filename, single_unique_id=tc.mediainfo_unique_id,
@@ -232,6 +253,8 @@ def match_file(ctx: MatchContext, anchor: MediaFile | SeedFile, media_item_id: i
             parsed = layout.torrent or ctx.fetch_torrent(tc.download_link)
             if parsed is not None:
                 layout = layout_from_torrent(parsed)
+                if torrent_format(len(layout.videos)) not in formats:
+                    continue  # il catalogo non elencava tutti i video
                 evaluation = _evaluate(
                     ctx, layout, anchor, download_link=tc.download_link,
                     unique_ids=tc.mediainfo_unique_ids_by_filename, single_unique_id=tc.mediainfo_unique_id,
@@ -253,14 +276,15 @@ def match_file(ctx: MatchContext, anchor: MediaFile | SeedFile, media_item_id: i
 
 
 def match_from_history(ctx: MatchContext, anchor: MediaFile | SeedFile, media_item_id: int,
-                       grab: ArrGrab) -> list[Candidate] | None:
+                       grab: ArrGrab, formats: frozenset[str] = FORMATS) -> list[Candidate] | None:
     """Candidato dal torrent che Radarr/Sonarr ricordano per questo file
     (nazgarr/integrations/arr.py): un solo download del .torrent al posto della ricerca sul
     catalogo. Stesse regole di confidence — la provenienza dalla history non
     alza da sola la confidence: un file può essere stato sostituito dopo
     l'import, sono size e piece hash a dirlo. None se il .torrent non è
-    scaricabile/leggibile o il pack è già stato valutato in questa run: il
-    chiamante decide se ripiegare sulla ricerca."""
+    scaricabile/leggibile o non è di uno dei formati cercati: il chiamante
+    decide se ripiegare sulla ricerca. [] se è un pack già valutato in
+    questa run."""
     if grab.torrent_id_remote in ctx.evaluated_packs:
         return []
     # Prima il link della history con la chiave attuale (se il tracker la
@@ -279,6 +303,8 @@ def match_from_history(ctx: MatchContext, anchor: MediaFile | SeedFile, media_it
     if parsed is None:
         return None
     layout = layout_from_torrent(parsed)
+    if torrent_format(len(layout.videos)) not in formats:
+        return None
     evaluation = _evaluate(ctx, layout, anchor, download_link=download_link, unique_ids=None,
                            single_unique_id=None)
     if len(layout.videos) > 1:
@@ -310,18 +336,28 @@ def _anchor_path(anchor: MediaFile | SeedFile) -> str:
 
 
 def find_candidates(ctx: MatchContext, anchor: MediaFile | SeedFile, media_item_id: int,
-                    tmdb_id: int) -> tuple[list[Candidate], bool]:
+                    tmdb_id: int, formats: frozenset[str] = FORMATS) -> tuple[list[Candidate], bool]:
     """(candidati, da_history). Prima la history di Radarr/Sonarr se ricorda
     un torrent di QUESTO tracker per il file; ricerca sul catalogo solo se
-    non c'è o non ha dato un candidato plausibile."""
+    non c'è o non ha dato un candidato plausibile. Un episodio che la
+    history dà come singolo cerca comunque il pack nel catalogo: è il
+    formato preferito (review.py), o il secondo con "pack e singoli"."""
     grab = ctx.arr_index.grab_for(_anchor_path(anchor), anchor.size_bytes) if ctx.arr_index is not None else None
     if grab is not None and grab.tracker_host == host_of(ctx.tracker_row.base_url):
-        candidates = match_from_history(ctx, anchor, media_item_id, grab)
+        candidates = match_from_history(ctx, anchor, media_item_id, grab, formats)
         if candidates is not None and (
             not candidates or any(c.confidence > CONFIDENCE_NO_MATCH for c in candidates)
         ):
+            if PACK in formats and _wants_pack_search(ctx, anchor, candidates):
+                seen = frozenset(c.torrent_id_remote for c in candidates)
+                candidates += match_file(ctx, anchor, media_item_id, tmdb_id, frozenset({PACK}), skip=seen)
             return candidates, True
-    return match_file(ctx, anchor, media_item_id, tmdb_id), False
+    return match_file(ctx, anchor, media_item_id, tmdb_id, formats), False
+
+
+def _wants_pack_search(ctx: MatchContext, anchor: MediaFile | SeedFile, candidates: list[Candidate]) -> bool:
+    return (ctx.direction == "media_to_torrent" and isinstance(anchor, MediaFile) and is_episode(anchor.media_item)
+            and bool(candidates) and all(review.candidate_format(c) == SINGLE for c in candidates))
 
 
 def orphan_media_files(
@@ -340,6 +376,29 @@ def orphan_media_files(
         .filter(MediaFile.media_item_id.isnot(None)).all()
         if mf.id not in linked_ids
         and is_current(mf, latest)  # un file sparito dal disco non si cerca più
+        and is_video(mf.relative_path)
+        and not (exclusions and exclusions.is_excluded(mf.relative_path))
+    ]
+
+
+def second_format_media_files(
+    session: Session, tracker: Tracker, exclusions: CompiledExclusions | None = None,
+) -> list[tuple[MediaFile, frozenset[str]]]:
+    """Con "pack e singoli dello stesso tracker" (nazgarr/library/seeding.py): gli
+    episodi in seed su questo tracker in un formato solo, con quello che
+    manca. Mai insieme agli orfani: un orfano non è in seed su questo tracker."""
+    missing = {mf_id: FORMATS - found for mf_id, found in seeding_formats(session, tracker).items()}
+    missing = {mf_id: wanted for mf_id, wanted in missing.items() if wanted}
+    if not missing:
+        return []
+    latest = latest_scan_by_disk(session, MediaFile)
+    return [
+        (mf, frozenset(missing[mf.id]))
+        for mf in session.query(MediaFile).options(selectinload(MediaFile.media_item))
+        .filter(MediaFile.media_item_id.isnot(None)).all()
+        if mf.id in missing
+        and is_episode(mf.media_item)
+        and is_current(mf, latest)
         and is_video(mf.relative_path)
         and not (exclusions and exclusions.is_excluded(mf.relative_path))
     ]
@@ -449,10 +508,14 @@ def run_media_to_torrent_matching(
     lasciando i file rimanenti al prossimo giro — la ricerca di quelli
     completati è già registrata in match_attempt, quindi non si ripete."""
     ctx = MatchContext(session, tracker_row, tracker_adapter, "media_to_torrent", arr_index)
-    orphans = orphan_media_files(session, load_exclusions(session), tracker_row)
+    exclusions = load_exclusions(session)
+    orphans = [(mf, FORMATS) for mf in orphan_media_files(session, exclusions, tracker_row)]
+    if pack_and_singles_enabled(session):
+        ctx.both_formats = True
+        orphans += second_format_media_files(session, tracker_row, exclusions)
     if only_media_file_ids is not None:
         # "Cerca ora" dalla scheda di dettaglio: solo i file di quel contenuto.
-        orphans = [mf for mf in orphans if mf.id in only_media_file_ids]
+        orphans = [(mf, formats) for mf, formats in orphans if mf.id in only_media_file_ids]
     return _match_orphans(ctx, orphans, "media", progress, force)
 
 
@@ -462,20 +525,21 @@ def run_torrent_to_client_matching(
 ) -> dict:
     """Stesse regole di run_media_to_torrent_matching, direzione opposta."""
     ctx = MatchContext(session, tracker_row, tracker_adapter, "torrent_to_client", arr_index)
-    orphans = orphan_seed_files_with_identity(session, load_exclusions(session))
+    orphans = [(sf, FORMATS) for sf in orphan_seed_files_with_identity(session, load_exclusions(session))]
     return _match_orphans(ctx, orphans, "seed", progress)
 
 
-def _match_orphans(ctx: MatchContext, orphans: list, side: str, progress, force: bool = False) -> dict:
+def _match_orphans(ctx: MatchContext, orphans: list[tuple], side: str, progress, force: bool = False) -> dict:
     """Il giro sugli orfani di una direzione: side "media" (media_file, la
-    sua identità) o "seed" (seed_file, l'identità del media_file collegato)."""
+    sua identità) o "seed" (seed_file, l'identità del media_file collegato),
+    ognuno coi formati da cercare."""
     session, tracker_row = ctx.session, ctx.tracker_row
     totals = _new_totals()
     interval = get_rematch_interval(session)
     progress.add_total(len(orphans))
     attempts = _attempts_by_file(session, tracker_row, side)
     with keep_loaded_on_commit(session):
-        for orphan in orphans:
+        for orphan, formats in orphans:
             item = orphan.media_item if side == "media" else orphan.media_file.media_item
             attempt = attempts.get(orphan.id)
             if not force and _is_fresh(attempt, orphan.size_bytes, item.tmdb_id, interval):
@@ -483,9 +547,10 @@ def _match_orphans(ctx: MatchContext, orphans: list, side: str, progress, force:
                 progress.advance(skipped=1)
                 continue
             try:
-                candidates, from_history = find_candidates(ctx, orphan, item.id, item.tmdb_id)
+                candidates, from_history = find_candidates(ctx, orphan, item.id, item.tmdb_id, formats)
                 if side == "media":
-                    review.create_review_for_media_file(session, orphan, candidates, ctx.hashes_in_clients())
+                    review.create_review_for_media_file(session, orphan, candidates, ctx.hashes_in_clients(),
+                                                        formats=formats, both_formats=ctx.both_formats)
                 else:
                     review.create_review_for_seed_file(session, orphan, candidates, ctx.hashes_in_clients())
             except TrackerRateLimitedError:

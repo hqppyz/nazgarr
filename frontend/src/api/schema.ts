@@ -4196,6 +4196,27 @@ export interface components {
              * @default []
              */
             seeding_on: string[];
+            /** Tracker Id */
+            tracker_id: number;
+            /** Tracker */
+            tracker?: string | null;
+            /** Format */
+            format: string;
+            /**
+             * Seeding Here
+             * @default []
+             */
+            seeding_here: string[];
+            /** Content Type */
+            content_type?: string | null;
+            /** Tmdb Id */
+            tmdb_id?: number | null;
+            /** Title */
+            title?: string | null;
+            /** Season Number */
+            season_number?: number | null;
+            /** Episode Number */
+            episode_number?: number | null;
             /** Torrent Client Id */
             torrent_client_id?: number | null;
             /** Default Client Category */

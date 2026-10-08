@@ -59,6 +59,20 @@ export const reseeding = {
   'reseeding.crossSeed': 'Cross-seed · in seed su {trackers}',
   'reseeding.crossSeedHelp':
     'Questo file è già in seed su {trackers}: approvando, gli stessi file vengono aggiunti anche a questo tracker, riusando l’hardlink quando i nomi coincidono.',
+  'reseeding.secondFormatSingle': 'Secondo formato · in seed su {tracker} nel pack',
+  'reseeding.secondFormatPack': 'Secondo formato · episodi in seed su {tracker} come singoli',
+  'reseeding.secondFormatHelp':
+    'Gli stessi file sono già in seed su questo tracker in un altro torrent: approvando seedano anche in questo, con un hardlink in più che non occupa spazio.',
+  'reseeding.seasonSingles': '{count} episodi singoli su {tracker}',
+  'reseeding.seasonEpisodes': 'Episodi {episodes}',
+  'reseeding.recommendedCount': '{count} consigliati',
+  'reseeding.approveAll': 'Approva tutti',
+  'reseeding.rejectAll': 'Rifiuta tutti',
+  'reseeding.rejectAllTitle': 'Rifiutare {count} episodi singoli?',
+  'reseeding.rejectAllDescription': 'Non tornano più in coda: un rifiuto vale per sempre per quel torrent e quel file.',
+  'reseeding.packAndSinglesLabel': 'Pack e singoli dello stesso tracker',
+  'reseeding.packAndSinglesHelp':
+    'Un episodio in seed su un tracker nel pack della stagione si cerca lì anche come singolo, e viceversa: gli stessi file seedano in entrambi i torrent. Disattivato: per un episodio si propone un formato solo, il pack quando c’è.',
   'reseeding.searchTitle': 'Ricerca',
   'reseeding.searchDescription': 'Quali file della libreria ogni scansione cerca sui tuoi tracker.',
   'reseeding.crossSeedLabel': 'Cerca cross-seed',
