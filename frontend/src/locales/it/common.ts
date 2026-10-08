@@ -5,6 +5,8 @@
 export const common = {
   'common.save': 'Salva',
   'common.close': 'Chiudi',
+  'common.copy': 'Copia',
+  'common.copyFailed': 'Copia non riuscita: seleziona il testo e copialo a mano.',
   'common.saved': 'Salvato.',
   'common.itemSaved': '{item} salvato.',
   'common.delete': 'Elimina',
