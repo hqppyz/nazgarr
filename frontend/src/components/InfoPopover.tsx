@@ -1,3 +1,4 @@
+import { InfoIcon } from 'lucide-react'
 import type { ReactNode } from 'react'
 
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -36,5 +37,15 @@ export function InfoPopover({
         {content}
       </PopoverContent>
     </Popover>
+  )
+}
+
+// Un'icona "i" accanto a un titolo che apre la sua spiegazione: si vede che
+// c'è, invece di doverla scoprire passando sul titolo.
+export function InfoHint({ content, label }: { content: ReactNode; label: string }) {
+  return (
+    <InfoPopover content={content} className="inline-flex items-center text-muted-foreground hover:text-foreground">
+      <InfoIcon className="size-3.5" aria-label={label} />
+    </InfoPopover>
   )
 }

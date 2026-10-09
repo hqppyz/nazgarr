@@ -20,6 +20,8 @@ export const disks = {
     '= first seeding folder',
   'disks.uploadFolderLabel': 'Folder for new uploads (optional)',
   'disks.uploadFolderColumn': 'Uploads',
+  'disks.uploadFolderHelp':
+    'Where your new uploads seed from: the hardlinks with the torrent names, and the folder the client gets. Empty = the first seeding folder.',
   'disks.newHardlinkFolderHelp':
     'Where a NEW hardlink is created (and the save path handed to the client). It never narrows the "already seeding" search, which always covers every seeding folder. Empty = the first seeding folder.',
   'disks.mediaFolder': 'Media folder',
@@ -43,10 +45,11 @@ export const disks = {
   'disks.addFolderFailed': 'Folder not added: {message}',
   'disks.folderAdded': 'Folder {path} added: its files come in with the next scan.',
   'disks.seedingFolders': 'Seeding folders',
-  'disks.seedingFoldersHelp': 'Where your clients download and seed. More than one if you need it (e.g. torrents/ and one for cross-seed): all on the same disk, never one inside another.',
+  'disks.seedingFoldersHelp': 'Where the torrent client saves what it downloads and seeds: its download path (e.g. torrents/). More than one if you need it (e.g. one for cross-seed): all on the same disk, never one inside another.',
+  'disks.whatIsThis': 'About: {what}',
   'disks.noSeedingFolder': 'None: add at least one.',
   'disks.mediaFolders': 'Media folders',
-  'disks.mediaFoldersHelp': 'Your library (movies, shows, anime…), even across separate folders. Optional: without them, Nazgarr works on torrents and uploads only.',
+  'disks.mediaFoldersHelp': 'The library organised for media servers such as Plex, Jellyfin or Emby, usually by Radarr and Sonarr (e.g. media/movies, media/tv), even across separate folders. Optional: without them, Nazgarr works on torrents and uploads only.',
   'disks.noMediaFolder': 'None (optional).',
   'disks.test': 'Test disk',
   'disks.testHelp': 'Checks that the folders exist and sit on the disk filesystem, and creates a test hardlink (an empty hidden file, removed right away) from the first seeding folder to every other one.',

@@ -15,7 +15,7 @@ import {
 import type { Schemas } from '@/api/client'
 import { Button } from '@/components/ui/button'
 import { ConfirmButton } from '@/components/ConfirmButton'
-import { InfoPopover } from '@/components/InfoPopover'
+import { InfoHint } from '@/components/InfoPopover'
 import { SettingsHeader } from '@/components/SettingsHeader'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
@@ -286,8 +286,11 @@ function FolderList({
   return (
     <div className="grid gap-1.5">
       <div className="flex items-center justify-between gap-2">
-        {/* La spiegazione si apre anche al tocco (prima solo nel title). */}
-        <InfoPopover content={help} className="text-xs font-medium pointer-coarse:underline pointer-coarse:decoration-dotted pointer-coarse:underline-offset-2">{title}</InfoPopover>
+        {/* Cosa va in queste cartelle: dall'icona, al passaggio o al tocco. */}
+        <span className="flex items-center gap-1.5 text-xs font-medium">
+          {title}
+          <InfoHint content={help} label={t('disks.whatIsThis', { what: title })} />
+        </span>
         <Button
           variant="ghost"
           size="xs"
@@ -483,9 +486,11 @@ export function DisksSection() {
                 tour="storage.media-folder"
               />
               <div className="grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-1.5 text-xs">
-                <InfoPopover content={t('disks.newHardlinkFolderHelp')} className="text-muted-foreground pointer-coarse:underline pointer-coarse:decoration-dotted pointer-coarse:underline-offset-2">
+                <span className="flex items-center gap-1.5 text-muted-foreground">
                   {t('disks.newHardlinkFolderColumn')}
-                </InfoPopover>
+                  <InfoHint content={t('disks.newHardlinkFolderHelp')}
+                            label={t('disks.whatIsThis', { what: t('disks.newHardlinkFolderColumn') })} />
+                </span>
                 {/* Dove l'executor crea i NUOVI hardlink: vuoto = la prima cartella di seeding. */}
                 <RelPathCell
                   diskId={disk.id}
@@ -495,7 +500,10 @@ export function DisksSection() {
                   tour="storage.new-folder"
                   emptyLabel={t('disks.sameAsSeedingFolder')}
                 />
-                <span className="text-muted-foreground">{t('disks.uploadFolderColumn')}</span>
+                <span className="flex items-center gap-1.5 text-muted-foreground">
+                  {t('disks.uploadFolderColumn')}
+                  <InfoHint content={t('disks.uploadFolderHelp')} label={t('disks.whatIsThis', { what: t('disks.uploadFolderColumn') })} />
+                </span>
                 {/* Dove il flusso di upload crea gli hardlink: vuoto = la prima cartella di seeding. */}
                 <RelPathCell
                   diskId={disk.id}
@@ -505,9 +513,10 @@ export function DisksSection() {
                   tour="storage.upload-folder"
                   emptyLabel={t('disks.sameAsSeedingFolder')}
                 />
-                <InfoPopover content={t('disks.watchFolderHelp')} className="text-muted-foreground pointer-coarse:underline pointer-coarse:decoration-dotted pointer-coarse:underline-offset-2">
+                <span className="flex items-center gap-1.5 text-muted-foreground">
                   {t('disks.watchFolderColumn')}
-                </InfoPopover>
+                  <InfoHint content={t('disks.watchFolderHelp')} label={t('disks.whatIsThis', { what: t('disks.watchFolderColumn') })} />
+                </span>
                 {/* Le release nuove qui dentro partono da sole fino alla decisione (nazgarr/upload/watch.py). */}
                 <RelPathCell
                   diskId={disk.id}
