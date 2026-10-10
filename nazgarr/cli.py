@@ -137,6 +137,8 @@ Wants=network-online.target
 
 [Service]
 ExecStart={sys.executable} -m nazgarr.cli serve --config "{config_path}" --host {host} --port {port}
+# Come nell'immagine Docker: meno memoria tenuta da glibc per i thread.
+Environment=MALLOC_ARENA_MAX=2
 Restart=on-failure
 RestartSec=5
 UMask=0077

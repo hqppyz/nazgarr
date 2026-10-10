@@ -60,6 +60,12 @@ ENV CONFIG_PATH=/app/config/config.yaml
 # (nazgarr/core/mounts.py): niente disk_scan_root da scrivere.
 ENV NAZGARR_CONTAINER=1
 
+# glibc tiene una riserva di memoria (arena) per thread, fino a 8 per core, e
+# la memoria liberata ci resta: con le viste pesanti calcolate in parallelo il
+# processo cresceva di più. Due arene bastano a un servizio come questo
+# (misurato: -11% sul picco con 10 core, di più con più core).
+ENV MALLOC_ARENA_MAX=2
+
 # Versione e commit decisi dalla CI (.github/workflows/docker-publish.yml,
 # nazgarr/core/version.py): vuoti in una build locale, che si mostra come "-dev".
 ARG NAZGARR_VERSION=""
