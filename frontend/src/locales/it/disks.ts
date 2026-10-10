@@ -19,6 +19,8 @@ export const disks = {
   'disks.sameAsSeedingFolder': '= prima cartella di seeding',
   'disks.uploadFolderLabel': 'Cartella per i nuovi upload (facoltativa)',
   'disks.uploadFolderColumn': 'Upload',
+  'disks.uploadFolderHelp':
+    'Dove i tuoi nuovi upload vanno in seed: gli hardlink con i nomi del torrent, e la cartella che riceve il client. Vuoto = la prima cartella di seeding.',
   'disks.newHardlinkFolderHelp':
     'Dove viene creato un NUOVO hardlink (e il save_path del client). Non limita mai la ricerca "già in seed", che copre sempre tutte le cartelle di seeding. Vuoto = la prima cartella di seeding.',
   'disks.mediaFolder': 'Cartella media',
@@ -42,10 +44,11 @@ export const disks = {
   'disks.addFolderFailed': 'Cartella non aggiunta: {message}',
   'disks.folderAdded': 'Cartella {path} aggiunta: i suoi file arrivano alla prossima scansione.',
   'disks.seedingFolders': 'Cartelle di seeding',
-  'disks.seedingFoldersHelp': 'Dove i tuoi client scaricano e seedano. Più di una se servono (es. torrents/ e una per il cross-seed): tutte sullo stesso disco, mai una dentro l’altra.',
+  'disks.seedingFoldersHelp': 'Dove il client torrent salva i file che scarica e seeda: il suo percorso di download (es. torrents/). Più di una se servono (es. una per il cross-seed): tutte sullo stesso disco, mai una dentro l’altra.',
+  'disks.whatIsThis': 'Spiegazione: {what}',
   'disks.noSeedingFolder': 'Nessuna: aggiungine almeno una.',
   'disks.mediaFolders': 'Cartelle media',
-  'disks.mediaFoldersHelp': 'La tua libreria (film, serie, anime…), anche in più cartelle separate. Facoltative: senza, Nazgarr lavora solo su torrent e upload.',
+  'disks.mediaFoldersHelp': 'La libreria organizzata per i media server come Plex, Jellyfin o Emby, di solito da Radarr e Sonarr (es. media/movies, media/tv), anche in più cartelle separate. Facoltative: senza, Nazgarr lavora solo su torrent e upload.',
   'disks.noMediaFolder': 'Nessuna (facoltativa).',
   'disks.test': 'Prova il disco',
   'disks.testHelp': 'Controlla che le cartelle esistano e stiano sul filesystem del disco, e crea un hardlink di prova (un file vuoto nascosto, tolto subito) dalla prima cartella di seeding verso ogni altra.',
