@@ -73,3 +73,40 @@ def test_disks_folders_and_removed_torrents_change_the_version(client):
     removed = etag()
 
     assert len({first, with_disk, with_folder, with_torrent, removed}) == 5
+
+
+def test_requests_that_arrive_together_compute_the_view_once(client):
+    # Misurato (2026-10-10): i calcoli doppi in parallelo alla fine di una
+    # scansione portavano il processo da ~190 a ~430 MB.
+    import threading
+    import time
+
+    from starlette.requests import Request
+
+    from nazgarr.web import response_cache
+
+    calls = []
+
+    def compute():
+        calls.append(1)
+        time.sleep(0.2)
+        return {"rows": list(range(10))}
+
+    bodies = []
+
+    def request_view():
+        session = client.app.state.session_factory()
+        try:
+            request = Request({"type": "http", "headers": []})
+            bodies.append(response_cache.cached_json(request, session, "test:view", compute).body)
+        finally:
+            session.close()
+
+    threads = [threading.Thread(target=request_view) for _ in range(6)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert len(calls) == 1
+    assert len(bodies) == 6 and len(set(bodies)) == 1

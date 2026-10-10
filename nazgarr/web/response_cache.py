@@ -13,6 +13,13 @@ risposta:
 Durante una run i dati cambiano continuamente (lo scan scrive, il matching
 crea review): la versione include allora una finestra di RUNNING_BUCKET
 secondi, così le viste restano aggiornate senza ricalcolare a ogni poll.
+
+Un calcolo solo per chiave: le richieste uguali che arrivano mentre è in
+corso aspettano il suo risultato invece di rifarlo. Alla fine di una
+scansione ogni pagina aperta ricarica insieme, e i calcoli doppi in
+parallelo (ognuno con tutta la libreria in memoria) portavano il processo
+da ~190 a ~430 MB con 18.000 file, memoria che Python poi non restituisce
+(misurato il 2026-10-10).
 """
 
 import hashlib
@@ -49,6 +56,12 @@ _VERSIONED_SETTINGS = ("exclusion_patterns", "exclusion_presets", "rematch_inter
 
 _lock = threading.Lock()
 _cache: dict[str, tuple[str, bytes]] = {}  # chiave -> (etag, corpo JSON)
+_computing: dict[str, threading.Lock] = {}  # chiave -> chi la sta calcolando
+
+
+def _key_lock(key: str) -> threading.Lock:
+    with _lock:
+        return _computing.setdefault(key, threading.Lock())
 
 
 def data_version(session: Session) -> str:
@@ -108,17 +121,25 @@ def cached_json(request: Request, session: Session, key: str, compute: Callable[
     headers = {"ETag": etag, "Cache-Control": "private, no-cache"}  # no-cache = rivalida sempre, via ETag
     if request.headers.get("if-none-match") == etag:
         return Response(status_code=304, headers=headers)
+    body = _cached_body(key, etag)
+    if body is None:
+        with _key_lock(key):
+            # Chi aspettava trova il risultato di chi ha calcolato prima.
+            body = _cached_body(key, etag)
+            if body is None:
+                body = json.dumps(compute(), separators=(",", ":"), default=str).encode()
+                with _lock:
+                    _cache[key] = (etag, body)
+    return Response(content=body, media_type="application/json", headers=headers)
+
+
+def _cached_body(key: str, etag: str) -> bytes | None:
     with _lock:
         hit = _cache.get(key)
-    if hit is not None and hit[0] == etag:
-        body = hit[1]
-    else:
-        body = json.dumps(compute(), separators=(",", ":"), default=str).encode()
-        with _lock:
-            _cache[key] = (etag, body)
-    return Response(content=body, media_type="application/json", headers=headers)
+    return hit[1] if hit is not None and hit[0] == etag else None
 
 
 def clear() -> None:
     with _lock:
         _cache.clear()
+        _computing.clear()
