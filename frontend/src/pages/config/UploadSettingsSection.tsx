@@ -147,6 +147,14 @@ export function UploadReleasesSection() {
             description={t('uploadSettings.splitIncompleteDescription')}
             defaultOn
           />
+          {/* Accesa di default: una cartella con più stagioni dalla cartella
+              osservata diventa un upload per stagione. */}
+          <SettingToggle
+            settingKey="upload_watch_split_seasons"
+            label={t('uploadSettings.splitSeasonsLabel')}
+            description={t('uploadSettings.splitSeasonsDescription')}
+            defaultOn
+          />
         </CardContent>
       </Card>
 

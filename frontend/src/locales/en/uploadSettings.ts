@@ -44,6 +44,9 @@ export const uploadSettings = {
   'uploadSettings.splitIncompleteLabel': 'Incomplete seasons as episodes',
   'uploadSettings.splitIncompleteDescription':
     'A season that reaches the watched folder without every episode (e.g. the first 2 of 8) becomes one upload per episode instead of an incomplete season pack. Once the last one seeds, its folder goes with whatever is left (nfo, sample).',
+  'uploadSettings.splitSeasonsLabel': 'Several seasons as season packs',
+  'uploadSettings.splitSeasonsDescription':
+    'A folder with several seasons that reaches the watched folder (a whole series) becomes one upload per season, each with only its own episodes, instead of one complete pack. An incomplete season then follows the option above.',
   'uploadSettings.autoMatchLabel': 'Automatic TMDB match',
   'uploadSettings.autoMatchDescription':
     'For every upload, by hand or from the watched folder: a match at least this sure (0-1) is confirmed on its own; below, or when two titles look alike, it waits for you. Change match takes it back. 0 turns it off. Default: 0.9.',

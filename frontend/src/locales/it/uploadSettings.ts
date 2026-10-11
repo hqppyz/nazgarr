@@ -45,6 +45,9 @@ export const uploadSettings = {
   'uploadSettings.splitIncompleteLabel': 'Stagioni incomplete in episodi',
   'uploadSettings.splitIncompleteDescription':
     'Una stagione che dalla cartella osservata arriva senza tutti gli episodi (es. i primi 2 di 8) diventa un upload per episodio invece di un season pack incompleto. Quando l’ultimo è in seed, la sua cartella si toglie con quello che resta (nfo, sample).',
+  'uploadSettings.splitSeasonsLabel': 'Più stagioni in season pack',
+  'uploadSettings.splitSeasonsDescription':
+    'Una cartella con più stagioni che arriva nella cartella osservata (una serie intera) diventa un upload per stagione, ognuno con i soli suoi episodi, invece di un unico complete pack. Una stagione incompleta segue poi l’opzione qui sopra.',
   'uploadSettings.autoMatchDescription':
     'Per ogni upload, a mano o dalla cartella osservata: un match almeno così sicuro (0-1) viene confermato da solo; sotto, o quando due titoli si somigliano, aspetta te. Cambia match lo riporta indietro. 0 lo disattiva. Predefinito: 0.9.',
   'uploadSettings.autoRenameLabel': 'Rinomina i file in automatico',

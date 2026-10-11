@@ -270,10 +270,18 @@ def confirm(
         snapshot = episode_orders.snapshot(orders, order_key)
         if translate:
             seasons, episode = episode_orders.numbers_in(orders, order_key, kind, seasons, episode)
+    # Solo alcune stagioni di una cartella che ne ha di più: solo i loro file.
+    selection = upload_pack.season_selection(job, kind, seasons, snapshot) if content_type == "tv" else {}
+    before = len(json.loads(job.layout_json or "{}").get("videos") or []) if selection else 0
     upload_jobs.confirm_match(
         session, job, content_type=content_type, tmdb_id=tmdb_id, kind=kind, seasons=seasons, episode=episode,
-        details=details, forced=json.loads(job.forced_ids_json or "{}"),
+        details=details, forced=json.loads(job.forced_ids_json or "{}"), source_values=selection,
     )
+    if selection:
+        videos = len(json.loads(job.layout_json or "{}").get("videos") or [])
+        upload_jobs.log_event(session, job, "pack_from_seasons",
+                              seasons=", ".join(f"S{s:02d}" for s in sorted(set(seasons))),
+                              count=videos, left=before - videos)
     job.episode_order = order_key if snapshot is not None else None
     job.episode_order_json = json.dumps(snapshot) if snapshot is not None else None
     if snapshot is not None and remember:
@@ -300,21 +308,45 @@ def handle(session: Session, job: UploadJob, worker) -> None:
     if not record_identification(session, job, layout, candidates):
         return
     confirmed, details = _auto_match(session, job, candidates)
-    # Una stagione incompleta dalla cartella osservata: un upload per episodio.
-    if confirmed and job.origin == "watch" and upload_split.enabled(session) \
-            and upload_split.is_incomplete(job, details):
-        try:
-            children = upload_split.split(session, job, details)
-        except Exception:
-            # Va avanti come pack (è in analisi): meglio che fermo.
-            logger.exception("Upload %s: divisione in episodi non riuscita", job.id)
-            session.rollback()
-            upload_jobs.log_event(session, job, "split_failed", level="warning")
-            session.commit()
-            return
-        for child in children:
-            if worker is not None and child.status in upload_jobs.WORKER_STATES:
-                worker.kick(child.id, child.status)
+    if not confirmed or job.origin != "watch":
+        return
+    for child in _watch_split(session, job, details):
+        if worker is not None and child.status in upload_jobs.WORKER_STATES:
+            worker.kick(child.id, child.status)
+
+
+def _watch_split(session: Session, job: UploadJob, details: dict | None) -> list[UploadJob]:
+    """Dalla cartella osservata, dopo il match automatico
+    (nazgarr/upload/split.py): una cartella con più stagioni diventa un upload
+    per stagione, e una stagione incompleta un upload per episodio. I job
+    nuovi da far partire; vuoto se il job va avanti com'è."""
+    seasons = [job]
+    if upload_split.seasons_enabled(session) and upload_split.seasons_to_split(job):
+        seasons = _try_split(session, job, upload_split.split_seasons, details, "split_seasons_failed") or [job]
+    started = []
+    for season in seasons:
+        episodes = None
+        if season.status == "analyzing" and upload_split.enabled(session) \
+                and upload_split.is_incomplete(season, details):
+            episodes = _try_split(session, season, upload_split.split, details, "split_failed")
+        if episodes:
+            started.extend(episodes)
+        elif season is not job:
+            started.append(season)
+    return started
+
+
+def _try_split(session: Session, job: UploadJob, split, details: dict | None, failed: str) -> list[UploadJob] | None:
+    """Una divisione che non riesce lascia il job com'è (è in analisi): meglio
+    un pack che un upload fermo."""
+    try:
+        return split(session, job, details)
+    except Exception:
+        logger.exception("Upload %s: divisione non riuscita", job.id)
+        session.rollback()
+        upload_jobs.log_event(session, job, failed, level="warning")
+        session.commit()
+        return None
 
 
 def record_identification(session: Session, job: UploadJob, layout: SourceLayout, candidates: list[dict]) -> bool:
