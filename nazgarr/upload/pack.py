@@ -16,6 +16,9 @@ Episodi di release diverse (risoluzione, sorgente, codec, gruppo, lingue)
 farebbero un pack misto, che il nome non racconta e molti tracker rifiutano:
 l'analisi li segnala e l'upload resta bloccato finché l'utente non conferma
 (override pack_mixed_confirmed).
+
+Lo stesso pack nasce da solo da una cartella con più stagioni quando al
+match se ne sceglie solo una parte (season_selection).
 """
 
 import json
@@ -27,6 +30,7 @@ from sqlalchemy.orm import Session
 from nazgarr.core.file_types import is_video
 from nazgarr.core.fs_scope import resolve_scoped
 from nazgarr.core.models import Disk, UploadJob
+from nazgarr.library import episode_orders
 from nazgarr.library import mediainfo as mediainfo_util
 from nazgarr.library.guess import clean_name
 from nazgarr.library.guess import guess as guess_name
@@ -40,6 +44,8 @@ MAX_FILES = 500
 SUBTITLE_EXTS = (".srt", ".ass", ".ssa", ".sub", ".idx", ".sup", ".vtt")
 # "S01E01", "S01E01E02", "S01E01-E02", "S01E01-02", "1x01".
 _EPISODE = re.compile(r"(?i)\bS\d{1,3}[ ._-]?E\d{1,4}(?:-?E\d{1,4}|-\d{1,4})*\b|\b\d{1,2}x\d{2,3}\b")
+# Le stagioni nel nome di una cartella: "S01", "S01-S03", "S01-03".
+_SEASONS = re.compile(r"(?i)\bS\d{1,3}(?:-S?\d{1,3})?\b")
 
 
 def is_pack(job: UploadJob) -> bool:
@@ -100,9 +106,12 @@ def season_name(source: str, seasons: list[int]) -> str:
     stem = os.path.splitext(source)[0] if is_video(source) else source
     if not seasons:
         return stem
-    token = f"S{seasons[0]:02d}" if len(seasons) == 1 else f"S{min(seasons):02d}-S{max(seasons):02d}"
-    renamed, count = _EPISODE.subn(token, stem, count=1)
+    renamed, count = _EPISODE.subn(_token(seasons), stem, count=1)
     return renamed if count else stem
+
+
+def _token(seasons: list[int]) -> str:
+    return f"S{seasons[0]:02d}" if len(seasons) == 1 else f"S{min(seasons):02d}-S{max(seasons):02d}"
 
 
 def _seasons(names: list[str]) -> list[int]:
@@ -133,6 +142,23 @@ def create_job(
     if len(videos) > MAX_FILES:
         raise UploadJobError("upload_pack_too_many_files", max=MAX_FILES)
     root = os.path.realpath(disk.root_path)
+    picked = _pick(disk, videos)
+    common = _common_folder(picked)
+    video_names = [os.path.basename(p) for p in picked if is_video(p)]
+    pack = {
+        "name": season_name(sorted(video_names)[0], _seasons(video_names)),
+        "files": [os.path.relpath(p, root) for p in picked],
+    }
+    return upload_jobs.insert_job(
+        session, disk, os.path.relpath(common, root), common, True, tracker_ids, forced_ids, overrides,
+        tracker_choices, ORIGIN, pack_json=json.dumps(pack),
+    )
+
+
+def _pick(disk: Disk, videos: list[str]) -> list[str]:
+    """I video (relativi al disco) con i loro sottotitoli, percorsi
+    controllati. Nel pack stanno tutti nella stessa cartella: mai due file
+    con lo stesso nome."""
     picked: list[str] = []
     for relative in videos:
         path = _checked(disk, relative)
@@ -144,19 +170,131 @@ def create_job(
     duplicate = next((n for n in names if names.count(n) > 1), None)
     if duplicate is not None:
         raise UploadJobError("upload_pack_duplicate_name", name=duplicate)
+    return picked
 
-    common = os.path.commonpath(picked)
-    if os.path.isfile(common):
-        common = os.path.dirname(common)
-    video_names = [os.path.basename(p) for p in picked if is_video(p)]
-    pack = {
-        "name": season_name(sorted(video_names)[0], _seasons(video_names)),
-        "files": [os.path.relpath(p, root) for p in picked],
+
+def _common_folder(paths: list[str]) -> str:
+    common = os.path.commonpath(paths)
+    return os.path.dirname(common) if os.path.isfile(common) else common
+
+
+# --- le stagioni scelte di una cartella con più stagioni ----------------------
+
+
+def _video_seasons(video: dict, orders: tuple | None) -> set[int]:
+    """Le stagioni di un video della sorgente nella numerazione scelta al
+    match (orders: l'ordinamento dei file e quello scelto)."""
+    season = video.get("season")
+    if season is None:
+        return set()
+    episodes = video.get("episodes") or []
+    if orders is None or not episodes:
+        return {season}
+    files, chosen = orders
+    return {s for e in episodes for s, _e in (episode_orders.translate(files, chosen, season, e) or [(season, e)])}
+
+
+def _with_seasons(job: UploadJob, order_snapshot: dict | None) -> list[tuple[dict, set[int]]]:
+    """Ogni video della sorgente con le sue stagioni nella numerazione scelta."""
+    snapshot = order_snapshot or {}
+    orders = None
+    if snapshot.get("chosen") and snapshot.get("files"):
+        orders = (episode_orders.EpisodeOrder.from_dict(snapshot["files"]),
+                  episode_orders.EpisodeOrder.from_dict(snapshot["chosen"]))
+    layout = json.loads(job.layout_json or "{}")
+    return [(video, _video_seasons(video, orders)) for video in layout.get("videos") or []]
+
+
+def seasons_in_source(job: UploadJob) -> set[int]:
+    """Le stagioni con almeno un video nella sorgente di un job confermato,
+    nella numerazione scelta al match."""
+    found = _with_seasons(job, json.loads(job.episode_order_json or "null"))
+    return set().union(*(found_seasons for _video, found_seasons in found))
+
+
+def season_selection(job: UploadJob, kind: str, seasons: list[int], order_snapshot: dict | None) -> dict:
+    """Una cartella con più stagioni di cui al match se ne sceglie solo una
+    parte (segnalato 2026-10-11: dalla cartella osservata arriva la serie
+    intera, e il season pack della S01 conteneva tutti gli episodi): l'upload
+    prende solo i video di quelle stagioni, che stiano nella loro
+    sottocartella ("Season 01/") o tutti insieme ("S01E01..."), e diventa un
+    pack come quelli scelti a mano, con i loro sottotitoli. Il resto (nfo,
+    altre stagioni, video senza stagione nel nome o nella cartella) resta
+    fuori.
+
+    I valori del job da cambiare alla conferma del match; vuoto se la
+    sorgente va bene com'è: tutte le sue stagioni scelte, o nessuna (l'utente
+    rinumera: i file dicono S01, la serie su TMDB S03). La cartella di
+    partenza resta nel pack (from_folder) per tornare al match."""
+    if kind not in ("season_pack", "complete_pack") or not job.is_dir or is_pack(job) or job.disk is None:
+        return {}
+    layout = json.loads(job.layout_json or "{}")
+    wanted = set(seasons)
+    found = _with_seasons(job, order_snapshot)
+    present = set().union(*(found_seasons for _video, found_seasons in found))
+    if not present & wanted or present <= wanted:
+        return {}
+    kept = [video for video, found_seasons in found if found_seasons & wanted]
+
+    disk = job.disk
+    root = os.path.realpath(disk.root_path)
+    paths = {video["relative_path"]: os.path.join(job.source_path, video["relative_path"]) for video in kept}
+    picked = _pick(disk, [os.path.relpath(path, root) for path in paths.values()])
+    common = _common_folder(picked)
+    # Il layout dei soli video scelti, con i nomi nel pack: le stagioni lette
+    # dalle sottocartelle ("Season 02/03.mkv") restano quelle della cartella.
+    videos = [{**video, "relative_path": os.path.basename(video["relative_path"])} for video in kept]
+    by_season: dict[int, set[int]] = {}
+    for video in videos:
+        if video.get("season") is not None:
+            by_season.setdefault(video["season"], set()).update(video.get("episodes") or [])
+    file_seasons = sorted(by_season)
+    main = max(kept, key=lambda video: video.get("size_bytes") or 0)
+    selected = {
+        **layout,
+        "kind": "complete_pack" if len(file_seasons) > 1 else "season_pack",
+        "videos": videos,
+        "other_files": len(picked) - len(videos),
+        "total_size_bytes": sum(video.get("size_bytes") or 0 for video in videos),
+        "main_video": paths[main["relative_path"]],
+        "seasons": file_seasons,
+        "episodes_by_season": {season: sorted(eps) for season, eps in sorted(by_season.items())},
     }
-    return upload_jobs.insert_job(
-        session, disk, os.path.relpath(common, root), common, True, tracker_ids, forced_ids, overrides,
-        tracker_choices, ORIGIN, pack_json=json.dumps(pack),
-    )
+    first = sorted(video["relative_path"] for video in videos)[0]
+    name = season_name(first, file_seasons)
+    if not _EPISODE.search(clean_name(first)) and file_seasons:
+        # Episodi senza "S01E01" nel nome ("Season 03/01.mkv"): il nome della
+        # cartella con le stagioni scelte ("Show.S01-S03..." -> "Show.S03...").
+        folder_name = os.path.basename(job.source_path.rstrip(os.sep))
+        name = _SEASONS.sub(_token(file_seasons), folder_name, count=1)
+    pack = {
+        "name": name,
+        "files": [os.path.relpath(p, root) for p in picked],
+        "from_folder": {"relative_path": job.relative_path, "source_path": job.source_path, "layout": layout},
+    }
+    return {
+        "pack_json": json.dumps(pack),
+        "relative_path": os.path.relpath(common, root),
+        "source_path": common,
+        "layout_json": json.dumps(selected),
+    }
+
+
+def from_folder(job: UploadJob) -> dict | None:
+    """La cartella da cui è nato un pack di season_selection: relative_path,
+    source_path e il suo layout. None per gli altri job."""
+    return _data(job).get("from_folder") if is_pack(job) else None
+
+
+def folder_values(job: UploadJob) -> dict:
+    """I valori che riportano un pack di season_selection alla sua cartella
+    (di nuovo al match, dove si può scegliere un'altra stagione); vuoto per
+    gli altri job."""
+    folder = from_folder(job)
+    if folder is None:
+        return {}
+    return {"pack_json": None, "relative_path": folder["relative_path"], "source_path": folder["source_path"],
+            "layout_json": json.dumps(folder["layout"])}
 
 
 # --- pack misti ---------------------------------------------------------------

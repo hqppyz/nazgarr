@@ -338,6 +338,8 @@ def resume_job(session: Session, job: UploadJob) -> str:
         raise UploadJobError("upload_job_wrong_status", status=job.status)
     if any(event.code == "job_split" for event in job.events):
         raise UploadJobError("upload_job_split")  # continua negli upload degli episodi
+    if any(event.code == "job_split_seasons" for event in job.events):
+        raise UploadJobError("upload_job_split_seasons")  # continua negli upload delle stagioni
     if not os.path.exists(job.source_path):
         raise UploadJobError("upload_source_missing", path=job.relative_path)
     previous = _cancelled_from(job)
@@ -438,10 +440,13 @@ def confirm_match(
     episode: int | None,
     details: dict | None,
     forced: dict,
+    source_values: dict | None = None,
 ) -> None:
     """Primo punto di approvazione: l'utente conferma il contenuto (e per le
     serie stagione/episodio). details = full_details di TMDB, None senza
     chiave TMDB. Gli id forzati dall'utente vincono su quelli di TMDB.
+    source_values: la sorgente ristretta alle stagioni scelte
+    (nazgarr/upload/pack.py season_selection), scritta insieme allo stato.
     Porta il job in 'analyzing'; il chiamante sveglia il worker."""
     if job.status != "awaiting_match":
         raise UploadJobError("upload_job_wrong_status", status=job.status)
@@ -473,6 +478,7 @@ def confirm_match(
     for key in ("title", "year", "poster_path"):
         if details.get(key) is not None:
             values[key] = details[key]
+    values.update(source_values or {})
     if not transition(session, job, "awaiting_match", "analyzing", **values):
         raise UploadJobError("upload_job_wrong_status", status=job.status)
     log_event(
@@ -501,12 +507,18 @@ def back_to_match(session: Session, job: UploadJob) -> None:
     decisione si torna a scegliere il contenuto, per un match automatico (o
     manuale) sbagliato. Quello che dipendeva dal match si rifà: analisi,
     nomi proposti, dupe-check. Gli override dell'utente restano. Mai durante
-    un full hash check: il suo esito apparterrebbe al match vecchio."""
+    un full hash check: il suo esito apparterrebbe al match vecchio. Le
+    stagioni scelte di una cartella con più stagioni tornano la cartella
+    intera, per sceglierne altre."""
+    # qui: pack importa questo modulo
+    from nazgarr.upload import pack as upload_pack
+
     if job.status != "awaiting_decision":
         raise UploadJobError("upload_job_wrong_status", status=job.status)
     if any(target.status == "verifying" for target in job.targets):
         raise UploadJobError("upload_verify_in_progress")
-    if not transition(session, job, "awaiting_decision", "awaiting_match", analysis_json=None, stage=None):
+    if not transition(session, job, "awaiting_decision", "awaiting_match", analysis_json=None, stage=None,
+                      **upload_pack.folder_values(job)):
         raise UploadJobError("upload_job_wrong_status", status=job.status)
     for target in job.targets:
         set_target_status(target, TargetStatus.PENDING)

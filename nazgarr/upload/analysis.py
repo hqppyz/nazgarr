@@ -179,7 +179,11 @@ def name_source(job: UploadJob, files: list[tuple[str, int]], client_matches: li
         found = _single_name_source(job, files, client_matches, index)
         seasons = json.loads(job.seasons_json or "[]")
         if found is None:
-            return {"name": upload_pack.name(job), "origin": "source"}
+            # Le stagioni scelte di una cartella: quello che i nomi degli
+            # episodi non dicono, dal nome della cartella.
+            folder = upload_pack.from_folder(job)
+            fallback = os.path.basename(folder["source_path"].rstrip(os.sep)) if folder else None
+            return {"name": upload_pack.name(job), "origin": "source", **({"fallback": fallback} if fallback else {})}
         return {"name": upload_pack.season_name(found["name"], seasons), "fallback": upload_pack.name(job),
                 "origin": found["origin"]}
     found = _single_name_source(job, files, client_matches, index)

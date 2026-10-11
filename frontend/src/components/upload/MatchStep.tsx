@@ -593,6 +593,9 @@ export function MatchStep({ job }: { job: UploadJob }) {
   const videos = layout?.videos.length ?? 0
   const expected = seasonRows.find((row) => row.season_number === seasons[0])?.episode_count ?? 0
   const foundInSeason = (found[String(seasons[0])] ?? []).length
+  // Da una cartella con più stagioni si dividono solo gli episodi di quella
+  // scelta (nazgarr/upload/pack.py season_selection), non tutti i video.
+  const splitCount = Object.keys(found).length > 1 ? foundInSeason : videos
   const canSplit = isTv && kind === 'season_pack' && seasons.length === 1 && !job.pack_name && videos > 1
     && expected > 0 && foundInSeason > 0 && foundInSeason < expected
 
@@ -764,7 +767,7 @@ export function MatchStep({ job }: { job: UploadJob }) {
                 {t('upload.match.splitHelp', { found: foundInSeason, expected })}
               </p>
               <Button variant="outline" disabled={confirm.isPending || split.isPending} onClick={splitIntoEpisodes}>
-                {t('upload.match.split', { count: videos })}
+                {t('upload.match.split', { count: splitCount })}
               </Button>
             </div>
           )}

@@ -54,6 +54,8 @@ _SPECS = [
     SettingSpec("upload_screenshot_count", "int", 4, minimum=0, maximum=12),
     # Una stagione incompleta dalla cartella osservata: un upload per episodio (nazgarr/upload/split.py).
     SettingSpec("upload_watch_split_incomplete", "bool", True),
+    # Una cartella con più stagioni dalla cartella osservata: un upload per stagione (idem).
+    SettingSpec("upload_watch_split_seasons", "bool", True),
     # Aggiornamenti: controllo automatico ogni 12 ore (nazgarr/core/updates.py),
     # spento di default: contatta GitHub solo se l'utente lo accende.
     SettingSpec("update_check_auto", "bool", False),

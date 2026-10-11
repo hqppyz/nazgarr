@@ -113,6 +113,7 @@
  "upload_invalid_tmdb_id": "Not a TMDB id: {value}",
  "upload_job_not_found": "Upload {id} not found.",
  "upload_job_split": "This upload was split into episodes: carry on from their uploads.",
+ "upload_job_split_seasons": "This upload was split into seasons: carry on from their uploads.",
  "upload_job_wrong_status": "This can't be done while the upload is in status '{status}'.",
  "upload_kind_mismatch": "A {content_type} can't be uploaded as '{kind}'.",
  "upload_name_required": "{tracker}: the release name is empty.",
