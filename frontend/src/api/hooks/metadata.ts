@@ -25,6 +25,7 @@ export interface MetadataCandidate {
     year?: number
     year_guess?: number | null
     year_candidate?: number | null
+    year_waived?: boolean
     type?: number
     type_guess?: string
     type_candidate?: string

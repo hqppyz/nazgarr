@@ -481,6 +481,7 @@ export const upload = {
   'upload.match.factor.yearOneOff': 'un anno di scarto (capita tra uscita e nome)',
   'upload.match.factor.yearDifferent': 'anni diversi',
   'upload.match.factor.yearUnknown': 'non verificabile',
+  'upload.match.factor.yearWaived': 'non serve: nessun’altra serie ha questo titolo',
   'upload.match.factor.type': 'Tipo',
   'upload.match.factor.typeSame': '{type}, come dice il file',
   'upload.match.factor.typeDifferent': 'il file sembra un {guess}, questo è un {candidate}',
