@@ -175,8 +175,9 @@ function ConfidenceFactors({ candidate }: { candidate: MetadataCandidate }) {
   if (!parts) return null
   if (parts.basis !== 'name') return <p className="text-muted-foreground">{t(`upload.match.basis.${parts.basis}`)}</p>
   const kind = (type: string | undefined) => (type === 'tv' ? t('upload.match.series') : t('upload.match.movie'))
-  const yearReason =
-    parts.year_guess == null || parts.year_candidate == null
+  const yearReason = parts.year_waived
+    ? t('upload.match.factor.yearWaived')
+    : parts.year_guess == null || parts.year_candidate == null
       ? t('upload.match.factor.yearUnknown')
       : parts.year_guess === parts.year_candidate
         ? t('upload.match.factor.yearSame')

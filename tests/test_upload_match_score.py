@@ -52,3 +52,35 @@ def test_the_confidence_says_what_was_compared():
     [old] = explained([_c(1, "Matrix", 1999) | {"confidence": 1.0}], {"title": "Matrix", "year": 1999,
                                                                       "content_type": "movie"})
     assert old["confidence_parts"]["title_matched"] == "Matrix"
+
+
+def test_a_series_without_year_is_sure_when_no_other_series_has_its_title():
+    # I nomi delle release TV quasi mai hanno l'anno: "Breaking Bad/Season 1/...".
+    best, other = scored([_c(1, "Breaking Bad", 2008, "tv"), _c(2, "Breaking Bad: Original Minisodes", 2009, "tv")],
+                         "Breaking Bad", None, "tv")
+    assert best["confidence"] == 1.0 and not best.get("ambiguous")
+    assert best["confidence_parts"]["year"] == 1.0 and best["confidence_parts"]["year_waived"]
+    assert other["confidence"] < 0.9 and "year_waived" not in other["confidence_parts"]
+
+
+def test_two_series_with_the_same_title_still_need_the_year():
+    us, uk = scored([_c(1, "The Office", 2005, "tv"), _c(2, "The Office", 2001, "tv")], "The Office", None, "tv")
+    assert us["ambiguous"] and uk["ambiguous"]
+    assert us["confidence"] == uk["confidence"] < 0.9
+    assert "year_waived" not in us["confidence_parts"]
+
+
+def test_sonarr_still_wins_over_a_series_with_the_same_title():
+    arr, uk = scored([_c(1, "The Office", 2005, "tv", source="sonarr"), _c(2, "The Office", 2001, "tv")],
+                     "The Office", None, "tv")
+    assert (arr["tmdb_id"], arr["confidence"]) == (1, 0.97) and not arr.get("ambiguous")
+    assert uk["confidence"] == 0.85
+
+
+def test_the_year_still_counts_for_movies_and_near_titles():
+    [movie] = scored([_c(1, "Heat", 1995)], "Heat", None, "movie")
+    [near] = scored([_c(1, "Breaking Bad", 2008, "tv")], "Braking Bad", None, "tv")
+    [as_movie] = scored([_c(1, "Breaking Bad", 2008, "tv")], "Breaking Bad", None, "movie")
+    assert movie["confidence"] == 0.85
+    assert near["confidence_parts"]["year"] == 0.85
+    assert as_movie["confidence"] == round(0.85 * 0.6, 3)

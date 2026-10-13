@@ -156,6 +156,25 @@ def test_the_italian_title_reaches_a_candidate_found_first_by_the_resolver(
     assert best["confidence_parts"]["title_matched"] == "La grande bellezza"
 
 
+def test_a_series_folder_without_year_passes_the_auto_match_threshold(db_session, tmp_path, monkeypatch,
+                                                                      no_resolver):
+    # Una serie scaricata a mano: il nome nella cartella padre, le stagioni
+    # nelle sottocartelle, nessun anno (come quasi tutte le release TV).
+    for season in (1, 2):
+        for episode in (1, 2):
+            write_video(tmp_path / "Breaking Bad" / f"Season {season}" / f"Breaking.Bad.S0{season}E0{episode}.mkv")
+    layout = scan_source(str(tmp_path / "Breaking Bad"))
+    _with_tmdb(monkeypatch, FakeTMDB(search={("tv", "Breaking Bad", None): [
+        tmdb_result(1396, "Breaking Bad", 2008, "tv"), tmdb_result(9, "Breaking Bad: Original Minisodes", 2009, "tv"),
+    ]}))
+
+    candidates = upload_identify.find_candidates(db_session, {}, layout)
+
+    assert (layout.kind, layout.title, layout.year, layout.seasons) == ("complete_pack", "Breaking Bad", None, [1, 2])
+    assert candidates[0]["tmdb_id"] == 1396 and not candidates[0].get("ambiguous")
+    assert candidates[0]["confidence"] >= upload_identify.auto_match_threshold(db_session) == 0.9
+
+
 def test_auto_match_confirms_the_numbers_of_the_chosen_ordering(db_session, monkeypatch):
     """Come al match a mano: se l'ordinamento scelto non è quello dei file,
     stagione ed episodio confermati sono già tradotti (nome, file e campi

@@ -141,6 +141,23 @@ describe('MatchStep', () => {
     expect(screen.queryByText(/Best match/)).toBeNull()
   })
 
+  it('says why a series without a year in the name is not lowered', async () => {
+    const scored = {
+      ...job,
+      candidates: [
+        { ...job.candidates[0], source: 'search', confidence: 1,
+          confidence_parts: { basis: 'name', title: 1, title_guess: 'Severance', title_matched: 'Severance', year: 1,
+            year_guess: null, year_candidate: 2022, year_waived: true, type: 1, type_guess: 'tv', type_candidate: 'tv' } },
+        job.candidates[1],
+      ],
+    } as unknown as UploadJob
+    render(<MatchStep job={scored} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reliability 100%.' }))
+    expect(await screen.findByText('file —, TMDB 2022: not needed: no other series has this title')).toBeTruthy()
+    expect(screen.getByText('100% × 100% × 100% = 100%')).toBeTruthy()
+  })
+
   it('picks the ordering that fits the files, warns when it is not TVDB aired, and sends the choice', () => {
     const episode = (n: number, refs: number[][]) => ({ number: n, titles: [`Capitolo ${n}`], air_date: null, refs })
     const parts = {

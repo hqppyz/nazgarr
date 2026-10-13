@@ -6,6 +6,9 @@ mostrarlo nella schermata di match.
 - ricerca per nome: somiglianza del titolo (anche con quello originale) per
   l'anno (esatto, uno di scarto come succede tra uscita e nome, o assente)
   per il tipo (film/serie come dice il nome del file);
+- una serie senza anno nel nome: il titolo identico basta, se nessun'altra
+  serie tra i candidati ce l'ha (i nomi delle release TV quasi mai hanno
+  l'anno, decisione dell'utente 2026-10-13);
 - due candidati quasi pari: il primo vale meno, il match è ambiguo."""
 
 import re
@@ -54,32 +57,49 @@ def _year_factor(guess_year: int | None, year: int | None) -> float:
     return 0.5
 
 
-def parts(candidate: dict, title: str | None, year: int | None, content_type: str) -> dict:
+def _same_title_series(candidates: list[dict], title: str | None) -> int:
+    """Quante serie tra i candidati hanno proprio il titolo del nome."""
+    return sum(1 for c in candidates if c.get("content_type") == "tv" and title_similarity(title, c) == 1.0)
+
+
+def parts(candidate: dict, title: str | None, year: int | None, content_type: str,
+          same_title_series: int = 0) -> dict:
     """Da cosa viene la confidence, per la schermata di match: aiuta a capire
-    a che soglia mettere il match automatico."""
+    a che soglia mettere il match automatico. same_title_series: quante serie
+    tra i candidati hanno il titolo identico al nome (_same_title_series)."""
     source = candidate.get("source") or ""
     if source.startswith("forced"):
         return {"basis": "forced"}
     if source in ("radarr", "sonarr", "arr"):
         return {"basis": "arr"}
     similarity, matched = _best_title(title, candidate)
+    year_factor = _year_factor(year, candidate.get("year"))
+    # Una serie senza anno nel nome, con un titolo che nessun'altra serie ha:
+    # l'anno non serve a distinguerla. Due serie con lo stesso titolo (The
+    # Office UK e US) restano a 0.85: lì l'anno servirebbe davvero.
+    year_waived = (year is None and content_type == "tv" and candidate.get("content_type") == "tv"
+                   and similarity == 1.0 and same_title_series == 1)
     # Oltre ai fattori, cosa è stato confrontato: per spiegare la percentuale.
-    return {
+    explained = {
         "basis": "name",
         "title": round(similarity, 3),
         "title_guess": title,
         "title_matched": matched,
-        "year": _year_factor(year, candidate.get("year")),
+        "year": 1.0 if year_waived else year_factor,
         "year_guess": year,
         "year_candidate": candidate.get("year"),
         "type": 1.0 if candidate.get("content_type") == content_type else 0.6,
         "type_guess": content_type,
         "type_candidate": candidate.get("content_type"),
     }
+    if year_waived:
+        explained["year_waived"] = True
+    return explained
 
 
-def score(candidate: dict, title: str | None, year: int | None, content_type: str) -> float:
-    explained = parts(candidate, title, year, content_type)
+def score(candidate: dict, title: str | None, year: int | None, content_type: str,
+          same_title_series: int = 0) -> float:
+    explained = parts(candidate, title, year, content_type, same_title_series)
     if explained["basis"] == "forced":
         return FORCED
     if explained["basis"] == "arr":
@@ -90,9 +110,10 @@ def score(candidate: dict, title: str | None, year: int | None, content_type: st
 def scored(candidates: list[dict], title: str | None, year: int | None, content_type: str) -> list[dict]:
     """I candidati con la loro "confidence" e da cosa viene ("confidence_parts"),
     dal più sicuro (a pari merito l'ordine di prima: forzati, resolver, ricerca)."""
+    same_title = _same_title_series(candidates, title)
     out = [
-        {**c, "confidence": round(score(c, title, year, content_type), 3),
-         "confidence_parts": parts(c, title, year, content_type)}
+        {**c, "confidence": round(score(c, title, year, content_type, same_title), 3),
+         "confidence_parts": parts(c, title, year, content_type, same_title)}
         for c in candidates
     ]
     out.sort(key=lambda c: -c["confidence"])
