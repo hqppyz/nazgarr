@@ -629,6 +629,7 @@ class CandidateFile(Base):
     size_match: Mapped[bool | None]
     mediainfo_match: Mapped[bool | None]
     piece_verified: Mapped[bool | None]
+    match_method: Mapped[str | None]
 
     candidate: Mapped["Candidate"] = relationship(back_populates="files")
     media_file: Mapped["MediaFile | None"] = relationship()

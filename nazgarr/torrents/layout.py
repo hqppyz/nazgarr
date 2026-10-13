@@ -7,8 +7,10 @@ Due lati, stessa valutazione:
 - libreria (media_to_torrent): il torrent va ricreato con hardlink dai file
   in libreria. Ogni video del torrent deve corrispondere a un media_file;
   per un pack l'abbinamento viene, in ordine, dalla history di Sonarr
-  (droppedPath -> importedPath, esatto anche con file rinominati) o da
-  guessit sul nome del file nel pack (stagione/episodio) + stessa size.
+  (droppedPath -> importedPath, esatto anche con file rinominati), da
+  guessit sul nome del file nel pack (stagione/episodio) + stessa size, e
+  per ultimo dal contenuto: un file della stessa serie con la stessa size,
+  accettato solo se i piece hash del .torrent lo confermano (issue #25).
 - torrent (torrent_to_client): la cartella del torrent è ancora su disco,
   i nomi sono quelli originali — basta ritrovare ogni file sotto la stessa
   radice dell'anchor.
@@ -47,6 +49,11 @@ CONFIDENCE_NO_MATCH = 0.0
 # Piece verificati per file video (nazgarr/torrents/pieces.py max_pieces): un
 # campione distribuito lungo il file, mai la rilettura dell'intero file.
 PIECE_SAMPLE_SIZE = 8
+
+# Fallback sul contenuto (issue #25): oltre questo numero di file della serie
+# con la stessa size, l'abbinamento resta inconcludente invece di leggere i
+# piece di ognuno.
+MAX_CONTENT_CANDIDATES = 3
 
 # Piece che un file extra mancante condivide con i vicini: il client li
 # riscarica interi. Stima prudente quando la piece length non è nota.
@@ -117,6 +124,12 @@ class FileMatch:
     piece_verified: bool | None = None
     piece_boundary_count: int | None = None
     confidence: float = CONFIDENCE_NO_MATCH
+    # Come è stato trovato il file locale di un video: anchor, history, name,
+    # episode_order, content (dai piece hash), path (lato torrent).
+    method: str | None = None
+    # Solo per un video ancora senza file: i file della serie con la sua
+    # size, che evaluate() prova coi piece hash (_match_by_content).
+    content_candidates: list[LocalFile] = field(default_factory=list)
 
 
 @dataclass
@@ -155,6 +168,9 @@ class LocalFiles:
     media_by_episode: dict[tuple[int, int, int], list[MediaFile]] = field(default_factory=lambda: defaultdict(list))
     media_by_dir: dict[tuple[int, str], list[MediaFile]] = field(default_factory=lambda: defaultdict(list))
     episodes_by_series: dict[int, set[tuple[int, int]]] = field(default_factory=lambda: defaultdict(set))
+    # (tmdb_id della serie, disco, size) -> episodi: il fallback sul contenuto.
+    media_by_series_size: dict[tuple[int, int, int], list[MediaFile]] = field(
+        default_factory=lambda: defaultdict(list))
     seed_by_path: dict[tuple[int, str], SeedFile] = field(default_factory=dict)
 
     @classmethod
@@ -173,6 +189,8 @@ class LocalFiles:
             if item is not None and item.season_number is not None and item.episode_number is not None:
                 index.media_by_episode[(item.tmdb_id, item.season_number, item.episode_number)].append(mf)
                 index.episodes_by_series[item.tmdb_id].add((item.season_number, item.episode_number))
+            if item is not None and item.content_type == "tv" and is_video(mf.relative_path):
+                index.media_by_series_size[(item.tmdb_id, mf.disk_id, mf.size_bytes)].append(mf)
         for sf in session.query(SeedFile).all():
             if is_current(sf, latest_seed):
                 index.seed_by_path[(sf.disk_id, sf.relative_path)] = sf
@@ -220,22 +238,25 @@ def map_media_side(
         if not lf.is_video:
             continue
         mf: MediaFile | None = None
+        method = None
         if len(videos) == 1:
-            mf = anchor
+            mf, method = anchor, "anchor"
         else:
             if arr_index is not None and lf.size is not None:
                 imported = arr_index.imported_for(lf.full_path(layout.folder), lf.size)
                 if imported is not None:
                     mf = _pick_same_disk(local.media_by_key.get(imported, []), anchor.disk_id, lf.size)
+                    method = "history"
             if mf is None and item is not None and item.content_type == "tv":
                 numbers = _episode_numbers(os.path.basename(lf.path))
                 if numbers is not None:
                     mf = _pick_same_disk(
                         local.media_by_episode.get((item.tmdb_id, *numbers), []), anchor.disk_id, lf.size
                     )
+                    method = "name"
                     if mf is None:
                         unmatched[i] = numbers
-        matches[i] = FileMatch(lf, _media_local(mf) if mf is not None else None)
+        matches[i] = FileMatch(lf, _media_local(mf) if mf is not None else None, method=method if mf else None)
 
     if unmatched and translator is not None and item is not None:
         torrent_episodes = {n for lf in videos if (n := _episode_numbers(os.path.basename(lf.path))) is not None}
@@ -247,11 +268,16 @@ def map_media_side(
             mf = _pick_same_disk(local.media_by_episode.get((item.tmdb_id, *target), []), anchor.disk_id,
                                  layout.files[i].size)
             if mf is not None:
-                matches[i] = FileMatch(layout.files[i], _media_local(mf))
+                matches[i] = FileMatch(layout.files[i], _media_local(mf), method="episode_order")
 
-    # Extra: stesse cartelle dei video abbinati, per nome o (sottotitoli
-    # rinominati da Sonarr/Radarr) per estensione + size esatta, se univoca.
+    if len(videos) > 1 and item is not None and item.content_type == "tv":
+        _content_candidates(matches, item.tmdb_id, anchor.disk_id, local)
+
+    # Extra: stesse cartelle dei video abbinati (o candidati per contenuto),
+    # per nome o (sottotitoli rinominati da Sonarr/Radarr) per estensione +
+    # size esatta, se univoca.
     dirs = {os.path.dirname(m.local.relative_path) for m in matches.values() if m.local}
+    dirs |= {os.path.dirname(c.relative_path) for m in matches.values() for c in m.content_candidates}
     neighbours = [mf for d in dirs for mf in local.media_by_dir.get((anchor.disk_id, d), [])]
     used = {m.local.id for m in matches.values() if m.local}
     for i, lf in enumerate(layout.files):
@@ -263,6 +289,24 @@ def map_media_side(
         matches[i] = FileMatch(lf, _media_local(found) if found is not None else None)
 
     return [matches[i] for i in range(len(layout.files))]
+
+
+def _content_candidates(matches: dict[int, FileMatch], tmdb_id: int, disk_id: int, local: LocalFiles) -> None:
+    """Ultimo tentativo per i video che né la history né il nome hanno
+    abbinato (es. "Serie - S01 - 01 - Titolo.mkv", che guessit non legge):
+    gli episodi della stessa serie sullo stesso disco (un hardlink non
+    attraversa i dischi) con la size esatta, non già abbinati a un altro
+    video. Sono solo candidati: li conferma evaluate() coi piece hash."""
+    used = {m.local.id for m in matches.values() if m.local}
+    for m in matches.values():
+        if m.local is not None or m.layout_file.size is None:
+            continue
+        same: dict[tuple[int, int], MediaFile] = {}
+        for mf in local.media_by_series_size.get((tmdb_id, disk_id, m.layout_file.size), []):
+            if mf.id not in used:
+                same.setdefault((mf.st_dev, mf.inode), mf)  # due hardlink sono lo stesso file
+        if len(same) <= MAX_CONTENT_CANDIDATES:
+            m.content_candidates = [_media_local(mf) for mf in same.values()]
 
 
 def _match_extra(lf: LayoutFile, neighbours: list[MediaFile]) -> MediaFile | None:
@@ -293,7 +337,8 @@ def map_seed_side(layout: Layout, anchor: SeedFile, local: LocalFiles) -> list[F
     result = []
     for lf in layout.files:
         sf = local.seed_by_path.get((anchor.disk_id, root + lf.full_path(layout.folder)))
-        result.append(FileMatch(lf, _seed_local(sf) if sf is not None else None))
+        result.append(FileMatch(lf, _seed_local(sf) if sf is not None else None,
+                                method="path" if sf is not None and lf.is_video else None))
     return result
 
 
@@ -306,11 +351,20 @@ def evaluate(
     single_unique_id: str | None,
     compute_unique_id: Callable[[str], str | None],
     fetch_torrent: Callable[[], TorrentInfo | None],
+    piece_checks: dict | None = None,
 ) -> LayoutEvaluation:
     """Confidence del torrent intero. `fetch_torrent` scarica e analizza il
-    .torrent solo se serve davvero (qualche video a sola size), al massimo
-    una volta per candidato."""
+    .torrent solo se serve davvero (qualche video a sola size, o da cercare
+    per contenuto), al massimo una volta per candidato. piece_checks: i
+    piece già verificati in questa run (_check_pieces), per non rileggerli
+    quando lo stesso torrent si rivaluta col .torrent vero."""
     videos = [m for m in matches if m.layout_file.is_video]
+    if _worth_content_search(videos, anchor_id):
+        parsed = layout.torrent or fetch_torrent()
+        if parsed is not None:
+            if layout.torrent is None:
+                layout.torrent = parsed
+            _match_by_content(videos, parsed, piece_checks)
     reason = None
     if not videos:
         reason = "no_video_in_torrent"
@@ -322,6 +376,8 @@ def evaluate(
     if reason is None:
         for m in videos:
             _score_video(m, len(videos), unique_ids, single_unique_id, compute_unique_id)
+            if m.method == "content" and m.mediainfo_match is not False:
+                m.confidence = CONFIDENCE_PIECE_VERIFIED  # verificato coi piece per trovarlo
         if any(m.size_match is False for m in videos):
             reason = "size_mismatch"
         elif any(m.mediainfo_match is False for m in videos):
@@ -334,7 +390,7 @@ def evaluate(
                 layout.torrent = parsed
             for m in videos:
                 if m.confidence == CONFIDENCE_SIZE_ONLY:
-                    _verify_pieces(m, layout.folder, parsed)
+                    _verify_pieces(m, parsed, piece_checks)
             if any(m.piece_verified is False for m in videos):
                 reason = "piece_mismatch"
 
@@ -395,17 +451,73 @@ def _score_video(m: FileMatch, video_count: int, unique_ids: dict[str, str] | No
         m.confidence = CONFIDENCE_SIZE_ONLY
 
 
-def _verify_pieces(m: FileMatch, folder: str | None, parsed: TorrentInfo) -> None:
-    entry = next((e for e in parsed.files if e.path == m.layout_file.path), None)
+def _worth_content_search(videos: list[FileMatch], anchor_id: int) -> bool:
+    """Leggere i piece serve solo se così il pack può tornare intero (ogni
+    video senza file ha almeno un candidato) e riguarda il file cercato:
+    un pack di un'altra stagione non costa né un download né una lettura."""
+    pending = [m for m in videos if m.local is None]
+    if not pending or any(not m.content_candidates for m in pending):
+        return False
+    ids = {m.local.id for m in videos if m.local} | {c.id for m in pending for c in m.content_candidates}
+    return anchor_id in ids
+
+
+def _match_by_content(videos: list[FileMatch], parsed: TorrentInfo, piece_checks: dict | None) -> None:
+    """Fra i candidati per contenuto di ogni video, quello i cui piece
+    coincidono col .torrent. Solo se è uno: due file diversi che passano
+    entrambi, o nessun piece verificabile (un file più piccolo di un
+    piece), lasciano il video senza file. Mai sulla sola size."""
+    taken = {m.local.id for m in videos if m.local}
+    for m in videos:
+        if m.local is not None or not m.content_candidates:
+            continue
+        entry = _torrent_entry(m.layout_file, parsed)
+        if entry is None:
+            continue
+        passed = []
+        for candidate in m.content_candidates:
+            if candidate.id in taken:
+                continue
+            result = _check_pieces(candidate.abs_path, parsed, entry, piece_checks)
+            if result.mismatches == 0 and result.ok > 0:
+                passed.append((candidate, result))
+        if len(passed) == 1:
+            candidate, result = passed[0]
+            m.local, m.method = candidate, "content"
+            m.piece_verified, m.piece_boundary_count = True, result.boundary
+            taken.add(candidate.id)
+
+
+def _torrent_entry(lf: LayoutFile, parsed: TorrentInfo):
+    entry = next((e for e in parsed.files if e.path == lf.path), None)
     if entry is None:
-        base = os.path.basename(m.layout_file.path).lower()
+        base = os.path.basename(lf.path).lower()
         entry = next((e for e in parsed.files if os.path.basename(e.path).lower() == base), None)
-    if entry is None:
-        return
+    return entry
+
+
+def _check_pieces(path: str, parsed: TorrentInfo, entry, piece_checks: dict | None):
+    """Il campione di piece di un file locale contro una voce del .torrent,
+    letto una volta per run: lo stesso torrent si valuta dal catalogo e poi
+    dal .torrent vero. La chiave usa l'oggetto del .torrent, che il
+    contesto del matching tiene per tutta la run."""
+    key = (id(parsed), path, entry.offset, entry.length)
+    if piece_checks is not None and key in piece_checks:
+        return piece_checks[key]
     result = verify_file_pieces(
-        m.local.abs_path, parsed.piece_length, parsed.pieces, parsed.total_length, entry.offset, entry.length,
+        path, parsed.piece_length, parsed.pieces, parsed.total_length, entry.offset, entry.length,
         max_pieces=PIECE_SAMPLE_SIZE,
     )
+    if piece_checks is not None:
+        piece_checks[key] = result
+    return result
+
+
+def _verify_pieces(m: FileMatch, parsed: TorrentInfo, piece_checks: dict | None = None) -> None:
+    entry = _torrent_entry(m.layout_file, parsed)
+    if entry is None:
+        return
+    result = _check_pieces(m.local.abs_path, parsed, entry, piece_checks)
     m.piece_boundary_count = result.boundary
     if result.mismatches > 0:
         m.piece_verified = False

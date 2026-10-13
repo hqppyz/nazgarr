@@ -538,7 +538,10 @@ CREATE TABLE IF NOT EXISTS candidate_file (
     seed_file_id    INTEGER REFERENCES seed_file(id) ON DELETE SET NULL,
     size_match      BOOLEAN,
     mediainfo_match BOOLEAN,
-    piece_verified  BOOLEAN
+    piece_verified  BOOLEAN,
+    -- how the local file of a video was found (nazgarr/torrents/layout.py): anchor, history,
+    -- name, episode_order, content (same size, confirmed by piece hashes), path (torrent side)
+    match_method    TEXT
 );
 
 CREATE TABLE IF NOT EXISTS match_review (

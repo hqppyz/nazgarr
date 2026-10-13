@@ -18,6 +18,8 @@ export const reseeding = {
   'reseeding.fileInTorrent': 'In the torrent',
   'reseeding.localFile': 'Local file',
   'reseeding.verified': 'verified',
+  'reseeding.byContent': 'by content',
+  'reseeding.byContentHelp': 'The name in the torrent did not say which episode: found by size in the same series and confirmed by piece hashes.',
   'reseeding.missingVideo': 'missing locally',
   'reseeding.clientDownloads': 'not local — the client will download it',
   'reseeding.noRunsYet': 'No scans yet.',

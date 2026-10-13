@@ -103,6 +103,11 @@ function LayoutFiles({ layout }: { layout: Layout }) {
               <span className={cn(f.piece_verified === false && 'text-destructive')}>
                 {f.local_path}
                 {f.piece_verified && <Badge variant="secondary" className="ml-1.5">{t('reseeding.verified')}</Badge>}
+                {f.match_method === 'content' && (
+                  <Badge variant="outline" className="ml-1.5" title={t('reseeding.byContentHelp')}>
+                    {t('reseeding.byContent')}
+                  </Badge>
+                )}
               </span>
             ) : (
               <span className="text-muted-foreground">
