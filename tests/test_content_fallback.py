@@ -7,8 +7,10 @@ tmp_path, nessuna chiamata di rete."""
 import hashlib
 from datetime import UTC, datetime
 
+import pytest
+
 from nazgarr.adapters.tracker.base import TorrentCandidate
-from nazgarr.core.models import Candidate, MatchReview, MediaFile
+from nazgarr.core.models import Candidate, MatchReview, MediaFile, MediaItem
 from nazgarr.reseed import matching
 from nazgarr.torrents import layout as torrent_layout
 from tests.test_season_pack import E01, E02, PIECE, _bencode, _library, _no_mediainfo
@@ -174,3 +176,41 @@ def test_each_file_is_read_once_per_run(db_session, tmp_path, monkeypatch):
     matching.run_media_to_torrent_matching(db_session, tracker, Tracker())
 
     assert reads and len(reads) == len(set(reads))
+
+
+@pytest.mark.parametrize("season_two_first", [True, False])
+def test_a_pack_met_while_searching_another_season_is_still_matched_by_its_episodes(
+        db_session, tmp_path, monkeypatch, season_two_first):
+    """Issue #25: cercando S02E01 il tracker dà anche il pack della S01. Lì
+    il fallback non serve (il pack non riguarda S02E01), ma il pack non va
+    ricordato come valutato: gli episodi della S01 lo devono ancora trovare.
+    Lo stesso risultato in tutti e due gli ordini."""
+    _no_mediainfo(monkeypatch)
+    disk, tracker, (e01, e02) = _library(db_session, tmp_path, with_srt=False)
+    folder = tmp_path / "media" / "tv" / "Show" / "Season 02"
+    folder.mkdir()
+    (folder / "Show - S02E01 - Other.mkv").write_bytes(b"s2" * 40)  # un'altra size: non è un candidato
+    item = MediaItem(content_type="tv", tmdb_id=1399, season_number=2, episode_number=1)
+    db_session.add(item)
+    db_session.commit()
+    s02 = MediaFile(disk_id=disk.id, relative_path="media/tv/Show/Season 02/Show - S02E01 - Other.mkv",
+                    size_bytes=80, st_dev=1, inode=70, media_item_id=item.id, last_scan_id=e01.last_scan_id,
+                    last_seen_at=datetime.now(UTC))
+    db_session.add(s02)
+    db_session.commit()
+    real = matching.orphan_media_files
+
+    def in_order(*args, **kwargs):
+        return sorted(real(*args, **kwargs), key=lambda mf: (mf.id != s02.id) == season_two_first)
+
+    monkeypatch.setattr(matching, "orphan_media_files", in_order)
+    adapter = Tracker()
+
+    matching.run_media_to_torrent_matching(db_session, tracker, adapter)
+
+    (candidate,) = db_session.query(Candidate).all()  # nessun "pack parziale" sotto la S02
+    assert candidate.media_item_id in (e01.media_item_id, e02.media_item_id)
+    assert candidate.confidence == matching.CONFIDENCE_PIECE_VERIFIED
+    assert {f.media_file_id for f in candidate.files} == {e01.id, e02.id}
+    assert len(adapter.downloads) == 1
+    assert db_session.query(MatchReview).count() == 1
