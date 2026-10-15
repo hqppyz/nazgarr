@@ -17,11 +17,13 @@ volta per la serie, poi TVDB aired, poi TMDB), sempre modificabile, e avvisa
 solo se i file non seguono TVDB aired, l'ordine di Sonarr. Più gli episodi
 trovati, tradotti in ognuno."""
 
+import difflib
 import json
 import logging
 import re
 import threading
 import time
+import unicodedata
 from collections import OrderedDict, defaultdict
 from copy import deepcopy
 from dataclasses import asdict, dataclass, field
@@ -109,11 +111,20 @@ def align(episodes: list[tuple[int, OrderEpisode]], reference: list[tuple[int, O
     """Riferimenti per un ordinamento che non ha gli id TMDB degli episodi
     (Sonarr, TVDB): stesso numero di episodi -> uno a uno; uno il doppio
     dell'altro -> a coppie (gli episodi accorpati); altrimenti per data di
-    uscita. Le liste sono in ordine di uscita, gli speciali a parte."""
+    uscita. Poi i titoli, dove dicono quale episodio è, valgono più della
+    posizione e delle date: un ordine DVD che riordina gli episodi, o che li
+    accorpa a segmenti ("Titolo A / Titolo B") con la stessa data per tutti.
+    Le liste sono in ordine di uscita, gli speciali a parte."""
     for _season, ep in episodes:
         ep.refs = []
     if not episodes or not reference:
         return
+    _align_by_shape(episodes, reference)
+    for i, refs in _by_title(episodes, reference).items():
+        episodes[i][1].refs = refs
+
+
+def _align_by_shape(episodes: list[tuple[int, OrderEpisode]], reference: list[tuple[int, OrderEpisode]]) -> None:
     refs = [(season, ep.number) for season, ep in reference]
     n, m = len(episodes), len(refs)
     if n == m:
@@ -140,12 +151,68 @@ def align(episodes: list[tuple[int, OrderEpisode]], reference: list[tuple[int, O
         theirs = by_date.get(date) or []
         if not theirs:
             continue
+        # Nove episodi in un giorno contro due (un ordine DVD con una data
+        # sola): in proporzione sarebbe a caso, meglio nessun riferimento.
+        big, small = max(len(eps), len(theirs)), min(len(eps), len(theirs))
+        if big > 2 * small and big % small:
+            continue
         for i, ep in enumerate(eps):
             # Ripartiti in proporzione: due episodi lo stesso giorno contro
             # uno solo dall'altra parte vanno tutti e due su quello.
             start = i * len(theirs) // len(eps)
             end = max(start + 1, (i + 1) * len(theirs) // len(eps))
             ep.refs = theirs[start:end]
+
+
+# Un episodio fatto di segmenti, come lo scrive TVDB: "Titolo A / Titolo B".
+_SEGMENTS = re.compile(r"\s+/\s+")
+# Titoli che non dicono quale episodio è: "Episode 5", "Parte 2", "TBA".
+_GENERIC_TITLE = re.compile(
+    r"^(?:(?:episode|episodio|ep|part|parte|chapter|capitolo|puntata|folge)\s*)?\d*$|^(?:tba|tbd|untitled)$")
+# Quanto due titoli devono somigliarsi ("Bot" e "Boot", un refuso di una delle due fonti).
+TITLE_SIMILARITY = 0.9
+
+
+def _title_key(title: str) -> str:
+    text = "".join(c for c in unicodedata.normalize("NFKD", title.casefold()) if not unicodedata.combining(c))
+    return " ".join(re.findall(r"\w+", text))
+
+
+def _title_parts(ep: OrderEpisode) -> list[str]:
+    return [_title_key(part) for title in ep.titles for part in _SEGMENTS.split(title or "")]
+
+
+def _by_title(episodes: list[tuple[int, OrderEpisode]],
+              reference: list[tuple[int, OrderEpisode]]) -> dict[int, list[Ref]]:
+    """Posizione in `episodes` -> riferimenti, per gli episodi di cui ogni
+    segmento ha un titolo che nel riferimento è di un episodio solo."""
+    owners: dict[str, set[Ref]] = defaultdict(set)
+    for season, ep in reference:
+        for part in _title_parts(ep):
+            if not _GENERIC_TITLE.match(part):
+                owners[part].add((season, ep.number))
+    if not owners:
+        return {}
+    titles = list(owners)
+
+    def owner(part: str) -> Ref | None:
+        if part not in owners:
+            close = [t for t in difflib.get_close_matches(part, titles, n=3, cutoff=TITLE_SIMILARITY)
+                     if re.findall(r"\d+", t) == re.findall(r"\d+", part)]
+            if len(close) != 1:
+                return None
+            part = close[0]
+        return next(iter(owners[part])) if len(owners[part]) == 1 else None
+
+    out = {}
+    for i, (_season, ep) in enumerate(episodes):
+        parts = _title_parts(ep)
+        if not parts or any(_GENERIC_TITLE.match(p) for p in parts):
+            continue
+        found = [owner(p) for p in parts]
+        if all(found):
+            out[i] = sorted(set(found))
+    return out
 
 
 def _in_airing_order(order: EpisodeOrder, specials: bool) -> list[tuple[int, OrderEpisode]]:

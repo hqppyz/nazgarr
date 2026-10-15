@@ -220,10 +220,7 @@ def _generated(session: Session, job: UploadJob, files: list[tuple[str, str]], m
         return FilePlan("generated", base + main_ext, [(files[0][0], base + main_ext)])
 
     layout = json.loads(job.layout_json or "{}")
-    episodes = {
-        v.get("relative_path"): (v.get("season"), (v.get("episodes") or [None])[0])
-        for v in layout.get("videos", [])
-    }
+    episodes = {v.get("relative_path"): (v.get("season"), v.get("episodes") or []) for v in layout.get("videos", [])}
     dirs = _season_dirs(job, files)
     planned = []
     renamed: dict[str, str] = {}  # stem del video originale -> stem nuovo, per i suoi sottotitoli
@@ -232,9 +229,9 @@ def _generated(session: Session, job: UploadJob, files: list[tuple[str, str]], m
         if not is_video(relative):
             continue
         ext = os.path.splitext(relative)[1].lower()
-        season, episode = episodes.get(relative, (None, None))
-        if job.content_type == "tv" and episode is not None:
-            one = _EpisodeJob(job, season, episode)
+        season, numbers = episodes.get(relative, (None, []))
+        if job.content_type == "tv" and numbers:
+            one = _EpisodeJob(job, season, numbers)
             name = sanitize(build_name(rules_, release_values(one, detected, mediainfo, overrides, rules_,
                                                               local_title)))
         elif len(videos) == 1:
@@ -264,17 +261,17 @@ def _generated(session: Session, job: UploadJob, files: list[tuple[str, str]], m
 class _EpisodeJob:
     """Il job visto come un solo episodio: stagione ed episodio nel nome, nella
     numerazione scelta al match (nazgarr/library/episode_orders.py) anche quando i file
-    ne seguono un'altra; un episodio accorpato diventa E03E04."""
+    ne seguono un'altra; un episodio accorpato diventa E03E04. Un file con più
+    episodi (S01E01E02) li tiene tutti, tradotti."""
 
-    def __init__(self, job: UploadJob, season: int | None, episode: int):
+    def __init__(self, job: UploadJob, season: int | None, episodes: list[int]):
         self._job = job
         self.kind = "episode"
         if season is not None:
-            refs = episode_orders.translate_files(job, season, episode)
+            refs = [ref for e in episodes for ref in episode_orders.translate_files(job, season, e)]
             season = refs[0][0]
-            numbers = [e for s, e in refs if s == season]
-            episode = numbers if len(numbers) > 1 else numbers[0]
-        self.episode = episode
+            episodes = sorted({e for s, e in refs if s == season})
+        self.episode = episodes if len(episodes) > 1 else episodes[0]
         self.seasons_json = json.dumps([season] if season is not None else json.loads(job.seasons_json or "[]")[:1])
 
     def __getattr__(self, name):

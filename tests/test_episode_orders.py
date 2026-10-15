@@ -5,11 +5,12 @@ from nazgarr.library.episode_orders import EpisodeOrder, OrderEpisode
 
 
 def _order(key, seasons, source="tmdb", refs=True, dates=None):
-    """seasons: {stagione: numero di episodi}; refs: riferimenti uguali ai numeri."""
+    """seasons: {stagione: numero di episodi}; refs: riferimenti uguali ai numeri.
+    Titoli generici ("Episode 3"): non dicono quale episodio è, contano posizione e date."""
     order = EpisodeOrder(key, key, source)
     for season, count in seasons.items():
         order.seasons[season] = [
-            OrderEpisode(number=n, titles=[f"S{season}E{n}"], air_date=(dates or {}).get((season, n)),
+            OrderEpisode(number=n, titles=[f"Episode {n}"], air_date=(dates or {}).get((season, n)),
                          refs=[(season, n)] if refs else [])
             for n in range(1, count + 1)
         ]
@@ -43,6 +44,50 @@ def test_align_one_to_one_in_pairs_and_by_date():
     odd.seasons[1].append(OrderEpisode(number=4, titles=["extra"], air_date="2031-01-01"))
     eo.align_to(odd, ref)
     assert [e.refs for e in odd.seasons[1]] == [[(1, 1), (1, 2)], [(1, 3)], [], []]
+
+
+def test_a_dvd_order_of_two_segment_episodes_is_aligned_by_title():
+    # Iron Man and His Awesome Friends: su TMDB a segmenti, nell'ordine DVD di
+    # TVDB due per episodio ("A / B") e quasi tutti con la stessa data. Per
+    # data il file S01E03 finiva su DVD E02-E06 e dal S01E05 su niente
+    # (segnalato il 2026-10-15). Con i refusi delle due fonti.
+    segments = [("Enter the Iron Friends", "2025-08-11"), ("Amadeus Cho's Eggcellent Eggventure!", "2025-08-11"),
+                ("Great Expo-tations", "2025-08-12"), ("Bouncy Boots", "2025-08-12"),
+                ("Totally Awesome Beach Day", "2025-08-13"), ("Swarm Stinks It Up", "2025-08-13"),
+                ("The Ultron Song", "2025-08-14"), ("Black Panther and the Boot", "2025-08-14"),
+                ("Iron Friends Trick or Treats!", "2025-09-29"), ("Leaping into Fall", "2025-09-29"),
+                ("Baby Vision", "2025-11-03"), ("Ironheart's Racing Adventure", "2025-11-03"),
+                ("Episode 13", "2026-06-11")]
+    tmdb = EpisodeOrder("tmdb:default", "TMDB", "tmdb", {1: [
+        OrderEpisode(n, [title], date, [(1, n)]) for n, (title, date) in enumerate(segments, 1)]})
+    dvd_titles = ["Enter the Iron Friends / Amadeus Cho's Eggcellent Eggventure!", "Great Expo-tations / Bouncy Boots",
+                  "Totally Awesome Beach Day / Swarm Stinks it Up", "The Ultron Song / Black Panther and the Bot",
+                  "Iron Friends Trick or Treat! / Leaping Into Fall"]
+    dvd = EpisodeOrder("tvdb:dvd", "TVDB · DVD Order", "tvdb", {1: [
+        OrderEpisode(n, [title], "2025-08-11" if n == 1 else "2025-08-12") for n, title in enumerate(dvd_titles, 1)]})
+    eo.align_to(dvd, tmdb)
+    assert [e.refs for e in dvd.seasons[1]] == [[(1, 1), (1, 2)], [(1, 3), (1, 4)], [(1, 5), (1, 6)],
+                                                [(1, 7), (1, 8)], [(1, 9), (1, 10)]]
+    assert [eo.translate(tmdb, dvd, 1, e) for e in (2, 3, 4, 5, 11)] == [[(1, 1)], [(1, 2)], [(1, 2)], [(1, 3)], []]
+
+
+def test_titles_win_over_positions_and_dates_say_nothing_when_they_cannot():
+    titles = ["The Train Job", "Bushwhacked", "Serenity", "Episode 4"]
+    tmdb = EpisodeOrder("tmdb:default", "TMDB", "tmdb", {1: [
+        OrderEpisode(n, [t], None, [(1, n)]) for n, t in enumerate(titles, 1)]})
+    # Un ordine DVD che riordina: lo stesso numero di episodi, ma non uno a
+    # uno per posizione. Un titolo generico resta alla posizione.
+    dvd = EpisodeOrder("tvdb:dvd", "DVD", "tvdb", {1: [
+        OrderEpisode(n, [t]) for n, t in enumerate(["Serenity", "The Train Job", "Bushwhacked", "Episode 4"], 1)]})
+    eo.align_to(dvd, tmdb)
+    assert [e.refs for e in dvd.seasons[1]] == [[(1, 3)], [(1, 1)], [(1, 2)], [(1, 4)]]
+    # Cinque episodi in un giorno contro due, senza titoli che aiutino: nessun riferimento.
+    ref = _order("tmdb:default", {1: 4}, dates={(1, 1): "2025-08-11", (1, 2): "2025-08-12", (1, 3): "2025-08-12",
+                                                (1, 4): "2025-09-01"})
+    same_day = _order("tvdb:dvd", {1: 6}, "tvdb", refs=False,
+                      dates={(1, 1): "2025-08-11", **{(1, n): "2025-08-12" for n in range(2, 7)}})
+    eo.align_to(same_day, ref)
+    assert [e.refs for e in same_day.seasons[1]] == [[(1, 1)], [], [], [], [], []]
 
 
 def test_translate_goes_through_the_reference_episodes():
@@ -199,18 +244,23 @@ def test_generated_episode_names_follow_the_chosen_ordering():
                                episode_order_json=json.dumps({"chosen": chosen.to_dict(), "files": files.to_dict()}))
 
     # File "S02E03" (le parti), scelto l'ordine TMDB: S01E08.
-    one = _EpisodeJob(job(tmdb, parts), 2, 3)
+    one = _EpisodeJob(job(tmdb, parts), 2, [3])
     assert season_token(one.kind, json.loads(one.seasons_json), one.episode) == "S01E08"
     # File numerati uno a uno, scelto l'ordine con gli episodi accorpati: il file S01E04 è metà del 2.
-    half = _EpisodeJob(job(doubled, tmdb), 1, 4)
+    half = _EpisodeJob(job(doubled, tmdb), 1, [4])
     assert season_token(half.kind, json.loads(half.seasons_json), half.episode) == "S01E02"
     # Al contrario: un file dell'ordine accorpato copre due episodi.
-    both = _EpisodeJob(job(tmdb, doubled), 1, 2)
+    both = _EpisodeJob(job(tmdb, doubled), 1, [2])
     assert season_token(both.kind, json.loads(both.seasons_json), both.episode) == "S01E03E04"
-    # Senza ordinamento scelto resta com'è.
-    plain = _EpisodeJob(SimpleNamespace(kind="season_pack", seasons_json="[2]", episode=None,
-                                        episode_order_json=None), 2, 3)
+    # Un file con due episodi (S01E03E04) nell'ordine accorpato è uno solo.
+    pair = _EpisodeJob(job(doubled, tmdb), 1, [3, 4])
+    assert season_token(pair.kind, json.loads(pair.seasons_json), pair.episode) == "S01E02"
+    # Senza ordinamento scelto resta com'è, e un file con due episodi li tiene tutti e due.
+    plain_job = SimpleNamespace(kind="season_pack", seasons_json="[2]", episode=None, episode_order_json=None)
+    plain = _EpisodeJob(plain_job, 2, [3])
     assert season_token(plain.kind, json.loads(plain.seasons_json), plain.episode) == "S02E03"
+    double = _EpisodeJob(plain_job, 2, [3, 4])
+    assert season_token(double.kind, json.loads(double.seasons_json), double.episode) == "S02E03E04"
 
 
 def test_a_pack_numbered_after_another_ordering_is_mapped_to_the_library(db_session, tmp_path):
