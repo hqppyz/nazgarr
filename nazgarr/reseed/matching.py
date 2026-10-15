@@ -104,6 +104,8 @@ class MatchContext:
     translator: object | None = None  # nazgarr/library/episode_orders.py Translator, creato alla prima serie
     evaluated_packs: set[str] = field(default_factory=set)
     both_formats: bool = False  # "pack e singoli dello stesso tracker" acceso
+    # Piece già verificati in questa run (nazgarr/torrents/layout.py::_check_pieces).
+    piece_checks: dict = field(default_factory=dict)
     _torrents: dict[str, TorrentInfo | None] = field(default_factory=dict)
     _info_hashes: dict[str, str] = field(default_factory=dict)
 
@@ -168,6 +170,7 @@ def _evaluate(ctx: MatchContext, layout: Layout, anchor, *, download_link: str |
         # lambda, non il riferimento diretto: i test sostituiscono matching.compute_unique_id
         compute_unique_id=lambda path: compute_unique_id(path),
         fetch_torrent=lambda: ctx.fetch_torrent(download_link),
+        piece_checks=ctx.piece_checks,
     )
 
 
@@ -215,6 +218,7 @@ def _persist(
             size_match=m.size_match,
             mediainfo_match=m.mediainfo_match,
             piece_verified=m.piece_verified,
+            match_method=m.method if local is not None else None,
         ))
     ctx.session.add(candidate)
     return candidate

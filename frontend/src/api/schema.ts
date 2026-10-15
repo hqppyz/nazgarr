@@ -2741,6 +2741,8 @@ export interface components {
             mediainfo_match: boolean | null;
             /** Piece Verified */
             piece_verified: boolean | null;
+            /** Match Method */
+            match_method?: string | null;
         };
         /** CategorySummary */
         CategorySummary: {

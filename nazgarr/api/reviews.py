@@ -27,6 +27,9 @@ class CandidateFileResponse(BaseModel):
     size_match: bool | None
     mediainfo_match: bool | None
     piece_verified: bool | None
+    # Come è stato trovato il file locale (candidate_file.match_method):
+    # "content" = per size e piece hash, con un nome che non diceva l'episodio.
+    match_method: str | None = None
 
 
 class LayoutSummary(BaseModel):
@@ -54,6 +57,7 @@ def _layout_summary(c: Candidate) -> LayoutSummary | None:
             torrent_path=f.torrent_path, size_bytes=f.size_bytes, is_video=f.is_video,
             local_path=local.relative_path if local is not None else None,
             size_match=f.size_match, mediainfo_match=f.mediainfo_match, piece_verified=f.piece_verified,
+            match_method=f.match_method,
         ))
     videos = [f for f in files if f.is_video]
     extras_missing = [f for f in files if not f.is_video and f.local_path is None]
