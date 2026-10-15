@@ -359,7 +359,8 @@ def evaluate(
     piece già verificati in questa run (_check_pieces), per non rileggerli
     quando lo stesso torrent si rivaluta col .torrent vero."""
     videos = [m for m in matches if m.layout_file.is_video]
-    if _worth_content_search(videos, anchor_id):
+    content = _content_search(videos, anchor_id)
+    if content == "search":
         parsed = layout.torrent or fetch_torrent()
         if parsed is not None:
             if layout.torrent is None:
@@ -369,7 +370,13 @@ def evaluate(
     if not videos:
         reason = "no_video_in_torrent"
     elif any(m.local is None for m in videos):
-        reason = "season_pack_partial" if len(videos) > 1 else "no_local_file"
+        if content == "other_files":
+            # Non è un pack incompleto: si completerebbe per contenuto, ma con
+            # altri file. Lo valuta uno dei suoi episodi; come pack parziale
+            # finiva in evaluated_packs e quell'episodio lo saltava (issue #25).
+            reason = "anchor_not_in_torrent"
+        else:
+            reason = "season_pack_partial" if len(videos) > 1 else "no_local_file"
     elif not any(m.local.id == anchor_id for m in matches if m.local):
         reason = "anchor_not_in_torrent"
 
@@ -451,15 +458,17 @@ def _score_video(m: FileMatch, video_count: int, unique_ids: dict[str, str] | No
         m.confidence = CONFIDENCE_SIZE_ONLY
 
 
-def _worth_content_search(videos: list[FileMatch], anchor_id: int) -> bool:
+def _content_search(videos: list[FileMatch], anchor_id: int) -> str | None:
     """Leggere i piece serve solo se così il pack può tornare intero (ogni
     video senza file ha almeno un candidato) e riguarda il file cercato:
-    un pack di un'altra stagione non costa né un download né una lettura."""
+    "search". Un pack che tornerebbe intero ma con altri file (un'altra
+    stagione) non costa né un download né una lettura: "other_files".
+    None se nessun contenuto lo completa."""
     pending = [m for m in videos if m.local is None]
     if not pending or any(not m.content_candidates for m in pending):
-        return False
+        return None
     ids = {m.local.id for m in videos if m.local} | {c.id for m in pending for c in m.content_candidates}
-    return anchor_id in ids
+    return "search" if anchor_id in ids else "other_files"
 
 
 def _match_by_content(videos: list[FileMatch], parsed: TorrentInfo, piece_checks: dict | None) -> None:

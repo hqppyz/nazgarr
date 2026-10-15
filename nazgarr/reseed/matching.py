@@ -311,7 +311,7 @@ def match_from_history(ctx: MatchContext, anchor: MediaFile | SeedFile, media_it
         return None
     evaluation = _evaluate(ctx, layout, anchor, download_link=download_link, unique_ids=None,
                            single_unique_id=None)
-    if len(layout.videos) > 1:
+    if len(layout.videos) > 1 and evaluation.ambiguity_reason not in _UNRELATED_REASONS:
         ctx.evaluated_packs.add(grab.torrent_id_remote)
     candidate = _persist(
         ctx, media_item_id=media_item_id, torrent_id_remote=grab.torrent_id_remote, name=parsed.name,
