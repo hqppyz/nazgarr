@@ -1,4 +1,4 @@
-import { TriangleAlertIcon } from 'lucide-react'
+import { RotateCcwIcon, TriangleAlertIcon, XIcon } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 
@@ -11,7 +11,7 @@ import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { t } from '@/lib/i18n'
-import { sourceMissing } from '@/lib/upload'
+import { CLEARABLE_FIELDS, sourceMissing } from '@/lib/upload'
 import { cn } from '@/lib/utils'
 
 // Stessi campi di nazgarr/upload/naming.py DETECTED_FIELDS, più l'anno.
@@ -20,13 +20,18 @@ const DETECTED_FIELDS = [
   'group',
 ] as const
 
-type Draft = Record<string, string | boolean>
+// cleared: i campi tolti dal nome (nazgarr/upload/naming.py CLEARABLE_FIELDS).
+type Draft = Record<string, string | boolean | string[]>
 
 function toDraft(overrides: Record<string, unknown>): Draft {
   const draft: Draft = {}
-  for (const [key, value] of Object.entries(overrides)) draft[key] = typeof value === 'boolean' ? value : String(value)
+  for (const [key, value] of Object.entries(overrides)) {
+    draft[key] = typeof value === 'boolean' ? value : Array.isArray(value) ? value.map(String) : String(value)
+  }
   return draft
 }
+
+const clearable = (key: string) => (CLEARABLE_FIELDS as readonly string[]).includes(key)
 
 type TypeBasis = { type: string; source: string | null; evidence: string[]; encoder: string | null }
 
@@ -59,7 +64,8 @@ function TypeBasisText({ basis }: { basis: TypeBasis }) {
 // Solo i quattro id sono sempre visibili (pagina di creazione): qui i valori
 // rilevati per il nome. Chiuso: i valori come tag. Aperto: una riga per
 // campo, etichetta e valore, con il valore rilevato come placeholder; si
-// scrive solo dove è sbagliato. Salvando si rifanno i nomi proposti.
+// scrive solo dove è sbagliato, e la X toglie un valore rilevato per sbaglio
+// (un campo vuoto torna a quello rilevato). Salvando si rifanno i nomi proposti.
 // open/onOpenChange: aperto da fuori (l'avviso della sorgente mancante
 // sopra il nome o nella conferma); senza, lo gestisce da solo.
 export function OverridesPanel({
@@ -88,43 +94,93 @@ export function OverridesPanel({
   const save = useUpdateOverrides(job.id)
   const saved = toDraft(job.overrides)
   const dirty = JSON.stringify(draft) !== JSON.stringify(saved)
-  const changed = [...DETECTED_FIELDS, 'year'].filter((key) => saved[key]).length
+  const savedCleared = (saved.cleared as string[] | undefined) ?? []
+  const changed = [...DETECTED_FIELDS, 'year'].filter((key) => saved[key] || savedCleared.includes(key)).length
+  const cleared = (draft.cleared as string[] | undefined) ?? []
 
   const text = (key: string) => (typeof draft[key] === 'string' ? (draft[key] as string) : '')
+  // Un valore scritto in un campo tolto lo rimette nel nome.
+  const withCleared = (next: Draft, keys: string[]) => {
+    if (keys.length) next.cleared = keys
+    else delete next.cleared
+    return next
+  }
   const set = (key: string, value: string | boolean) =>
     setDraft((prev) => {
       const next = { ...prev }
       if (value === '' || value === false) delete next[key]
       else next[key] = value
-      return next
+      const keys = ((prev.cleared as string[] | undefined) ?? []).filter((k) => k !== key || value === '')
+      return withCleared(next, keys)
+    })
+  const setCleared = (key: string, on: boolean) =>
+    setDraft((prev) => {
+      const next = { ...prev }
+      delete next[key]
+      const keys = ((prev.cleared as string[] | undefined) ?? []).filter((k) => k !== key)
+      return withCleared(next, on ? [...keys, key] : keys)
     })
   const missingSource = sourceMissing(job)
   const detectedOf = (key: string) => (key === 'year' ? (job.year != null ? String(job.year) : null) : detected[key])
 
-  const row = (key: string, placeholder: string | null | undefined) => (
-    <label key={key} className="grid min-w-0 grid-cols-[7rem_minmax(0,1fr)] items-center gap-2">
-      <span className="truncate text-xs text-muted-foreground">{t(`upload.overrides.field.${key}`)}</span>
-      <Input
-        id={`override-${key}`}
-        className={cn(
-          'h-7 px-2 font-mono text-xs pointer-coarse:h-9', // più alto al tocco (il font sale già a 16px)
-          text(key) ? 'border-primary/60 bg-primary/5' : 'border-transparent bg-muted/60 shadow-none',
-          key === 'source' && missingSource && !text(key) && 'border-amber-500/70',
-        )}
-        placeholder={placeholder ?? (key === 'source' && missingSource ? t('upload.overrides.sourcePlaceholder') : '—')}
-        value={text(key)}
-        onChange={(e) => set(key, e.target.value)}
-        list={options[key]?.length ? `override-options-${key}` : undefined}
-      />
-      {options[key]?.length ? (
-        <datalist id={`override-options-${key}`}>
-          {options[key].map((value) => (
-            <option key={value} value={value} />
+  const row = (key: string, placeholder: string | null | undefined) => {
+    const isCleared = cleared.includes(key)
+    const field = t(`upload.overrides.field.${key}`)
+    return (
+      <div key={key} className="grid min-w-0 grid-cols-[7rem_minmax(0,1fr)_auto] items-center gap-2">
+        <label htmlFor={`override-${key}`} className="truncate text-xs text-muted-foreground">{field}</label>
+        <Input
+          id={`override-${key}`}
+          className={cn(
+            'h-7 px-2 font-mono text-xs pointer-coarse:h-9', // più alto al tocco (il font sale già a 16px)
+            text(key) || isCleared ? 'border-primary/60 bg-primary/5' : 'border-transparent bg-muted/60 shadow-none',
+            isCleared && 'placeholder:text-primary/80 placeholder:italic',
+            key === 'source' && missingSource && !text(key) && 'border-amber-500/70',
+          )}
+          placeholder={
+            isCleared
+              ? t('upload.overrides.none')
+              : (placeholder ?? (key === 'source' && missingSource ? t('upload.overrides.sourcePlaceholder') : '—'))
+          }
+          value={text(key)}
+          onChange={(e) => set(key, e.target.value)}
+          list={options[key]?.length ? `override-options-${key}` : undefined}
+        />
+        {clearable(key) &&
+          (isCleared ? (
+            <Button
+              type="button"
+              size="icon-xs"
+              variant="ghost"
+              aria-label={t('upload.overrides.restore', { field })}
+              title={t('upload.overrides.restoreHelp')}
+              onClick={() => setCleared(key, false)}
+            >
+              <RotateCcwIcon />
+            </Button>
+          ) : (
+            <Button
+              type="button"
+              size="icon-xs"
+              variant="ghost"
+              aria-label={t('upload.overrides.clear', { field })}
+              title={t('upload.overrides.clearHelp')}
+              disabled={!text(key) && !placeholder}
+              onClick={() => setCleared(key, true)}
+            >
+              <XIcon />
+            </Button>
           ))}
-        </datalist>
-      ) : null}
-    </label>
-  )
+        {options[key]?.length ? (
+          <datalist id={`override-options-${key}`}>
+            {options[key].map((value) => (
+              <option key={value} value={value} />
+            ))}
+          </datalist>
+        ) : null}
+      </div>
+    )
+  }
 
   return (
     <Card id="upload-overrides" className="min-w-0 scroll-mt-20">
@@ -164,6 +220,18 @@ export function OverridesPanel({
                 const override = typeof saved[key] === 'string' ? (saved[key] as string) : ''
                 const value = override || detectedOf(key)
                 if (!value) return null
+                // Tolto a mano: il valore rilevato barrato, fuori dal nome.
+                if (savedCleared.includes(key)) {
+                  return (
+                    <span
+                      key={key}
+                      title={t('upload.overrides.clearedTag', { field: t(`upload.overrides.field.${key}`) })}
+                      className="rounded-md border border-primary/50 bg-primary/10 px-2 py-1 font-mono text-xs text-primary/80 line-through"
+                    >
+                      {value}
+                    </span>
+                  )
+                }
                 const tag = (
                   <span
                     key={key}

@@ -5,9 +5,10 @@ import type { UploadJob } from '@/api/hooks/uploads'
 import { DecisionStep } from '@/components/upload/DecisionStep'
 
 const approve = vi.fn()
+const updateOverrides = vi.fn()
 vi.mock('@/api/hooks/uploads', () => ({
   useApproveUpload: () => ({ mutate: approve, isPending: false }),
-  useUpdateOverrides: () => ({ mutate: vi.fn(), isPending: false }),
+  useUpdateOverrides: () => ({ mutate: updateOverrides, isPending: false }),
   useVerifyTarget: () => ({ mutate: vi.fn(), isPending: false }),
 }))
 
@@ -124,5 +125,77 @@ describe('DecisionStep', () => {
     const values = Array.from(document.querySelectorAll('#override-options-type option'), (o) => o.getAttribute('value'))
     expect(values).toEqual(['REMUX', 'WEBDL'])
     expect(screen.getByLabelText('Type').getAttribute('list')).toBe('override-options-type')
+  })
+
+  it('leaves a wrongly detected group out of the name, and a written value puts it back', () => {
+    render(<DecisionStep job={{ ...job, overrides: { source: 'WEB-DL' } } as UploadJob} />)
+    fireEvent.click(screen.getByText('Detected details'))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Leave Group out of the name' }))
+    expect((screen.getByLabelText('Group') as HTMLInputElement).placeholder).toBe('none: left out of the name')
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }))
+    expect(updateOverrides.mock.lastCall?.[0]).toEqual({ source: 'WEB-DL', cleared: ['group'] })
+
+    fireEvent.change(screen.getByLabelText('Group'), { target: { value: 'ME' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }))
+    expect(updateOverrides.mock.lastCall?.[0]).toEqual({ source: 'WEB-DL', group: 'ME' })
+  })
+
+  it('shows a field left out of the name struck through, and can put it back', () => {
+    render(<DecisionStep job={{ ...job, overrides: { source: 'WEB-DL', cleared: ['group'] } } as UploadJob} />)
+
+    expect(screen.getByTitle('Group: left out of the name').textContent).toBe('GRP')
+    fireEvent.click(screen.getByText('Detected details'))
+    fireEvent.click(screen.getByRole('button', { name: 'Put the detected Group back' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }))
+    expect(updateOverrides.mock.lastCall?.[0]).toEqual({ source: 'WEB-DL' })
+  })
+
+  it('lets the generated file name be written by hand, keeping its extension', () => {
+    const named = {
+      ...job,
+      overrides: { source: 'WEB-DL' },
+      analysis: {
+        ...job.analysis,
+        file_names: {
+          available: ['generated', 'original'], default: 'generated',
+          previews: {
+            generated: { name: 'My.Movie.2024.1080p-GRP.mkv', files: ['My.Movie.2024.1080p-GRP.mkv'], count: 1 },
+            original: { name: 'My Movie (2024).mkv', files: ['My Movie (2024).mkv'], count: 1 },
+          },
+        },
+      },
+    } as unknown as UploadJob
+    render(<DecisionStep job={named} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Write the name by hand' }))
+    const input = screen.getByLabelText('Name in the torrent') as HTMLInputElement
+    expect(input.value).toBe('My.Movie.2024.1080p-GRP')
+    expect(screen.getByText('.mkv')).toBeTruthy()
+    fireEvent.change(input, { target: { value: ' My Movie (2024) [ITA] ' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Use this name' }))
+
+    expect(updateOverrides.mock.lastCall?.[0]).toEqual({
+      source: 'WEB-DL', file_naming: 'generated', content_name: 'My Movie (2024) [ITA]',
+    })
+  })
+
+  it('goes back to the generated name', () => {
+    const named = {
+      ...job,
+      overrides: { source: 'WEB-DL', file_naming: 'generated', content_name: 'Mine' },
+      analysis: {
+        ...job.analysis,
+        file_names: {
+          available: ['generated'], default: 'generated',
+          previews: { generated: { name: 'Mine.mkv', files: ['Mine.mkv'], count: 1 } },
+        },
+      },
+    } as unknown as UploadJob
+    render(<DecisionStep job={named} />)
+
+    expect(screen.getByText('File name written by hand.')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Back to the generated name' }))
+    expect(updateOverrides.mock.lastCall?.[0]).toEqual({ source: 'WEB-DL', file_naming: 'generated' })
   })
 })

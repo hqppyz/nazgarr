@@ -44,6 +44,11 @@ DETECTED_FIELDS = (
     "type", "resolution", "source", "edition", "repack", "hybrid", "service", "hdr", "video_codec", "audio",
     "audio_languages", "group",
 )
+# Quelli che si possono togliere a mano (override "cleared"): nel nome né il
+# valore rilevato né un default, es. un gruppo rilevato per sbaglio. Non il
+# tipo e la risoluzione (danno gli id del tracker) né la sorgente (senza, la
+# decisione avvisa).
+CLEARABLE_FIELDS = tuple(k for k in DETECTED_FIELDS if k not in ("type", "resolution", "source")) + ("year",)
 
 DEFAULT_TEMPLATE = "{title} ({year}) {season} {edition} {resolution} {source} {video_codec} {audio} {group}"
 # Come si scrive {type} nel nome: la chiave del profilo (REMUX, WEBDL, ...)
@@ -704,6 +709,14 @@ def release_values(
             values[key] = overrides[key]
     if overrides.get("hdr") not in (None, ""):
         values["hdr_full"] = overrides["hdr"]  # corretto a mano: vale per tutti e due
+    cleared = set(overrides.get("cleared") or ()) & set(CLEARABLE_FIELDS)
+    for key in cleared:
+        values[key] = None
+    # Anche le varianti: niente HDR né "SDR", niente audio nemmeno completo.
+    if "hdr" in cleared:
+        values["hdr_full"] = None
+    if "audio" in cleared:
+        values["audio_all"] = None
     # Il codec segue il tipo scelto (anche se corretto a mano); scritto a
     # mano resta com'è.
     if overrides.get("video_codec") in (None, ""):
@@ -732,7 +745,7 @@ def release_values(
     values["title"] = title
     values["content_type"] = job.content_type
     values["local_title"] = local_title if local_title and local_title != job.title else None
-    values["year"] = overrides.get("year") or job.year
+    values["year"] = None if "year" in cleared else overrides.get("year") or job.year
     seasons = json.loads(job.seasons_json or "[]")
     values["season"] = season_token(job.kind or "movie", seasons, job.episode) if job.content_type == "tv" else None
     values["episode"] = episode_token(job.episode) if job.kind == "episode" and job.episode is not None else None

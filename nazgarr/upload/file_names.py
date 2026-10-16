@@ -98,6 +98,13 @@ class FilePlan:
         return self.mode != "original"
 
 
+def main_video_target(job: UploadJob, plan: FilePlan) -> str | None:
+    """Il percorso dentro il torrent del video principale, quello del
+    MediaInfo: il suo "Complete name" per il tracker."""
+    main_video = json.loads(job.layout_json or "{}").get("main_video") or job.source_path
+    return next((target for source, target in plan.files if source == main_video), None)
+
+
 def _source_files(job: UploadJob) -> list[tuple[str, str]]:
     """(percorso assoluto, relativo alla sorgente) dei file che vanno nel
     torrent: la stessa regola dell'hashing (nazgarr/upload/inventory.py)."""
@@ -216,6 +223,12 @@ def _generated(session: Session, job: UploadJob, files: list[tuple[str, str]], m
         # meglio i nomi della sorgente che un ".mkv".
         return _original(job, files)
     main_ext = os.path.splitext(max(files, key=lambda f: os.path.getsize(f[0]))[0])[1].lower()
+    # Scritto a mano nella decisione: il file (l'estensione resta la sua) o la
+    # cartella del torrent, con dentro un film solo che la segue.
+    custom = overrides.get("content_name")
+    if custom:
+        single = not job.is_dir and main_ext and custom.lower().endswith(main_ext)
+        base = custom[: -len(main_ext)] if single else custom
     if not job.is_dir:
         return FilePlan("generated", base + main_ext, [(files[0][0], base + main_ext)])
 

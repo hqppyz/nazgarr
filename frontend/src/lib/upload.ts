@@ -299,3 +299,50 @@ export function sourceMissing(job: { analysis?: unknown; overrides: Record<strin
   const detected = ((job.analysis as Record<string, unknown> | null)?.detected ?? {}) as Record<string, unknown>
   return !detected.source && !job.overrides.source
 }
+
+// I campi dei dettagli rilevati che si possono togliere dal nome (override
+// "cleared", nazgarr/upload/naming.py CLEARABLE_FIELDS): non tipo, risoluzione e
+// sorgente, che danno gli id del tracker o fanno scattare l'avviso.
+export const CLEARABLE_FIELDS = [
+  'edition', 'repack', 'hybrid', 'service', 'hdr', 'video_codec', 'audio', 'audio_languages', 'group', 'year',
+] as const
+
+export interface FileNamesPreview {
+  name: string
+  files: string[]
+  count: number
+  single_file?: boolean
+  folder?: string | null
+  main_video?: string | null
+}
+
+export interface FileNames {
+  available: string[]
+  default: string | null
+  previews: Record<string, FileNamesPreview>
+}
+
+type NamedJob = { analysis?: unknown; overrides: Record<string, unknown> }
+
+export function fileNames(job: NamedJob): FileNames | undefined {
+  return (job.analysis as { file_names?: FileNames } | null)?.file_names
+}
+
+// La modalità dei nomi dei file in uso: quella scelta se c'è ancora, se no la predefinita.
+export function fileNamingMode(job: NamedJob): string | null {
+  const names = fileNames(job)
+  if (!names || names.available.length === 0) return null
+  const chosen = job.overrides.file_naming as string | undefined
+  return chosen && names.available.includes(chosen) ? chosen : (names.default ?? names.available[0])
+}
+
+// Il MediaInfo come lo riceverà il tracker: "Complete name" è il percorso
+// dentro il torrent con i nomi scelti, non quello nelle tue cartelle
+// (nazgarr/upload/execute.py refresh_mediainfo, all'esecuzione).
+export function plannedMediaInfo(job: NamedJob & { mediainfo_text?: string | null }): string | null {
+  const text = job.mediainfo_text ?? null
+  const mode = fileNamingMode(job)
+  const name = mode ? fileNames(job)?.previews[mode]?.main_video : null
+  if (!text || !name) return text
+  return text.replace(/^(Complete name\s*:\s*).*$/m, (_line, label: string) => label + name)
+}
