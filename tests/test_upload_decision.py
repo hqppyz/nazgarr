@@ -335,3 +335,99 @@ def test_trackers_that_disagree_keep_the_original_title(db_session, tmp_path, mo
     generated = _itt_only_job(db_session, tmp_path, monkeypatch, also_custom=True)
 
     assert generated["name"].startswith("Severance.S02")
+
+
+def _with_layout(db_session, job):
+    """Gli episodi della sorgente, come dopo l'analisi: i nomi generati per episodio."""
+    from dataclasses import asdict
+
+    from nazgarr.upload.source import scan_source
+
+    job.layout_json = json.dumps(asdict(scan_source(job.source_path)))
+    db_session.commit()
+
+
+def test_a_detected_value_can_be_left_out_of_the_names(db_session, decision_job):
+    # Segnalato (2026-10-16): un campo svuotato tornava al valore rilevato, un gruppo sbagliato restava.
+    _with_layout(db_session, decision_job)
+    upload_decision.update_overrides(db_session, decision_job, {"cleared": ["year", "group", "hdr"]})
+
+    itt, custom = decision_job.targets
+    assert itt.proposed_name == "Severance S02 1080p FullHD ATVP WEB-DL DD+ 5.1 H.264"  # né SDR né -NTb
+    assert custom.proposed_name == "Severance S02 1080p WEB-DL H.264 DD+ 5.1"
+    generated = json.loads(decision_job.analysis_json)["file_names"]["previews"]["generated"]
+    assert "NTb" not in generated["name"] and not any("NTb" in f for f in generated["files"])
+    assert json.loads(decision_job.overrides_json) == {"cleared": ["group", "hdr", "year"]}
+
+    # Un valore scritto vince sul campo tolto.
+    upload_decision.update_overrides(db_session, decision_job, {"group": "ME", "cleared": ["group"]})
+    assert itt.proposed_name.endswith("-ME")
+    assert json.loads(decision_job.overrides_json) == {"group": "ME"}
+
+
+@pytest.mark.parametrize("cleared", [["type"], ["resolution"], ["source"], ["bogus"], "group"])
+def test_only_optional_fields_can_be_left_out(db_session, decision_job, cleared):
+    with pytest.raises(UploadJobError) as exc:
+        upload_decision.update_overrides(db_session, decision_job, {"cleared": cleared})
+    assert exc.value.code == "upload_invalid_override"
+
+
+def _movie_job(db_session, tmp_path):
+    write_video(tmp_path / "My.Movie.2024.1080p.WEB-DL.H.264-GRP.mkv")
+    disk = make_disk(db_session, tmp_path)
+    make_tracker(db_session, "custom")
+    job = upload_jobs.create_job(db_session, disk, "My.Movie.2024.1080p.WEB-DL.H.264-GRP.mkv")
+    upload_jobs.transition(db_session, job, "identifying", "awaiting_decision", kind="movie", content_type="movie",
+                           title="My Movie", year=2024, tmdb_id=1)
+    for target in job.targets:
+        target.status = "awaiting_decision"
+    db_session.commit()
+    upload_decision.propose(db_session, job)
+    return job
+
+
+def test_the_file_name_can_be_written_by_hand(db_session, tmp_path):
+    job = _movie_job(db_session, tmp_path)
+    tracker_name = job.targets[0].proposed_name
+
+    for written in ("My Movie (2024) [ITA]", "My Movie (2024) [ITA].mkv", "  My Movie (2024) [ITA] "):
+        upload_decision.update_overrides(db_session, job, {"file_naming": "generated", "content_name": written})
+        generated = json.loads(job.analysis_json)["file_names"]["previews"]["generated"]
+        # L'estensione resta quella del file, una volta sola.
+        assert generated["name"] == generated["main_video"] == "My Movie (2024) [ITA].mkv"
+    assert job.targets[0].proposed_name == tracker_name  # il nome per il tracker è un'altra cosa
+
+    for bad in ("a/b", "..\\x", "..", "x" * 201, "a\nb"):
+        with pytest.raises(UploadJobError) as exc:
+            upload_decision.update_overrides(db_session, job, {"content_name": bad})
+        assert exc.value.code == "upload_invalid_override"
+
+
+def test_the_folder_of_a_pack_can_be_named_by_hand(db_session, decision_job):
+    _with_layout(db_session, decision_job)
+    upload_decision.update_overrides(db_session, decision_job, {"content_name": "Severance S02 [ITA]"})
+
+    generated = json.loads(decision_job.analysis_json)["file_names"]["previews"]["generated"]
+    assert generated["name"] == "Severance S02 [ITA]"
+    # Gli episodi tengono i loro nomi generati, dentro la cartella scritta a mano.
+    assert [f.split(".1080p")[0] for f in generated["files"]] == [
+        "Severance S02 [ITA]/Severance.S02E01", "Severance S02 [ITA]/Severance.S02E02"]
+    assert all(f.endswith("-NTb.mkv") for f in generated["files"])
+
+
+def test_the_mediainfo_preview_names_the_file_of_each_mode(db_session, tmp_path):
+    job = _movie_job(db_session, tmp_path)
+
+    previews = json.loads(job.analysis_json)["file_names"]["previews"]
+
+    assert previews["original"]["main_video"] == "My.Movie.2024.1080p.WEB-DL.H.264-GRP.mkv"
+    assert previews["generated"]["main_video"] == previews["generated"]["name"]
+
+
+def test_a_split_keeps_the_corrections_but_not_the_written_name():
+    from types import SimpleNamespace
+
+    from nazgarr.upload import split as upload_split
+
+    job = SimpleNamespace(overrides_json=json.dumps({"cleared": ["group"], "content_name": "Show S01 [ITA]"}))
+    assert upload_split._child_overrides(job) == {"cleared": ["group"]}

@@ -27,7 +27,7 @@ import { t } from '@/lib/i18n'
 import type { MediaInfoSummary } from '@/lib/mediainfo'
 import { packMixed, packMixedConfirmed } from '@/lib/pack'
 import { fromLocalInput } from '@/lib/schedule'
-import { effectiveDraft, sourceMissing, type TargetDraft } from '@/lib/upload'
+import { effectiveDraft, plannedMediaInfo, sourceMissing, type TargetDraft } from '@/lib/upload'
 
 // Secondo punto di approvazione (docs/SPEC.md §9): cosa ha trovato
 // l'analisi, i valori rilevati da correggere e, per ogni tracker, dupe
@@ -90,7 +90,7 @@ export function DecisionStep({ job }: { job: UploadJob }) {
         <MatchSummaryCard job={job} />
         <MediaInfoPreview
           summary={((job.analysis as Record<string, unknown> | null)?.mediainfo ?? null) as MediaInfoSummary | null}
-          fullText={job.mediainfo_text}
+          fullText={plannedMediaInfo(job)}
         />
         <OverridesPanel key={JSON.stringify(job.overrides)} job={job} open={overridesOpen} onOpenChange={setOverridesOpen} />
         <FileNamesCard job={job} />

@@ -10,6 +10,7 @@ la sua decisione esplicita, mai uno per default.
 
 import json
 import logging
+import unicodedata
 from datetime import datetime
 
 from sqlalchemy.orm import Session, object_session
@@ -22,6 +23,7 @@ from nazgarr.upload import jobs as upload_jobs
 from nazgarr.upload import streaming_services
 from nazgarr.upload.jobs import UploadJobError
 from nazgarr.upload.naming import (
+    CLEARABLE_FIELDS,
     DEFAULT_AUDIO_CODECS,
     DEFAULT_TYPE_LABELS,
     DETECTED_FIELDS,
@@ -40,10 +42,13 @@ logger = logging.getLogger(__name__)
 
 FLAG_KEYS = ("anonymous", "personal_release", "internal", "stream")  # booleani; freeleech è a parte (percentuale)
 # Override oltre ai valori rilevati: anno del nome, numero di screenshot,
-# note in fondo alla descrizione, e non aggiungere il torrent al client.
+# note in fondo alla descrizione, non aggiungere il torrent al client, e il
+# nome del file (o della cartella) del torrent scritto a mano.
 EXTRA_OVERRIDES = {"year": int, "screenshot_count": int, "notes": str, "no_seed": bool, "file_naming": str,
-                   "pack_mixed_confirmed": bool}
+                   "pack_mixed_confirmed": bool, "content_name": str}
 MAX_SCREENSHOTS = 12
+# Il nome scritto a mano diventa un file o una cartella nella cartella di seed.
+MAX_CONTENT_NAME = 200
 
 
 def _profile(session: Session, target: UploadTarget) -> TrackerUploadProfile | None:
@@ -125,12 +130,28 @@ def _local_title(session: Session, job: UploadJob, language: str, analysis: dict
     return title
 
 
+def _content_name(value: str) -> str:
+    """Un nome solo, niente percorsi: rifiutati "/" e "\\", i caratteri di
+    controllo, "." e ".."."""
+    name = value.strip()
+    if (name in (".", "..") or len(name) > MAX_CONTENT_NAME or any(c in name for c in "/\\")
+            or any(unicodedata.category(c) == "Cc" for c in name)):
+        raise UploadJobError("upload_invalid_override", field="content_name")
+    return name
+
+
 def clean_overrides(raw: dict | None) -> dict:
+    """"cleared": i campi tolti a mano (CLEARABLE_FIELDS), dove non c'è un
+    valore scritto: quello vince."""
     cleaned: dict = {}
     for key, value in (raw or {}).items():
-        if value is None or value == "":
+        if value is None or value == "" or value == []:
             continue
-        if key in DETECTED_FIELDS:
+        if key == "cleared":
+            if not isinstance(value, list) or any(field not in CLEARABLE_FIELDS for field in value):
+                raise UploadJobError("upload_invalid_override", field=key)
+            cleaned[key] = value
+        elif key in DETECTED_FIELDS:
             cleaned[key] = str(value).strip()
         elif key in EXTRA_OVERRIDES:
             kind = EXTRA_OVERRIDES[key]
@@ -144,6 +165,16 @@ def clean_overrides(raw: dict | None) -> dict:
         raise UploadJobError("upload_invalid_override", field="screenshot_count")
     if "file_naming" in cleaned and cleaned["file_naming"] not in upload_file_names.MODES:
         raise UploadJobError("upload_invalid_override", field="file_naming")
+    if "content_name" in cleaned:
+        cleaned["content_name"] = _content_name(cleaned["content_name"])
+        if not cleaned["content_name"]:
+            del cleaned["content_name"]
+    if "cleared" in cleaned:
+        cleared = sorted(set(cleaned["cleared"]) - {key for key in cleaned if key != "cleared"})
+        if cleared:
+            cleaned["cleared"] = cleared
+        else:
+            del cleaned["cleared"]
     return cleaned
 
 
@@ -211,7 +242,9 @@ def file_names_preview(session: Session, job: UploadJob) -> dict:
                 continue  # es. "generated" senza titolo ripiega sui nomi originali
             targets = [target for _source, target in plan.files]
             previews[mode] = {"name": plan.content_name, "files": targets[:PREVIEW_FILES], "count": len(targets),
-                              "single_file": plan.single_file, "folder": plan.folder}
+                              "single_file": plan.single_file, "folder": plan.folder,
+                              # Il "Complete name" del MediaInfo con questi nomi (execute.refresh_mediainfo).
+                              "main_video": upload_file_names.main_video_target(job, plan)}
         return {
             "available": [m for m in available if m in previews],
             "default": upload_file_names.default_mode(session, job, inputs),

@@ -192,8 +192,7 @@ def refresh_mediainfo(session: Session, job: UploadJob, plan, root: str | None) 
     percorso dentro il torrent, non quello locale (le tue cartelle non escono
     verso il tracker). Il testo dell'analisi con la sola riga corretta, senza
     rileggere il file; letto dal file solo se l'analisi non l'ha."""
-    main_video = (json.loads(job.layout_json or "{}").get("main_video")) or job.source_path
-    target = next((t for source, t in plan.files if source == main_video), None)
+    target = upload_file_names.main_video_target(job, plan)
     if target is None:
         return
     text = job.mediainfo_text

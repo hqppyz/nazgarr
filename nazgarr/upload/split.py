@@ -73,6 +73,14 @@ def is_incomplete(job: UploadJob, details: dict | None) -> bool:
     return count is not None and 0 < count[0] < count[1]
 
 
+def _child_overrides(job: UploadJob) -> dict:
+    """Le correzioni valgono per ogni parte, il nome scritto a mano no: è
+    il file o la cartella di quel torrent."""
+    overrides = json.loads(job.overrides_json or "{}")
+    overrides.pop("content_name", None)
+    return overrides
+
+
 def _tracker_choices(job: UploadJob) -> dict[int, dict]:
     choices = {}
     for target in job.targets:
@@ -92,7 +100,7 @@ def split(session: Session, job: UploadJob, details: dict | None) -> list[Upload
         raise upload_jobs.UploadJobError("upload_split_not_a_pack")
     layout = json.loads(job.layout_json or "{}")
     candidates = json.loads(job.candidates_json or "[]")
-    overrides = json.loads(job.overrides_json or "{}")
+    overrides = _child_overrides(job)
     forced = json.loads(job.forced_ids_json or "{}")
     tracker_ids = [t.tracker_id for t in job.targets]
     choices = _tracker_choices(job)
@@ -158,7 +166,7 @@ def split_seasons(session: Session, job: UploadJob, details: dict | None) -> lis
     if job.status != "analyzing" or not seasons or job.disk is None:
         raise upload_jobs.UploadJobError("upload_split_not_a_pack")
     candidates = json.loads(job.candidates_json or "[]")
-    overrides = json.loads(job.overrides_json or "{}")
+    overrides = _child_overrides(job)
     forced = json.loads(job.forced_ids_json or "{}")
     tracker_ids = [t.tracker_id for t in job.targets]
     choices = _tracker_choices(job)

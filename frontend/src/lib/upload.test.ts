@@ -11,6 +11,7 @@ import {
   missingEpisodes,
   newUploadLink,
   parseNewUploadParams,
+  plannedMediaInfo,
   toForcedIds,
 } from '@/lib/upload'
 
@@ -154,5 +155,30 @@ describe('reseed needs a passed hash check', () => {
       ...base, dupes: [{ torrent_id_remote: '7', verdict: 'identical', verification: { status: 'passed' } }],
     })
     expect(draftProblem(passed)).toBeNull()
+  })
+})
+
+describe('plannedMediaInfo', () => {
+  const text = 'General\nComplete name                            : /data/media/My Movie (2024).mkv\nFormat : Matroska\n'
+  const analysis = {
+    file_names: {
+      available: ['generated', 'original'], default: 'generated',
+      previews: {
+        generated: { name: 'My.Movie.2024.mkv', files: [], count: 1, main_video: 'My.Movie.2024.mkv' },
+        original: { name: 'My Movie (2024).mkv', files: [], count: 1, main_video: 'My Movie (2024).mkv' },
+      },
+    },
+  }
+
+  it('names the file as the tracker will see it, with the chosen file names', () => {
+    expect(plannedMediaInfo({ analysis, overrides: {}, mediainfo_text: text })).toBe(
+      'General\nComplete name                            : My.Movie.2024.mkv\nFormat : Matroska\n')
+    expect(plannedMediaInfo({ analysis, overrides: { file_naming: 'original' }, mediainfo_text: text })).toContain(
+      ': My Movie (2024).mkv\n')
+  })
+
+  it('leaves the text alone without a planned name', () => {
+    expect(plannedMediaInfo({ analysis: {}, overrides: {}, mediainfo_text: text })).toBe(text)
+    expect(plannedMediaInfo({ analysis, overrides: {}, mediainfo_text: null })).toBeNull()
   })
 })
