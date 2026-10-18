@@ -26,6 +26,8 @@ export const errors = {
   'errors.disk_root_path_outside_scan_root': 'Il disco deve stare in una delle cartelle montate ({scan_root})',
   'errors.disk_root_nested': '{path} è dentro il disco {other} (o lo contiene): i suoi file si conterebbero due volte',
   'errors.disk_root_path_conflict': 'Esiste già un disco con root_path {path}.',
+  'errors.disk_busy': 'Un reseed o un upload sta lavorando sui file di {label}: aspetta che finisca (o annulla l’upload), poi eliminalo',
+  'errors.disk_delete_conflict': '{label} è ancora usato da altri dati e ora non si può eliminare: riprova',
   'errors.path_not_found': 'Percorso non trovato: {path}',
   'errors.folder_already_exists': 'La cartella esiste già: {path}',
   'errors.path_outside_scope': 'Percorso fuori dall’ambito consentito: {path}',
@@ -33,6 +35,8 @@ export const errors = {
   'errors.run_not_found': 'Scansione {id} non trovata.',
   'errors.media_item_not_found': 'Questo elemento non è nella libreria.',
   'errors.run_in_progress': 'C’è una scansione in corso: riprova quando sarà finita.',
+  // Solo il lavoro a lato tiene il lock (nazgarr/reseed/exclusive.py): nessuna scansione da aspettare.
+  'errors.side_work_in_progress': 'C’è altro lavoro in corso (eventi di Radarr/Sonarr o una ricerca): riprova fra poco.',
   'errors.invalid_path': 'Percorso non valido.',
   'errors.run_already_finished': 'La scansione {id} è già finita.',
 

@@ -8,7 +8,7 @@ import typer
 
 from nazgarr.cli_client import settings_catalog as catalog
 from nazgarr.cli_client.context import api, state
-from nazgarr.cli_client.helpers import find, login_api, secret
+from nazgarr.cli_client.helpers import find, login_api, secret, warn_insecure_url
 from nazgarr.cli_client.http import ApiError
 from nazgarr.cli_client.output import EXIT_USAGE, confirm, console, emit, err_console, fail, table
 
@@ -106,8 +106,17 @@ def set_setting(
 def show_schedule(ctx: typer.Context):
     """The current schedule."""
     data = api(ctx).get("/api/schedule")
-    emit(state(ctx), data, lambda d: console.print(f"Scans run on their own: {d['cron']}" if d["enabled"]
-                                                   else "Scans run only when you start them."))
+
+    def render(d: dict) -> None:
+        if d.get("error"):
+            # Un cron salvato che non si legge: nessuna scansione parte (audit 2026-10-18).
+            err_console.print(f"[red]The saved schedule {d['cron']!r} cannot be read ({d['error']}):[/red] "
+                              "no scan runs on its own. Set a new one with `nazgarr schedule set`.")
+        else:
+            console.print(f"Scans run on their own: {d['cron']}" if d["enabled"]
+                          else "Scans run only when you start them.")
+
+    emit(state(ctx), data, render)
 
 
 @schedule_app.command("set")
@@ -160,6 +169,7 @@ def add_arr(
     client = api(ctx)
     created = client.post(f"/api/{kind}-instances", body)
     emit(state(ctx), created, lambda i: console.print(f"{kind.capitalize()} {i['label']} (#{i['id']}) added."))
+    warn_insecure_url(created, "its API key")
     if not state(ctx).json:
         _print_test(client.post(f"/api/{kind}-instances/{created['id']}/test"))
 

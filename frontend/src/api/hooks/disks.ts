@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useEffect } from 'react'
 
 import { api, unwrap } from '@/api/client'
 import type { Schemas } from '@/api/client'
@@ -60,6 +61,24 @@ export function useRemoveDiskFolder() {
         params: { path: { disk_id: diskId, folder_id: folderId } },
       })),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['disks'] }),
+  })
+}
+
+// Cosa se ne va dal DB eliminando il disco (decisione dell'utente,
+// 2026-10-18): letto quando si apre la conferma, mai tenuto in cache. Alla
+// chiusura il conteggio si butta (il pulsante resta montato, gcTime 0 non
+// basta), così riaprendo non si mostra quello vecchio mentre arriva il nuovo.
+export function useDiskDeletePreview(diskId: number, enabled: boolean) {
+  const queryClient = useQueryClient()
+  useEffect(() => {
+    if (!enabled) queryClient.removeQueries({ queryKey: ['disks', diskId, 'delete-preview'], exact: true })
+  }, [enabled, diskId, queryClient])
+  return useQuery({
+    queryKey: ['disks', diskId, 'delete-preview'],
+    queryFn: () => unwrap(api.GET('/api/disks/{disk_id}/delete-preview', { params: { path: { disk_id: diskId } } })),
+    enabled,
+    staleTime: 0,
+    gcTime: 0,
   })
 }
 

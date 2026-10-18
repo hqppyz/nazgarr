@@ -13,18 +13,23 @@ from datetime import datetime
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session, object_session
 
-from nazgarr.api.types import HttpUrlStr, check_destinations, require_secrets_for_new_host
+from nazgarr.api.types import HttpUrlStr, check_destinations, insecure_public_url, require_secrets_for_new_host
 from nazgarr.core import http_limits
 from nazgarr.core.errors import coded_detail
 from nazgarr.core.logs import safe_error
+from nazgarr.integrations import arr as arr_api
 from nazgarr.integrations import arr_webhooks
 from nazgarr.web.deps import get_session
 
 DEFAULT_PRIORITY = 0
-DEFAULT_TIMEOUT_SECONDS = 15
+DEFAULT_TIMEOUT_SECONDS = arr_api.DEFAULT_TIMEOUT_SECONDS
+# Secondi di attesa di una risposta: da 1 a 5 minuti. Un valore negativo
+# arrivava a httpx come timeout non valido, e ogni chiamata a quell'istanza
+# falliva con un errore che non diceva perché (audit 2026-10-18).
+TIMEOUT_MAX_SECONDS = arr_api.TIMEOUT_MAX_SECONDS
 # /system/status è qualche KB: una risposta più grande non è Radarr/Sonarr.
 MAX_STATUS_BYTES = 1024 * 1024
 
@@ -39,7 +44,7 @@ class ArrInstanceCreateRequest(BaseModel):
     base_url: HttpUrlStr
     api_key: str
     priority: int = DEFAULT_PRIORITY
-    timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS
+    timeout_seconds: int = Field(DEFAULT_TIMEOUT_SECONDS, ge=1, le=TIMEOUT_MAX_SECONDS)
     basic_auth_username: str | None = None
     basic_auth_password: str | None = None
 
@@ -50,7 +55,7 @@ class ArrInstanceUpdateRequest(BaseModel):
     api_key: str | None = None
     enabled: bool | None = None
     priority: int | None = None
-    timeout_seconds: int | None = None
+    timeout_seconds: int | None = Field(default=None, ge=1, le=TIMEOUT_MAX_SECONDS)
     # Stringa vuota = disattiva la basic auth (cancella sia username che
     # password); None = campo non toccato da questa richiesta.
     basic_auth_username: str | None = None
@@ -76,6 +81,9 @@ class ArrInstanceResponse(BaseModel):
     id: int
     label: str
     base_url: str
+    # http:// verso un host pubblico: l'API key viaggia in chiaro. Salvato lo
+    # stesso, con un avviso (decisione dell'utente, 2026-10-18).
+    insecure_public_url: bool = False
     enabled: bool
     priority: int
     timeout_seconds: int
@@ -88,9 +96,13 @@ class ArrInstanceResponse(BaseModel):
         session = object_session(row)
         last = arr_webhooks.last_event(session, kind, row.id) if session is not None and kind else None
         return cls(
-            id=row.id, label=row.label, base_url=row.base_url, enabled=row.enabled,
+            id=row.id, label=row.label, base_url=row.base_url, insecure_public_url=insecure_public_url(row.base_url),
+            enabled=row.enabled,
             priority=row.priority if row.priority is not None else DEFAULT_PRIORITY,
-            timeout_seconds=row.timeout_seconds if row.timeout_seconds is not None else DEFAULT_TIMEOUT_SECONDS,
+            # Quello in uso, non il valore grezzo: una riga di prima dei limiti
+            # (negativo, o sopra i 5 minuti) riempiva il form con un numero che,
+            # rimandato, faceva fallire con 422 ogni altra modifica.
+            timeout_seconds=arr_api.timeout_of(row),
             basic_auth_username=row.basic_auth_username,
             webhook_enabled=bool(row.webhook_token),
             webhook_last_event=ArrWebhookEventSummary(
@@ -111,7 +123,7 @@ class ArrConnectionTestRequest(BaseModel):
 
     base_url: HttpUrlStr
     api_key: str
-    timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS
+    timeout_seconds: int = Field(DEFAULT_TIMEOUT_SECONDS, ge=1, le=TIMEOUT_MAX_SECONDS)
     basic_auth_username: str | None = None
     basic_auth_password: str | None = None
 
@@ -179,7 +191,7 @@ def make_router(
         ridigitata."""
         instance = get_or_404(session, instance_id)
         check_destinations(instance.base_url)  # a ogni richiesta, non solo quando l'indirizzo si salva
-        timeout = instance.timeout_seconds if instance.timeout_seconds is not None else DEFAULT_TIMEOUT_SECONDS
+        timeout = arr_api.timeout_of(instance)
         return test_connection(
             instance.base_url, instance.api_key, timeout, instance.basic_auth_username, instance.basic_auth_password
         )

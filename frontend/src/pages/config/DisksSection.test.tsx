@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { DisksSection } from '@/pages/config/DisksSection'
 
@@ -15,13 +15,28 @@ const disk = {
   ],
 }
 const mutation = { mutate: vi.fn(), isPending: false }
+const deleteDisk = vi.fn()
+const preview = {
+  current: {
+    folders: 3, media_files: 1200, seed_files: 800, reviews: 4, executions: 2, match_attempts: 0, watch_entries: 0,
+    client_links: 1, upload_jobs: 5, busy: null as string | null,
+  },
+}
+const refetch = vi.fn()
+const previewQuery = { isFetching: false, error: null as Error | null, failed: false }
 
 vi.mock('@/api/hooks/disks', () => ({
   useDisks: () => ({ data: [disk], isPending: false }),
   useAvailableMounts: () => ({ data: { scan_root: '/data', scan_roots: ['/data'], scope_source: 'mounts', mounts: [], detected: [], warnings: [] } }),
   useCreateDisk: () => mutation,
   useUpdateDisk: () => mutation,
-  useDeleteDisk: () => mutation,
+  useDeleteDisk: () => ({ mutate: deleteDisk, isPending: false }),
+  useDiskDeletePreview: (_id: number, enabled: boolean) => ({
+    data: enabled && !previewQuery.failed ? preview.current : undefined,
+    isFetching: enabled && previewQuery.isFetching,
+    error: enabled ? previewQuery.error : null,
+    refetch,
+  }),
   useVerifyDisk: () => ({ ...mutation, data: undefined }),
   useAddDiskFolder: () => mutation,
   useRemoveDiskFolder: () => ({ mutate: remove, isPending: false }),
@@ -43,5 +58,61 @@ describe('DisksSection', () => {
     expect(remove).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('button', { name: 'Remove' }))
     expect(remove).toHaveBeenCalledWith({ diskId: 1, folderId: 12 }, expect.anything())
+  })
+})
+
+describe('deleting a disk', () => {
+  beforeEach(() => {
+    previewQuery.isFetching = false
+    previewQuery.error = null
+    previewQuery.failed = false
+    preview.current = { ...preview.current, busy: null }
+  })
+
+  it('says what goes with it, that no file is touched, and asks first', () => {
+    render(<DisksSection />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+    expect(screen.getByText('Library file records')).toBeTruthy()
+    expect(screen.getByText((1200).toLocaleString('en-US'))).toBeTruthy()
+    expect(screen.queryByText('Search records')).toBeNull() // zero: non si mostra
+    expect(screen.getByText('5 uploads from this disk stay in the history, without the disk.')).toBeTruthy()
+    expect(screen.getByText('No file on the disk is touched, and torrents stay in their clients.')).toBeTruthy()
+    expect(deleteDisk).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Delete' }).at(-1)!)
+    expect(deleteDisk).toHaveBeenCalledWith(1)
+  })
+
+  it('does not offer the delete while a reseed works on its files', () => {
+    preview.current = { ...preview.current, busy: 'reseed' }
+    render(<DisksSection />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+    expect(screen.getByRole('alert').textContent).toContain('A reseed is working on the files of this disk')
+    expect((screen.getAllByRole('button', { name: 'Delete' }).at(-1) as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('does not delete without the counts when reading them failed, and offers to read them again', () => {
+    previewQuery.failed = true
+    previewQuery.error = new Error('boom')
+    render(<DisksSection />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+    expect(screen.getByText('Could not count what goes with it: boom')).toBeTruthy()
+    // Che sul disco non cambia niente si dice comunque.
+    expect(screen.getByText('No file on the disk is touched, and torrents stay in their clients.')).toBeTruthy()
+    expect((screen.getAllByRole('button', { name: 'Delete' }).at(-1) as HTMLButtonElement).disabled).toBe(true)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    expect(refetch).toHaveBeenCalled()
+  })
+
+  it('keeps Delete off while the counts are being read again', () => {
+    previewQuery.isFetching = true
+    render(<DisksSection />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+    expect((screen.getAllByRole('button', { name: 'Delete' }).at(-1) as HTMLButtonElement).disabled).toBe(true)
   })
 })

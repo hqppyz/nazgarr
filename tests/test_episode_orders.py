@@ -797,3 +797,27 @@ def test_a_pack_file_the_chosen_ordering_lacks_keeps_its_name_and_the_match_says
     assert (event.level, json.loads(event.params_json)) == ("warning", {"order": "tmdb:default", "count": 1,
                                                                         "episodes": "S01E03"})
     assert job.status == "analyzing"
+
+
+def test_tmdb_and_tvdb_apis_share_one_http_client_each(monkeypatch):
+    """Un TmdbApi o TvdbApi nasce per scheda, job e serie: ognuno apriva il
+    suo httpx.Client senza chiuderlo (audit 2026-10-18). Ora quello di
+    processo, con la chiave e il timeout in ogni richiesta."""
+    import httpx
+
+    from nazgarr.library import tmdb_client
+
+    assert eo.TmdbApi("a")._client is eo.TmdbApi("b")._client is tmdb_client.shared_http_client()
+    assert eo.TvdbApi("a")._client is eo.TvdbApi("b")._client
+
+    seen = []
+
+    def handler(request):
+        seen.append((request.url.params.get("api_key"), request.extensions["timeout"]["read"]))
+        return httpx.Response(200, json={})
+
+    shared = httpx.Client(base_url=tmdb_client.TMDB_API_BASE, transport=httpx.MockTransport(handler), timeout=10.0)
+    monkeypatch.setattr(tmdb_client, "_shared", shared)
+    eo.TmdbApi("key-1").get("/tv/1")
+    eo.TmdbApi("key-2").get("/tv/2")
+    assert seen == [("key-1", eo.TMDB_TIMEOUT_SECONDS), ("key-2", eo.TMDB_TIMEOUT_SECONDS)]

@@ -1,4 +1,4 @@
-import { FolderIcon, HardDriveIcon, InfoIcon, PencilIcon, PlusIcon, TrashIcon, XIcon, ZapIcon } from 'lucide-react'
+import { FolderIcon, HardDriveIcon, InfoIcon, PencilIcon, PlusIcon, XIcon, ZapIcon } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 
@@ -6,7 +6,6 @@ import {
   useAddDiskFolder,
   useAvailableMounts,
   useCreateDisk,
-  useDeleteDisk,
   useDisks,
   useRemoveDiskFolder,
   useUpdateDisk,
@@ -31,6 +30,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { t } from '@/lib/i18n'
+import { DiskDeleteButton } from '@/pages/config/DeleteWithPreview'
 import { DiskBrowserDialog } from '@/pages/config/DiskBrowserDialog'
 import { autosaveFeedback } from '@/lib/autosave'
 
@@ -424,7 +424,6 @@ function MountsPanel({ onAdd }: { onAdd: (preset: DiskPreset) => void }) {
 
 export function DisksSection() {
   const { data: disks, isPending } = useDisks()
-  const deleteDisk = useDeleteDisk()
   const [preset, setPreset] = useState<DiskPreset | null>(null)
 
   return (
@@ -531,17 +530,7 @@ export function DisksSection() {
                 <DiskTestButton diskId={disk.id} />
                 <span className="flex-1" />
                 <EditDiskDialog disk={disk} />
-                <ConfirmButton
-                  trigger={
-                    <Button variant="ghost" size="icon-sm" title={t('common.delete')}>
-                      <TrashIcon className="size-4" />
-                    </Button>
-                  }
-                  title={t('disks.deleteTitle', { label: disk.label })}
-                  description={t('disks.deleteDescription')}
-                  pending={deleteDisk.isPending}
-                  onConfirm={() => deleteDisk.mutate(disk.id)}
-                />
+                <DiskDeleteButton disk={disk} />
               </div>
             </CardContent>
           </Card>

@@ -3,7 +3,7 @@
 import typer
 
 from nazgarr.cli_client.context import api, state
-from nazgarr.cli_client.helpers import find
+from nazgarr.cli_client.helpers import counted, delete_preview, find, refuse_if_busy
 from nazgarr.cli_client.output import EXIT_USAGE, confirm, console, emit, err_console, fail, size, table
 
 app = typer.Typer(help="Disks and their media and seeding folders.", no_args_is_help=True)
@@ -74,12 +74,32 @@ def set_disk(
 @app.command("rm")
 def remove_disk(ctx: typer.Context, disk: str = typer.Argument(..., help="Disk name or ID."),
                 yes: bool = typer.Option(False, "--yes", "-y", help="Do not ask for confirmation.")):
-    """Remove a disk from Nazgarr (nothing is deleted on the disk)."""
+    """Remove a disk from Nazgarr, with what it knows of its files (folders, file records, reviews, reseed
+    records, searches). Nothing is deleted on the disk, and torrents stay in their clients."""
     client = api(ctx)
     found = _disk(client, disk)
+    preview = delete_preview(client, f"/api/disks/{found['id']}/delete-preview")
+    refuse_if_busy(preview, "disk_busy", label=found["label"], work=(preview or {}).get("busy"))
+    if preview is not None:
+        # Quello che se ne va con lui (decisione dell'utente, 2026-10-18).
+        console.print(_preview_text(found["label"], preview))
     confirm(f"Remove disk {found['label']} from Nazgarr? Nothing is deleted on the disk.", yes)
     client.delete(f"/api/disks/{found['id']}")
     console.print(f"Disk {found['label']} removed.")
+
+
+def _preview_text(label: str, p: dict) -> str:
+    parts = [counted(p["folders"], "folder"), counted(p["media_files"], "library file record"),
+             counted(p["seed_files"], "seeding file record"), counted(p["reviews"], "review"),
+             counted(p["executions"], "reseed record"), counted(p["match_attempts"], "search record"),
+             counted(p["watch_entries"], "watched-folder entry", "watched-folder entries"),
+             counted(p["client_links"], "client link")]
+    gone = [part for part in parts if not part.startswith("0 ")]
+    text = (f"Removing {label} also removes from Nazgarr: {', '.join(gone)}." if gone
+            else f"Nothing else in Nazgarr depends on {label}.")
+    if p.get("upload_jobs"):
+        text += f" {counted(p['upload_jobs'], 'upload')} from it stay, without the disk."
+    return text + "\nNo file on the disk is touched, and torrents stay in their clients."
 
 
 @app.command("test")

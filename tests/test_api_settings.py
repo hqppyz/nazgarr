@@ -57,7 +57,7 @@ def test_keys_with_their_own_endpoint_are_never_written_from_here(client):
         assert response.json()["detail"] == {"code": "setting_protected", "params": {"key": key}}
     # Si leggono ancora.
     assert client.get("/api/settings/schedule_cron").status_code == 200
-    assert client.get("/api/schedule").json() == {"cron": None, "enabled": False}
+    assert client.get("/api/schedule").json() == {"cron": None, "enabled": False, "error": None}
 
 
 def test_the_managed_keys_are_the_ones_their_modules_use():

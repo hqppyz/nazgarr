@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session, object_session
 
-from nazgarr.api.types import HttpUrlStr, check_destinations, require_secrets_for_new_host
+from nazgarr.api.types import HttpUrlStr, check_destinations, insecure_public_url, require_secrets_for_new_host
 from nazgarr.core.errors import coded_detail, from_coded_error
 from nazgarr.core.fs_scope import ScopeViolation, resolve_scoped
 from nazgarr.core.logs import safe_error
@@ -90,6 +90,9 @@ class TorrentClientResponse(BaseModel):
     label: str
     adapter_type: str
     base_url: str
+    # http:// verso un host pubblico: credenziali in chiaro. Salvato lo stesso,
+    # con un avviso (decisione dell'utente, 2026-10-18).
+    insecure_public_url: bool = False
     username: str | None
     qui_instance_id: int | None  # mai api_token/password: write-only, non tornano mai indietro
     enabled: bool
@@ -114,7 +117,8 @@ class TorrentClientResponse(BaseModel):
         return cls(
             torrent_count=count or 0, last_polled_at=last,
             id=tc.id, label=tc.label, adapter_type=tc.adapter_type,
-            base_url=tc.base_url, username=tc.username, qui_instance_id=tc.qui_instance_id, enabled=tc.enabled,
+            base_url=tc.base_url, insecure_public_url=insecure_public_url(tc.base_url),
+            username=tc.username, qui_instance_id=tc.qui_instance_id, enabled=tc.enabled,
             **{name: getattr(tc, name) for name in LABEL_FIELDS},
             config=plugin_config.public_for_row(tc, "torrent_client"),
             disks=[

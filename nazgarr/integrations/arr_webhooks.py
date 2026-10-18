@@ -334,12 +334,17 @@ def _search(session: Session, media_file_ids: list[int]) -> None:
     from nazgarr.integrations import adapter_factory
     from nazgarr.reseed import matching
 
+    ids = set(media_file_ids)
+    # Come "Cerca ora": gli indici dei file locali una volta per tutti i
+    # tracker, solo per i dischi di questi file (audit 2026-10-18).
+    disk_ids = {disk_id for (disk_id,) in session.query(MediaFile.disk_id).filter(MediaFile.id.in_(ids)).distinct()}
+    local = matching.SharedLocalFiles(session, disk_ids)
     for tracker_row in session.query(Tracker).filter_by(enabled=True).all():
         adapter = None
         try:
             adapter = adapter_factory.build_tracker_adapter(tracker_row)
             matching.run_media_to_torrent_matching(
-                session, tracker_row, adapter, only_media_file_ids=set(media_file_ids))
+                session, tracker_row, adapter, only_media_file_ids=ids, local=local)
         except Exception:
             logger.warning("Ricerca dopo l'importazione fallita su %r", tracker_row.label, exc_info=True)
         finally:

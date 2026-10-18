@@ -283,6 +283,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/disks/{disk_id}/delete-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Disk Delete Preview
+         * @description In sola lettura: i conteggi di quello che DELETE /api/disks/{id}
+         *     toglierebbe, per la conferma dell'interfaccia e del CLI.
+         */
+        get: operations["disk_delete_preview_api_disks__disk_id__delete_preview_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/runs": {
         parameters: {
             query?: never;
@@ -787,6 +808,27 @@ export interface paths {
          * @description La favicon del tracker, dalla cache locale (nazgarr/torrents/tracker_icons.py).
          */
         get: operations["tracker_icon_api_trackers__tracker_id__icon_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/trackers/{tracker_id}/delete-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Tracker Delete Preview
+         * @description In sola lettura: i conteggi di quello che DELETE /api/trackers/{id}
+         *     toglierebbe, per la conferma dell'interfaccia e del CLI.
+         */
+        get: operations["tracker_delete_preview_api_trackers__tracker_id__delete_preview_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1495,7 +1537,9 @@ export interface paths {
          *     giorni (finestra 7d/30d/90d della dashboard), fino a 1000; senza, le
          *     ultime `limit`. `tracker`: lo storico di quel filtro, che parte dalla
          *     prima scansione dopo la sua introduzione; uno che non c'è, quello globale
-         *     come i numeri della dashboard.
+         *     come i numeri della dashboard. Limiti espliciti (audit 2026-10-18): un
+         *     limit negativo restituiva tutte le run, e un days enorme un 500
+         *     (OverflowError di timedelta).
          */
         get: operations["get_history_api_dashboard_history_get"];
         put?: never;
@@ -3242,6 +3286,35 @@ export interface components {
             /** Root Path */
             root_path: string;
         };
+        /**
+         * DiskDeletePreview
+         * @description Cosa se ne va dal DB eliminando il disco (decisione dell'utente,
+         *     2026-10-18: quello che Nazgarr sa dei suoi file va con lui), da mostrare
+         *     nella conferma. Sul disco e nei client non cambia niente: i file restano
+         *     dove sono, e un torrent in seed resta nel client.
+         */
+        DiskDeletePreview: {
+            /** Folders */
+            folders: number;
+            /** Media Files */
+            media_files: number;
+            /** Seed Files */
+            seed_files: number;
+            /** Reviews */
+            reviews: number;
+            /** Executions */
+            executions: number;
+            /** Match Attempts */
+            match_attempts: number;
+            /** Watch Entries */
+            watch_entries: number;
+            /** Client Links */
+            client_links: number;
+            /** Upload Jobs */
+            upload_jobs: number;
+            /** Busy */
+            busy?: string | null;
+        };
         /** DiskFolderRequest */
         DiskFolderRequest: {
             /** Kind */
@@ -4315,6 +4388,11 @@ export interface components {
             label: string;
             /** Base Url */
             base_url: string;
+            /**
+             * Insecure Public Url
+             * @default false
+             */
+            insecure_public_url: boolean;
             /** Enabled */
             enabled: boolean;
             /** Priority */
@@ -4617,6 +4695,8 @@ export interface components {
             cron: string | null;
             /** Enabled */
             enabled: boolean;
+            /** Error */
+            error?: string | null;
         };
         /** ScheduleUpdateRequest */
         ScheduleUpdateRequest: {
@@ -4821,6 +4901,11 @@ export interface components {
             label: string;
             /** Base Url */
             base_url: string;
+            /**
+             * Insecure Public Url
+             * @default false
+             */
+            insecure_public_url: boolean;
             /** Enabled */
             enabled: boolean;
             /** Priority */
@@ -4939,6 +5024,11 @@ export interface components {
             adapter_type: string;
             /** Base Url */
             base_url: string;
+            /**
+             * Insecure Public Url
+             * @default false
+             */
+            insecure_public_url: boolean;
             /** Username */
             username: string | null;
             /** Qui Instance Id */
@@ -5065,6 +5155,31 @@ export interface components {
              */
             upload_profile: string;
         };
+        /**
+         * TrackerDeletePreview
+         * @description Cosa se ne va dal DB eliminando il tracker (decisione dell'utente,
+         *     2026-10-18: la storia va con lui, ON DELETE CASCADE), da mostrare nella
+         *     conferma. Sul tracker, sui dischi e nei client non cambia niente: un
+         *     reseed in seed resta nel client, ne sparisce solo il record.
+         */
+        TrackerDeletePreview: {
+            /** Candidates */
+            candidates: number;
+            /** Reviews */
+            reviews: number;
+            /** Executions */
+            executions: number;
+            /** Executions Seeding */
+            executions_seeding: number;
+            /** Match Attempts */
+            match_attempts: number;
+            /** Upload Targets */
+            upload_targets: number;
+            /** Upload Profile */
+            upload_profile: boolean;
+            /** Busy */
+            busy: boolean;
+        };
         /** TrackerResponse */
         TrackerResponse: {
             /** Id */
@@ -5075,6 +5190,11 @@ export interface components {
             adapter_type: string;
             /** Base Url */
             base_url: string;
+            /**
+             * Insecure Public Url
+             * @default false
+             */
+            insecure_public_url: boolean;
             /**
              * Has Announce Url
              * @default false
@@ -6237,6 +6357,37 @@ export interface operations {
             };
         };
     };
+    disk_delete_preview_api_disks__disk_id__delete_preview_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                disk_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiskDeletePreview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_runs_api_runs_get: {
         parameters: {
             query?: {
@@ -7199,6 +7350,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    tracker_delete_preview_api_trackers__tracker_id__delete_preview_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tracker_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrackerDeletePreview"];
                 };
             };
             /** @description Validation Error */

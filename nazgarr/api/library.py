@@ -302,7 +302,10 @@ def get_item_detail(content_type: str, tmdb_id: int, session: Session = Depends(
     detail = library_detail.item_detail(session, _content_type_or_404(content_type), tmdb_id)
     if detail is None:
         raise HTTPException(status_code=404, detail=coded_detail("media_item_not_found"))
-    detail["reviews"] = [ReviewResponse.from_model(r) for r in detail["reviews"]]
+    # Una lettura per tutte le review della scheda (ReviewContext), come la
+    # coda: prima ogni review ricostruiva il suo contesto, una quindicina di
+    # query a testa (audit 2026-10-18).
+    detail["reviews"] = ReviewResponse.many(session, detail["reviews"])
     return detail
 
 
@@ -328,17 +331,22 @@ def search_item_now(content_type: str, tmdb_id: int, session: Session = Depends(
 
 
 def _search_now(session: Session, content_type: str, tmdb_id: int) -> SearchNowResponse:
-    mf_ids = {
-        mf.id for mf in session.query(MediaFile).join(MediaItem, MediaItem.id == MediaFile.media_item_id)
+    rows = (
+        session.query(MediaFile.id, MediaFile.disk_id).join(MediaItem, MediaItem.id == MediaFile.media_item_id)
         .filter(MediaItem.content_type == content_type, MediaItem.tmdb_id == tmdb_id).all()
-    }
+    )
+    mf_ids = {mf_id for mf_id, _disk_id in rows}
     if not mf_ids:
         raise HTTPException(status_code=404, detail=coded_detail("media_item_not_found"))
+    # Gli indici dei file locali una volta per tutti i tracker, e solo per i
+    # dischi di questi file (ogni abbinamento resta sul disco dell'anchor):
+    # prima ogni tracker li ricostruiva (audit 2026-10-18).
+    local = matching.SharedLocalFiles(session, {disk_id for _mf_id, disk_id in rows})
     totals = {"files": 0, "candidates": 0, "rate_limited": False}
     for tracker_row in session.query(Tracker).filter_by(enabled=True).all():
         with adapter_factory.tracker(tracker_row) as adapter:
             result = matching.run_media_to_torrent_matching(
-                session, tracker_row, adapter, only_media_file_ids=mf_ids, force=True,
+                session, tracker_row, adapter, only_media_file_ids=mf_ids, force=True, local=local,
             )
         totals["files"] += result["files"]
         totals["candidates"] += result["candidates"]

@@ -1,6 +1,9 @@
 """Tipi condivisi dai modelli delle richieste API."""
 
 import ipaddress
+import socket
+import threading
+import time
 from typing import Annotated
 from urllib.parse import urlsplit
 
@@ -101,3 +104,57 @@ def require_secrets_for_new_host(old_url: str | None, new_url: str | None, missi
         return
     code = "secret_required_for_new_host" if change == "host" else "secret_required_for_insecure_scheme"
     raise HTTPException(status_code=400, detail=coded_detail(code, fields=", ".join(missing)))
+
+
+# Quanto si tiene il verdetto "pubblico o no" di un host: le liste di tracker,
+# client e istanze lo chiedono a ogni lettura, e risolvere il nome ogni volta
+# costava un DNS per riga.
+PUBLIC_HOST_TTL_SECONDS = 600.0
+# Un nome che non si risolve conta come pubblico, ma solo per poco: il nome di
+# un container in LAN (http://qbittorrent:8080) manca dal DNS mentre il
+# container è fermo, o per un singhiozzo del DNS di Docker, e per 10 minuti la
+# scheda avrebbe detto "in chiaro verso un indirizzo pubblico" a torto.
+UNRESOLVED_HOST_TTL_SECONDS = 30.0
+_public_hosts: dict[str, tuple[float, bool]] = {}
+_public_hosts_lock = threading.Lock()
+
+
+def forget_public_hosts() -> None:
+    """Dimentica i verdetti tenuti (i test, che cambiano il DNS)."""
+    with _public_hosts_lock:
+        _public_hosts.clear()
+
+
+def insecure_public_url(url: str | None) -> bool:
+    """http:// verso un host pubblico (internet): token, chiavi e password di
+    un tracker, di un client o di Radarr/Sonarr viaggerebbero in chiaro.
+    Decisione dell'utente, 2026-10-18: un indirizzo così si salva lo stesso,
+    con un avviso nella UI e nel CLI (le istanze di Nazgarr invece lo
+    rifiutano, nazgarr/integrations/instances.py). La regola è la stessa:
+    LAN, loopback e 100.64.0.0/10 (Tailscale) non sono pubblici, un nome che
+    non si risolve sì (nel dubbio, l'avviso). Mai per l'announce URL, a cui
+    Nazgarr non manda niente. Da chiamare fuori dal loop (risolve il nome)."""
+    from nazgarr.integrations.instances import is_public
+
+    parts = urlsplit(url or "")
+    if parts.scheme.lower() != "http" or not parts.hostname:
+        return False
+    host = parts.hostname.lower()
+    now = time.monotonic()
+    with _public_hosts_lock:
+        cached = _public_hosts.get(host)
+    if cached is not None and cached[0] > now:
+        return cached[1]
+    ttl = PUBLIC_HOST_TTL_SECONDS
+    try:
+        # Una risoluzione sola: poi is_public su ogni indirizzo, che per un IP
+        # scritto per esteso non va al DNS, e la regola resta la sua.
+        addresses = {info[4][0].split("%", 1)[0] for info in socket.getaddrinfo(host, None)}
+        public = any(is_public(address) for address in addresses) if addresses else True
+    except socket.gaierror:
+        public, ttl = True, UNRESOLVED_HOST_TTL_SECONDS
+    except (UnicodeError, ValueError):
+        public = True  # un nome che getaddrinfo non sa nemmeno codificare
+    with _public_hosts_lock:
+        _public_hosts[host] = (now + ttl, public)
+    return public

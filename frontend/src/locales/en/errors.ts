@@ -26,6 +26,8 @@ export const errors = {
   'errors.disk_root_path_outside_scan_root': 'The disk must be in one of the mounted folders ({scan_root})',
   'errors.disk_root_nested': '{path} is inside disk {other} (or contains it): its files would be counted twice',
   'errors.disk_root_path_conflict': 'A disk with root_path {path} already exists.',
+  'errors.disk_busy': 'A reseed or an upload is working on the files of {label}: wait for it to finish (or cancel the upload), then delete it',
+  'errors.disk_delete_conflict': '{label} is still referenced by other data and cannot be deleted right now: try again',
   'errors.path_not_found': 'Path not found: {path}',
   'errors.folder_already_exists': 'Folder already exists: {path}',
   'errors.path_outside_scope': 'Path outside the allowed scope: {path}',
@@ -33,6 +35,8 @@ export const errors = {
   'errors.run_not_found': 'Scan {id} not found.',
   'errors.media_item_not_found': 'This item is not in the library.',
   'errors.run_in_progress': 'A scan is in progress: try again when it has finished.',
+  // Solo il lavoro a lato tiene il lock (nazgarr/reseed/exclusive.py): nessuna scansione da aspettare.
+  'errors.side_work_in_progress': 'Other work is in progress (Radarr/Sonarr events or a search): try again shortly.',
   'errors.invalid_path': 'Invalid path.',
   'errors.run_already_finished': 'Scan {id} has already finished.',
 

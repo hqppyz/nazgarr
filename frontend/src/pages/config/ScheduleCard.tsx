@@ -41,13 +41,22 @@ export function ScheduleCard() {
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           {t('misc.schedule')}
-          <Badge variant={schedule?.enabled ? 'default' : 'secondary'}>
-            {schedule?.enabled ? t('reseeding.scheduleActive') : t('reseeding.scheduleInactive')}
-          </Badge>
+          {schedule?.error ? (
+            <Badge variant="destructive">{t('misc.scheduleInvalid')}</Badge>
+          ) : (
+            <Badge variant={schedule?.enabled ? 'default' : 'secondary'}>
+              {schedule?.enabled ? t('reseeding.scheduleActive') : t('reseeding.scheduleInactive')}
+            </Badge>
+          )}
         </CardTitle>
         <CardDescription>{t('reseeding.scheduleDescription')}</CardDescription>
       </CardHeader>
       <CardContent className="grid gap-3">
+        {schedule?.error && (
+          <p role="alert" className="text-sm text-destructive">
+            {t('misc.scheduleInvalidDetail', { cron: schedule.cron ?? '', error: schedule.error })}
+          </p>
+        )}
         <ToggleGroupSingle
           value={preset}
           variant="outline"

@@ -34,4 +34,9 @@ export const config = {
   'config.descImages': 'Where the screenshots of your uploads go, and how they are taken.',
   'config.descReleases': 'Your releases: the releaser name, the automatic match, the description and the file names inside the torrents.',
   'config.descPlugins': 'Python packages that add trackers, clients, resolvers, image hosts or notifications.',
+  'config.deletePreviewFailed': 'Could not count what goes with it: {message}',
+  // http:// verso un host pubblico: si salva con questo avviso (decisione dell'utente, 2026-10-18).
+  'config.insecureUrl.tracker': 'Plain http:// to a public address: the API token and keys travel in clear. Use https:// if the tracker offers it.',
+  'config.insecureUrl.client': 'Plain http:// to a public address: the user and password travel in clear. Use https:// (or a VPN) if you can.',
+  'config.insecureUrl.arr': 'Plain http:// to a public address: the API key travels in clear. Use https:// (or a VPN) if you can.',
 } as const

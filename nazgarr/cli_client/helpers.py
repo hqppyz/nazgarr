@@ -10,8 +10,8 @@ import typer
 
 from nazgarr.cli_client import profiles
 from nazgarr.cli_client.context import state
-from nazgarr.cli_client.http import Api
-from nazgarr.cli_client.output import EXIT_USAGE, fail
+from nazgarr.cli_client.http import Api, ApiError, message
+from nazgarr.cli_client.output import EXIT_USAGE, err_console, fail
 
 
 def find(items: list[dict], ref: str, what: str, key: str = "label") -> dict:
@@ -24,6 +24,37 @@ def find(items: list[dict], ref: str, what: str, key: str = "label") -> dict:
         names = ", ".join(f"{i.get(key)} (#{i['id']})" for i in items) or "none"
         raise fail(f"No {what} {ref!r}. Available: {names}.", EXIT_USAGE)
     return found[0]
+
+
+def counted(count: int, singular: str, plural: str | None = None) -> str:
+    return f"{count} {singular if count == 1 else (plural or singular + 's')}"
+
+
+def delete_preview(client: Api, path: str) -> dict | None:
+    """GET .../delete-preview, o None da un server di prima che non ce l'ha."""
+    try:
+        return client.get(path)
+    except ApiError as exc:
+        if exc.status in (404, 405):
+            return None
+        raise
+
+
+def refuse_if_busy(preview: dict | None, code: str, **params) -> None:
+    """Un lavoro in corso: il server rifiuterebbe (409), e chiedere la
+    conferma prima non serve. Mai cancellare senza conferma nel frattempo."""
+    if preview and preview.get("busy"):
+        raise fail(message(code, params))
+
+
+def warn_insecure_url(row: dict | None, secrets: str) -> None:
+    """L'avviso del server (insecure_public_url) dopo aver salvato un tracker,
+    un client o un'istanza Radarr/Sonarr: http:// verso un indirizzo pubblico
+    si salva lo stesso, ma i segreti viaggiano in chiaro (decisione
+    dell'utente, 2026-10-18). Sullo stderr: un --json resta pulito."""
+    if row and row.get("insecure_public_url"):
+        err_console.print(f"[yellow]Warning:[/yellow] {row.get('base_url')} is plain http:// to a public address: "
+                          f"{secrets} travel in clear. Use https:// if the service offers it.")
 
 
 def secret(prompt: str, stdin: bool = False) -> str:

@@ -453,15 +453,24 @@ def _group_seasons(parts: list[dict], where: str = "") -> list[int]:
     return seasons
 
 
+TMDB_TIMEOUT_SECONDS = 15.0
+
+
 class TmdbApi:
-    """GET verso TMDB con la chiave delle impostazioni."""
+    """GET verso TMDB con la chiave delle impostazioni. Il client HTTP è
+    quello di processo di nazgarr/library/tmdb_client.py (audit 2026-10-18):
+    un TmdbApi nasce per scheda, per job e per serie del reseeding, e ognuno
+    apriva il suo httpx.Client senza mai chiuderlo. La chiave viaggia nei
+    parametri, il timeout in ogni richiesta."""
 
     def __init__(self, api_key: str, client: httpx.Client | None = None):
+        from nazgarr.library.tmdb_client import shared_http_client
+
         self.api_key = api_key
-        self._client = client or httpx.Client(base_url="https://api.themoviedb.org/3", timeout=15.0)
+        self._client = client or shared_http_client()
 
     def get(self, path: str, **params) -> dict:
-        response = self._client.get(path, params={"api_key": self.api_key, **params})
+        response = self._client.get(path, params={"api_key": self.api_key, **params}, timeout=TMDB_TIMEOUT_SECONDS)
         response.raise_for_status()
         return response.json()
 
@@ -515,13 +524,27 @@ TVDB_TYPE_LABELS = {
 }
 
 
+_tvdb_shared: httpx.Client | None = None
+_tvdb_lock = threading.Lock()
+
+
+def _tvdb_http_client() -> httpx.Client:
+    """Un solo client HTTP verso TVDB per il processo, come per TMDB: il token
+    di ogni TvdbApi viaggia nell'header di ogni sua richiesta, mai nel client."""
+    global _tvdb_shared
+    with _tvdb_lock:
+        if _tvdb_shared is None or _tvdb_shared.is_closed:
+            _tvdb_shared = httpx.Client(base_url=TVDB_API, timeout=20.0)
+        return _tvdb_shared
+
+
 class TvdbApi:
     """API v4 di TVDB con la chiave delle impostazioni (tvdb_api_key):
     l'ultima risorsa, quando Sonarr non ha la serie o nessun altro
     ordinamento combacia con i file."""
 
     def __init__(self, api_key: str, client: httpx.Client | None = None):
-        self._client = client or httpx.Client(base_url=TVDB_API, timeout=20.0)
+        self._client = client or _tvdb_http_client()
         self._api_key = api_key
         self._token: str | None = None
 

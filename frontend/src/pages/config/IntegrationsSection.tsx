@@ -39,6 +39,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { t } from '@/lib/i18n'
 import { autosaveFeedback } from '@/lib/autosave'
 import { arrConnectionBody, arrInstanceBody, emptyArrForm, type ArrInstanceForm } from '@/lib/arrInstanceForm'
+import { InsecureUrlWarning } from '@/pages/config/InsecureUrlWarning'
+import { insecureUrlWarning } from '@/pages/config/insecureUrl'
 
 // Radarr e Sonarr, sempre opzionali (docs/SPEC.md §6): l'indice costruito a
 // ogni run (nazgarr/integrations/arr.py) dà l'identità dei file al resolver
@@ -51,6 +53,7 @@ interface ArrInstance {
   id: number
   label: string
   base_url: string
+  insecure_public_url?: boolean
   enabled: boolean
   priority: number
   timeout_seconds: number
@@ -244,6 +247,7 @@ function ArrInstanceDialog({
           <div className="grid gap-1.5">
             <Label htmlFor={`${idPrefix}-url`}>{t('integrations.instanceUrl')}</Label>
             <Input id={`${idPrefix}-url`} value={form.baseUrl} onChange={(e) => set('baseUrl')(e.target.value)} />
+            {insecureUrlWarning(form.baseUrl, instance) && <InsecureUrlWarning kind="arr" />}
             {!editing && urlPlaceholder && (
               <p className="text-xs text-muted-foreground">{t('integrations.urlSuggestion', { url: urlPlaceholder })}</p>
             )}
@@ -269,6 +273,8 @@ function ArrInstanceDialog({
               <Input
                 id={`${idPrefix}-timeout`}
                 type="number"
+                min={1}
+                max={300}
                 value={form.timeoutSeconds}
                 onChange={(e) => set('timeoutSeconds')(e.target.value)}
               />
@@ -394,6 +400,7 @@ function ArrInstancesCard({
               <p className="font-mono text-xs break-all text-muted-foreground">
                 {instance.base_url} · {t('integrations.priority')} {instance.priority}
               </p>
+              {instance.insecure_public_url && <InsecureUrlWarning kind="arr" />}
             </li>
           ))}
           {instances?.length === 0 && (
@@ -422,8 +429,9 @@ function ArrInstancesCard({
             {instances?.map((instance) => (
               <TableRow key={instance.id}>
                 <TableCell className="font-medium">{instance.label}</TableCell>
-                <TableCell className="max-w-64 truncate font-mono text-xs" title={instance.base_url}>
-                  {instance.base_url}
+                <TableCell className="max-w-64 font-mono text-xs" title={instance.base_url}>
+                  <span className="block truncate">{instance.base_url}</span>
+                  {instance.insecure_public_url && <InsecureUrlWarning kind="arr" className="font-sans whitespace-normal" />}
                 </TableCell>
                 <TableCell className="font-mono text-xs">{instance.priority}</TableCell>
                 <TableCell>

@@ -23,7 +23,19 @@ from sqlalchemy.orm import Session
 from nazgarr.core import mounts as container_mounts
 from nazgarr.core.errors import CodedError, coded_detail, from_coded_error
 from nazgarr.core.fs_scope import ScopeViolation, resolve_scoped
-from nazgarr.core.models import ClientTorrentFile, Disk, MediaFile, SeedFile, SeedJob, UploadJob
+from nazgarr.core.models import (
+    ClientTorrentFile,
+    Disk,
+    DiskFolder,
+    DiskTorrentClient,
+    MatchAttempt,
+    MatchReview,
+    MediaFile,
+    SeedFile,
+    SeedJob,
+    UploadJob,
+    WatchEntry,
+)
 from nazgarr.library import disk_folders, hardlinks
 from nazgarr.library.scan_state import latest_scan_by_disk
 from nazgarr.upload import jobs as upload_jobs
@@ -429,6 +441,51 @@ def _busy_with(session: Session, disk: Disk) -> str | None:
     upload = session.query(UploadJob.id).filter(
         UploadJob.disk_id == disk.id, UploadJob.status.in_(upload_jobs.WORKER_STATES)).first()
     return "upload" if upload is not None else None
+
+
+class DiskDeletePreview(BaseModel):
+    """Cosa se ne va dal DB eliminando il disco (decisione dell'utente,
+    2026-10-18: quello che Nazgarr sa dei suoi file va con lui), da mostrare
+    nella conferma. Sul disco e nei client non cambia niente: i file restano
+    dove sono, e un torrent in seed resta nel client."""
+    folders: int  # cartelle media e di seeding configurate
+    media_files: int  # righe dei file della libreria (anche di file non più visti)
+    seed_files: int  # righe dei file delle cartelle di seeding
+    reviews: int  # proposte di reseed per i suoi file
+    executions: int  # reseed eseguiti o tentati da un suo file (seed_job)
+    match_attempts: int  # le ricerche fatte per i suoi file
+    watch_entries: int  # quello che la cartella osservata ha già visto
+    client_links: int  # i client associati al disco (il client resta)
+    upload_jobs: int  # upload da questo disco: restano, senza il riferimento al disco
+    busy: str | None = None  # "reseed" | "upload": il DELETE risponde 409 disk_busy
+
+
+@router.get("/{disk_id}/delete-preview", response_model=DiskDeletePreview)
+def disk_delete_preview(disk_id: int, session: Session = Depends(get_session)):
+    """In sola lettura: i conteggi di quello che DELETE /api/disks/{id}
+    toglierebbe, per la conferma dell'interfaccia e del CLI."""
+    disk = _get_disk_or_404(session, disk_id)
+    media_ids = session.query(MediaFile.id).filter(MediaFile.disk_id == disk.id)
+    seed_ids = session.query(SeedFile.id).filter(SeedFile.disk_id == disk.id)
+
+    def count(query) -> int:
+        return query.order_by(None).count()
+
+    return DiskDeletePreview(
+        folders=count(session.query(DiskFolder.id).filter(DiskFolder.disk_id == disk.id)),
+        media_files=count(media_ids),
+        seed_files=count(seed_ids),
+        reviews=count(session.query(MatchReview.id).filter(
+            or_(MatchReview.media_file_id.in_(media_ids), MatchReview.seed_file_id.in_(seed_ids)))),
+        executions=count(session.query(SeedJob.id).filter(
+            or_(SeedJob.source_media_file_id.in_(media_ids), SeedJob.source_seed_file_id.in_(seed_ids)))),
+        match_attempts=count(session.query(MatchAttempt.id).filter(
+            or_(MatchAttempt.media_file_id.in_(media_ids), MatchAttempt.seed_file_id.in_(seed_ids)))),
+        watch_entries=count(session.query(WatchEntry.id).filter(WatchEntry.disk_id == disk.id)),
+        client_links=count(session.query(DiskTorrentClient.disk_id).filter(DiskTorrentClient.disk_id == disk.id)),
+        upload_jobs=count(session.query(UploadJob.id).filter(UploadJob.disk_id == disk.id)),
+        busy=_busy_with(session, disk),
+    )
 
 
 @router.delete("/{disk_id}", status_code=204)

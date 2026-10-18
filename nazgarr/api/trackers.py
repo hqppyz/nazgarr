@@ -11,9 +11,24 @@ from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, object_session
 
-from nazgarr.api.types import HttpUrlStr, check_destinations, host_changed, require_secrets_for_new_host
+from nazgarr.api.types import (
+    HttpUrlStr,
+    check_destinations,
+    host_changed,
+    insecure_public_url,
+    require_secrets_for_new_host,
+)
 from nazgarr.core.errors import coded_detail, from_coded_error
-from nazgarr.core.models import Candidate, SeedJob, Tracker, TrackerUploadProfile, UploadJob, UploadTarget
+from nazgarr.core.models import (
+    Candidate,
+    MatchAttempt,
+    MatchReview,
+    SeedJob,
+    Tracker,
+    TrackerUploadProfile,
+    UploadJob,
+    UploadTarget,
+)
 from nazgarr.plugins import REGISTRY
 from nazgarr.plugins import config as plugin_config
 from nazgarr.torrents import tracker_icons
@@ -84,6 +99,9 @@ class TrackerResponse(BaseModel):
     label: str
     adapter_type: str
     base_url: str
+    # http:// verso un host pubblico: il token viaggia in chiaro. Salvato lo
+    # stesso, con un avviso (decisione dell'utente, 2026-10-18).
+    insecure_public_url: bool = False
     # Contiene la passkey: come la chiave RSS, l'API dice solo se c'è.
     has_announce_url: bool = False
     rate_limit_per_min: int | None
@@ -110,7 +128,8 @@ class TrackerResponse(BaseModel):
             )
         return cls(
             id=t.id, label=t.label, adapter_type=t.adapter_type, base_url=t.base_url,
-            has_announce_url=bool(t.announce_url), rate_limit_per_min=t.rate_limit_per_min, enabled=t.enabled,
+            insecure_public_url=insecure_public_url(t.base_url), has_announce_url=bool(t.announce_url),
+            rate_limit_per_min=t.rate_limit_per_min, enabled=t.enabled,
             has_rss_key=bool(t.rss_key), torrent_client_id=t.torrent_client_id, language=t.language,
             min_seed_time_seconds=t.min_seed_time_seconds, min_ratio=t.min_ratio, seed_rule=t.seed_rule or "any",
             config=plugin_config.public_for_row(t, "tracker"),
@@ -251,6 +270,44 @@ def _tracker_busy(session: Session, tracker_id: int) -> bool:
         .first()
     )
     return uploading is not None
+
+
+class TrackerDeletePreview(BaseModel):
+    """Cosa se ne va dal DB eliminando il tracker (decisione dell'utente,
+    2026-10-18: la storia va con lui, ON DELETE CASCADE), da mostrare nella
+    conferma. Sul tracker, sui dischi e nei client non cambia niente: un
+    reseed in seed resta nel client, ne sparisce solo il record."""
+    candidates: int  # torrent trovati su di lui, coi loro file
+    reviews: int  # proposte di reseed, in attesa o già decise
+    executions: int  # reseed eseguiti o tentati (seed_job)
+    executions_seeding: int  # di cui ancora in seed nel client: lì restano
+    match_attempts: int  # le ricerche fatte per ogni file
+    upload_targets: int  # upload verso di lui (il job resta per gli altri tracker)
+    upload_profile: bool
+    busy: bool  # un'esecuzione o un upload suo in corso: il DELETE risponde 409 tracker_busy
+
+
+@router.get("/{tracker_id}/delete-preview", response_model=TrackerDeletePreview)
+def tracker_delete_preview(tracker_id: int, session: Session = Depends(get_session)):
+    """In sola lettura: i conteggi di quello che DELETE /api/trackers/{id}
+    toglierebbe, per la conferma dell'interfaccia e del CLI."""
+    _get_tracker_or_404(session, tracker_id)
+    candidate_ids = session.query(Candidate.id).filter(Candidate.tracker_id == tracker_id)
+
+    def count(query) -> int:
+        return query.order_by(None).count()
+
+    jobs = session.query(SeedJob.id).filter(SeedJob.candidate_id.in_(candidate_ids))
+    return TrackerDeletePreview(
+        candidates=count(candidate_ids),
+        reviews=count(session.query(MatchReview.id).filter(MatchReview.candidate_id.in_(candidate_ids))),
+        executions=count(jobs),
+        executions_seeding=count(jobs.filter(SeedJob.final_status == "seeding")),
+        match_attempts=count(session.query(MatchAttempt.id).filter(MatchAttempt.tracker_id == tracker_id)),
+        upload_targets=count(session.query(UploadTarget.id).filter(UploadTarget.tracker_id == tracker_id)),
+        upload_profile=session.get(TrackerUploadProfile, tracker_id) is not None,
+        busy=_tracker_busy(session, tracker_id),
+    )
 
 
 @router.delete("/{tracker_id}", status_code=204)

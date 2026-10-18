@@ -1,13 +1,12 @@
-import { CheckIcon, FileUpIcon, PencilIcon, PlusIcon, TrashIcon } from 'lucide-react'
+import { CheckIcon, FileUpIcon, PencilIcon, PlusIcon } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 
-import { useBundledUploadProfiles, useCreateTracker, useDeleteTracker, useTrackers, useUpdateTracker } from '@/api/hooks/trackers'
+import { useBundledUploadProfiles, useCreateTracker, useTrackers, useUpdateTracker } from '@/api/hooks/trackers'
 import type { Schemas } from '@/api/client'
 import { SettingsHeader } from '@/components/SettingsHeader'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { ConfirmButton } from '@/components/ConfirmButton'
 import { InfoPopover } from '@/components/InfoPopover'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
@@ -33,6 +32,9 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { t, uiLocale } from '@/lib/i18n'
+import { TrackerDeleteButton } from '@/pages/config/DeleteWithPreview'
+import { InsecureUrlWarning } from '@/pages/config/InsecureUrlWarning'
+import { insecureUrlWarning } from '@/pages/config/insecureUrl'
 import { TrackerLogo } from '@/pages/config/ServiceIcons'
 import { safeHref } from '@/lib/safeUrl'
 import { cn, selectLabel } from '@/lib/utils'
@@ -290,6 +292,7 @@ function AddTrackerDialog() {
               onChange={(e) => setBaseUrl(e.target.value)}
               placeholder="https://mytracker.example"
             />
+            {insecureUrlWarning(baseUrl) && <InsecureUrlWarning kind="tracker" />}
           </div>
           <div className="grid gap-1.5" data-tour="trackers.dialog.token">
             <Label htmlFor="t-api-token">{t('trackers.apiToken')}</Label>
@@ -397,6 +400,7 @@ function EditTrackerDialog({ tracker }: { tracker: Tracker }) {
           <div className="grid gap-1.5">
             <Label htmlFor="t-edit-base-url">{t('trackers.apiUrl')}</Label>
             <Input id="t-edit-base-url" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} />
+            {insecureUrlWarning(baseUrl, tracker) && <InsecureUrlWarning kind="tracker" />}
           </div>
           <div className="grid gap-1.5">
             <Label htmlFor="t-edit-api-token">{t('trackers.apiToken')}</Label>
@@ -427,6 +431,8 @@ function EditTrackerDialog({ tracker }: { tracker: Tracker }) {
             <Input
               id="t-edit-rate-limit"
               type="number"
+              min={0}
+              max={600}
               value={rateLimit}
               onChange={(e) => setRateLimit(e.target.value)}
             />
@@ -475,7 +481,6 @@ function SecretPresence({ present }: { present: boolean }) {
 export function TrackersSection() {
   const { data: trackers, isPending } = useTrackers()
   const updateTracker = useUpdateTracker()
-  const deleteTracker = useDeleteTracker()
   const [profileTrackerId, setProfileTrackerId] = useState<number | null>(null)
 
   return (
@@ -501,6 +506,7 @@ export function TrackersSection() {
                   <span className="truncate font-mono text-xs text-muted-foreground" title={tracker.base_url}>
                     {tracker.base_url}
                   </span>
+                  {tracker.insecure_public_url && <InsecureUrlWarning kind="tracker" />}
                 </div>
                 <Switch
                   checked={tracker.enabled}
@@ -584,17 +590,7 @@ export function TrackersSection() {
                   </Button>
                   <span className="flex-1" />
                   <EditTrackerDialog tracker={tracker} />
-                  <ConfirmButton
-                    trigger={
-                      <Button variant="ghost" size="icon-sm" title={t('common.delete')}>
-                        <TrashIcon className="size-4" />
-                      </Button>
-                    }
-                    title={t('trackers.deleteTitle', { label: tracker.label })}
-                    description={t('trackers.deleteDescription')}
-                    pending={deleteTracker.isPending}
-                    onConfirm={() => deleteTracker.mutate(tracker.id)}
-                  />
+                  <TrackerDeleteButton tracker={tracker} />
                 </div>
               </CardContent>
             </Card>

@@ -22,7 +22,7 @@ import yaml
 
 from nazgarr.cli_client import settings_catalog as catalog
 from nazgarr.cli_client.context import api
-from nazgarr.cli_client.helpers import duration, env_secret, human_duration, login_api
+from nazgarr.cli_client.helpers import duration, env_secret, human_duration, login_api, warn_insecure_url
 from nazgarr.cli_client.output import EXIT_USAGE, confirm, console, err_console, fail
 
 app = typer.Typer(help="The whole configuration as a YAML file: export, then import (adds and updates).",
@@ -210,6 +210,7 @@ def _plan_clients(plan: Planner, wanted: list[dict], disk_ids: dict) -> dict[str
 
             def create(body=body, extra=extra, holder=holder, label=label):
                 holder.update(client.post("/api/torrent-clients", {k: v for k, v in body.items() if v is not None}))
+                warn_insecure_url(holder, "its user and password")
                 ids[label.lower()] = holder["id"]
                 if extra:
                     client.patch(f"/api/torrent-clients/{holder['id']}", extra)
@@ -230,7 +231,8 @@ def _plan_clients(plan: Planner, wanted: list[dict], disk_ids: dict) -> dict[str
                 shown = [k for k in changes if k not in ("password", "api_token")] + \
                         [f"{k} (from env)" for k in changes if k in ("password", "api_token")]
                 plan.add(f"~ client {label}: {', '.join(shown)}",
-                         lambda changes=changes, ref=ref: client.patch(f"/api/torrent-clients/{ref()}", changes))
+                         lambda changes=changes, ref=ref: warn_insecure_url(
+                             client.patch(f"/api/torrent-clients/{ref()}", changes), "its user and password"))
         for link in spec.get("disks") or []:
             disk_name = str(link["disk"]).lower()
             if disk_name not in disk_ids:
@@ -280,6 +282,7 @@ def _plan_trackers(plan: Planner, wanted: list[dict], client_ids: dict) -> None:
                         "upload_profile": "none" if spec.get("upload_profile") else None,
                         **{k: v for k, v in fields.items() if k not in ("base_url", "enabled")}}
                 holder.update(client.post("/api/trackers", {k: v for k, v in body.items() if v is not None}))
+                warn_insecure_url(holder, "its API token and keys")
                 if spec.get("enabled") is False:
                     client.patch(f"/api/trackers/{holder['id']}", {"enabled": False})
             plan.add(f"+ tracker {label} ({spec['url']})", create)
@@ -300,7 +303,7 @@ def _plan_trackers(plan: Planner, wanted: list[dict], client_ids: dict) -> None:
                     body = dict(changes)
                     if "torrent_client_id" in body:
                         body["torrent_client_id"] = client_id()
-                    client.patch(f"/api/trackers/{ref()}", body)
+                    warn_insecure_url(client.patch(f"/api/trackers/{ref()}", body), "its API token and keys")
                 plan.add(f"~ tracker {label}: {', '.join(changes)}", update)
         profile = spec.get("upload_profile")
         if profile:
@@ -349,7 +352,8 @@ def _plan_arr(plan: Planner, wanted: dict) -> None:
                 body = {"label": label, "base_url": spec["url"], "api_key": key,
                         **({"priority": spec["priority"]} if spec.get("priority") is not None else {})}
                 plan.add(f"+ {kind} {label} ({spec['url']})",
-                         lambda kind=kind, body=body: client.post(f"/api/{kind}-instances", body))
+                         lambda kind=kind, body=body: warn_insecure_url(
+                             client.post(f"/api/{kind}-instances", body), "its API key"))
             else:
                 changes = _changed(found, fields)
                 resolved = env_secret(spec.get("api_key")) if spec.get("api_key") else None
@@ -357,8 +361,8 @@ def _plan_arr(plan: Planner, wanted: dict) -> None:
                     changes["api_key"] = resolved
                 if changes:
                     plan.add(f"~ {kind} {label}: {', '.join(changes)}",
-                             lambda kind=kind, found=found, changes=changes: client.patch(
-                                 f"/api/{kind}-instances/{found['id']}", changes))
+                             lambda kind=kind, found=found, changes=changes: warn_insecure_url(client.patch(
+                                 f"/api/{kind}-instances/{found['id']}", changes), "its API key"))
 
 
 def _plan_settings(plan: Planner, wanted: dict, schedule) -> None:
