@@ -531,15 +531,24 @@ def _register_seed(session: Session, job: UploadJob, target: UploadTarget, adapt
     dell'upload risultava non in seed in libreria, e "Cerca ora" poteva
     trovare sul tracker l'upload stesso e proporlo come reseed. Un errore
     qui si scrive solo nel log: il torrent è nel client, lo vedrà la
-    prossima indicizzazione."""
-    session.commit()  # quello che l'aggiunta ha già scritto resta, qualunque cosa succeda qui
+    prossima indicizzazione. Anche il commit iniziale: con il DB occupato
+    oltre il busy_timeout (una run che indicizza) l'upload riuscito
+    risultava seed_failed, con il torrent già in seed."""
+    job_id = job.id  # dopo un rollback rileggerlo vorrebbe dire un'altra query
+    try:
+        session.commit()  # quello che l'aggiunta ha già scritto resta, qualunque cosa succeda dopo
+    except OperationalError:
+        session.rollback()
+        logger.warning("Upload %s: torrent %s nel client, il DB non si scrive: non registrato subito", job_id,
+                       info_hash, exc_info=True)
+        return
     try:
         info = info if getattr(info, "files", None) else adapter.get_torrent_info(info_hash)
         if info is not None:
             seed_refresh.register_client_torrent(session, target.torrent_client, info)
     except Exception:
         session.rollback()
-        logger.warning("Upload %s: torrent %s nel client ma non registrato subito", job.id, info_hash,
+        logger.warning("Upload %s: torrent %s nel client ma non registrato subito", job_id, info_hash,
                        exc_info=True)
 
 
@@ -683,6 +692,10 @@ def retry_seed(session: Session, job: UploadJob, target: UploadTarget, data_dir:
     save_path = next((p for p in _seed_candidates(session, job) if files_in_place(torrent, p)), None)
     if save_path is None:
         save_path = _relink_for_seed(session, job, torrent)
+    # Il client scelto e il .torrent nel DB prima di toccare il client: se
+    # dopo l'aggiunta il DB non si scrive (_register_seed torna indietro),
+    # restano quelli, non il client di prima (magari nessuno).
+    session.commit()
     try:
         info_hash = _add_to_client(session, job, target, torrent_path, save_path)
     except Exception as exc:

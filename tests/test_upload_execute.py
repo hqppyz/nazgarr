@@ -248,6 +248,62 @@ def test_a_failed_registration_never_fails_the_upload(db_session, tmp_path, env,
     assert "added_to_client_verified" in [e.code for e in job.events]
 
 
+def _locked_after_the_add(monkeypatch):
+    """Il primo commit di _register_seed fallisce come con il DB occupato
+    oltre il busy_timeout (una run che indicizza nello stesso momento)."""
+    from sqlalchemy.exc import OperationalError
+
+    original = upload_execute._register_seed
+
+    def register(session, *args, **kwargs):
+        def locked():
+            del session.commit  # solo questa volta
+            raise OperationalError("COMMIT", {}, Exception("database is locked"))
+
+        session.commit = locked
+        return original(session, *args, **kwargs)
+
+    monkeypatch.setattr(upload_execute, "_register_seed", register)
+
+
+def test_a_locked_db_right_after_the_add_never_fails_the_upload(db_session, tmp_path, env, monkeypatch):
+    """Prima il commit iniziale di _register_seed era fuori dal suo try: il
+    torrent in seed nel client e il target seed_failed."""
+    _locked_after_the_add(monkeypatch)
+    video = write_video(env["root"] / "media" / "The.Matrix.1999.1080p.WEB-DL.H.264-GRP.mkv", 300 * KB)
+    job = _approved(db_session, env, "media/" + video.name, {"a": _upload("Matrix A"), "b": {"action": "skip"}})
+
+    _run(db_session, tmp_path, job)
+
+    target = job.targets[0]
+    assert job.status == "done"
+    assert (target.status, target.error_message) == ("done", None)
+    assert env["client"].added == [(target.torrent_path, str(env["root"] / "torrents"))]
+
+
+def test_a_locked_db_right_after_a_retried_add_keeps_the_chosen_client(db_session, tmp_path, env, monkeypatch):
+    """Un nuovo tentativo senza client all'upload sceglie quello di oggi: si
+    scrive prima dell'aggiunta, così il rollback dopo non lo perde."""
+    video = write_video(env["root"] / "media" / "Movie.2024.mkv", 100 * KB)
+    job = _approved(db_session, env, "media/" + video.name, {"a": _upload("A"), "b": {"action": "skip"}})
+    client = env["client"]
+    real_add = client.add_torrent
+    monkeypatch.setattr(client, "add_torrent", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("down")))
+    _run(db_session, tmp_path, job)
+    target = job.targets[0]
+    target.torrent_client_id, target.error_message = None, "no_client"
+    db_session.commit()
+    monkeypatch.setattr(client, "add_torrent", real_add)
+    _locked_after_the_add(monkeypatch)
+
+    upload_execute.retry_seed(db_session, job, target)
+
+    db_session.expire_all()
+    assert (target.torrent_client_id, target.error_message) == (env["client_row"].id, None)
+    assert client.added == [(target.torrent_path, str(env["root"] / "torrents"))]
+    assert "seed_retried" in [e.code for e in job.events]
+
+
 def test_a_source_inside_the_seeding_folder_seeds_in_place(db_session, tmp_path, env):
     folder = env["root"] / "torrents" / "Show.S01.1080p-GRP"
     for e in (1, 2):
