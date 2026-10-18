@@ -421,20 +421,24 @@ _NUMBER = re.compile(r"(\d+)")
 
 def _group_seasons(parts: list[dict], where: str = "") -> list[int]:
     """I numeri di stagione dei gruppi di un episode group TMDB, in ordine:
-    gli speciali (dal loro nome) sono la 0; gli altri dal numero nel nome
-    ("Season 1", "Stagione 2", "Part 3"), se i numeri dei nomi sono tutti
-    diversi e nessuno è 0, altrimenti dalla posizione fra i gruppi non
+    gli speciali (dal loro nome, o "Season 0") sono la 0; gli altri dal
+    numero nel nome ("Season 1", "Stagione 2", "Part 3"), se i numeri dei
+    nomi sono tutti diversi, altrimenti dalla posizione fra i gruppi non
     speciali, da 1 (audit 2026-10-18: "Season 1 Part 1" e "Season 1 Part 2"
     diventavano entrambi la stagione 1 e il secondo spariva, e un gruppo
     senza numero davanti agli speciali in fondo diventava la stagione 0).
     Un gruppo senza numero nel nome prende la sua posizione, o il primo
     numero libero dopo."""
     names = [part.get("name") or "" for part in parts]
-    regular = [i for i, name in enumerate(names) if not _SPECIALS.search(name)]
-    named = {i: int(match.group(1)) for i in regular if (match := _NUMBER.search(names[i]))}
+    named = {i: int(match.group(1)) for i, name in enumerate(names)
+             if not _SPECIALS.search(name) and (match := _NUMBER.search(name))}
+    # "Season 0" è la stagione degli speciali, come quelli col nome: se no
+    # spostava di uno tutte le altre ("Season 1" diventava la 2).
+    regular = [i for i, name in enumerate(names) if not _SPECIALS.search(name) and named.get(i) != 0]
+    named = {i: number for i, number in named.items() if number != 0}
     seasons = [0] * len(parts)
     values = list(named.values())
-    if len(set(values)) != len(values) or 0 in values:
+    if len(set(values)) != len(values):
         logger.info("Episode group TMDB %s: numeri delle stagioni dalla posizione (%s)", where, ", ".join(names))
         named = {}
     taken = set(named.values())

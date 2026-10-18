@@ -393,7 +393,11 @@ def test_episode_group_seasons_come_from_their_names_or_start_at_one():
     assert seasons("Season 1 Part 1", "Season 1 Part 2", "Season 2") == [1, 2, 3]
     assert seasons("Season 4 Volume 1", "Season 4 Volume 2") == [1, 2]
     assert seasons("Volume One", "Volume Two", "Specials") == [1, 2, 0]
-    assert seasons("Season 0", "Season 1") == [1, 2]
+    # "Season 0" sono gli speciali, e le altre stagioni restano le loro.
+    assert seasons("Season 0", "Season 1") == [0, 1]
+    assert seasons("Season 0", "Season 1", "Season 2") == [0, 1, 2]
+    assert seasons("Season 0", "Specials", "Season 1") == [0, 0, 1]
+    assert seasons("Season 0", "Season 1", "Season 1") == [0, 1, 2]
     # Un gruppo senza numero fra quelli numerati: il primo numero libero.
     assert seasons("Pilot Movie", "Season 1", "Season 2") == [3, 1, 2]
 
