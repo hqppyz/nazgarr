@@ -48,6 +48,7 @@ from nazgarr.adapters.torrent_client.base import (
     TorrentClientAdapter,
     TorrentStatus,
     expected_hash,
+    largest_file_only,
     local_torrent_bytes,
     number,
     require_recheck,
@@ -262,21 +263,32 @@ class QuiTorrentClientAdapter(TorrentClientAdapter):
         # fatte DETAIL_WORKERS alla volta invece che una dopo l'altra (migliaia
         # di richieste in rete locale). httpx.Client è thread-safe; ordine del
         # risultato e callback di avanzamento restano nel thread chiamante.
-        with_hash = [t for t in torrents if t.get("hash")]
-        result: list[ClientTorrentInfo | None] = [None] * len(with_hash)
+        result = self._details([t for t in torrents if t.get("hash")], on_progress=on_progress)
+        logger.debug("qui[%s]: list_torrents() completato — %d torrent risolti", self.instance_id, len(result))
+        return result
+
+    def list_largest_files(self, limit: int | None = None) -> list[ClientTorrentInfo]:
+        # Solo i file, senza la GET dei tracker: una richiesta per torrent
+        # invece di due, e solo per i torrent che la verifica guarda.
+        torrents = [t for t in self._fetch_all_torrents() if t.get("hash")][:limit]
+        return [largest_file_only(info) for info in self._details(torrents, trackers=False)]
+
+    def _details(self, torrents: list[dict], trackers: bool = True,
+                 on_progress: Callable[[int, int], None] | None = None) -> list[ClientTorrentInfo]:
+        """_torrent_info di ogni torrent, DETAIL_WORKERS alla volta, nell'ordine dei torrent."""
+        result: list[ClientTorrentInfo | None] = [None] * len(torrents)
         pool = ThreadPoolExecutor(max_workers=DETAIL_WORKERS)
         try:
-            futures = {pool.submit(self._torrent_info, t): i for i, t in enumerate(with_hash)}
+            futures = {pool.submit(self._torrent_info, t, trackers): i for i, t in enumerate(torrents)}
             for done, future in enumerate(as_completed(futures), start=1):
                 result[futures[future]] = future.result()
                 if on_progress is not None:
-                    on_progress(done, len(with_hash))
+                    on_progress(done, len(torrents))
         finally:
             pool.shutdown(wait=True, cancel_futures=True)  # stop o errore: niente richieste rimaste in coda
-        logger.debug("qui[%s]: list_torrents() completato — %d torrent risolti", self.instance_id, len(result))
         return [r for r in result if r is not None]
 
-    def _torrent_info(self, torrent: dict) -> ClientTorrentInfo:
+    def _torrent_info(self, torrent: dict, trackers: bool = True) -> ClientTorrentInfo:
         info_hash = torrent["hash"]
         files_resp = self._client.get(f"/api/instances/{self.instance_id}/torrents/{info_hash}/files")
         files_resp.raise_for_status()
@@ -293,7 +305,7 @@ class QuiTorrentClientAdapter(TorrentClientAdapter):
             save_path=(torrent.get("save_path") or torrent.get("savePath") or "").rstrip("/"),
             state=torrent.get("state") or "",
             category=torrent.get("category") or None,
-            tracker_url=self._first_tracker_url(info_hash),
+            tracker_url=self._first_tracker_url(info_hash) if trackers else None,
             files=files,
             ratio=number(torrent.get("ratio"), float),
             seeding_time_seconds=number(torrent.get("seeding_time"), int),

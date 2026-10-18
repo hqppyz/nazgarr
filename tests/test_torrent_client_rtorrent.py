@@ -318,3 +318,23 @@ def test_a_reseed_is_loaded_stopped_and_hashed_without_d_start(tmp_path):
     assert [m for m, _ in mock.calls if m.startswith("d.")] == ["d.check_hash"]
     adapter.start(info_hash)
     assert mock.calls[-1] == ("d.start", (torrent.infohash.upper(),))
+
+
+def test_the_live_path_check_asks_only_the_files_of_the_torrents_it_looks_at():
+    """Senza t.multicall, e solo per i torrent guardati (audit 2026-10-18)."""
+    from nazgarr.adapters.torrent_client import rtorrent
+
+    mock, hashes = _many(rtorrent.DETAIL_BATCH + 5)
+
+    largest = _adapter(mock).list_largest_files(limit=3)
+
+    assert [m for m, _ in mock.calls] == ["d.multicall2", "system.multicall"]
+    (multicall,) = mock.called("system.multicall")
+    assert {c["methodName"] for c in multicall[0]} == {"f.multicall"} and len(multicall[0]) == 3
+    assert [(t.info_hash, [f.path_in_torrent for f in t.files]) for t in largest] == [
+        (h.lower(), [f"M{i}.mkv"]) for i, h in enumerate(hashes[:3])]
+
+    mock.refuse_multicall = True  # l'endpoint che non accetta i gruppi: una richiesta per torrent, solo i file
+    mock.calls.clear()
+    _adapter(mock).list_largest_files(limit=2)
+    assert len(mock.called("f.multicall")) == 2 and not mock.called("t.multicall")

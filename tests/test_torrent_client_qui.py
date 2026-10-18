@@ -382,3 +382,24 @@ def test_a_reseed_is_added_paused_and_rechecked_never_resumed():
     assert mock.bulk_actions == [{"hashes": [info_hash], "action": "recheck"}]
     adapter.start(info_hash)
     assert mock.bulk_actions[-1] == {"hashes": [info_hash], "action": "resume"}
+
+
+def test_the_live_path_check_skips_the_trackers_and_the_torrents_it_does_not_look_at():
+    # Una GET per torrent invece di due, e solo per quelli guardati (audit 2026-10-18).
+    torrents = [{"hash": f"h{i}", "name": f"M{i}", "save_path": "/t", "state": "uploading"} for i in range(4)]
+    mock = _QuiMock(pages=[torrents], files_by_hash={"h0": [{"name": "M0/a.nfo", "size": 1},
+                                                            {"name": "M0/a.mkv", "size": 50}]})
+    paths = []
+    real = mock.handler
+
+    def handler(request):
+        paths.append(request.url.path)
+        return real(request)
+
+    mock.handler = handler
+    largest = _adapter(mock).list_largest_files(limit=2)
+
+    assert [(t.info_hash, t.save_path, [f.path_in_torrent for f in t.files]) for t in largest] == [
+        ("h0", "/t", ["M0/a.mkv"]), ("h1", "/t", [])]
+    assert not [p for p in paths if p.endswith("/trackers")]
+    assert len([p for p in paths if p.endswith("/files")]) == 2

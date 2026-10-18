@@ -153,3 +153,29 @@ def test_the_api_reads_the_index_or_asks_the_client(client, monkeypatch):
     assert body["suggestions"] == [{"disk_id": disk_id, "disk_label": "main", "local_rel_path": "torrents",
                                     "client_root_path": "/downloads", "matches": 1}]
     assert client.post("/api/torrent-clients/999/path-check").status_code == 404
+
+
+def test_the_live_check_asks_the_client_only_for_the_largest_files(client, monkeypatch):
+    """Audit 2026-10-18: con live=true si chiedeva l'elenco completo
+    (list_torrents), coi tracker e i file di ogni torrent, e con migliaia di
+    torrent il proxy davanti scadeva."""
+    tc = client.post("/api/torrent-clients", json={"label": "q", "adapter_type": "qbittorrent",
+                                                   "base_url": "http://q"}).json()["id"]
+    asked = []
+
+    class Live:
+        def list_largest_files(self, limit=None):
+            asked.append(limit)
+            return [ClientTorrentInfo("h1", "x", "/downloads", "uploading", files=[ClientTorrentFileInfo("x.mkv", 5)])]
+
+        def list_torrents(self):
+            raise AssertionError("l'elenco completo non serve alla verifica")
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr("nazgarr.integrations.adapter_factory.build_torrent_client_adapter", lambda tc: Live())
+    body = client.post(f"/api/torrent-clients/{tc}/path-check?live=true").json()
+
+    assert (body["status"], body["source"], body["checked"]) == ("ok", "live", 1)
+    assert asked == [path_check.MAX_SAMPLES]

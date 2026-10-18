@@ -18,7 +18,7 @@ import os
 import time
 from abc import ABC, abstractmethod
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Literal
 
 from nazgarr.torrents.metainfo import TorrentMetainfoError, compute_info_hash
@@ -240,6 +240,19 @@ class TorrentClientAdapter(ABC):
         client restituisce l'elenco, i file arrivano poi uno a uno."""
         raise NotImplementedError
 
+    def list_largest_files(self, limit: int | None = None) -> list[ClientTorrentInfo]:
+        """Ogni torrent (i primi `limit`) col solo suo file più grande in
+        files: quello che serve alla verifica dei percorsi di un client
+        chiesta al client stesso (nazgarr/torrents/path_check.py, "Check
+        paths" dal vivo). Sola lettura. Gli adapter inclusi chiedono solo
+        save path e file, senza tracker né statistiche, a gruppi dove il
+        client lo permette, e solo per i torrent che servono (audit
+        2026-10-18: la verifica chiedeva l'elenco completo di list_torrents
+        e ne usava i primi 5000, e un proxy davanti scadeva). Gli altri
+        campi possono mancare (tracker_url None). Default: list_torrents()
+        ridotto, per un plugin che non lo implementa."""
+        return [largest_file_only(t) for t in self.list_torrents()[:limit]]
+
     def count_torrents(self) -> int:
         """Quanti torrent ha il client, per la prova delle credenziali (Test
         nella configurazione dei client). Gli adapter inclusi lo chiedono
@@ -248,6 +261,12 @@ class TorrentClientAdapter(ABC):
         torrent solo per contarli). Default: list_torrents(), per un plugin
         che non lo implementa."""
         return len(self.list_torrents())
+
+
+def largest_file_only(info: ClientTorrentInfo) -> ClientTorrentInfo:
+    """Lo stesso torrent col solo suo file più grande (nessuno se non ne ha)."""
+    biggest = max(info.files, key=lambda f: f.size_bytes, default=None)
+    return replace(info, files=[biggest] if biggest is not None else [])
 
 
 def is_stopped_state(state: str | None) -> bool:

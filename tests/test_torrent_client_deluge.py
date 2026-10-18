@@ -229,3 +229,17 @@ def test_a_reseed_is_added_paused_and_rechecked_then_resumed_on_request():
     assert mock.called("core.force_recheck") == [[["abc123"]]] and not mock.called("core.resume_torrent")
     adapter.start("ABC123")
     assert mock.called("core.resume_torrent") == [[["abc123"]]]
+
+
+def test_the_live_path_check_asks_only_save_path_and_files():
+    mock = _DelugeMock(torrents={
+        "h1": {"name": "M", "save_path": "/d/", "state": "Seeding",
+               "files": [{"path": "M/a.nfo", "size": 1}, {"path": "M/a.mkv", "size": 9}]},
+        "h2": {"name": "N", "save_path": "/d", "state": "Seeding", "files": []},
+    })
+
+    largest = _adapter(mock).list_largest_files(limit=5)
+
+    assert mock.called("core.get_torrents_status")[-1] == [{}, ["hash", "name", "save_path", "state", "files"]]
+    assert [(t.info_hash, t.save_path, [f.path_in_torrent for f in t.files]) for t in largest] == [
+        ("h1", "/d", ["M/a.mkv"]), ("h2", "/d", [])]

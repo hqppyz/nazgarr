@@ -191,3 +191,17 @@ def test_an_upload_is_added_running():
     mock = _TransmissionMock()
     _adapter(mock).add_torrent("magnet:?x", save_path="/d")
     assert next(c["arguments"] for c in mock.calls if c["method"] == "torrent-add")["paused"] is False
+
+
+def test_the_live_path_check_asks_only_save_path_and_files():
+    mock = _TransmissionMock(torrents=[
+        {"hashString": "h1", "name": "M", "downloadDir": "/d", "status": 6, "error": 0,
+         "files": [{"name": "M/a.nfo", "length": 1}, {"name": "M/a.mkv", "length": 9}]},
+        {"hashString": "h2", "name": "N", "downloadDir": "/d", "status": 6, "error": 0, "files": []},
+    ])
+
+    largest = _adapter(mock).list_largest_files(limit=1)
+
+    get = [c["arguments"] for c in mock.calls if c["method"] == "torrent-get"][-1]
+    assert "trackers" not in get["fields"] and "files" in get["fields"]
+    assert [(t.info_hash, [f.path_in_torrent for f in t.files]) for t in largest] == [("h1", ["M/a.mkv"])]

@@ -47,6 +47,7 @@ from nazgarr.adapters.torrent_client.base import (
     TorrentAlreadyInClientError,
     TorrentClientAdapter,
     TorrentStatus,
+    largest_file_only,
     local_torrent_bytes,
     number,
     require_recheck,
@@ -63,6 +64,8 @@ INFO_KEYS = [
     "hash", "name", "save_path", "state", "label", "trackers", "files", "ratio", "seeding_time", "time_added",
     "total_seeds",
 ]
+# La verifica dei percorsi (list_largest_files): solo save path e file.
+LARGEST_KEYS = ["hash", "name", "save_path", "state", "files"]
 NOT_AUTHENTICATED = 1  # codice d'errore della Web UI senza sessione
 
 
@@ -265,6 +268,11 @@ class DelugeAdapter(TorrentClientAdapter):
             if on_progress is not None:
                 on_progress(i + 1, len(torrents))
         return result
+
+    def list_largest_files(self, limit: int | None = None) -> list[ClientTorrentInfo]:
+        torrents = self._call("core.get_torrents_status", {}, LARGEST_KEYS) or {}
+        return [largest_file_only(self._info(torrent_id, torrent))
+                for torrent_id, torrent in list(torrents.items())[:limit]]
 
     @staticmethod
     def _info(torrent_id: str, torrent: dict) -> ClientTorrentInfo:

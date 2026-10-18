@@ -39,6 +39,7 @@ from nazgarr.adapters.torrent_client.base import (
     TorrentClientAdapter,
     TorrentStatus,
     expected_hash,
+    largest_file_only,
     local_torrent_bytes,
     number,
     require_recheck,
@@ -210,6 +211,19 @@ class QBittorrentAdapter(TorrentClientAdapter):
         # L'elenco nel thread chiamante (anche il login, se serve), poi i
         # file FILE_WORKERS alla volta; ordine e avanzamento restano qui.
         torrents = list(self._client.torrents_info())
+        return [self._info(torrent, torrent_files)
+                for torrent, torrent_files in zip(torrents, self._files_of(torrents, on_progress), strict=True)]
+
+    def list_largest_files(self, limit: int | None = None) -> list[ClientTorrentInfo]:
+        # Nessun endpoint per i file di più torrent: le richieste restano una
+        # per torrent, ma solo per quelli che la verifica guarda.
+        torrents = list(self._client.torrents_info())[:limit]
+        return [largest_file_only(self._info(torrent, torrent_files))
+                for torrent, torrent_files in zip(torrents, self._files_of(torrents), strict=True)]
+
+    def _files_of(self, torrents, on_progress: Callable[[int, int], None] | None = None,
+                  ) -> list[list[ClientTorrentFileInfo]]:
+        """I file di ogni torrent, FILE_WORKERS richieste alla volta, nell'ordine dei torrent."""
         files: list[list[ClientTorrentFileInfo] | None] = [None] * len(torrents)
         pool = ThreadPoolExecutor(max_workers=FILE_WORKERS)
         try:
@@ -220,8 +234,7 @@ class QBittorrentAdapter(TorrentClientAdapter):
                     on_progress(done, len(torrents))
         finally:
             pool.shutdown(wait=True, cancel_futures=True)  # stop o errore: niente richieste rimaste in coda
-        return [self._info(torrent, torrent_files or [])
-                for torrent, torrent_files in zip(torrents, files, strict=True)]
+        return [f or [] for f in files]
 
     def _files(self, info_hash: str) -> list[ClientTorrentFileInfo]:
         return [

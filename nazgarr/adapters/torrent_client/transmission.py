@@ -47,6 +47,7 @@ from nazgarr.adapters.torrent_client.base import (
     TorrentAlreadyInClientError,
     TorrentClientAdapter,
     TorrentStatus,
+    largest_file_only,
     local_torrent_bytes,
     require_recheck,
     seeders,
@@ -63,6 +64,8 @@ STATUS_NAMES = {
 CHECKING = {"check_pending", "checking"}
 LOCAL_ERROR = 3  # tr_stat_errtype TR_STAT_LOCAL_ERROR
 STATUS_FIELDS = ["hashString", "status", "error", "percentDone", "leftUntilDone"]
+# La verifica dei percorsi (list_largest_files): solo save path e file.
+LARGEST_FIELDS = ["hashString", "name", "downloadDir", "status", "error", "files"]
 INFO_FIELDS = [
     "hashString", "name", "downloadDir", "status", "error", "labels", "trackers", "files",
     "uploadRatio", "secondsSeeding", "addedDate", "trackerStats",
@@ -221,6 +224,9 @@ class TransmissionAdapter(TorrentClientAdapter):
             if on_progress is not None:
                 on_progress(i + 1, len(torrents))
         return result
+
+    def list_largest_files(self, limit: int | None = None) -> list[ClientTorrentInfo]:
+        return [largest_file_only(self._info(torrent)) for torrent in self._torrents(LARGEST_FIELDS)[:limit]]
 
     @staticmethod
     def _info(torrent: dict) -> ClientTorrentInfo:

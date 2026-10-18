@@ -264,6 +264,16 @@ class PathCheckResponse(BaseModel):
     suggestions: list[PathCheckSuggestion] = []
 
 
+def _largest_files(adapter) -> list:
+    """Il file più grande dei primi path_check.MAX_SAMPLES torrent, chiesto
+    al client col minimo (adapter.list_largest_files): prima l'elenco
+    completo di list_torrents, coi tracker e i file di ogni torrent anche
+    oltre quelli guardati, e con migliaia di torrent il proxy davanti
+    scadeva (audit 2026-10-18). Un plugin senza la classe base: list_torrents."""
+    largest = getattr(adapter, "list_largest_files", None)
+    return largest(limit=path_check.MAX_SAMPLES) if callable(largest) else adapter.list_torrents()
+
+
 @router.post("/{torrent_client_id}/path-check", response_model=PathCheckResponse)
 def check_client_paths(torrent_client_id: int, live: bool = False, session: Session = Depends(get_session)):
     """Sola lettura (nazgarr/torrents/path_check.py): i file che il client
@@ -278,7 +288,7 @@ def check_client_paths(torrent_client_id: int, live: bool = False, session: Sess
         source = "live"
         try:
             with adapter_factory.torrent_client(tc) as adapter:
-                samples = path_check.samples_from_torrents(adapter.list_torrents())
+                samples = path_check.samples_from_torrents(_largest_files(adapter))
         except Exception as exc:
             return PathCheckResponse(status="error", error=safe_error(exc))
     result = path_check.check(session, tc, samples, source)
