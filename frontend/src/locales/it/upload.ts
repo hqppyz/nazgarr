@@ -342,6 +342,7 @@ export const upload = {
   'upload.event.watch_folder_remove_failed': '{folder} non si è potuta togliere dalla cartella osservata: restano {count} elementi ({files}).',
   'upload.event.upload_cleanup_failed': "La pulizia dopo l'upload non è riuscita ({error}): l'esito non cambia.",
   'upload.event.job_resumed_by_user': "Ripreso.",
+  'upload.event.job_retried': 'Riprovato: {trackers} di nuovo in coda, con le scelte già fatte.',
   'upload.event.job_resumed': 'Ripreso dopo un riavvio.',
   'upload.event.target_interrupted':
     'Interrotto da un riavvio durante l’invio al tracker: controlla sul tracker prima di riprovare.',

@@ -136,6 +136,8 @@ export const errors = {
   'errors.upload_job_busy': 'Questo upload sta ancora finendo un tracker: aspetta un attimo e riprova.',
   'errors.upload_already_in_client': "{client} ha già questo torrent, in un'altra cartella ({path}): non si è spostato niente. Toglilo da lì, o mettilo in seed a mano.",
   'errors.upload_planned_files_missing': 'Alcuni file di questo upload mancano nella sua cartella per gli upload: {files}',
+  'errors.upload_retry_nothing': 'Niente da riprovare: nessun tracker di questo upload è fallito prima di pubblicare. Uno pubblicato ma non in seed si riprova con Riprova il seed.',
+  'errors.upload_retry_needs_confirm': "{trackers}: l'invio si è interrotto, e Nazgarr non sa se il tracker l'ha ricevuto. Controlla sul tracker che il torrent non ci sia, poi conferma il nuovo tentativo.",
   'errors.upload_reseed_missing_video': 'Il torrent del tracker ha un video che Nazgarr non trova in locale: {path}',
   'errors.upload_freeleech_not_allowed': '{tracker} non permette un freeleech del {value}%.',
   'errors.tracker_icon_not_available': 'Questo tracker non ha un’icona utilizzabile.',

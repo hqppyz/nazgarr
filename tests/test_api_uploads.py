@@ -186,6 +186,46 @@ def test_cancel_list_and_delete(client, tmp_path, setup):
     assert client.get(f"/api/uploads/{job_id}").status_code == 404
 
 
+class _RecordingWorker:
+    def __init__(self):
+        self.kicked = []
+
+    def kick(self, job_id, status):
+        self.kicked.append((job_id, status))
+
+    def is_active(self, job_id):
+        return False
+
+    def shutdown(self):
+        pass
+
+
+def test_a_failed_upload_is_retried_through_the_api(client, tmp_path, setup):
+    write_video(tmp_path / "Movie.2024.mkv")
+    job_id = client.post("/api/uploads", json={"disk_id": setup["disk_id"], "relative_path": "Movie.2024.mkv"}
+                         ).json()["id"]
+    worker = client.app.state.upload_worker = _RecordingWorker()
+    session = client.app.state.session_factory()
+    job = session.get(UploadJob, job_id)
+    job.status = "failed"
+    target = job.targets[0]
+    target.action, target.status, target.error_message = "upload", "failed", "interrupted"
+    session.commit()
+    session.close()
+
+    unsure = client.post(f"/api/uploads/{job_id}/retry")
+    assert unsure.status_code == 409
+    assert unsure.json()["detail"] == {"code": "upload_retry_needs_confirm", "params": {"trackers": "t"}}
+
+    resp = client.post(f"/api/uploads/{job_id}/retry", json={"confirm_interrupted": True})
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["status"] == "queued" and body["targets"][0]["status"] == "approved"
+    assert body["events"][-1]["code"] == "job_retried"
+    assert worker.kicked == [(job_id, "queued")]
+    assert client.post(f"/api/uploads/{job_id}/retry").status_code == 400  # in coda: niente da riprovare
+
+
 def test_resolver_error_does_not_block_identification(client, tmp_path, setup):
     write_video(tmp_path / "Movie.2024.mkv")
 

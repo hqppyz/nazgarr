@@ -342,6 +342,7 @@ export const upload = {
   'upload.event.dupe_recheck_failed': 'Dupe check before sending failed ({error}): going on.',
   'upload.event.job_cancelled': 'Upload cancelled.',
   'upload.event.job_resumed_by_user': "Resumed.",
+  'upload.event.job_retried': 'Retried: {trackers} back in the queue, with the choices already made.',
   'upload.event.job_resumed': 'Resumed after a restart.',
   'upload.event.target_interrupted':
     'Interrupted by a restart while sending to the tracker: check on the tracker before retrying.',

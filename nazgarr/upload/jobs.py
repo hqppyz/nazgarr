@@ -131,12 +131,15 @@ def set_target_status(target: UploadTarget, status: TargetStatus | str) -> None:
 
 
 def transition(
-    session: Session, job: UploadJob, expected: str | tuple[str, ...], new: str, emit: bool = True, **values
+    session: Session, job: UploadJob, expected: str | tuple[str, ...], new: str, emit: bool = True,
+    commit: bool = True, **values
 ) -> bool:
     """Porta il job da uno degli stati attesi a `new`, insieme agli altri
     valori dati. False (e niente scritto) se nel frattempo lo stato è
     cambiato, es. l'utente ha annullato. Fa commit. emit=False: niente
-    upload.finished (un job diviso in episodi non è un upload finito)."""
+    upload.finished (un job diviso in episodi non è un upload finito).
+    commit=False: il commit (o il rollback, se False) lo fa il chiamante,
+    insieme al resto della stessa modifica; mai per uno stato finale."""
     expected_states = (expected,) if isinstance(expected, str) else expected
     if new in FINAL_STATES and "finished_at" not in values:
         values["finished_at"] = datetime.now(UTC)
@@ -146,6 +149,11 @@ def transition(
         .values(status=new, **values)
         .execution_options(synchronize_session=False)
     )
+    if not commit:
+        assert new not in FINAL_STATES
+        if result.rowcount == 1:
+            session.refresh(job)
+        return result.rowcount == 1
     session.commit()
     session.refresh(job)
     if result.rowcount == 1 and new in FINAL_STATES and emit:
@@ -387,6 +395,71 @@ def resume_job(session: Session, job: UploadJob, active: bool = False) -> str:
     log_event(session, job, "job_resumed_by_user", state=previous)
     session.commit()
     return previous
+
+
+def retryable_targets(job: UploadJob) -> list[UploadTarget]:
+    """I tracker che un nuovo tentativo rifà: falliti, con un upload o un
+    reseed da fare, mai pubblicati. Uno pubblicato ma non in seed si
+    riprova con "Riprova il seed" (nazgarr/upload/execute.py::retry_seed)."""
+    return [t for t in job.targets if t.status == TargetStatus.FAILED and t.action in ("upload", "reseed")
+            and not t.torrent_id_remote]
+
+
+def needs_confirmation(target: UploadTarget) -> bool:
+    """Un invio fermato da un riavvio: non si sa se il tracker l'ha
+    ricevuto, e un nuovo tentativo potrebbe pubblicarlo due volte."""
+    return target.action == "upload" and target.error_message == "interrupted"
+
+
+def retry_failed(session: Session, job: UploadJob, confirm_interrupted: bool = False,
+                 active: bool = False) -> list[UploadTarget]:
+    """Un nuovo tentativo dei tracker falliti di un upload finito 'failed' o
+    'partial' (richiesta dell'utente, 2026-10-18): un problema temporaneo o
+    risolto (il tracker giù, l'image host, i permessi di una cartella) non
+    costringe più a ripassare dal match. Le scelte della decisione restano
+    tutte (nome, id, flag, reseed, client); il job torna in fondo alla coda,
+    e prima dell'invio il dupe check si rifà (execute._recheck_dupes): un
+    torrent comparso nel frattempo, anche il nostro di un invio interrotto,
+    ferma quel tracker. Un invio interrotto si riprova solo con
+    confirm_interrupted. Il chiamante sveglia il worker."""
+    if job.status not in ("failed", "partial"):
+        raise UploadJobError("upload_job_wrong_status", status=job.status)
+    if any(event.code in ("job_split", "job_split_seasons") for event in job.events):
+        raise UploadJobError("upload_job_split")
+    _refuse_if_busy(job, active)
+    if not os.path.exists(job.source_path):
+        raise UploadJobError("upload_source_missing", path=job.relative_path)
+    targets = retryable_targets(job)
+    if not targets:
+        raise UploadJobError("upload_retry_nothing")
+    unsure = [t for t in targets if needs_confirmation(t)]
+    if unsure and not confirm_interrupted:
+        raise UploadJobError("upload_retry_needs_confirm", trackers=", ".join(t.tracker.label for t in unsure))
+    if not transition(
+        session, job, ("failed", "partial"), "queued", commit=False, queue_position=next_queue_position(session),
+        finished_at=None, stage=None, progress_done=None, progress_total=None, error_message=None, scheduled_at=None,
+    ):
+        session.rollback()
+        raise UploadJobError("upload_job_wrong_status", status=job.status)
+    for target in targets:
+        set_target_status(target, TargetStatus.APPROVED)
+        target.error_message = None
+        target.finished_at = None
+    log_event(session, job, "job_retried", trackers=", ".join(t.tracker.label for t in targets),
+              confirmed=", ".join(t.tracker.label for t in unsure) or None)
+    session.commit()
+    return targets
+
+
+def is_retry(job: UploadJob) -> bool:
+    """L'esecuzione che sta per partire è un nuovo tentativo (retry_failed),
+    non la prima dopo l'approvazione."""
+    for event in sorted(job.events, key=lambda e: e.id, reverse=True):
+        if event.code == "job_retried":
+            return True
+        if event.code == "execution_started":
+            return False
+    return False
 
 
 def job_folder(data_dir: str, job_id: int) -> str:

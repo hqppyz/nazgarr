@@ -981,7 +981,12 @@ def _recheck_dupes(session: Session, job: UploadJob, targets: list[UploadTarget]
     frattempo (identico, o nello stesso slot) ferma l'upload su quel tracker.
     Quelli che c'erano già alla decisione li ha visti l'utente. Un reseed no:
     il torrent è già quello del tracker. Se il tracker non risponde si va
-    avanti: l'invio fallirebbe comunque, e il registro lo dice."""
+    avanti: l'invio fallirebbe comunque, e il registro lo dice.
+
+    Lo stesso per un nuovo tentativo (upload_jobs.retry_failed): anche il
+    nostro torrent di un invio interrotto ferma quel tracker. Sempre i
+    risultati di adesso, non quelli tenuti in cache dalla ricerca
+    dell'analisi (10 minuti)."""
     from nazgarr.upload import analysis as upload_analysis
     from nazgarr.upload import dupes as upload_dupes
 
@@ -997,6 +1002,7 @@ def _recheck_dupes(session: Session, job: UploadJob, targets: list[UploadTarget]
         known = {d.get("torrent_id_remote") for d in json.loads(target.dupes_json or "[]")}
         try:
             with adapter_factory.tracker(target.tracker) as adapter:
+                _forget_search(adapter, job.tmdb_id)
                 results, _suggested = upload_dupes.check(adapter.search_by_tmdb(job.tmdb_id), summary)
         except Exception as exc:
             logger.warning("Upload %s: dupe check prima dell'invio fallito su %s", job.id, target.tracker.label,
@@ -1013,6 +1019,14 @@ def _recheck_dupes(session: Session, job: UploadJob, targets: list[UploadTarget]
     session.commit()
 
 
+def _forget_search(adapter, tmdb_id: int | None) -> None:
+    """Toglie dalla cache dell'adapter (UNIT3D: _search_cache, comune agli
+    adapter dello stesso tracker) la ricerca di questo contenuto."""
+    cache = getattr(adapter, "_search_cache", None)
+    if isinstance(cache, dict):
+        cache.pop(tmdb_id, None)
+
+
 def _prepare(session: Session, job: UploadJob, worker, ctx: dict, targets: list[UploadTarget]) -> None:
     """Una volta per job, se c'è almeno un upload: il torrent (hash dei
     piece) e gli screenshot. Senza, nessun upload può partire; i reseed sì."""
@@ -1025,9 +1039,16 @@ def _prepare(session: Session, job: UploadJob, worker, ctx: dict, targets: list[
         # Per la barra degli step (ProgressStep): i passaggi conclusi restano segnati.
         upload_jobs.log_event(session, job, "torrent_created")
         session.commit()
-        ctx["screenshots"] = take_screenshots(session, job, worker, _screenshot_count(session, overrides))
-        job.screenshot_urls_json = json.dumps(ctx["screenshots"])
-        upload_jobs.log_event(session, job, "screenshots_done", count=len(ctx["screenshots"]))
+        stored = json.loads(job.screenshot_urls_json or "[]") if ctx.get("retried") else []
+        if stored:
+            # Un nuovo tentativo: quelli già sull'image host valgono ancora,
+            # niente di nuovo da caricare per un tracker che era giù.
+            ctx["screenshots"] = stored
+        else:
+            ctx["screenshots"] = take_screenshots(session, job, worker, _screenshot_count(session, overrides))
+            job.screenshot_urls_json = json.dumps(ctx["screenshots"])
+        upload_jobs.log_event(session, job, "screenshots_done", count=len(ctx["screenshots"]),
+                              **({"reused": True} if stored else {}))
         session.commit()
     except _Cancelled:
         raise
@@ -1134,14 +1155,16 @@ def _context(session: Session, job: UploadJob, worker, overrides: dict) -> dict:
 def handle(session: Session, job: UploadJob, worker) -> None:
     if not upload_jobs.transition(session, job, "queued", "running", queue_position=None):
         return
+    retried = upload_jobs.is_retry(job)
     upload_jobs.log_event(session, job, "execution_started")
     session.commit()
     targets = [t for t in job.targets if t.status == "approved"]
-    if job.scheduled_at is not None:
+    if job.scheduled_at is not None or retried:
         _recheck_dupes(session, job, targets)
     overrides = json.loads(job.overrides_json or "{}")
     try:
         ctx = _context(session, job, worker, overrides)
+        ctx["retried"] = retried
     except Exception as exc:  # la cartella del job non si crea: niente può partire
         logger.error("Upload %s: cartella del job non disponibile", job.id, exc_info=exc)
         _fail_approved(session, job, targets, exc, actions=("upload", "reseed"), default="upload_prepare_failed")

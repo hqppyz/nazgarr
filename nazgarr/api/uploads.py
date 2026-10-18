@@ -152,6 +152,12 @@ class UploadReidentifyRequest(BaseModel):
     forced_ids: ForcedIds | None = None
 
 
+class UploadRetryRequest(BaseModel):
+    # Anche i tracker il cui invio si è fermato a metà (non si sa se il
+    # tracker l'ha ricevuto): solo dopo averlo controllato sul tracker.
+    confirm_interrupted: bool = False
+
+
 class UploadTargetResponse(BaseModel):
     id: int
     tracker_id: int
@@ -324,7 +330,7 @@ def _worker(request: Request):
 
 
 # Rifiuti per lo stato del momento, non per una richiesta sbagliata: 409.
-_CONFLICT_CODES = {"upload_job_busy"}
+_CONFLICT_CODES = {"upload_job_busy", "upload_retry_nothing", "upload_retry_needs_confirm"}
 
 
 def _refused(exc: UploadJobError) -> HTTPException:
@@ -510,6 +516,22 @@ def resume_upload(upload_id: int, request: Request, session: Session = Depends(g
         raise _refused(exc) from exc
     if job.status in upload_jobs.WORKER_STATES:
         _worker(request).kick(job.id, job.status)
+    return UploadJobDetail.from_model(job)
+
+
+@router.post("/{upload_id}/retry", response_model=UploadJobDetail)
+def retry_upload(
+    upload_id: int, request: Request, body: UploadRetryRequest | None = None, session: Session = Depends(get_session)
+):
+    """Un nuovo tentativo dei tracker falliti, con le scelte già fatte
+    (upload_jobs.retry_failed): di nuovo in coda, senza ripassare dal match."""
+    job = _get_job_or_404(session, upload_id)
+    try:
+        upload_jobs.retry_failed(session, job, confirm_interrupted=bool(body and body.confirm_interrupted),
+                                 active=_worker(request).is_active(job.id))
+    except UploadJobError as exc:
+        raise _refused(exc) from exc
+    _worker(request).kick(job.id, job.status)
     return UploadJobDetail.from_model(job)
 
 

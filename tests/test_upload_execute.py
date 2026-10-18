@@ -1301,3 +1301,130 @@ def test_a_symlink_added_to_the_source_after_the_decision_stops_the_upload(db_se
     target = job.targets[0]
     assert (target.status, target.error_message) == ("failed", "upload_source_has_symlinks")
     assert env["trackers"]["a"].uploads == []
+
+
+# --- un nuovo tentativo dei tracker falliti (richiesta dell'utente, 2026-10-18) --
+
+
+def _shots(monkeypatch):
+    calls = []
+    real = upload_execute.screenshots.generate_screenshots
+
+    def counting(*args, **kwargs):
+        calls.append(1)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(upload_execute.screenshots, "generate_screenshots", counting)
+    return calls
+
+
+def test_a_failed_tracker_is_retried_with_its_decision_and_no_new_match(db_session, tmp_path, env, monkeypatch):
+    shots = _shots(monkeypatch)
+    video = write_video(env["root"] / "media" / "The.Matrix.1999.1080p.WEB-DL.H.264-GRP.mkv", 300 * KB)
+    env["trackers"]["a"].error = UploadError("502 Bad Gateway")
+    job = _approved(db_session, env, "media/" + video.name, {"a": _upload("Matrix A"), "b": _upload("Matrix B")})
+    _run(db_session, tmp_path, job)
+    a, b = job.targets
+    assert (job.status, a.status, b.status) == ("partial", "failed", "done") and len(shots) == 1
+
+    env["trackers"]["a"].error = None  # il tracker è tornato
+    retried = upload_jobs.retry_failed(db_session, job)
+
+    assert [t.id for t in retried] == [a.id]
+    assert (job.status, job.finished_at, a.status, a.error_message) == ("queued", None, "approved", None)
+    assert job.queue_position is not None and job.events[-1].code == "job_retried"
+    assert json.loads(job.events[-1].params_json)["trackers"] == "a"
+
+    _run(db_session, tmp_path, job)
+
+    assert (job.status, a.status, a.torrent_id_remote) == ("done", "done", "100"), [e.code for e in job.events]
+    assert env["trackers"]["a"].uploads[0][0].name == "Matrix A"  # la decisione di allora
+    assert len(env["trackers"]["b"].uploads) == 1  # "b" non si ricarica
+    assert len(shots) == 1  # gli screenshot già sull'image host
+    assert "https://img.example/0.png" in env["trackers"]["a"].uploads[0][0].description
+
+
+def test_a_retry_checks_the_dupes_again_before_sending(db_session, tmp_path, env):
+    from nazgarr.adapters.tracker.base import TorrentCandidate
+
+    video = write_video(env["root"] / "media" / "The.Matrix.1999.1080p.WEB-DL.H.264-GRP.mkv", 300 * KB)
+    env["trackers"]["a"].error = UploadError("timeout")
+    job = _approved(db_session, env, "media/" + video.name, {"a": _upload("Matrix A"), "b": {"action": "skip"}})
+    _run(db_session, tmp_path, job)
+    assert job.status == "failed"
+    env["trackers"]["a"].error = None
+    env["trackers"]["a"].catalog = [TorrentCandidate(
+        torrent_id_remote="77", info_hash=None, name="The.Matrix.1999.1080p.WEB-DL.H.264-OTHER", size_bytes=300 * KB,
+        file_list=None, mediainfo_unique_id=None)]
+
+    upload_jobs.retry_failed(db_session, job)
+    _run(db_session, tmp_path, job)
+
+    a = job.targets[0]
+    assert (job.status, a.status, a.error_message) == ("failed", "failed", "upload_dupe_appeared")
+    assert env["trackers"]["a"].uploads == []
+
+
+def test_an_interrupted_upload_is_retried_only_once_confirmed(db_session, tmp_path, env):
+    """Non si sa se il tracker l'ha ricevuto: si riprova solo dopo una
+    conferma, e il dupe check rifatto trova il nostro torrent se c'è."""
+    from nazgarr.adapters.tracker.base import TorrentCandidate
+
+    video = write_video(env["root"] / "media" / "The.Matrix.1999.1080p.WEB-DL.H.264-GRP.mkv", 300 * KB)
+    job = _approved(db_session, env, "media/" + video.name, {"a": _upload("Matrix A"), "b": {"action": "skip"}})
+    a = job.targets[0]
+    a.status, a.error_message = "failed", "interrupted"
+    upload_jobs.transition(db_session, job, "queued", "failed")
+
+    with pytest.raises(UploadJobError) as exc:
+        upload_jobs.retry_failed(db_session, job)
+    assert (exc.value.code, exc.value.params) == ("upload_retry_needs_confirm", {"trackers": "a"})
+    assert job.status == "failed" and a.status == "failed"
+
+    # Era arrivato: il tracker lo elenca, e il nuovo tentativo si ferma lì.
+    env["trackers"]["a"].catalog = [TorrentCandidate(
+        torrent_id_remote="100", info_hash=None, name="Matrix A", size_bytes=300 * KB, file_list=None,
+        mediainfo_unique_id=None)]
+    upload_jobs.retry_failed(db_session, job, confirm_interrupted=True)
+    assert json.loads(job.events[-1].params_json)["confirmed"] == "a"
+    _run(db_session, tmp_path, job)
+
+    assert (a.status, a.error_message) == ("failed", "upload_dupe_appeared")
+    assert env["trackers"]["a"].uploads == []
+
+
+def test_what_cannot_be_retried(db_session, tmp_path, env, monkeypatch):
+    video = write_video(env["root"] / "media" / "Movie.2024.mkv", 100 * KB)
+    job = _approved(db_session, env, "media/" + video.name, {"a": _upload("A"), "b": {"action": "skip"}})
+
+    def refused(code):
+        with pytest.raises(UploadJobError) as exc:
+            upload_jobs.retry_failed(db_session, job)
+        assert exc.value.code == code
+
+    refused("upload_job_wrong_status")  # in coda, non finito
+    monkeypatch.setattr(env["client"], "add_torrent", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("down")))
+    _run(db_session, tmp_path, job)
+    assert (job.status, job.targets[0].error_message) == ("done", "seed_failed")
+    refused("upload_job_wrong_status")  # pubblicato: si riprova il seed, non l'upload
+    upload_jobs.transition(db_session, job, "done", "partial")
+    refused("upload_retry_nothing")
+    job.targets[0].status, job.targets[0].torrent_id_remote = "failed", None
+    db_session.commit()
+    os.unlink(video)
+    refused("upload_source_missing")
+
+
+def test_a_watched_release_that_failed_everywhere_stays_and_leaves_after_a_retry(db_session, tmp_path, env):
+    video = _watched_job(db_session, env, "My.Movie.2024.mkv", {"a": _upload("Movie A"), "b": {"action": "skip"}})
+    job = db_session.query(upload_jobs.UploadJob).one()
+    env["trackers"]["a"].error = UploadError("down")
+    _run(db_session, tmp_path, job)
+    assert job.status == "failed" and video.is_file()
+
+    env["trackers"]["a"].error = None
+    upload_jobs.retry_failed(db_session, job)
+    _run(db_session, tmp_path, job)
+
+    assert job.status == "done" and not video.exists()
+    assert (env["root"] / "torrents" / "My.Movie.2024.mkv").is_file()
