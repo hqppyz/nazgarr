@@ -63,6 +63,18 @@ export function useRemoveDiskFolder() {
   })
 }
 
+// Cosa se ne va dal DB eliminando il disco (decisione dell'utente,
+// 2026-10-18): letto quando si apre la conferma, mai tenuto in cache.
+export function useDiskDeletePreview(diskId: number, enabled: boolean) {
+  return useQuery({
+    queryKey: ['disks', diskId, 'delete-preview'],
+    queryFn: () => unwrap(api.GET('/api/disks/{disk_id}/delete-preview', { params: { path: { disk_id: diskId } } })),
+    enabled,
+    staleTime: 0,
+    gcTime: 0,
+  })
+}
+
 export function useDeleteDisk() {
   const queryClient = useQueryClient()
   return useMutation({

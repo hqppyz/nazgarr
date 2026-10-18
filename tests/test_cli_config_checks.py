@@ -2,7 +2,10 @@
 pianificazione salvata che non si legge, un indirizzo in chiaro verso un host
 pubblico, cosa se ne va eliminando un tracker o un disco."""
 
-from tests.test_cli_client import _login, cli_env, run  # noqa: F401 (cli_env è un fixture)
+from tests import test_cli_client
+from tests.test_cli_client import _login, run
+
+cli_env = test_cli_client.cli_env  # il fixture del CLI contro l'app in memoria
 
 
 def test_schedule_show_says_a_stored_cron_cannot_be_read(cli_env, client, capsys):
@@ -91,3 +94,38 @@ def test_plain_http_to_a_public_host_is_saved_with_a_warning(cli_env, client, ca
     assert code == 0, err
     assert "Warning:" not in err
     types.forget_public_hosts()
+
+
+def test_removing_a_used_tracker_or_disk_says_what_goes_and_asks_first(cli_env, client, capsys):
+    """Decisione dell'utente, 2026-10-18: la storia va con loro, e il CLI dice
+    quanta prima di chiedere --yes."""
+    from nazgarr.core.models import SeedJob
+    from tests.test_delete_used_tracker_and_disk import _used_tracker_and_disk
+
+    _disk_id, _tracker_id = _used_tracker_and_disk(client)
+    _login(capsys)
+
+    code, out, err = run(capsys, "tracker", "rm", "ITT")
+    out = " ".join(out.split())  # rich va a capo alla larghezza del terminale
+    assert code == 3 and "--yes" in err  # niente terminale: senza --yes non si cancella
+    assert "1 candidate, 1 review, 1 reseed record (1 still seeding" in out
+    assert "Nothing changes on the tracker" in out
+
+    code, out, err = run(capsys, "disk", "rm", "Disk 1")
+    out = " ".join(out.split())
+    assert code == 3
+    assert "1 library file record, 1 seeding file record" in out and "No file on the disk is touched" in out
+
+    with client.app.state.session_factory() as session:
+        session.query(SeedJob).one().final_status = "in_progress"
+        session.commit()
+    code, _out, err = run(capsys, "tracker", "rm", "ITT", "--yes")
+    assert code == 1 and "in progress" in err
+    assert client.get("/api/trackers").json()  # rifiutato prima di chiedere, anche con --yes
+
+    with client.app.state.session_factory() as session:
+        session.query(SeedJob).one().final_status = "seeding"
+        session.commit()
+    code, out, err = run(capsys, "tracker", "rm", "ITT", "--yes")
+    assert code == 0, err
+    assert client.get("/api/trackers").json() == []

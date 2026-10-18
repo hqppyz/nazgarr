@@ -154,6 +154,10 @@ nazgarr disk folder rm main media media/tv           # nothing changes on disk
 
 Disks, clients and trackers can be named by name or by ID. Names are not case sensitive.
 
+Removing a disk or a tracker (`nazgarr disk rm main`, `nazgarr tracker rm itt`) also removes from Nazgarr what depends on it: for a disk its folders and what Nazgarr knows of its files (file records, reviews, reseed records, searches), for a tracker what it found (candidates, reviews, reseed records, searches, uploads to it, its upload profile). The command prints those counts and asks before acting (`--yes` in a script). Nothing changes on the disk, on the tracker or in the torrent clients: a reseed that is seeding stays in its client. While a reseed or an upload of theirs is running, the command refuses.
+
+Trackers, clients and Radarr/Sonarr can be saved with a plain `http://` address to a public host, but the command prints a warning: their token, password or API key travel in clear. Use `https://` (or a VPN) when the service offers it. A LAN, VPN or local address over `http://` gets no warning.
+
 ### Torrent clients
 
 ```bash

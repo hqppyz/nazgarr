@@ -34,6 +34,7 @@ export const config = {
   'config.descImages': 'Dove vanno gli screenshot dei tuoi upload e come vengono fatti.',
   'config.descReleases': 'Le tue release: il nome del releaser, il match automatico, la descrizione e i nomi dei file dentro i torrent.',
   'config.descPlugins': 'Pacchetti Python che aggiungono tracker, client, resolver, image host o notifiche.',
+  'config.deletePreviewFailed': 'Non si è potuto contare cosa se ne va: {message}',
   // http:// verso un host pubblico: si salva con questo avviso (decisione dell'utente, 2026-10-18).
   'config.insecureUrl.tracker': 'http:// in chiaro verso un indirizzo pubblico: il token API e le chiavi viaggiano in chiaro. Usa https:// se il tracker lo offre.',
   'config.insecureUrl.client': 'http:// in chiaro verso un indirizzo pubblico: utente e password viaggiano in chiaro. Usa https:// (o una VPN) se puoi.',

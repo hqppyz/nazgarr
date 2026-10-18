@@ -7,7 +7,16 @@ from pathlib import Path
 import typer
 
 from nazgarr.cli_client.context import api, state
-from nazgarr.cli_client.helpers import duration, find, human_duration, secret, warn_insecure_url
+from nazgarr.cli_client.helpers import (
+    counted,
+    delete_preview,
+    duration,
+    find,
+    human_duration,
+    refuse_if_busy,
+    secret,
+    warn_insecure_url,
+)
 from nazgarr.cli_client.output import EXIT_USAGE, confirm, console, emit, fail, table
 
 app = typer.Typer(help="Trackers and their upload profiles.", no_args_is_help=True)
@@ -151,12 +160,33 @@ def edit_tracker(
 @app.command("rm")
 def remove_tracker(ctx: typer.Context, ref: str = typer.Argument(..., help="Tracker name or ID."),
                    yes: bool = typer.Option(False, "--yes", "-y", help="Do not ask for confirmation.")):
-    """Remove a tracker (and its upload profile) from Nazgarr."""
+    """Remove a tracker from Nazgarr, with what it found (candidates, reviews, reseed records, searches,
+    uploads to it, its upload profile). Nothing changes on the tracker, on the disks or in the clients."""
     client = api(ctx)
     found = _tracker(client, ref)
-    confirm(f"Remove tracker {found['label']} and its upload profile?", yes)
+    preview = delete_preview(client, f"/api/trackers/{found['id']}/delete-preview")
+    refuse_if_busy(preview, "tracker_busy", label=found["label"])
+    if preview is not None:
+        # Quello che se ne va con lui (decisione dell'utente, 2026-10-18).
+        console.print(_preview_text(found["label"], preview))
+    confirm(f"Remove tracker {found['label']}?" if preview is not None
+            else f"Remove tracker {found['label']} and its upload profile?", yes)
     client.delete(f"/api/trackers/{found['id']}")
     console.print(f"Tracker {found['label']} removed.")
+
+
+def _preview_text(label: str, p: dict) -> str:
+    seeding = p.get("executions_seeding") or 0
+    parts = [counted(p["candidates"], "candidate"), counted(p["reviews"], "review"),
+             counted(p["executions"], "reseed record") + (f" ({seeding} still seeding: the torrents stay in the "
+                                                          "client)" if seeding else ""),
+             counted(p["match_attempts"], "search record"), counted(p["upload_targets"], "upload") + " to it"]
+    if p.get("upload_profile"):
+        parts.append("its upload profile")
+    gone = [part for part in parts if not part.startswith("0 ")]
+    return (f"Removing {label} also removes from Nazgarr: {', '.join(gone)}." if gone
+            else f"Nothing else in Nazgarr depends on {label}.") + \
+        "\nNothing changes on the tracker, on your disks or in your torrent clients."
 
 
 # --- profilo di upload --------------------------------------------------------

@@ -19,7 +19,16 @@ from nazgarr.api.types import (
     require_secrets_for_new_host,
 )
 from nazgarr.core.errors import coded_detail, from_coded_error
-from nazgarr.core.models import Candidate, SeedJob, Tracker, TrackerUploadProfile, UploadJob, UploadTarget
+from nazgarr.core.models import (
+    Candidate,
+    MatchAttempt,
+    MatchReview,
+    SeedJob,
+    Tracker,
+    TrackerUploadProfile,
+    UploadJob,
+    UploadTarget,
+)
 from nazgarr.plugins import REGISTRY
 from nazgarr.plugins import config as plugin_config
 from nazgarr.torrents import tracker_icons
@@ -261,6 +270,44 @@ def _tracker_busy(session: Session, tracker_id: int) -> bool:
         .first()
     )
     return uploading is not None
+
+
+class TrackerDeletePreview(BaseModel):
+    """Cosa se ne va dal DB eliminando il tracker (decisione dell'utente,
+    2026-10-18: la storia va con lui, ON DELETE CASCADE), da mostrare nella
+    conferma. Sul tracker, sui dischi e nei client non cambia niente: un
+    reseed in seed resta nel client, ne sparisce solo il record."""
+    candidates: int  # torrent trovati su di lui, coi loro file
+    reviews: int  # proposte di reseed, in attesa o già decise
+    executions: int  # reseed eseguiti o tentati (seed_job)
+    executions_seeding: int  # di cui ancora in seed nel client: lì restano
+    match_attempts: int  # le ricerche fatte per ogni file
+    upload_targets: int  # upload verso di lui (il job resta per gli altri tracker)
+    upload_profile: bool
+    busy: bool  # un'esecuzione o un upload suo in corso: il DELETE risponde 409 tracker_busy
+
+
+@router.get("/{tracker_id}/delete-preview", response_model=TrackerDeletePreview)
+def tracker_delete_preview(tracker_id: int, session: Session = Depends(get_session)):
+    """In sola lettura: i conteggi di quello che DELETE /api/trackers/{id}
+    toglierebbe, per la conferma dell'interfaccia e del CLI."""
+    _get_tracker_or_404(session, tracker_id)
+    candidate_ids = session.query(Candidate.id).filter(Candidate.tracker_id == tracker_id)
+
+    def count(query) -> int:
+        return query.order_by(None).count()
+
+    jobs = session.query(SeedJob.id).filter(SeedJob.candidate_id.in_(candidate_ids))
+    return TrackerDeletePreview(
+        candidates=count(candidate_ids),
+        reviews=count(session.query(MatchReview.id).filter(MatchReview.candidate_id.in_(candidate_ids))),
+        executions=count(jobs),
+        executions_seeding=count(jobs.filter(SeedJob.final_status == "seeding")),
+        match_attempts=count(session.query(MatchAttempt.id).filter(MatchAttempt.tracker_id == tracker_id)),
+        upload_targets=count(session.query(UploadTarget.id).filter(UploadTarget.tracker_id == tracker_id)),
+        upload_profile=session.get(TrackerUploadProfile, tracker_id) is not None,
+        busy=_tracker_busy(session, tracker_id),
+    )
 
 
 @router.delete("/{tracker_id}", status_code=204)

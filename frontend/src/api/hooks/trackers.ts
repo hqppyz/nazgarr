@@ -28,6 +28,19 @@ export function useUpdateTracker() {
   })
 }
 
+// Cosa se ne va dal DB eliminando il tracker (decisione dell'utente,
+// 2026-10-18): letto quando si apre la conferma, mai tenuto in cache.
+export function useTrackerDeletePreview(id: number, enabled: boolean) {
+  return useQuery({
+    queryKey: ['trackers', id, 'delete-preview'],
+    queryFn: () =>
+      unwrap(api.GET('/api/trackers/{tracker_id}/delete-preview', { params: { path: { tracker_id: id } } })),
+    enabled,
+    staleTime: 0,
+    gcTime: 0,
+  })
+}
+
 export function useDeleteTracker() {
   const queryClient = useQueryClient()
   return useMutation({
