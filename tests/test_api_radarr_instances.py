@@ -78,9 +78,9 @@ def test_a_stored_timeout_outside_the_bounds_does_not_block_other_edits(client):
 
         listed = next(i for i in client.get("/api/radarr-instances").json() if i["id"] == instance_id)
         assert listed["timeout_seconds"] == shown
-        edit = client.patch(
-            f"/api/radarr-instances/{instance_id}", json={"label": f"renamed{stored}", "timeout_seconds": listed["timeout_seconds"]},
-        )
+        edit = client.patch(f"/api/radarr-instances/{instance_id}", json={
+            "label": f"renamed{stored}", "timeout_seconds": listed["timeout_seconds"],
+        })
         assert edit.status_code == 200, edit.text
 
 
