@@ -18,6 +18,7 @@ solo se i file non seguono TVDB aired, l'ordine di Sonarr. Più gli episodi
 trovati, tradotti in ognuno."""
 
 import difflib
+import functools
 import json
 import logging
 import re
@@ -25,6 +26,7 @@ import threading
 import time
 import unicodedata
 from collections import OrderedDict, defaultdict
+from collections.abc import Callable
 from copy import deepcopy
 from dataclasses import asdict, dataclass, field
 
@@ -95,16 +97,33 @@ class EpisodeOrder:
 # --- Traduzione ----------------------------------------------------------------
 
 
+def translator(source: EpisodeOrder, target: EpisodeOrder) -> Callable[[int, int], list[Ref]]:
+    """translate() fra due ordinamenti fissi, con gli indici costruiti una
+    volta (audit 2026-10-18): translate() rifaceva e riordinava tutti gli
+    episodi dei due a ogni episodio, e una serie lunga (1100 episodi, 8
+    ordinamenti) costava secondi alla scheda, al match e ai nomi dei file."""
+    if source.key == target.key:
+        return lambda season, episode: [(season, episode)]
+    episodes = source.episodes()
+    by_ref: dict[Ref, set[Ref]] = defaultdict(set)
+    for ref, other in target.episodes().items():
+        for r in other.refs:
+            by_ref[r].add(ref)
+
+    def lookup(season: int, episode: int) -> list[Ref]:
+        ep = episodes.get((season, episode))
+        if ep is None or not ep.refs:
+            return []
+        return sorted({ref for r in ep.refs for ref in by_ref.get(r, ())})
+
+    return lookup
+
+
 def translate(source: EpisodeOrder, target: EpisodeOrder, season: int, episode: int) -> list[Ref]:
     """(stagione, episodio) in `source` -> gli episodi di `target` con gli
-    stessi riferimenti, in ordine. Vuoto se non si sa."""
-    if source.key == target.key:
-        return [(season, episode)]
-    ep = source.episodes().get((season, episode))
-    if ep is None or not ep.refs:
-        return []
-    wanted = set(ep.refs)
-    return [ref for ref, other in sorted(target.episodes().items()) if wanted & set(other.refs)]
+    stessi riferimenti, in ordine. Vuoto se non si sa. Per molti episodi
+    fra gli stessi due ordinamenti, translator()."""
+    return translator(source, target)(season, episode)
 
 
 def align(episodes: list[tuple[int, OrderEpisode]], reference: list[tuple[int, OrderEpisode]]) -> None:
@@ -259,6 +278,7 @@ def _cached(key: tuple, fetch, copy: bool = False, ttl: float = CACHE_SECONDS):
 def clear_cache() -> None:
     with _cache_lock:
         _cache.clear()
+    _files_translator.cache_clear()
 
 
 def _int(value) -> int | None:
@@ -615,9 +635,10 @@ def build(session: Session, tmdb_id: int, tvdb_id: int | None, found: dict[int, 
 
 def translate_found(source: EpisodeOrder, target: EpisodeOrder, found: dict[int, list[int]]) -> dict[int, list[int]]:
     out: dict[int, set[int]] = defaultdict(set)
+    lookup = translator(source, target)
     for season, eps in found.items():
         for e in eps:
-            for s2, e2 in translate(source, target, season, e):
+            for s2, e2 in lookup(season, e):
                 out[s2].add(e2)
     return {s: sorted(eps) for s, eps in sorted(out.items())}
 
@@ -691,14 +712,23 @@ def remember(session: Session, tmdb_id: int, order_key: str) -> None:
                 conflict_cols=["tmdb_id"], update_cols=["order_key"])
 
 
+@functools.lru_cache(maxsize=8)
+def _files_translator(episode_order_json: str) -> Callable[[int, int], list[Ref]] | None:
+    """Dai file all'ordinamento scelto di un job, letto una volta per job e
+    non a ogni file del pack (i nomi generati lo chiedono per ogni video)."""
+    data = json.loads(episode_order_json or "{}")
+    if not data.get("chosen") or not data.get("files"):
+        return None
+    return translator(EpisodeOrder.from_dict(data["files"]), EpisodeOrder.from_dict(data["chosen"]))
+
+
 def translate_files(job, season: int, episode: int) -> list[Ref]:
     """Un episodio come lo numerano i file -> come lo numera l'ordinamento
     scelto al match. Senza ordinamento scelto (o senza traduzione) resta com'è."""
-    data = json.loads(job.episode_order_json or "{}")
-    if not data.get("chosen") or not data.get("files"):
+    lookup = _files_translator(job.episode_order_json or "")
+    if lookup is None:
         return [(season, episode)]
-    chosen, files = EpisodeOrder.from_dict(data["chosen"]), EpisodeOrder.from_dict(data["files"])
-    return translate(files, chosen, season, episode) or [(season, episode)]
+    return lookup(season, episode) or [(season, episode)]
 
 
 def group(episodes) -> dict[int, list[int]]:
@@ -745,8 +775,9 @@ class Translator:
         if source is None or target is None or source.key == target.key:
             return {}
         out = {}
+        lookup = translator(source, target)
         for season, episode in torrent:
-            translated = translate(source, target, season, episode)
+            translated = lookup(season, episode)
             if len(translated) == 1 and translated[0] in library:
                 out[(season, episode)] = translated[0]
         return out

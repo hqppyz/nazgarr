@@ -19,7 +19,7 @@ def _order(key, seasons, source="tmdb", refs=True, dates=None):
 
 @pytest.fixture(autouse=True)
 def _no_cache():
-    eo._cache.clear()
+    eo.clear_cache()
 
 
 def test_align_one_to_one_in_pairs_and_by_date():
@@ -558,3 +558,32 @@ def test_an_order_that_fails_to_align_is_left_without_references(db_session, mon
 
     sonarr = next(o for o in result["orders"] if o["key"] == "sonarr:aired")
     assert all(e["refs"] == [] for s in sonarr["seasons"] for e in s["episodes"])
+
+
+def test_translations_index_each_pair_of_orders_once(monkeypatch):
+    """Audit 2026-10-18: translate() rifaceva e riordinava i due ordinamenti
+    a ogni episodio; una serie da 1100 episodi costava secondi alla scheda,
+    al match e ai nomi dei file di un pack."""
+    import json
+    from types import SimpleNamespace
+
+    tmdb = _order("tmdb:default", {1: 300, 2: 300})
+    parts = _order("tvdb:alternate", {1: 200, 2: 200, 3: 200}, "tvdb", refs=False)
+    eo.align_to(parts, tmdb)
+    calls = []
+    real = EpisodeOrder.episodes
+    monkeypatch.setattr(EpisodeOrder, "episodes", lambda self: calls.append(self.key) or real(self))
+
+    found = eo.translate_found(parts, tmdb, {3: list(range(1, 201))})
+
+    assert found == {2: list(range(101, 301))}
+    assert sorted(calls) == ["tmdb:default", "tvdb:alternate"]  # una volta per ordinamento, non per episodio
+
+    calls.clear()
+    job = SimpleNamespace(episode_order_json=json.dumps({"chosen": tmdb.to_dict(), "files": parts.to_dict()}))
+    parsed = []
+    real_from = EpisodeOrder.from_dict
+    monkeypatch.setattr(EpisodeOrder, "from_dict", staticmethod(lambda data: parsed.append(1) or real_from(data)))
+    assert [eo.translate_files(job, 3, e) for e in (1, 2, 200)] == [[(2, 101)], [(2, 102)], [(2, 300)]]
+    assert len(parsed) == 2  # il JSON del job letto una volta, non a ogni file
+    assert eo.translate_files(job, 9, 9) == [(9, 9)]
