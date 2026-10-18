@@ -397,7 +397,7 @@ def test_the_file_name_can_be_written_by_hand(db_session, tmp_path):
         assert generated["name"] == generated["main_video"] == "My Movie (2024) [ITA].mkv"
     assert job.targets[0].proposed_name == tracker_name  # il nome per il tracker è un'altra cosa
 
-    for bad in ("a/b", "..\\x", "..", "x" * 201, "a\nb"):
+    for bad in ("a/b", "..\\x", "..", "x" * 201, "a\nb", "è" * 130):  # 130 lettere, 260 byte
         with pytest.raises(UploadJobError) as exc:
             upload_decision.update_overrides(db_session, job, {"content_name": bad})
         assert exc.value.code == "upload_invalid_override"

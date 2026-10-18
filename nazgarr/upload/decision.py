@@ -49,6 +49,9 @@ EXTRA_OVERRIDES = {"year": int, "screenshot_count": int, "notes": str, "no_seed"
 MAX_SCREENSHOTS = 12
 # Il nome scritto a mano diventa un file o una cartella nella cartella di seed.
 MAX_CONTENT_NAME = 200
+# I filesystem contano byte, non caratteri (255 per nome, con l'estensione):
+# 200 lettere accentate o ideogrammi superavano il limite (audit 2026-10-18).
+MAX_CONTENT_NAME_BYTES = 240
 
 
 def _profile(session: Session, target: UploadTarget) -> TrackerUploadProfile | None:
@@ -134,7 +137,8 @@ def _content_name(value: str) -> str:
     """Un nome solo, niente percorsi: rifiutati "/" e "\\", i caratteri di
     controllo, "." e ".."."""
     name = value.strip()
-    if (name in (".", "..") or len(name) > MAX_CONTENT_NAME or any(c in name for c in "/\\")
+    if (name in (".", "..") or len(name) > MAX_CONTENT_NAME or len(name.encode()) > MAX_CONTENT_NAME_BYTES
+            or any(c in name for c in "/\\")
             or any(unicodedata.category(c) == "Cc" for c in name)):
         raise UploadJobError("upload_invalid_override", field="content_name")
     return name

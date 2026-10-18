@@ -183,6 +183,15 @@ def test_a_cancelled_job_still_sending_is_neither_deleted_nor_resumed(db_session
         upload_jobs.delete_job(db_session, job, str(tmp_path / "data"), active=True)  # il worker ci sta lavorando
     upload_jobs.delete_job(db_session, job, str(tmp_path / "data"))
 
+    # Finito 'failed' senza aver potuto scrivere l'esito del target pubblicato.
+    other = _job(db_session, tmp_path)
+    other.status = "failed"
+    other.targets[0].action, other.targets[0].status, other.targets[0].torrent_id_remote = "upload", "seeding", "9"
+    db_session.commit()
+    upload_jobs.reset_interrupted(db_session, str(tmp_path / "data"))
+    db_session.refresh(other)
+    assert (other.status, other.targets[0].status, other.targets[0].error_message) == ("failed", "done", "seed_failed")
+
 
 def test_worker_runs_light_states_until_a_gate(db_session, tmp_path):
     make_tracker(db_session)

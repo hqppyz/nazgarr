@@ -359,10 +359,11 @@ def _client(session: Session, target: UploadTarget):
 
 def files_in_place(torrent: torf.Torrent, save_path: str) -> bool:
     """Ogni file del torrent è dove il client lo cercherà (save_path più il
-    suo percorso nel torrent), con la sua dimensione esatta."""
+    suo percorso nel torrent), con la sua dimensione esatta. Un link
+    simbolico no: il client seederebbe il file a cui punta, e senza recheck."""
     for file in torrent.files:
         path = os.path.join(save_path, *file.parts)
-        if not os.path.isfile(path) or os.path.getsize(path) != file.size:
+        if os.path.islink(path) or not os.path.isfile(path) or os.path.getsize(path) != file.size:
             return False
     return True
 

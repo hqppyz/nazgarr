@@ -522,9 +522,11 @@ def reset_interrupted(session: Session, data_dir: str | None = None) -> list[int
     andava nel client ('seeding') sono pubblicati: 'done' con seed_failed,
     da cui si riprova il seed (audit 2026-10-18; prima restavano 'seeding'
     per sempre, senza nessun modo di metterli in seed). Lo stesso per i
-    target di un job annullato che il worker stava ancora finendo."""
-    for job in session.query(UploadJob).filter(UploadJob.status.in_(("running", "cancelled"))).all():
-        if job.status == "cancelled" and not any(t.status in BUSY_TARGET_STATES for t in job.targets):
+    target di un job annullato che il worker stava ancora finendo, o di uno
+    finito con un errore che non ha potuto scrivere l'esito dei target (il
+    DB non scrivibile)."""
+    for job in session.query(UploadJob).filter(UploadJob.status.in_(("running", *FINAL_STATES))).all():
+        if job.status != "running" and not any(t.status in BUSY_TARGET_STATES for t in job.targets):
             continue
         for target in job.targets:
             _reset_target(session, job, target, data_dir)
