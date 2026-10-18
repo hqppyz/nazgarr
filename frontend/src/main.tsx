@@ -16,7 +16,14 @@ import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { installChunkReload } from '@/lib/chunkReload'
 import { reportMutationError } from '@/lib/mutationErrors'
-import { CACHE_BUSTER, CACHE_MAX_AGE_MS, queryPersister, shouldPersistQuery } from '@/lib/queryPersistence'
+import {
+  activeTrackerFilter,
+  CACHE_BUSTER,
+  CACHE_MAX_AGE_MS,
+  PERSISTED_KEYS,
+  queryPersister,
+  shouldPersistQuery,
+} from '@/lib/queryPersistence'
 import './index.css'
 
 // Windows non ha le bandiere fra le emoji (le lingue nell'anteprima MediaInfo):
@@ -38,11 +45,11 @@ const queryClient: QueryClient = new QueryClient({
   }),
 })
 // gcTime almeno quanto la cache persistita, ma solo per le query persistite
-// (le viste della libreria, src/lib/queryPersistence.ts): una query
-// ripristinata da IndexedDB non deve essere scartata dopo i 5 minuti di
-// default. Le altre (ricerche, anteprime dei nomi) restano ai 5 minuti,
-// invece di restare in memoria per tutta la sessione.
-queryClient.setQueryDefaults(['library'], { gcTime: CACHE_MAX_AGE_MS })
+// (le liste della libreria e il filtro per tracker, src/lib/queryPersistence.ts):
+// una query ripristinata da IndexedDB non deve essere scartata dopo i 5
+// minuti di default. Le altre (schede di dettaglio, ricerche, anteprime dei
+// nomi) restano ai 5 minuti, invece di restare in memoria per tutta la sessione.
+for (const queryKey of PERSISTED_KEYS) queryClient.setQueryDefaults(queryKey, { gcTime: CACHE_MAX_AGE_MS })
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
@@ -53,7 +60,10 @@ createRoot(document.getElementById('root')!).render(
           persister: queryPersister,
           maxAge: CACHE_MAX_AGE_MS,
           buster: CACHE_BUSTER,
-          dehydrateOptions: { shouldDehydrateQuery: shouldPersistQuery },
+          dehydrateOptions: {
+            shouldDehydrateQuery: (query) => shouldPersistQuery(query, activeTrackerFilter(queryClient)),
+            shouldDehydrateMutation: () => false,
+          },
         }}
       >
         <TooltipProvider>
