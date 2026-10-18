@@ -22,6 +22,7 @@ import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
+from sqlalchemy import exists
 from sqlalchemy.orm import Session, selectinload
 
 from nazgarr.adapters.tracker.base import (
@@ -38,8 +39,10 @@ from nazgarr.core.models import (
     CandidateFile,
     ClientTorrentFile,
     MatchAttempt,
+    MatchReview,
     MediaFile,
     SeedFile,
+    SeedJob,
     Tracker,
 )
 from nazgarr.core.run_progress import NULL_PROGRESS
@@ -114,8 +117,11 @@ class MatchContext:
     _torrents: dict[str, TorrentInfo | None] = field(default_factory=dict)
     _info_hashes: dict[str, str] = field(default_factory=dict)
     _episode_mappings: dict = field(default_factory=dict)
+    # media_item_id -> {torrent_id_remote: candidato da aggiornare} (_reusable_candidate).
+    _reusable: dict[int, dict[str, Candidate]] = field(default_factory=dict)
 
     _in_client: set[str] | None = None
+    _queue: "review.ReviewQueue | None" = None
 
     def hashes_in_clients(self) -> set[str]:
         """Gli info hash nei client, letti una volta: durante il matching nessun
@@ -125,6 +131,13 @@ class MatchContext:
 
             self._in_client = hashes_in_clients(self.session)
         return self._in_client
+
+    def review_queue(self) -> "review.ReviewQueue":
+        """Le review attive e le esecuzioni lette una volta per passaggio,
+        non a ogni orfano (nazgarr/reseed/review.py::ReviewQueue)."""
+        if self._queue is None:
+            self._queue = review.ReviewQueue(self.session, self.hashes_in_clients())
+        return self._queue
 
     def local_files(self) -> LocalFiles:
         if self.local is None:
@@ -216,26 +229,36 @@ def _persist(
     info_hash: str | None,
     source: str,
 ) -> Candidate:
-    candidate = Candidate(
-        media_item_id=media_item_id,
-        tracker_id=ctx.tracker_row.id,
-        torrent_id_remote=torrent_id_remote,
-        info_hash=info_hash or ctx.info_hash(download_link),
-        name=name,
-        size_bytes=size_bytes,
-        file_list_json=json.dumps([f.path for f in layout.files]),
-        folder=layout.folder,
-        download_link=download_link,
-        source=source,
-        direction=ctx.direction,
-        size_match=evaluation.size_match,
-        mediainfo_match=evaluation.mediainfo_match,
-        piece_verified=evaluation.piece_verified,
-        piece_boundary_count=evaluation.piece_boundary_count,
-        confidence=evaluation.confidence,
-        ambiguity_reason=evaluation.ambiguity_reason,
-        piece_length=layout.piece_length,
-    )
+    """Una valutazione salvata. Se lo stesso torrent era già stato valutato
+    per lo stesso contenuto in una ricerca precedente e nessuna review né
+    esecuzione usa quella riga, si aggiorna lei (con i suoi candidate_file
+    rifatti) invece di aggiungerne un'altra: prima ogni nuova ricerca, ogni
+    rematch_interval_days, riscriveva tutti i risultati, e le tabelle
+    crescevano senza limite (audit 2026-10-18). Una riga che una review o
+    un seed_job usa non si tocca mai: è quella che l'utente ha visto o che
+    è stata eseguita."""
+    candidate = _reusable_candidate(ctx, media_item_id, torrent_id_remote)
+    if candidate is None:
+        candidate = Candidate(media_item_id=media_item_id, tracker_id=ctx.tracker_row.id,
+                              torrent_id_remote=torrent_id_remote, direction=ctx.direction)
+        ctx.session.add(candidate)
+    else:
+        candidate.files.clear()
+        candidate.created_at = datetime.now(UTC)  # l'ultima valutazione, per l'audit
+    candidate.info_hash = info_hash or ctx.info_hash(download_link)
+    candidate.name = name
+    candidate.size_bytes = size_bytes
+    candidate.file_list_json = json.dumps([f.path for f in layout.files])
+    candidate.folder = layout.folder
+    candidate.download_link = download_link
+    candidate.source = source
+    candidate.size_match = evaluation.size_match
+    candidate.mediainfo_match = evaluation.mediainfo_match
+    candidate.piece_verified = evaluation.piece_verified
+    candidate.piece_boundary_count = evaluation.piece_boundary_count
+    candidate.confidence = evaluation.confidence
+    candidate.ambiguity_reason = evaluation.ambiguity_reason
+    candidate.piece_length = layout.piece_length
     for m in evaluation.files:
         local = m.local
         candidate.files.append(CandidateFile(
@@ -249,8 +272,30 @@ def _persist(
             piece_verified=m.piece_verified,
             match_method=m.method if local is not None else None,
         ))
-    ctx.session.add(candidate)
     return candidate
+
+
+def _reusable_candidate(ctx: MatchContext, media_item_id: int, torrent_id_remote: str) -> Candidate | None:
+    """La riga da aggiornare per questo torrent, se c'è: per contenuto,
+    tracker e direzione, la più recente senza review né seed_job. Lette una
+    volta per contenuto in ogni passaggio, e ognuna usata una volta sola:
+    in una run due file dello stesso contenuto (due versioni di un film)
+    tengono ciascuno la sua valutazione."""
+    if media_item_id not in ctx._reusable:
+        rows = (
+            ctx.session.query(Candidate)
+            .filter(Candidate.media_item_id == media_item_id, Candidate.tracker_id == ctx.tracker_row.id,
+                    Candidate.direction == ctx.direction,
+                    ~exists().where(MatchReview.candidate_id == Candidate.id),
+                    ~exists().where(SeedJob.candidate_id == Candidate.id))
+            .order_by(Candidate.id.desc())
+            .all()
+        )
+        by_remote: dict[str, Candidate] = {}
+        for row in rows:
+            by_remote.setdefault(row.torrent_id_remote, row)
+        ctx._reusable[media_item_id] = by_remote
+    return ctx._reusable[media_item_id].pop(torrent_id_remote, None)
 
 
 def match_file(ctx: MatchContext, anchor: MediaFile | SeedFile, media_item_id: int, tmdb_id: int,
@@ -588,10 +633,10 @@ def _match_orphans(ctx: MatchContext, orphans: list[tuple], side: str, progress,
             try:
                 candidates, from_history = find_candidates(ctx, orphan, item.id, item.tmdb_id, formats)
                 if side == "media":
-                    review.create_review_for_media_file(session, orphan, candidates, ctx.hashes_in_clients(),
-                                                        formats=formats, both_formats=ctx.both_formats)
+                    review.create_review_for_media_file(session, orphan, candidates, formats=formats,
+                                                        both_formats=ctx.both_formats, queue=ctx.review_queue())
                 else:
-                    review.create_review_for_seed_file(session, orphan, candidates, ctx.hashes_in_clients())
+                    review.create_review_for_seed_file(session, orphan, candidates, queue=ctx.review_queue())
             except TrackerRateLimitedError:
                 logger.warning("Tracker %r in rate limit: matching interrotto per questa run", tracker_row.label)
                 session.rollback()

@@ -11,9 +11,9 @@ def _tracker(db_session):
     return t
 
 
-def _candidate(db_session, item, tracker, *, confidence, direction="media_to_torrent"):
+def _candidate(db_session, item, tracker, *, confidence, direction="media_to_torrent", remote="1"):
     c = Candidate(
-        media_item_id=item.id, tracker_id=tracker.id, torrent_id_remote="1", name="x", size_bytes=1,
+        media_item_id=item.id, tracker_id=tracker.id, torrent_id_remote=remote, name="x", size_bytes=1,
         source="catalog_search", direction=direction, confidence=confidence,
     )
     db_session.add(c)
@@ -357,7 +357,8 @@ def test_each_tracker_keeps_its_own_proposal_for_the_same_file(db_session):
     on_b = review.create_review_for_media_file(db_session, mf, [_candidate(db_session, item, b, confidence=0.5)])
     assert (on_a.status, on_b.status) == ("pending", "pending")
 
-    again_on_a = review.create_review_for_media_file(db_session, mf, [_candidate(db_session, item, a, confidence=0.6)])
+    again_on_a = review.create_review_for_media_file(
+        db_session, mf, [_candidate(db_session, item, a, confidence=0.6, remote="2")])
     db_session.refresh(on_a)
     db_session.refresh(on_b)
     assert (on_a.status, on_b.status, again_on_a.status) == ("rejected", "pending", "pending")
