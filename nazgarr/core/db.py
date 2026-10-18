@@ -217,6 +217,39 @@ def _foreign_keys(conn, table: str) -> set[tuple] | None:
     return {(fk[3], fk[2], fk[4], fk[5], fk[6]) for fk in conn.execute(f'PRAGMA foreign_key_list("{table}")')}
 
 
+def _clear_dangling_references(cursor, table: str, rebuild: str) -> None:
+    """Nella copia appena riempita (`rebuild`, l'originale `table` c'è
+    ancora), i valori delle foreign key che puntano a righe che non ci sono.
+
+    Una FK ON DELETE SET NULL si azzera, come avrebbe fatto SQLite alla
+    cancellazione. Succede dove la vecchia tabella non la dichiarava: una
+    colonna aggiunta da migrate_schema (un ALTER TABLE ADD COLUMN senza
+    REFERENCES), come upload_job.split_from_id prima della 0.9.4, dove il job
+    di un pack diviso si poteva cancellare e i figli tenevano il suo id. Senza
+    questo il passo 10 si fermava a ogni avvio (riferimenti rotti nuovi).
+    Una FK nuova con un'altra azione non si indovina: errore che nomina
+    tabella e colonna. Per un riferimento a sé stessa (upload_job) la tabella
+    puntata è ancora l'originale, con gli stessi id."""
+    old_fk_columns = {fk[3] for fk in cursor.execute(f'PRAGMA foreign_key_list("{table}")')}
+    for _id, _seq, parent, column, parent_column, _on_update, on_delete, _match in cursor.execute(
+        f'PRAGMA foreign_key_list("{rebuild}")'
+    ).fetchall():
+        target = f'"{parent_column}"' if parent_column else "rowid"
+        dangling = (f'"{column}" IS NOT NULL AND NOT EXISTS '
+                    f'(SELECT 1 FROM "{parent}" WHERE "{parent}".{target} = "{rebuild}"."{column}")')
+        if on_delete == "SET NULL":
+            cleared = cursor.execute(f'UPDATE "{rebuild}" SET "{column}" = NULL WHERE {dangling}').rowcount
+            if cleared:
+                logger.warning("Migrazione di %s: %d valori di %s puntavano a righe di %s che non ci sono più, "
+                               "azzerati (ON DELETE SET NULL)", table, cleared, column, parent)
+        elif column not in old_fk_columns:
+            count = cursor.execute(f'SELECT count(*) FROM "{rebuild}" WHERE {dangling}').fetchone()[0]
+            if count:
+                raise RuntimeError(f"Migrazione di {table}: {count} valori di {column} puntano a righe di "
+                                   f"{parent} che non ci sono, e la sua nuova foreign key ({on_delete}) "
+                                   "non dice cosa farne")
+
+
 def _rebuild_like(cursor, schema: sqlite3.Connection, table: str) -> None:
     """Rifà una tabella com'è in `schema` (un DB in memoria creato da
     schema.sql): stessa tecnica sicura delle migrazioni qui sotto, mai un
@@ -243,6 +276,7 @@ def _rebuild_like(cursor, schema: sqlite3.Connection, table: str) -> None:
     copied, original = (cursor.execute(f'SELECT count(*) FROM "{name}"').fetchone()[0] for name in (rebuild, table))
     if copied != original:
         raise RuntimeError(f"Migrazione di {table}: copiate {copied} righe su {original}")
+    _clear_dangling_references(cursor, table, rebuild)
     cursor.execute(f'DROP TABLE "{table}"')
     cursor.execute(f'ALTER TABLE "{rebuild}" RENAME TO "{table}"')
     for (index_sql,) in schema.execute(

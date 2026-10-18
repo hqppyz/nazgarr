@@ -67,11 +67,11 @@ PRAGMA user_version = 9;
 """
 
 
-def _v0_9_0_database(tmp_path):
+def _v0_9_0_database(tmp_path, extra: str = ""):
     engine = db.make_engine(str(tmp_path / "v0.9.0.db"))
     raw = engine.raw_connection()
     try:
-        raw.executescript((FIXTURES / "schema_v0.9.0.sql").read_text() + _V0_9_0_ROWS)
+        raw.executescript((FIXTURES / "schema_v0.9.0.sql").read_text() + _V0_9_0_ROWS + extra)
         raw.commit()
     finally:
         raw.close()
@@ -124,6 +124,78 @@ def test_an_upgrade_from_0_9_0_keeps_every_row_and_ends_like_a_new_database(tmp_
     new = db.make_engine(str(tmp_path / "new.db"))
     migrations.upgrade(new)
     assert _structure(old) == _structure(new)
+
+
+# Un DB fra la 0.9.0 e la 0.9.4: migrate_schema aveva aggiunto
+# upload_job.split_from_id con un ALTER TABLE, senza foreign key. Un pack
+# diviso (10) va in 'cancelled', i suoi episodi (11) puntano a lui.
+_SPLIT_PACK_BEFORE_0_9_4 = """
+ALTER TABLE upload_job ADD COLUMN "split_from_id" INTEGER;
+INSERT INTO upload_job (id, disk_id, relative_path, source_path, is_dir, status)
+    VALUES (10, 1, 'media/pack', '/data/d1/media/pack', 1, 'cancelled');
+INSERT INTO upload_job (id, disk_id, relative_path, source_path, status, split_from_id)
+    VALUES (11, 1, 'media/pack/e1.mkv', '/data/d1/media/pack/e1.mkv', 'done', 10);
+"""
+
+
+def _split_from(engine) -> int | None:
+    with engine.connect() as conn:
+        return conn.execute(text("SELECT split_from_id FROM upload_job WHERE id = 11")).scalar()
+
+
+def test_a_split_pack_deleted_before_the_foreign_key_does_not_stop_the_upgrade(tmp_path):
+    """Revisione dell'audit 2026-10-18: il pack cancellato lasciava ai figli
+    un id che non c'è più, e la FK nuova del passo 10 li vedeva come
+    riferimenti rotti: l'upgrade falliva a ogni avvio, ferma alla versione 9.
+    Si azzerano, come avrebbe fatto ON DELETE SET NULL."""
+    engine = _v0_9_0_database(tmp_path, _SPLIT_PACK_BEFORE_0_9_4 + "DELETE FROM upload_job WHERE id = 10;")
+
+    migrations.upgrade(engine)
+
+    assert migrations.current_version(engine) == migrations.LATEST
+    assert _split_from(engine) is None
+    assert _ids(engine, "upload_job") == [1, 2, 11]
+    with engine.connect() as conn:
+        assert conn.execute(text("PRAGMA foreign_key_check")).all() == []
+
+
+def test_a_split_pack_still_there_keeps_its_children_and_gets_the_foreign_key(tmp_path):
+    engine = _v0_9_0_database(tmp_path, _SPLIT_PACK_BEFORE_0_9_4)
+
+    migrations.upgrade(engine)
+
+    assert _split_from(engine) == 10
+    with engine.connect() as conn:
+        fks = {(r[3], r[2], r[6]) for r in conn.execute(text("PRAGMA foreign_key_list(upload_job)"))}
+        assert ("split_from_id", "upload_job", "SET NULL") in fks
+        assert conn.execute(text("PRAGMA foreign_key_check")).all() == []
+    with engine.begin() as conn:
+        conn.execute(text("DELETE FROM upload_job WHERE id = 10"))
+    assert _split_from(engine) is None
+
+
+def test_a_new_foreign_key_that_cannot_be_null_stops_on_its_column(tmp_path):
+    """Una FK nuova che non è SET NULL non sa cosa fare di un valore che
+    punta al vuoto: il passo si ferma e dice dove, il DB resta com'era."""
+    import pytest
+
+    engine = db.make_engine(str(tmp_path / "db.db"))
+    with engine.begin() as conn:
+        conn.execute(text("CREATE TABLE parent (id INTEGER PRIMARY KEY)"))
+        conn.execute(text("CREATE TABLE child (id INTEGER PRIMARY KEY, parent_id INTEGER)"))
+        conn.execute(text("INSERT INTO parent (id) VALUES (1)"))
+        conn.execute(text("INSERT INTO child (id, parent_id) VALUES (1, 1), (2, 7)"))
+    schema = tmp_path / "schema.sql"
+    schema.write_text("CREATE TABLE parent (id INTEGER PRIMARY KEY);\n"
+                      "CREATE TABLE child (id INTEGER PRIMARY KEY,"
+                      " parent_id INTEGER REFERENCES parent(id) ON DELETE CASCADE);\n")
+
+    with pytest.raises(RuntimeError, match="child: 1 valori di parent_id"):
+        db.rebuild_tables_from_schema(engine, ("child",), schema_path=schema)
+
+    with engine.connect() as conn:
+        assert conn.execute(text("PRAGMA foreign_key_list(child)")).all() == []
+        assert conn.execute(text("SELECT id, parent_id FROM child ORDER BY id")).all() == [(1, 1), (2, 7)]
 
 
 def test_a_new_database_ends_at_the_latest_version_with_every_table(tmp_path):
