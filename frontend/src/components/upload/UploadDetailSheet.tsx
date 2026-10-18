@@ -5,8 +5,10 @@ import { posterUrl, useMetadataDetails } from '@/api/hooks/metadata'
 import { useUpload, type UploadJob } from '@/api/hooks/uploads'
 import { AuthedPoster } from '@/components/AuthedPoster'
 import { DeleteUploadButton } from '@/components/upload/DeleteUploadButton'
+import { isBusy } from '@/components/upload/jobState'
 import { MediaInfoPreview } from '@/components/upload/MediaInfoPreview'
 import { MetadataLinks } from '@/components/upload/MetadataLinks'
+import { RetryUploadButton } from '@/components/upload/RetryUploadButton'
 import { ActionBadge } from '@/components/upload/TrackerCheckCard'
 import { UploadEventLog } from '@/components/upload/UploadEventLog'
 import { UploadStatusBadge } from '@/components/upload/UploadStatusBadge'
@@ -186,8 +188,9 @@ export function UploadDetailSheet({ uploadId, onClose }: { uploadId: number | nu
                     </pre>
                   </Section>
                 ))}
-              <div className="flex justify-end border-t pt-4">
-                <DeleteUploadButton uploadId={job.id} onDeleted={onClose} />
+              <div className="flex flex-wrap justify-end gap-2 border-t pt-4">
+                <RetryUploadButton job={job} size="default" />
+                <DeleteUploadButton uploadId={job.id} busy={isBusy(job)} onDeleted={onClose} />
               </div>
             </div>
           </>

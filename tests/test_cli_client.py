@@ -279,6 +279,38 @@ def test_an_upload_walks_to_the_decision_and_stops_on_a_problem(cli_env, client,
     assert code == 0 and json.loads(run(capsys, "--json", "upload", "ls")[1]) == []
 
 
+def test_a_failed_upload_is_retried_from_the_command_line(cli_env, client, capsys):
+    from nazgarr.core.models import Disk, UploadJob
+    from nazgarr.upload import jobs as upload_jobs
+
+    _login(capsys)
+    root = client.scan_root / "data"
+    _configure(capsys, root)
+    (root / "torrents" / "The.Matrix.1999.mkv").write_bytes(b"x" * 4096)
+    kicked = []
+    client.app.state.upload_worker = type("W", (), {
+        "kick": lambda self, job_id, status: kicked.append(job_id), "is_active": lambda self, job_id: False,
+        "shutdown": lambda self: None})()
+    session = client.app.state.session_factory()
+    job = upload_jobs.create_job(session, session.query(Disk).one(), "torrents/The.Matrix.1999.mkv")
+    job.status = "failed"
+    job.targets[0].action, job.targets[0].status, job.targets[0].error_message = "upload", "failed", "interrupted"
+    session.commit()
+    job_id = job.id
+    session.close()
+
+    code, _out, err = run(capsys, "upload", "retry", str(job_id), "--yes")
+    assert code == 3 and "--confirm-interrupted" in err and "does not know whether the tracker received it" in err
+    code, out, err = run(capsys, "upload", "retry", str(job_id), "--yes", "--confirm-interrupted")
+    assert code == 0 and f"Upload #{job_id}: queued." in out, err
+    assert kicked == [job_id]
+    session = client.app.state.session_factory()
+    assert session.get(UploadJob, job_id).targets[0].status == "approved"
+    session.close()
+    code, _out, err = run(capsys, "upload", "retry", str(job_id), "--yes")
+    assert code == 1 and "status 'queued'" in err
+
+
 def test_library_triage_and_logs(cli_env, client, capsys):
     _login(capsys)
     code, out, _err = run(capsys, "--json", "library", "ls")

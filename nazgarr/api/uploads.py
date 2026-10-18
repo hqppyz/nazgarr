@@ -152,6 +152,12 @@ class UploadReidentifyRequest(BaseModel):
     forced_ids: ForcedIds | None = None
 
 
+class UploadRetryRequest(BaseModel):
+    # Anche i tracker il cui invio si è fermato a metà (non si sa se il
+    # tracker l'ha ricevuto): solo dopo averlo controllato sul tracker.
+    confirm_interrupted: bool = False
+
+
 class UploadTargetResponse(BaseModel):
     id: int
     tracker_id: int
@@ -323,6 +329,14 @@ def _worker(request: Request):
     return request.app.state.upload_worker
 
 
+# Rifiuti per lo stato del momento, non per una richiesta sbagliata: 409.
+_CONFLICT_CODES = {"upload_job_busy", "upload_retry_nothing", "upload_retry_needs_confirm"}
+
+
+def _refused(exc: UploadJobError) -> HTTPException:
+    return HTTPException(status_code=409 if exc.code in _CONFLICT_CODES else 400, detail=from_coded_error(exc))
+
+
 @router.get("", response_model=list[UploadJobSummary])
 def list_uploads(session: Session = Depends(get_session)):
     jobs = session.query(UploadJob).order_by(UploadJob.id.desc()).all()
@@ -465,10 +479,14 @@ def create_upload(body: UploadCreateRequest, request: Request, session: Session 
     try:
         forced = body.forced_ids.model_dump() if body.forced_ids else None
         choices = {tid: c.model_dump() for tid, c in (body.tracker_choices or {}).items()}
+        # Le stesse regole della decisione (audit 2026-10-18): prima gli
+        # override dati alla creazione non passavano da nessun controllo
+        # (un content_name ".", screenshot senza limite, chiavi sconosciute).
+        overrides = upload_decision.clean_overrides(body.overrides)
         if body.files is not None:
-            job = upload_pack.create_job(session, disk, body.files, body.tracker_ids, forced, body.overrides, choices)
+            job = upload_pack.create_job(session, disk, body.files, body.tracker_ids, forced, overrides, choices)
         elif body.relative_path:
-            job = upload_jobs.create_job(session, disk, body.relative_path, body.tracker_ids, forced, body.overrides,
+            job = upload_jobs.create_job(session, disk, body.relative_path, body.tracker_ids, forced, overrides,
                                          choices)
         else:
             raise UploadJobError("upload_source_not_found", path="")
@@ -493,11 +511,27 @@ def resume_upload(upload_id: int, request: Request, session: Session = Depends(g
     """Un upload annullato riparte da dove si era fermato (upload_jobs.resume_job)."""
     job = _get_job_or_404(session, upload_id)
     try:
-        upload_jobs.resume_job(session, job)
+        upload_jobs.resume_job(session, job, active=_worker(request).is_active(job.id))
     except UploadJobError as exc:
-        raise HTTPException(status_code=400, detail=from_coded_error(exc)) from exc
+        raise _refused(exc) from exc
     if job.status in upload_jobs.WORKER_STATES:
         _worker(request).kick(job.id, job.status)
+    return UploadJobDetail.from_model(job)
+
+
+@router.post("/{upload_id}/retry", response_model=UploadJobDetail)
+def retry_upload(
+    upload_id: int, request: Request, body: UploadRetryRequest | None = None, session: Session = Depends(get_session)
+):
+    """Un nuovo tentativo dei tracker falliti, con le scelte già fatte
+    (upload_jobs.retry_failed): di nuovo in coda, senza ripassare dal match."""
+    job = _get_job_or_404(session, upload_id)
+    try:
+        upload_jobs.retry_failed(session, job, confirm_interrupted=bool(body and body.confirm_interrupted),
+                                 active=_worker(request).is_active(job.id))
+    except UploadJobError as exc:
+        raise _refused(exc) from exc
+    _worker(request).kick(job.id, job.status)
     return UploadJobDetail.from_model(job)
 
 
@@ -505,9 +539,10 @@ def resume_upload(upload_id: int, request: Request, session: Session = Depends(g
 def delete_upload(upload_id: int, request: Request, session: Session = Depends(get_session)):
     job = _get_job_or_404(session, upload_id)
     try:
-        upload_jobs.delete_job(session, job, request.app.state.settings.data_dir)
+        upload_jobs.delete_job(session, job, request.app.state.settings.data_dir,
+                               active=_worker(request).is_active(job.id))
     except UploadJobError as exc:
-        raise HTTPException(status_code=400, detail=from_coded_error(exc)) from exc
+        raise _refused(exc) from exc
 
 
 def _confirm(session: Session, job: UploadJob, body: UploadMatchRequest) -> dict | None:
@@ -630,7 +665,7 @@ def verify_target(
 
 
 @router.post("/{upload_id}/targets/{target_id}/retry-seed", response_model=UploadJobDetail)
-def retry_seed(upload_id: int, target_id: int, session: Session = Depends(get_session)):
+def retry_seed(upload_id: int, target_id: int, request: Request, session: Session = Depends(get_session)):
     """Di nuovo l'aggiunta al client di un upload pubblicato ma non in seed
     (seed_failed, no_client): il .torrent del tracker già salvato, nessun
     nuovo upload."""
@@ -639,7 +674,7 @@ def retry_seed(upload_id: int, target_id: int, session: Session = Depends(get_se
     if target is None:
         raise HTTPException(status_code=404, detail=coded_detail("upload_target_not_found", id=target_id))
     try:
-        upload_execute.retry_seed(session, job, target)
+        upload_execute.retry_seed(session, job, target, request.app.state.settings.data_dir)
     except UploadJobError as exc:
         raise HTTPException(status_code=400, detail=from_coded_error(exc)) from exc
     session.refresh(job)

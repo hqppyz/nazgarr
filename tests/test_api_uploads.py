@@ -141,6 +141,24 @@ def test_create_rejects_missing_source_and_unknown_disk(client, setup):
     assert resp.status_code == 404
 
 
+@pytest.mark.parametrize("overrides, code", [
+    ({"content_name": "."}, "upload_invalid_override"),
+    ({"screenshot_count": 999}, "upload_invalid_override"),
+    ({"file_naming": "whatever"}, "upload_invalid_override"),
+    ({"no_such_override": 1}, "upload_unknown_override"),
+])
+def test_overrides_given_at_creation_follow_the_decision_rules(client, tmp_path, setup, overrides, code):
+    write_video(tmp_path / "Movie.2024.mkv")
+    resp = client.post("/api/uploads", json={"disk_id": setup["disk_id"], "relative_path": "Movie.2024.mkv",
+                                             "overrides": overrides})
+    assert resp.status_code == 400 and resp.json()["detail"]["code"] == code
+    assert client.get("/api/uploads").json() == []
+
+    ok = client.post("/api/uploads", json={"disk_id": setup["disk_id"], "relative_path": "Movie.2024.mkv",
+                                           "overrides": {"group": " NZG ", "notes": ""}})
+    assert ok.status_code == 201 and ok.json()["overrides"] == {"group": "NZG"}
+
+
 def test_cancel_list_and_delete(client, tmp_path, setup):
     write_video(tmp_path / "Movie.2024.mkv")
     job_id = client.post(
@@ -153,8 +171,59 @@ def test_cancel_list_and_delete(client, tmp_path, setup):
 
     assert client.post(f"/api/uploads/{job_id}/cancel").json()["status"] == "cancelled"
     assert client.post(f"/api/uploads/{job_id}/cancel").status_code == 400
+    # Annullato mentre un tracker è ancora in invio: si aspetta che finisca.
+    session = client.app.state.session_factory()
+    target = session.get(UploadJob, job_id).targets[0]
+    target.action, target.status = "upload", "uploading"
+    session.commit()
+    busy = client.delete(f"/api/uploads/{job_id}")
+    assert busy.status_code == 409 and busy.json()["detail"]["code"] == "upload_job_busy"
+    assert client.post(f"/api/uploads/{job_id}/resume").status_code == 409
+    target.status = "failed"
+    session.commit()
+    session.close()
     assert client.delete(f"/api/uploads/{job_id}").status_code == 204
     assert client.get(f"/api/uploads/{job_id}").status_code == 404
+
+
+class _RecordingWorker:
+    def __init__(self):
+        self.kicked = []
+
+    def kick(self, job_id, status):
+        self.kicked.append((job_id, status))
+
+    def is_active(self, job_id):
+        return False
+
+    def shutdown(self):
+        pass
+
+
+def test_a_failed_upload_is_retried_through_the_api(client, tmp_path, setup):
+    write_video(tmp_path / "Movie.2024.mkv")
+    job_id = client.post("/api/uploads", json={"disk_id": setup["disk_id"], "relative_path": "Movie.2024.mkv"}
+                         ).json()["id"]
+    worker = client.app.state.upload_worker = _RecordingWorker()
+    session = client.app.state.session_factory()
+    job = session.get(UploadJob, job_id)
+    job.status = "failed"
+    target = job.targets[0]
+    target.action, target.status, target.error_message = "upload", "failed", "interrupted"
+    session.commit()
+    session.close()
+
+    unsure = client.post(f"/api/uploads/{job_id}/retry")
+    assert unsure.status_code == 409
+    assert unsure.json()["detail"] == {"code": "upload_retry_needs_confirm", "params": {"trackers": "t"}}
+
+    resp = client.post(f"/api/uploads/{job_id}/retry", json={"confirm_interrupted": True})
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["status"] == "queued" and body["targets"][0]["status"] == "approved"
+    assert body["events"][-1]["code"] == "job_retried"
+    assert worker.kicked == [(job_id, "queued")]
+    assert client.post(f"/api/uploads/{job_id}/retry").status_code == 400  # in coda: niente da riprovare
 
 
 def test_resolver_error_does_not_block_identification(client, tmp_path, setup):

@@ -19,11 +19,13 @@ import shutil
 from datetime import UTC, datetime
 from enum import StrEnum
 
-from sqlalchemy import update
+from sqlalchemy import or_, update
 from sqlalchemy.orm import Session
 
 from nazgarr.core.errors import CodedError
-from nazgarr.core.fs_scope import resolve_scoped
+from nazgarr.core.file_types import is_video
+from nazgarr.core.fs_scope import ScopeViolation, resolve_scoped
+from nazgarr.core.logs import safe_error
 from nazgarr.core.models import (
     UPLOAD_TARGET_STATUSES,
     Disk,
@@ -35,6 +37,7 @@ from nazgarr.core.models import (
     UploadTarget,
 )
 from nazgarr.torrents import client_labels
+from nazgarr.upload import inventory as upload_inventory
 
 logger = logging.getLogger(__name__)
 
@@ -43,12 +46,33 @@ logger = logging.getLogger(__name__)
 WORKER_STATES = ("identifying", "analyzing", "queued", "running")
 GATE_STATES = ("awaiting_match", "awaiting_decision")
 FINAL_STATES = ("done", "partial", "failed", "cancelled")
+# Un target in questi stati lo sta lavorando l'esecuzione (anche di un job
+# appena annullato: il tracker in invio si finisce).
+BUSY_TARGET_STATES = ("preparing", "uploading", "seeding")
 
 FORCED_ID_KEYS = ("tmdb", "imdb", "tvdb", "mal")
 
 
 class UploadJobError(CodedError):
     pass
+
+
+def error_of(exc: BaseException) -> tuple[str, dict]:
+    """Il codice e i parametri di un errore, per il registro del job. Solo
+    un CodedError li ha davvero: anche un errore di SQLAlchemy ha .code e
+    .params, ma sono il codice della sua documentazione ("e3q8") e i
+    parametri della query, e params.items() falliva proprio mentre si
+    registrava l'errore (audit 2026-10-18)."""
+    if isinstance(exc, CodedError):
+        return exc.code, dict(exc.params)
+    # Il testo va nel registro del job (e nel CLI): un errore di httpx ha
+    # l'URL completo, con chiavi e passkey.
+    text = safe_error(exc) or type(exc).__name__
+    return text, {"error": text}
+
+
+def error_text(exc: BaseException) -> str:
+    return error_of(exc)[0]
 
 
 def log_event(
@@ -112,12 +136,15 @@ def set_target_status(target: UploadTarget, status: TargetStatus | str) -> None:
 
 
 def transition(
-    session: Session, job: UploadJob, expected: str | tuple[str, ...], new: str, emit: bool = True, **values
+    session: Session, job: UploadJob, expected: str | tuple[str, ...], new: str, emit: bool = True,
+    commit: bool = True, **values
 ) -> bool:
     """Porta il job da uno degli stati attesi a `new`, insieme agli altri
     valori dati. False (e niente scritto) se nel frattempo lo stato è
     cambiato, es. l'utente ha annullato. Fa commit. emit=False: niente
-    upload.finished (un job diviso in episodi non è un upload finito)."""
+    upload.finished (un job diviso in episodi non è un upload finito).
+    commit=False: il commit (o il rollback, se False) lo fa il chiamante,
+    insieme al resto della stessa modifica; mai per uno stato finale."""
     expected_states = (expected,) if isinstance(expected, str) else expected
     if new in FINAL_STATES and "finished_at" not in values:
         values["finished_at"] = datetime.now(UTC)
@@ -127,6 +154,11 @@ def transition(
         .values(status=new, **values)
         .execution_options(synchronize_session=False)
     )
+    if not commit:
+        assert new not in FINAL_STATES
+        if result.rowcount == 1:
+            session.refresh(job)
+        return result.rowcount == 1
     session.commit()
     session.refresh(job)
     if result.rowcount == 1 and new in FINAL_STATES and emit:
@@ -216,7 +248,7 @@ def _clean_forced_ids(forced_ids: dict | None) -> dict:
     return cleaned
 
 
-def _has_symlinks(source_path: str) -> bool:
+def has_symlinks(source_path: str) -> bool:
     if not os.path.isdir(source_path):
         return False
     for dirpath, dirnames, filenames in os.walk(source_path):
@@ -239,7 +271,7 @@ def create_job(
     per tracker. tracker_ids None = tutti i tracker con un profilo di upload.
     Il percorso passa sempre da resolve_scoped (ScopeViolation al chiamante)."""
     source_path = resolve_scoped(disk.root_path, relative_path)
-    if os.path.islink(os.path.join(disk.root_path, relative_path)) or _has_symlinks(source_path):
+    if os.path.islink(os.path.join(disk.root_path, relative_path)) or has_symlinks(source_path):
         # Si pubblicherebbe (e si metterebbe in seed) il file a cui punta il link.
         raise UploadJobError("upload_source_has_symlinks", path=relative_path)
     if not os.path.exists(source_path):
@@ -299,6 +331,15 @@ def insert_job(
     return job
 
 
+def _refuse_if_busy(job: UploadJob, active: bool) -> None:
+    """Un job annullato può avere ancora un tracker in invio (cancel_job lo
+    lascia finire): eliminarlo o riprenderlo adesso lascerebbe un torrent
+    pubblicato senza record e senza seed, o due esecuzioni dello stesso job
+    (audit 2026-10-18). active: il worker ci sta lavorando adesso."""
+    if active or any(t.status in BUSY_TARGET_STATES for t in job.targets):
+        raise UploadJobError("upload_job_busy")
+
+
 def cancel_job(session: Session, job: UploadJob) -> None:
     """Annulla un job non ancora finito. Un target già in upload verso il
     tracker non si ferma a metà: il worker lo porta a termine e poi smette
@@ -329,19 +370,34 @@ def _cancelled_from(job: UploadJob) -> str:
     return "analyzing" if job.tmdb_id else "identifying"
 
 
-def resume_job(session: Session, job: UploadJob) -> str:
+def require_source(job: UploadJob) -> None:
+    """La sorgente ha ancora quello che va nel torrent, non solo la sua
+    cartella (audit 2026-10-18): una release della cartella osservata, uscita
+    da lì dopo il primo tracker riuscito, lascia la cartella con un sample o
+    un nfo, e un nuovo tentativo partiva senza file da caricare (o con il
+    torrent fatto dalla copia in seed di un altro tracker). Un file solo
+    basta che ci sia; una cartella o un pack devono avere ancora un video."""
+    try:
+        files = upload_inventory.job_files(job)
+    except (OSError, ScopeViolation):
+        files = []  # un file del pack sparito, o spostato fuori dal disco
+    if not files or (job.is_dir and not any(is_video(f.relative) for f in files)):
+        raise UploadJobError("upload_source_missing", path=job.relative_path)
+
+
+def resume_job(session: Session, job: UploadJob, active: bool = False) -> str:
     """Riprende un job annullato da dove si era fermato: a un punto di
     approvazione ci torna con le scelte fatte, un passo del worker riparte,
     l'esecuzione torna in coda con i soli tracker non ancora fatti (uno già
     pubblicato non si ricarica mai). Restituisce il nuovo stato."""
     if job.status != "cancelled":
         raise UploadJobError("upload_job_wrong_status", status=job.status)
+    _refuse_if_busy(job, active)
     if any(event.code == "job_split" for event in job.events):
         raise UploadJobError("upload_job_split")  # continua negli upload degli episodi
     if any(event.code == "job_split_seasons" for event in job.events):
         raise UploadJobError("upload_job_split_seasons")  # continua negli upload delle stagioni
-    if not os.path.exists(job.source_path):
-        raise UploadJobError("upload_source_missing", path=job.relative_path)
+    require_source(job)
     previous = _cancelled_from(job)
     if previous == "running":
         previous = "queued"
@@ -360,19 +416,109 @@ def resume_job(session: Session, job: UploadJob) -> str:
     return previous
 
 
+def retryable_targets(job: UploadJob) -> list[UploadTarget]:
+    """I tracker che un nuovo tentativo rifà: falliti, con un upload o un
+    reseed da fare, mai pubblicati. Uno pubblicato ma non in seed si
+    riprova con "Riprova il seed" (nazgarr/upload/execute.py::retry_seed)."""
+    return [t for t in job.targets if t.status == TargetStatus.FAILED and t.action in ("upload", "reseed")
+            and not t.torrent_id_remote]
+
+
+# Gli esiti di un invio di cui non si sa se il tracker l'ha ricevuto: fermato
+# da un riavvio, o fallito dopo che la richiesta era partita (un timeout, un
+# 5xx, una risposta illeggibile: execute._run_target).
+UNSURE_ERRORS = ("interrupted", "upload_outcome_unknown")
+
+
+def needs_confirmation(target: UploadTarget) -> bool:
+    """Non si sa se il tracker l'ha ricevuto, e un nuovo tentativo potrebbe
+    pubblicarlo due volte: la ricerca di UNIT3D non elenca i torrent ancora
+    in moderazione, quindi nemmeno il dupe check rifatto lo vedrebbe."""
+    return target.action == "upload" and target.error_message in UNSURE_ERRORS
+
+
+def retry_failed(session: Session, job: UploadJob, confirm_interrupted: bool = False,
+                 active: bool = False) -> list[UploadTarget]:
+    """Un nuovo tentativo dei tracker falliti di un upload finito 'failed' o
+    'partial' (richiesta dell'utente, 2026-10-18): un problema temporaneo o
+    risolto (il tracker giù, l'image host, i permessi di una cartella) non
+    costringe più a ripassare dal match. Le scelte della decisione restano
+    tutte (nome, id, flag, reseed, client); il job torna in fondo alla coda,
+    e prima dell'invio il dupe check si rifà (execute._recheck_dupes): un
+    torrent comparso nel frattempo, anche il nostro di un invio interrotto,
+    ferma quel tracker. Un invio interrotto si riprova solo con
+    confirm_interrupted. Il chiamante sveglia il worker."""
+    if job.status not in ("failed", "partial"):
+        raise UploadJobError("upload_job_wrong_status", status=job.status)
+    if any(event.code in ("job_split", "job_split_seasons") for event in job.events):
+        raise UploadJobError("upload_job_split")
+    _refuse_if_busy(job, active)
+    require_source(job)
+    targets = retryable_targets(job)
+    if not targets:
+        raise UploadJobError("upload_retry_nothing")
+    unsure = [t for t in targets if needs_confirmation(t)]
+    if unsure and not confirm_interrupted:
+        raise UploadJobError("upload_retry_needs_confirm", trackers=", ".join(t.tracker.label for t in unsure))
+    if not transition(
+        session, job, ("failed", "partial"), "queued", commit=False, queue_position=next_queue_position(session),
+        finished_at=None, stage=None, progress_done=None, progress_total=None, error_message=None, scheduled_at=None,
+    ):
+        session.rollback()
+        raise UploadJobError("upload_job_wrong_status", status=job.status)
+    for target in targets:
+        set_target_status(target, TargetStatus.APPROVED)
+        target.error_message = None
+        target.finished_at = None
+    log_event(session, job, "job_retried", trackers=", ".join(t.tracker.label for t in targets),
+              confirmed=", ".join(t.tracker.label for t in unsure) or None)
+    session.commit()
+    return targets
+
+
+def is_retry(job: UploadJob) -> bool:
+    """L'esecuzione che sta per partire è un nuovo tentativo (retry_failed),
+    non la prima dopo l'approvazione."""
+    for event in sorted(job.events, key=lambda e: e.id, reverse=True):
+        if event.code == "job_retried":
+            return True
+        if event.code == "execution_started":
+            return False
+    return False
+
+
 def job_folder(data_dir: str, job_id: int) -> str:
     """Dove l'esecuzione tiene i file di un upload: i .torrent (creato, copia
     del tracker, reseed) e gli screenshot."""
     return os.path.join(data_dir, "uploads", str(job_id))
 
 
-def delete_job(session: Session, job: UploadJob, data_dir: str) -> None:
+def published_journal(job_dir: str, target_id: int) -> str:
+    """Il file in cui l'esecuzione scrive l'id di un torrent appena
+    pubblicato, prima del DB (nazgarr/upload/execute.py::run_upload)."""
+    return os.path.join(job_dir, f"published-{target_id}.json")
+
+
+def _journaled_id(data_dir: str | None, job: UploadJob, target: UploadTarget) -> str | None:
+    if data_dir is None:
+        return None
+    try:
+        with open(published_journal(job_folder(data_dir, job.id), target.id)) as f:
+            value = json.load(f).get("torrent_id_remote")
+    except (OSError, ValueError, AttributeError):
+        return None
+    return str(value) if value else None
+
+
+def delete_job(session: Session, job: UploadJob, data_dir: str, active: bool = False) -> None:
     """Solo job fermi (a un punto di approvazione o finiti): uno che il
-    worker sta lavorando va prima annullato. Con lui va la sua cartella: il
-    client ha già la sua copia del .torrent, e SQLite può ridare lo stesso id
-    al prossimo upload, che non deve trovarci i file di questo."""
+    worker sta lavorando va prima annullato, e uno annullato aspetta che il
+    tracker in invio finisca. Con lui va la sua cartella: il client ha già
+    la sua copia del .torrent, e SQLite può ridare lo stesso id al prossimo
+    upload, che non deve trovarci i file di questo."""
     if job.status in WORKER_STATES:
         raise UploadJobError("upload_job_wrong_status", status=job.status)
+    _refuse_if_busy(job, active)
     job_id = job.id
     session.delete(job)
     session.commit()
@@ -389,23 +535,35 @@ def next_queue_position(session: Session) -> int:
     return (last[0] + 1) if last else 1
 
 
-def reset_interrupted(session: Session) -> list[int]:
+def reset_interrupted(session: Session, data_dir: str | None = None) -> list[int]:
     """All'avvio: i job lasciati a metà da un riavvio. identifying/analyzing/
     queued ripartono da capo (passi senza effetti fuori da Nazgarr). Un job
     'running' torna in coda, ma un target che stava inviando al tracker
     finisce in 'failed': non si sa se il tracker l'ha ricevuto, e ripetere
-    l'invio rischierebbe un doppio upload. Restituisce gli id da riprendere."""
-    for job in session.query(UploadJob).filter(UploadJob.status == "running").all():
+    l'invio rischierebbe un doppio upload. Restituisce gli id da riprendere.
+
+    Un upload che il tracker aveva già accettato (l'id nel DB, o nel file
+    del job scritto prima: execute._journal_published) e uno fermato mentre
+    andava nel client ('seeding') sono pubblicati: 'done' con seed_failed,
+    da cui si riprova il seed (audit 2026-10-18; prima restavano 'seeding'
+    per sempre, senza nessun modo di metterli in seed). Lo stesso per i
+    target di un job annullato che il worker stava ancora finendo, o di uno
+    finito con un errore che non ha potuto scrivere l'esito dei target (il
+    DB non scrivibile)."""
+    # Solo i job che girano e quelli con un target ancora "in invio", non tutto lo storico.
+    busy = session.query(UploadTarget.job_id).filter(UploadTarget.status.in_(BUSY_TARGET_STATES))
+    interrupted = session.query(UploadJob).filter(
+        or_(UploadJob.status == "running", UploadJob.id.in_(busy.scalar_subquery()))
+    )
+    for job in interrupted.all():
+        if job.status in GATE_STATES or (job.status in WORKER_STATES and job.status != "running"):
+            continue
         for target in job.targets:
-            if target.status == "uploading":
-                set_target_status(target, TargetStatus.FAILED)
-                target.error_message = "interrupted"
-                log_event(session, job, "target_interrupted", level="error", target=target)
-            elif target.status in ("preparing", "verifying"):
-                set_target_status(target, TargetStatus.APPROVED)
-        job.status = "queued"
-        job.stage = None
-        log_event(session, job, "job_resumed", level="warning")
+            reset_target(session, job, target, data_dir)
+        if job.status == "running":
+            job.status = "queued"
+            job.stage = None
+            log_event(session, job, "job_resumed", level="warning")
     # Un full hash check interrotto (in memoria nel worker) non riparte da
     # solo: il target torna alla decisione, l'utente lo rilancia se vuole.
     for target in (
@@ -424,6 +582,74 @@ def reset_interrupted(session: Session) -> list[int]:
         .order_by(UploadJob.id)
         .all()
     ]
+
+
+def requeue_orphan(session: Session, job: UploadJob, data_dir: str | None) -> bool:
+    """Un job 'running' che nessuno esegue più, mentre l'app gira: il passo
+    è uscito con un errore che il worker non ha potuto nemmeno registrare
+    (il DB non scrivibile). Come al riavvio (reset_interrupted): i target
+    in invio si sistemano e il job torna in coda, dove l'esecuzione finisce
+    i tracker rimasti e calcola l'esito. Prima finiva 'failed' con "passo
+    non disponibile", i target bloccati in invio fino al riavvio (audit
+    2026-10-18). False se nel frattempo lo stato è cambiato (annullato)."""
+    if not transition(session, job, "running", "queued", commit=False, stage=None):
+        session.rollback()
+        return False
+    for target in job.targets:
+        reset_target(session, job, target, data_dir)
+    log_event(session, job, "job_resumed", level="warning")
+    session.commit()
+    return True
+
+
+def settle_failed_execution(session: Session, job: UploadJob, data_dir: str | None, code: str) -> None:
+    """L'esecuzione è uscita con un errore: nessun target resta "in invio"
+    (reset_target, come al riavvio), e quelli ancora da fare falliscono con
+    lo stesso errore, così "Riprova" li rifà. Il commit lo fa il chiamante,
+    insieme allo stato del job."""
+    for target in job.targets:
+        reset_target(session, job, target, data_dir)
+        if target.status == TargetStatus.APPROVED:
+            set_target_status(target, TargetStatus.FAILED)
+            target.error_message = code
+            target.finished_at = datetime.now(UTC)
+
+
+def outcome(job: UploadJob) -> str:
+    """L'esito di un'esecuzione dai suoi target (gli skip non contano)."""
+    outcomes = [t.status for t in job.targets if t.action != "skip"]
+    if all(s == "done" for s in outcomes):
+        return "done"
+    if all(s == "failed" for s in outcomes):
+        return "failed"
+    return "partial"
+
+
+def reset_target(session: Session, job: UploadJob, target: UploadTarget, data_dir: str | None) -> None:
+    """Un target che l'esecuzione ha lasciato in invio (un riavvio, un
+    errore): pubblicato -> 'done' con seed_failed, un invio senza esito
+    -> 'failed' interrupted, uno appena iniziato torna da fare."""
+    published = target.torrent_id_remote or _journaled_id(data_dir, job, target)
+    if target.action == "upload" and (target.status == "seeding" or (target.status == "uploading" and published)):
+        target.torrent_id_remote = published
+        set_target_status(target, TargetStatus.DONE)
+        target.error_message = "seed_failed"
+        target.finished_at = datetime.now(UTC)
+        log_event(session, job, "seed_interrupted", level="error", target=target, torrent=published)
+    elif target.status == "uploading":
+        set_target_status(target, TargetStatus.FAILED)
+        target.error_message = "interrupted"
+        target.finished_at = datetime.now(UTC)
+        log_event(session, job, "target_interrupted", level="error", target=target)
+    elif target.status == "seeding":
+        # Un reseed: niente pubblicato. Il client può averlo già: riprovare
+        # lo ritrova lì (execute._add_to_client) invece di aggiungerlo due volte.
+        set_target_status(target, TargetStatus.FAILED)
+        target.error_message = "interrupted"
+        target.finished_at = datetime.now(UTC)
+        log_event(session, job, "reseed_interrupted", level="error", target=target)
+    elif target.status in ("preparing", "verifying"):
+        set_target_status(target, TargetStatus.APPROVED)
 
 
 TV_KINDS = ("episode", "season_pack", "complete_pack")

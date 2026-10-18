@@ -75,6 +75,26 @@ def test_two_episodes_of_eight_become_two_episode_uploads(db_session, tmp_path, 
         upload_jobs.resume_job(db_session, job)
 
 
+def test_a_split_failing_halfway_leaves_only_the_pack(db_session, tmp_path, monkeypatch):
+    """Audit 2026-10-18: un errore a metà divisione lasciava vivi gli episodi
+    già creati, sugli stessi file del pack che andava avanti intero."""
+    real_create = upload_jobs.create_job
+    calls = []
+
+    def create_job(*args, **kwargs):
+        calls.append(1)
+        if len(calls) == 3:  # il pack, il primo episodio, poi il secondo fallisce
+            raise upload_jobs.UploadJobError("upload_source_not_found", path="gone")
+        return real_create(*args, **kwargs)
+
+    monkeypatch.setattr(upload_jobs, "create_job", create_job)
+    job, kicked, _finished = _identified(db_session, tmp_path, monkeypatch)
+
+    assert (job.status, job.kind) == ("analyzing", "season_pack")
+    assert db_session.query(UploadJob).count() == 1 and kicked == []
+    assert job.events[-1].code == "split_failed"
+
+
 def test_a_complete_season_stays_a_pack(db_session, tmp_path, monkeypatch):
     job, _kicked, _finished = _identified(db_session, tmp_path, monkeypatch, episodes_in_season=2)
 

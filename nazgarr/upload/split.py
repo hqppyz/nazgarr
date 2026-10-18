@@ -107,32 +107,50 @@ def split(session: Session, job: UploadJob, details: dict | None) -> list[Upload
     # Le stagioni scelte di una cartella con più stagioni (nazgarr/upload/pack.py):
     # nel layout i video hanno il nome nel pack, il percorso è nel pack.
     in_pack = {posixpath.basename(f): f for f in json.loads(job.pack_json or "{}").get("files", [])}
-    children = []
-    for video in layout.get("videos") or []:
-        relative = in_pack.get(video["relative_path"]) or posixpath.join(job.relative_path, video["relative_path"])
-        child = upload_jobs.create_job(session, job.disk, relative, tracker_ids, forced, overrides, choices,
-                                       origin=job.origin)
-        child.split_from_id = job.id
-        upload_jobs.log_event(session, child, "split_from", upload=job.id)
-        session.commit()
-        source = scan_source(child.source_path)
-        identify.record_identification(session, child, source, candidates)
-        episode = source.videos[0].episodes[0] if source.videos and source.videos[0].episodes else None
-        try:
-            identify.confirm(session, child, content_type="tv", tmdb_id=job.tmdb_id, kind=source.kind,
-                             seasons=source.seasons, episode=episode, details=details, order_key=job.episode_order,
-                             translate=True)
-        except (upload_jobs.UploadJobError, episode_orders.EpisodeOrderError) as exc:
-            session.rollback()
-            child = session.get(UploadJob, child.id)
-            upload_jobs.log_event(session, child, "auto_match_failed", level="warning",
-                                  reason=getattr(exc, "code", None) or "episode_order")
-        session.commit()
-        children.append(child)
-    _close(session, job, "job_split", children)
+    children: list[UploadJob] = []
+    try:
+        for video in layout.get("videos") or []:
+            relative = in_pack.get(video["relative_path"]) or posixpath.join(job.relative_path, video["relative_path"])
+            child = upload_jobs.create_job(session, job.disk, relative, tracker_ids, forced, overrides, choices,
+                                           origin=job.origin)
+            children.append(child)
+            child.split_from_id = job.id
+            upload_jobs.log_event(session, child, "split_from", upload=job.id)
+            session.commit()
+            source = scan_source(child.source_path)
+            identify.record_identification(session, child, source, candidates)
+            episode = source.videos[0].episodes[0] if source.videos and source.videos[0].episodes else None
+            try:
+                identify.confirm(session, child, content_type="tv", tmdb_id=job.tmdb_id, kind=source.kind,
+                                 seasons=source.seasons, episode=episode, details=details,
+                                 order_key=job.episode_order, translate=True)
+            except (upload_jobs.UploadJobError, episode_orders.EpisodeOrderError) as exc:
+                session.rollback()
+                child = session.get(UploadJob, child.id)
+                upload_jobs.log_event(session, child, "auto_match_failed", level="warning",
+                                      reason=getattr(exc, "code", None) or "episode_order")
+            session.commit()
+        _close(session, job, "job_split", children)
+    except Exception:
+        _discard(session, children)
+        raise
     logger.info("Upload %s: stagione incompleta divisa in %s upload (%s)", job.id, len(children),
                 ", ".join(str(c.id) for c in children))
     return children
+
+
+def _discard(session: Session, children: list[UploadJob]) -> None:
+    """Una divisione fallita a metà non lascia upload vivi sugli stessi file
+    del pack, che va avanti intero (audit 2026-10-18): arrivavano alla
+    decisione insieme a lui, senza niente che lo dicesse. I nuovi creati
+    fin lì si tolgono: non hanno fatto niente fuori da Nazgarr."""
+    ids = [child.id for child in children if child.id is not None]
+    session.rollback()
+    for job_id in ids:
+        child = session.get(UploadJob, job_id)
+        if child is not None:
+            session.delete(child)
+    session.commit()
 
 
 def _close(session: Session, job: UploadJob, code: str, children: list[UploadJob]) -> None:
@@ -176,27 +194,31 @@ def split_seasons(session: Session, job: UploadJob, details: dict | None) -> lis
     orders = None
     if job.episode_order and snapshot:
         orders = {"orders": [snapshot["chosen"], snapshot["files"]], "files_order": snapshot["files"]["key"]}
-    children = []
-    for season in seasons:
-        child = upload_jobs.create_job(session, job.disk, job.relative_path, tracker_ids, forced, overrides, choices,
-                                       origin=job.origin)
-        child.split_from_id = job.id
-        upload_jobs.log_event(session, child, "split_from_seasons", upload=job.id, season=f"S{season:02d}")
-        session.commit()
-        identify.record_identification(session, child, source, candidates)
-        try:
-            identify.confirm(session, child, content_type="tv", tmdb_id=job.tmdb_id, kind="season_pack",
-                             seasons=[season], episode=None, details=details, order_key=job.episode_order,
-                             orders=orders)
-        except (upload_jobs.UploadJobError, episode_orders.EpisodeOrderError) as exc:
-            # Resta al match, con la cartella intera: si sceglie a mano.
-            session.rollback()
-            child = session.get(UploadJob, child.id)
-            upload_jobs.log_event(session, child, "auto_match_failed", level="warning",
-                                  reason=getattr(exc, "code", None) or "episode_order")
-        session.commit()
-        children.append(child)
-    _close(session, job, "job_split_seasons", children)
+    children: list[UploadJob] = []
+    try:
+        for season in seasons:
+            child = upload_jobs.create_job(session, job.disk, job.relative_path, tracker_ids, forced, overrides,
+                                           choices, origin=job.origin)
+            children.append(child)
+            child.split_from_id = job.id
+            upload_jobs.log_event(session, child, "split_from_seasons", upload=job.id, season=f"S{season:02d}")
+            session.commit()
+            identify.record_identification(session, child, source, candidates)
+            try:
+                identify.confirm(session, child, content_type="tv", tmdb_id=job.tmdb_id, kind="season_pack",
+                                 seasons=[season], episode=None, details=details, order_key=job.episode_order,
+                                 orders=orders)
+            except (upload_jobs.UploadJobError, episode_orders.EpisodeOrderError) as exc:
+                # Resta al match, con la cartella intera: si sceglie a mano.
+                session.rollback()
+                child = session.get(UploadJob, child.id)
+                upload_jobs.log_event(session, child, "auto_match_failed", level="warning",
+                                      reason=getattr(exc, "code", None) or "episode_order")
+            session.commit()
+        _close(session, job, "job_split_seasons", children)
+    except Exception:
+        _discard(session, children)
+        raise
     logger.info("Upload %s: %s stagioni divise in %s upload (%s)", job.id, len(seasons), len(children),
                 ", ".join(str(c.id) for c in children))
     return children

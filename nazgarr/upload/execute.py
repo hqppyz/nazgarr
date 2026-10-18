@@ -27,18 +27,35 @@ import json
 import logging
 import os
 import re
-import shutil
+import stat
+import time
 from datetime import UTC, datetime
 
+import httpx
 import torf
+from sqlalchemy import or_
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from nazgarr.adapters.image_host.base import ImageHostError
+from nazgarr.adapters.torrent_client.base import TorrentAlreadyInClientError
 from nazgarr.adapters.tracker.base import UploadFields
 from nazgarr.core import settings_registry
+from nazgarr.core.errors import CodedError
 from nazgarr.core.file_types import is_video
 from nazgarr.core.fs_scope import ScopeViolation, resolve_scoped
-from nazgarr.core.models import TorrentClient, TrackerUploadProfile, UploadJob, UploadTarget
+from nazgarr.core.logs import safe_error
+from nazgarr.core.models import (
+    CandidateFile,
+    ClientTorrentFile,
+    MediaFile,
+    SeedFile,
+    SeedJob,
+    TorrentClient,
+    TrackerUploadProfile,
+    UploadJob,
+    UploadTarget,
+)
 from nazgarr.core.version import CREATED_BY
 from nazgarr.integrations import adapter_factory
 from nazgarr.integrations.adapter_factory import ImageHostConfigError
@@ -53,6 +70,7 @@ from nazgarr.upload import jobs as upload_jobs
 from nazgarr.upload import pack as upload_pack
 from nazgarr.upload import screenshots
 from nazgarr.upload import watch as upload_watch
+from nazgarr.upload.decision import MAX_SCREENSHOTS
 from nazgarr.upload.description import render_description
 from nazgarr.upload.jobs import UploadJobError
 from nazgarr.upload.verify import build_locator
@@ -164,8 +182,12 @@ def prepare_content(session: Session, job: UploadJob, ctx: dict) -> str:
     root = ctx["seed_root"]()
     base = os.path.join(root, *plan.folder.split("/")) if plan.folder else root
     pairs = [(source, os.path.join(base, *target.split("/"))) for source, target in plan.files]
+    # Da qui un reseed del motore approvato nel frattempo può riusarli (_used_elsewhere).
+    ctx["links_at"] = datetime.now(UTC)
     ctx["created_links"] = link_files(pairs, root)
     ctx["save_path"] = base
+    # Nel torrent solo questi: la cartella può avere già altro (hash_pieces).
+    ctx["planned"] = [target for _source, target in pairs]
     refresh_mediainfo(session, job, plan, base)
     return os.path.join(base, *plan.content_name.split("/"))
 
@@ -204,8 +226,68 @@ def refresh_mediainfo(session: Session, job: UploadJob, plan, root: str | None) 
     session.commit()
 
 
-def hash_pieces(session: Session, job: UploadJob, path: str | None = None) -> torf.Torrent:
+# Thread di hashing di torf: di default uno per core dell'host (in Docker
+# tutti, anche con --cpus), e ognuno tiene in memoria il suo piece da 16 MiB.
+# Quattro leggono già più veloce di qualunque disco (audit 2026-10-18).
+HASH_THREADS = 4
+
+
+def _exclude_exact(relative: str) -> str:
+    """Il regex che toglie dal torrent proprio quel file ("Nome/percorso").
+    torf lo confronta con il percorso preceduto dalla cartella sopra quella
+    in comune fra tutti i file: con un file solo, o tutti nella stessa
+    sottocartella, "Nome/Nome/percorso" invece di "Nome/percorso", e un
+    "^Nome/percorso$" non toglieva niente (audit 2026-10-18). Per questo
+    l'inizio vale anche dopo una "/"; il controllo dei file del torrent in
+    hash_pieces ferma comunque un torrent diverso dal previsto."""
+    return "(?:^|/)" + re.escape(relative) + "$"
+
+
+def _torrent_files(torrent: torf.Torrent) -> set[str]:
+    return {"/".join(f.parts) for f in torrent.files}
+
+
+def _expected_files(root: str, planned: list[str] | None) -> set[str]:
+    """I file che il torrent deve avere, come "Nome/percorso": gli hardlink
+    appena creati (planned), o quelli della sorgente che la regola di
+    analisi e nomi fa entrare (nazgarr/upload/inventory.py). Mai un file
+    vuoto: torf non li mette, e non hanno dati da condividere."""
+    parent = os.path.dirname(root.rstrip(os.sep))
+    if planned is not None:
+        out = set()
+        for path in planned:
+            with contextlib.suppress(OSError):
+                if os.path.getsize(path) == 0:
+                    continue
+            out.add(os.path.relpath(path, parent).replace(os.sep, "/"))  # uno che manca resta: lo dice il controllo
+        return out
+    name = os.path.basename(root.rstrip(os.sep))
+    if not os.path.isdir(root):
+        return {name} if os.path.isfile(root) and os.path.getsize(root) > 0 else set()
+    return {f"{name}/{f.relative}" for f in upload_inventory.torrent_files(root) if f.size > 0}
+
+
+def hash_pieces(session: Session, job: UploadJob, path: str | None = None,
+                planned: list[str] | None = None) -> torf.Torrent:
+    """planned: i file (assoluti) degli hardlink appena creati da
+    prepare_content, gli unici che entrano nel torrent.
+
+    Il torrent ha esattamente i file previsti (audit 2026-10-18): la
+    cartella con quel nome nella cartella di seed può avere già altro (la
+    release originale con la promo di un altro tracker, un upload precedente
+    con un sottotitolo tolto da allora), che finiva pubblicato e in seed
+    senza che la decisione lo mostrasse. Quello in più resta fuori, e il
+    registro lo dice; se torf non riesce a toglierlo, o manca un file
+    previsto, l'upload si ferma prima di arrivare al tracker."""
     root = path or job.source_path
+    if planned is None and (os.path.islink(root.rstrip(os.sep)) or upload_jobs.has_symlinks(root)):
+        # La sorgente stessa: torf segue i link simbolici, e il file a cui
+        # puntano finirebbe nel torrent pubblicato. Controllato alla
+        # creazione del job, e di nuovo qui: fra le due possono passare giorni.
+        raise UploadJobError("upload_source_has_symlinks", path=job.relative_path)
+    expected = _expected_files(root, planned)
+    if not expected:
+        raise UploadJobError("no_video_files")
     # Fuori i file che la regola di analisi e nomi esclude
     # (nazgarr/upload/inventory.py), uno per uno: mai dei glob sul percorso,
     # che toglievano un film con "Sample" nel titolo. Per nome esatto nel
@@ -213,13 +295,27 @@ def hash_pieces(session: Session, job: UploadJob, path: str | None = None) -> to
     # cartella anche se rimane un file solo.
     name = os.path.basename(root.rstrip(os.sep))
     excluded = [
-        "^" + re.escape(f"{name}/{f.relative}") + "$"
+        _exclude_exact(f"{name}/{f.relative}")
         for f in (upload_inventory.walk(root) if os.path.isdir(root) else [])
         if not upload_inventory.in_torrent(f.relative, f.size)
     ]
     torrent = torf.Torrent(path=root, private=True, exclude_regexs=excluded, created_by=CREATED_BY)
-    if not torrent.files:
-        raise UploadJobError("no_video_files")
+    extras = sorted(_torrent_files(torrent) - expected)
+    if extras:
+        # Un Torrent nuovo, con tutte le esclusioni: riassegnare
+        # exclude_regexs con quelle che ha già fallisce dentro torf.
+        torrent = torf.Torrent(path=root, private=True, exclude_regexs=[*excluded, *map(_exclude_exact, extras)],
+                               created_by=CREATED_BY)
+    actual = _torrent_files(torrent)
+    missing = sorted(expected - actual)
+    if missing and planned is not None:
+        raise UploadJobError("upload_planned_files_missing", files=", ".join(missing[:5]))
+    if actual != expected:
+        raise UploadJobError("upload_torrent_files_mismatch", files=", ".join(sorted(actual ^ expected)[:5]))
+    if extras and planned is not None:
+        upload_jobs.log_event(session, job, "upload_extra_files_left_out", level="warning", count=len(extras),
+                              files=extras[:10])
+        session.commit()
 
     def callback(_torrent, _path, done, total):
         _progress(session, job, "hashing", done, total)
@@ -228,7 +324,8 @@ def hash_pieces(session: Session, job: UploadJob, path: str | None = None) -> to
         return True if job.status == "cancelled" else None
 
     _progress(session, job, "hashing", 0, None)
-    torrent.generate(callback=callback, interval=PROGRESS_EVERY_SECONDS)
+    torrent.generate(threads=min(HASH_THREADS, os.cpu_count() or 1), callback=callback,
+                     interval=PROGRESS_EVERY_SECONDS)
     session.refresh(job)
     if job.status == "cancelled":
         raise _Cancelled()
@@ -315,10 +412,11 @@ def _client(session: Session, target: UploadTarget):
 
 def files_in_place(torrent: torf.Torrent, save_path: str) -> bool:
     """Ogni file del torrent è dove il client lo cercherà (save_path più il
-    suo percorso nel torrent), con la sua dimensione esatta."""
+    suo percorso nel torrent), con la sua dimensione esatta. Un link
+    simbolico no: il client seederebbe il file a cui punta, e senza recheck."""
     for file in torrent.files:
         path = os.path.join(save_path, *file.parts)
-        if not os.path.isfile(path) or os.path.getsize(path) != file.size:
+        if os.path.islink(path) or not os.path.isfile(path) or os.path.getsize(path) != file.size:
             return False
     return True
 
@@ -348,11 +446,19 @@ def _add_to_client(
         # ricontrollarlo: lì il recheck c'è sempre.
         can_skip = getattr(adapter, "can_skip_recheck", True)
         skip = torrent is not None and can_skip and files_in_place(torrent, save_path)
-        info_hash = adapter.add_torrent(
-            torrent_file, save_path=visible, force_recheck=True, skip_check_verified=skip,
-            **client_labels.add_kwargs(target.client_category, target.client_tags),
-        )
         client = target.torrent_client.label
+        # L'info hash di questi byte (audit 2026-10-18): senza, qBittorrent e
+        # qui prendevano per il nostro un torrent qualunque comparso nel
+        # frattempo (un *arr, cross-seed), e il controllo del percorso dopo
+        # un'aggiunta senza recheck guardava quello.
+        expected = _info_hash_of(torrent_file)
+        try:
+            info_hash = adapter.add_torrent(
+                torrent_file, save_path=visible, force_recheck=True, expected_info_hash=expected,
+                skip_check_verified=skip, **client_labels.add_kwargs(target.client_category, target.client_tags),
+            )
+        except TorrentAlreadyInClientError:
+            return _keep_existing(session, job, target, adapter, expected, visible, client)
         if skip:
             info = adapter.get_torrent_info(info_hash)
             seen = os.path.normpath(info.save_path) if info is not None and info.save_path else None
@@ -372,13 +478,53 @@ def _add_to_client(
         adapter_factory.close_adapter(adapter)
 
 
+def _info_hash_of(torrent_file: str) -> str:
+    """Dai byte esatti del file (lo span grezzo di "info"), come lo calcola il client."""
+    with open(torrent_file, "rb") as f:
+        return compute_info_hash(f.read())
+
+
+def _keep_existing(session: Session, job: UploadJob, target: UploadTarget, adapter, info_hash: str, visible: str,
+                   client: str) -> str:
+    """Il client ha già questo torrent: un tentativo precedente arrivato fin
+    lì (un errore dopo l'aggiunta, un riavvio), o aggiunto a mano. Si tiene
+    quello, con un recheck, se usa proprio il percorso di seed; altrove no:
+    niente si sposta da solo."""
+    info = adapter.get_torrent_info(info_hash)
+    seen = os.path.normpath(info.save_path) if info is not None and info.save_path else None
+    if seen != os.path.normpath(visible):
+        raise UploadJobError("upload_already_in_client", client=client, path=seen or "?")
+    adapter.recheck(info_hash)
+    adapter.start(info_hash)
+    upload_jobs.log_event(session, job, "already_in_client", target=target, client=client)
+    return info_hash
+
+
 # Gli errori di un upload pubblicato ma non in seed, da cui si può riprovare.
 SEED_RETRYABLE = ("seed_failed", "no_client")
 
 
+def _seeds_from_source(job: UploadJob) -> bool:
+    """La sorgente è già nella cartella di seeding (o in quella per gli
+    upload) e il torrent ha i suoi nomi: lì seeda anche nel flusso normale
+    (_upload_pairs, _seeds_in_place). Mai una cartella della libreria."""
+    if job.origin == "watch" or upload_pack.is_pack(job):
+        return False
+    if _inside(job.source_path, seeding_area(job)):
+        return True
+    try:
+        return _inside(job.source_path, seed_root(job))
+    except UploadJobError:
+        return False
+
+
 def _seed_candidates(session: Session, job: UploadJob) -> list[str]:
     """Dove possono stare i file di un upload pubblicato: la cartella di
-    seed (con la cartella dei nomi nuovi, se c'è) o accanto alla sorgente."""
+    seed (con la cartella dei nomi nuovi, se c'è), o accanto alla sorgente
+    solo se lì seeda anche il flusso normale. Prima accanto alla sorgente
+    sempre: un nuovo tentativo poteva puntare il client alla cartella della
+    libreria (audit 2026-10-18), e un "rimuovi con i file" nel client
+    cancellava i file della libreria."""
     candidates = []
     with contextlib.suppress(UploadJobError):
         root = seed_root(job)
@@ -387,34 +533,99 @@ def _seed_candidates(session: Session, job: UploadJob) -> list[str]:
             if folder:
                 candidates.append(os.path.join(root, *folder.split("/")))
         candidates.append(root)
-    candidates.append(os.path.dirname(job.source_path.rstrip(os.sep)))
+    if _seeds_from_source(job):
+        candidates.append(os.path.dirname(job.source_path.rstrip(os.sep)))
     return candidates
 
 
-def retry_seed(session: Session, job: UploadJob, target: UploadTarget) -> None:
+def _relink_for_seed(session: Session, job: UploadJob, torrent: torf.Torrent) -> str:
+    """Nessun posto ha più i file del torrent (gli hardlink tolti, o la
+    cartella di seed creata dopo l'errore): si rifanno nella cartella di
+    seed come all'upload, con gli stessi nomi. Restituisce dove seeda."""
+    root = seed_root(job)
+    if not os.path.exists(job.source_path):
+        raise UploadJobError("upload_seed_files_missing")
+    try:
+        plan = upload_file_names.plan(session, job)
+    except Exception as exc:  # la sorgente cambiata da allora: i nomi non si rifanno
+        raise UploadJobError("upload_seed_files_missing") from exc
+    if plan.renamed or plan.single_file or upload_pack.is_pack(job) or job.origin == "watch":
+        base = os.path.join(root, *plan.folder.split("/")) if plan.folder else root
+        pairs = [(source, os.path.join(base, *target.split("/"))) for source, target in plan.files]
+    else:
+        base, pairs = root, _upload_pairs(job, torrent, root)
+    if not pairs or any(not os.path.isfile(source) for source, _target in pairs):
+        raise UploadJobError("upload_seed_files_missing")
+    created = link_files(pairs, root)
+    if not files_in_place(torrent, base):
+        hardlinks.remove_links(created)
+        raise UploadJobError("upload_seed_files_missing")
+    if created:
+        upload_jobs.log_event(session, job, "seed_files_linked", count=len(created))
+    return base
+
+
+def _tracker_torrent(session: Session, job: UploadJob, target: UploadTarget, data_dir: str | None) -> str:
+    """Il .torrent come l'ha salvato il tracker: il suo info hash è quello
+    che il tracker conosce (UNIT3D riscrive il campo source). La copia
+    scaricata dopo l'upload; se manca (il seed si è fermato prima, o un
+    riavvio), si riscarica dal tracker. Quello creato da Nazgarr solo se il
+    tracker non sa ridarlo, e il registro lo dice."""
+    job_dir = upload_jobs.job_folder(data_dir, job.id) if data_dir else (
+        os.path.dirname(target.torrent_path) if target.torrent_path else None)
+    seed_copy = os.path.join(job_dir, f"tracker-{target.tracker_id}-seed.torrent") if job_dir else None
+    if seed_copy and os.path.isfile(seed_copy):
+        target.torrent_path = seed_copy
+        return seed_copy
+    if seed_copy and target.torrent_id_remote:
+        with adapter_factory.tracker(target.tracker) as adapter:
+            detail = getattr(adapter, "get_torrent_detail", None)
+            if callable(detail):
+                try:
+                    link = detail(target.torrent_id_remote).download_link
+                    if not link:
+                        raise ValueError("no download link")
+                    content = adapter.download_torrent(link)
+                    torf.Torrent.read_stream(io.BytesIO(content))
+                except Exception as exc:
+                    raise UploadJobError("upload_tracker_torrent_unavailable", error=safe_error(exc)) from exc
+                os.makedirs(job_dir, exist_ok=True)
+                with open(seed_copy, "wb") as f:
+                    f.write(content)
+                target.torrent_path = seed_copy
+                return seed_copy
+    if not target.torrent_path or not os.path.isfile(target.torrent_path):
+        raise UploadJobError("upload_tracker_torrent_unavailable")
+    upload_jobs.log_event(session, job, "seed_retry_own_torrent", level="warning", target=target)
+    return target.torrent_path
+
+
+def retry_seed(session: Session, job: UploadJob, target: UploadTarget, data_dir: str | None = None) -> None:
     """Di nuovo solo l'aggiunta al client di un upload già pubblicato (il
     .torrent salvato dal tracker), mai l'upload. Con il recheck del client:
     i file potrebbero essere cambiati da quando Nazgarr li ha letti."""
     if target.action != "upload" or target.status != "done" or target.error_message not in SEED_RETRYABLE:
         raise UploadJobError("upload_seed_retry_unavailable")
-    if not target.torrent_path or not os.path.isfile(target.torrent_path):
-        raise UploadJobError("upload_tracker_torrent_unavailable")
     if _client_row(session, target) is None:
         # Senza client all'upload (no_client) o con quello di allora tolto:
         # quello che il tracker userebbe oggi.
         target.torrent_client_id = upload_jobs.default_client_id(session, target.tracker)
-    torrent = torf.Torrent.read(target.torrent_path)
+    torrent_path = _tracker_torrent(session, job, target, data_dir)
+    try:
+        torrent = torf.Torrent.read(torrent_path)
+    except torf.TorfError as exc:
+        raise UploadJobError("upload_tracker_torrent_unavailable", error=safe_error(exc)) from exc
     save_path = next((p for p in _seed_candidates(session, job) if files_in_place(torrent, p)), None)
     if save_path is None:
-        raise UploadJobError("upload_seed_files_missing")
+        save_path = _relink_for_seed(session, job, torrent)
     try:
-        info_hash = _add_to_client(session, job, target, target.torrent_path, save_path)
+        info_hash = _add_to_client(session, job, target, torrent_path, save_path)
     except Exception as exc:
         session.rollback()
         upload_jobs.log_event(session, job, "seed_failed", level="error", target=target,
-                              error=getattr(exc, "code", None) or str(exc))
+                              error=upload_jobs.error_text(exc))
         session.commit()
-        raise UploadJobError("upload_seed_retry_failed", error=getattr(exc, "code", None) or str(exc)) from exc
+        raise UploadJobError("upload_seed_retry_failed", error=upload_jobs.error_text(exc)) from exc
     if info_hash is None:  # nessun client: _add_to_client l'ha già scritto
         session.commit()
         raise UploadJobError("upload_seed_retry_failed", error="no_client")
@@ -448,7 +659,7 @@ def _tracker_copy(adapter, uploaded, torrent: torf.Torrent, job_dir: str, tracke
         content = adapter.download_torrent(uploaded.download_link)
         theirs = torf.Torrent.read_stream(io.BytesIO(content))
     except Exception as exc:
-        raise UploadJobError("upload_tracker_torrent_unavailable", error=str(exc)) from exc
+        raise UploadJobError("upload_tracker_torrent_unavailable", error=safe_error(exc)) from exc
     path = os.path.join(job_dir, f"tracker-{tracker_id}-seed.torrent")
     with open(path, "wb") as f:
         f.write(content)
@@ -486,10 +697,15 @@ def run_upload(session: Session, job: UploadJob, target: UploadTarget, ctx: dict
     session.commit()
     with adapter_factory.tracker(tracker) as adapter:
         fields = upload_fields(job, target, description, resolution_key)
+        # Da qui la richiesta parte: un errore non dice più se il tracker
+        # l'ha ricevuto (_run_target, upload_outcome_unknown).
+        ctx.setdefault("sent", set()).add(target.id)
         uploaded = adapter.upload_torrent(fields, torrent_path)
-        target.torrent_id_remote = uploaded.torrent_id_remote
-        upload_jobs.log_event(session, job, "uploaded", target=target, torrent=target.torrent_id_remote)
-        session.commit()
+        # Da qui il torrent è pubblicato: qualunque cosa succeda dopo, mai
+        # più un target 'failed' né un secondo invio (handle, reset_interrupted).
+        ctx.setdefault("published", {})[target.id] = uploaded.torrent_id_remote
+        _journal_published(ctx["dir"], target, uploaded.torrent_id_remote)
+        _commit_published(session, job, target, uploaded.torrent_id_remote)
 
         if overrides.get("no_seed"):
             upload_jobs.log_event(session, job, "not_seeded", target=target)
@@ -504,7 +720,7 @@ def run_upload(session: Session, job: UploadJob, target: UploadTarget, ctx: dict
                 pairs = _upload_pairs(job, torrent, root)
                 link_files(pairs, root)
                 save_path = root if pairs else os.path.dirname(job.source_path.rstrip(os.sep))
-            _remember_seeded(ctx, [os.path.join(save_path, *file.parts) for file in torrent.files])
+            _remember_seeded(ctx, target, [os.path.join(save_path, *file.parts) for file in torrent.files])
             seed_path, same_content = _tracker_copy(adapter, uploaded, torrent, ctx["dir"], tracker.id)
             target.torrent_path = seed_path
             target.info_hash = torf.Torrent.read(seed_path).infohash
@@ -515,10 +731,41 @@ def run_upload(session: Session, job: UploadJob, target: UploadTarget, ctx: dict
         except Exception as exc:
             # L'upload è andato: mai ripeterlo per un problema del client.
             logger.warning("Upload %s su %s riuscito ma il seed no", job.id, tracker.label, exc_info=True)
+            session.rollback()  # un errore del DB lascerebbe la sessione inutilizzabile
             target.error_message = "seed_failed"
-            upload_jobs.log_event(
-                session, job, "seed_failed", level="error", target=target, error=getattr(exc, "code", None) or str(exc)
-            )
+            upload_jobs.log_event(session, job, "seed_failed", level="error", target=target,
+                                  error=upload_jobs.error_text(exc))
+
+
+# Un torrent appena pubblicato si scrive nel DB anche se è occupato: altri
+# tentativi prima di arrendersi (ognuno aspetta già il busy_timeout di SQLite).
+PUBLISHED_COMMIT_ATTEMPTS = 3
+
+
+def _journal_published(job_dir: str, target: UploadTarget, torrent_id_remote: str) -> None:
+    """L'id del torrent pubblicato anche in un file del job, prima del DB:
+    se il processo si ferma (o il DB non si scrive) proprio adesso, al
+    riavvio reset_interrupted sa che il tracker l'ha ricevuto. Solo l'id,
+    mai il link di download (ha la passkey)."""
+    with contextlib.suppress(OSError):
+        with open(upload_jobs.published_journal(job_dir, target.id), "w") as f:
+            json.dump({"torrent_id_remote": torrent_id_remote}, f)
+
+
+def _commit_published(session: Session, job: UploadJob, target: UploadTarget, torrent_id_remote: str) -> None:
+    for attempt in range(PUBLISHED_COMMIT_ATTEMPTS):
+        target.torrent_id_remote = torrent_id_remote
+        upload_jobs.log_event(session, job, "uploaded", target=target, torrent=torrent_id_remote)
+        try:
+            session.commit()
+            return
+        except OperationalError:
+            session.rollback()
+            if attempt == PUBLISHED_COMMIT_ATTEMPTS - 1:
+                raise
+            logger.warning("Upload %s: torrent %s pubblicato, il DB non si scrive: si riprova", job.id,
+                           torrent_id_remote, exc_info=True)
+            time.sleep(1 + attempt)
 
 
 def run_reseed(session: Session, job: UploadJob, target: UploadTarget, ctx: dict) -> None:
@@ -571,20 +818,36 @@ def run_reseed(session: Session, job: UploadJob, target: UploadTarget, ctx: dict
     else:
         save_path = ctx["seed_root"]()
         link_files(destinations(save_path), save_path)
-    _remember_seeded(ctx, [dst for _src, dst in destinations(save_path)])
+    _remember_seeded(ctx, target, [dst for _src, dst in destinations(save_path)])
     target.info_hash = _add_to_client(session, job, target, torrent_path, save_path)
     upload_jobs.log_event(session, job, "reseeded", target=target, torrent=target.reseed_torrent_id)
 
 
-def _remember_seeded(ctx: dict, paths: list[str]) -> None:
-    """I file che questo job ha messo in seed (dispositivo, inode, percorso):
-    dalla cartella osservata si toglie solo un file la cui copia è fra questi
-    (_clear_watch_source)."""
-    seeded = ctx.setdefault("seeded", {})
+def _remember_seeded(ctx: dict, target: UploadTarget, paths: list[str]) -> None:
+    """I file che un tracker di questo job mette in seed (dispositivo, inode,
+    percorso), per target: contano solo quelli dei tracker andati a buon
+    fine (_seeded_by_done). Dalla cartella osservata si toglie solo un file
+    la cui copia è fra questi (_clear_watch_source), e la pulizia degli
+    hardlink non tocca mai un file che seedano (_cleanup_unused_links)."""
+    seeded = ctx.setdefault("seeded", {}).setdefault(target.id, {})
     for path in paths:
         with contextlib.suppress(OSError):
             st = os.stat(path)
             seeded[(st.st_dev, st.st_ino)] = os.path.realpath(path)
+
+
+def _seeded_by_done(job: UploadJob, ctx: dict) -> dict[tuple[int, int], set[str]]:
+    """(dispositivo, inode) -> i percorsi da cui seedano i tracker di questo
+    job finiti 'done' in questa esecuzione. Un reseed fallito dopo aver
+    registrato i suoi file non conta."""
+    seeded = ctx.get("seeded") or {}
+    out: dict[tuple[int, int], set[str]] = {}
+    for target in job.targets:
+        if target.status != "done":
+            continue
+        for key, path in (seeded.get(target.id) or {}).items():
+            out.setdefault(key, set()).add(path)
+    return out
 
 
 class _Cancelled(Exception):
@@ -595,13 +858,25 @@ def _cleanup_unused_links(session: Session, job: UploadJob, ctx: dict, overrides
     """Gli hardlink creati per dare al torrent i suoi nomi (prepare_content)
     si tolgono se non seedano niente: "non mettere in seed", o nessun
     upload riuscito. Solo quelli creati da questo job, e le cartelle che
-    restano vuote."""
+    restano vuote.
+
+    Mai uno da cui seeda un altro tracker del job (audit 2026-10-18): un
+    reseed con lo stesso nome e lo stesso layout riusa proprio quel link
+    (hardlinks.check_link), e toglierlo lasciava il suo torrent senza dati;
+    dalla cartella osservata poi se ne andava anche l'originale."""
     created = ctx.get("created_links") or []
     uploaded = any(t.action == "upload" and t.status == "done" for t in job.targets)
     if not created or (uploaded and not overrides.get("no_seed")):
         return
+    keep = {path for paths in _seeded_by_done(job, ctx).values() for path in paths}
+    unused = [path for path in created if os.path.realpath(path) not in keep]
+    if unused:
+        used = _used_elsewhere(session, job, unused, ctx.get("links_at"))
+        unused = [path for path in unused if path not in used]
+    if not unused:
+        return
     root = os.path.realpath(ctx["seed_root"]())
-    for path in created:
+    for path in unused:
         with contextlib.suppress(OSError):
             os.unlink(path)
         parent = os.path.dirname(path)
@@ -611,8 +886,69 @@ def _cleanup_unused_links(session: Session, job: UploadJob, ctx: dict, overrides
             except OSError:
                 break
             parent = os.path.dirname(parent)
-    upload_jobs.log_event(session, job, "file_links_removed", count=len(created))
+    upload_jobs.log_event(session, job, "file_links_removed", count=len(unused))
     session.commit()
+
+
+_LIVE_SEED_JOBS = ("in_progress", "seeding")
+
+
+def _used_elsewhere(session: Session, job: UploadJob, paths: list[str], since: datetime | None) -> set[str]:
+    """Dei link creati da questo job, quelli che usa già qualcun altro: un
+    torrent del client (l'indice, nazgarr/torrents/indexer.py) o un reseed
+    del motore. Il motore riusa una destinazione che è già lo stesso file
+    (hardlinks.check_link): un suo reseed approvato durante i minuti di hash
+    e screenshot, con lo stesso nome, seeda proprio da uno di questi, e
+    toglierlo lo lasciava senza dati (audit 2026-10-18, finding 1). Nel
+    dubbio un link resta: al massimo un hardlink orfano, mai un file tolto
+    da sotto a un client."""
+    disk = job.disk
+    if disk is None:
+        return set()
+    base = os.path.realpath(disk.root_path)
+    by_relative: dict[str, str] = {}
+    by_inode: dict[int, list[str]] = {}
+    for path in paths:
+        real = os.path.realpath(path)
+        if real.startswith(base + os.sep):
+            by_relative[os.path.relpath(real, base)] = path
+        with contextlib.suppress(OSError):
+            by_inode.setdefault(os.stat(path).st_ino, []).append(path)
+    used: set[str] = set()
+    if by_relative:
+        relatives = list(by_relative)
+        indexed = (
+            session.query(SeedFile.relative_path)
+            .join(ClientTorrentFile, ClientTorrentFile.seed_file_id == SeedFile.id)
+            .filter(SeedFile.disk_id == disk.id, SeedFile.relative_path.in_(relatives))
+        )
+        # Un reseed dal file già nella cartella di seeding (torrent_to_client).
+        reseeding = (
+            session.query(SeedFile.relative_path)
+            .join(CandidateFile, CandidateFile.seed_file_id == SeedFile.id)
+            .join(SeedJob, SeedJob.candidate_id == CandidateFile.candidate_id)
+            .filter(SeedFile.disk_id == disk.id, SeedFile.relative_path.in_(relatives),
+                    SeedJob.final_status.in_(_LIVE_SEED_JOBS))
+        )
+        used |= {by_relative[row[0]] for row in indexed.union(reseeding).all() if row[0] in by_relative}
+    if by_inode and since is not None:
+        # Un reseed con hardlink dal file in libreria (media_to_torrent): la
+        # sua destinazione non è nel DB, ma è lo stesso inode, e un reseed
+        # nato dopo questi link può averne riusato uno.
+        linked = (
+            session.query(MediaFile.inode)
+            .join(CandidateFile, CandidateFile.media_file_id == MediaFile.id)
+            .join(SeedJob, SeedJob.candidate_id == CandidateFile.candidate_id)
+            .filter(MediaFile.disk_id == disk.id, MediaFile.inode.in_(list(by_inode)),
+                    SeedJob.final_status.in_(_LIVE_SEED_JOBS),
+                    or_(SeedJob.hardlink_created_at.is_(None), SeedJob.hardlink_created_at >= since))
+        )
+        for (inode,) in linked.all():
+            used.update(by_inode.get(inode, ()))
+    if used:
+        upload_jobs.log_event(session, job, "file_links_kept", count=len(used))
+        session.commit()
+    return used
 
 
 def _source_files(path: str) -> list[str]:
@@ -629,6 +965,25 @@ def _is_system_junk(name: str) -> bool:
     return name in _SYSTEM_JUNK or name.startswith("._")
 
 
+def _has_seeding_copy(path: str, st: os.stat_result, copies: set[str] | None) -> bool:
+    """Una delle copie registrate esiste ancora adesso: file regolare, stesso
+    dispositivo e inode, percorso diverso; e il file ha davvero un secondo
+    link. Mai fidarsi del solo registro: un link tolto nel frattempo (la
+    pulizia, l'utente) lascerebbe l'originale come unica copia."""
+    if st.st_nlink < 2:
+        return False
+    real = os.path.realpath(path)
+    for copy in copies or ():
+        try:
+            cst = os.stat(copy, follow_symlinks=False)
+        except OSError:
+            continue
+        if stat.S_ISREG(cst.st_mode) and (cst.st_dev, cst.st_ino) == (st.st_dev, st.st_ino) \
+                and os.path.realpath(copy) != real:
+            return True
+    return False
+
+
 def _clear_watch_source(session: Session, job: UploadJob, overrides: dict, ctx: dict | None = None) -> None:
     """La cartella osservata è solo di passaggio (decisione dell'utente,
     2026-10-02): a upload fatto la release resta solo nella cartella delle
@@ -643,7 +998,12 @@ def _clear_watch_source(session: Session, job: UploadJob, overrides: dict, ctx: 
     cancellava anche se a seedare era proprio lui. Quello che il torrent non
     ha preso (es. un sample) resta, elencato nel registro del job, e le
     cartelle vuote spariscono. Solo se almeno un tracker è andato, se si
-    mette in seed e se la sorgente è davvero dentro la cartella osservata."""
+    mette in seed e se la sorgente è davvero dentro la cartella osservata.
+
+    La copia si ricontrolla subito prima di togliere l'originale (audit
+    2026-10-18): deve esistere ancora, essere un file vero con lo stesso
+    inode in un altro percorso, e seedare per un tracker andato a buon fine;
+    se no l'originale resta."""
     if job.origin != "watch" or overrides.get("no_seed") or job.disk is None:
         return
     if not any(t.status == "done" and t.action != "skip" for t in job.targets):
@@ -652,15 +1012,14 @@ def _clear_watch_source(session: Session, job: UploadJob, overrides: dict, ctx: 
     source = os.path.realpath(job.source_path)
     if watch is None or not source.startswith(os.path.realpath(watch) + os.sep):
         return
-    seeded = (ctx or {}).get("seeded") or {}
+    seeded = _seeded_by_done(job, ctx or {})
     moved, kept = [], []
     for path in _source_files(source):
         try:
             st = os.stat(path, follow_symlinks=False)
         except OSError:
             continue
-        copy = seeded.get((st.st_dev, st.st_ino))
-        linked = not os.path.islink(path) and copy is not None and copy != os.path.realpath(path)
+        linked = not os.path.islink(path) and _has_seeding_copy(path, st, seeded.get((st.st_dev, st.st_ino)))
         if linked or _is_system_junk(os.path.basename(path)):
             with contextlib.suppress(OSError):
                 os.unlink(path)
@@ -689,7 +1048,13 @@ def _remove_split_folder(session: Session, job: UploadJob, watch: str) -> None:
     cartella si toglie con quello che resta (nfo, sample...), decisione
     dell'utente del 2026-10-09. Un video ancora lì (l'upload di un
     altro episodio non è finito, o è stato annullato) o un file ancora in
-    scrittura la lasciano dov'è."""
+    scrittura la lasciano dov'è.
+
+    Si tolgono solo i file appena controllati, poi le cartelle rimaste vuote
+    (audit 2026-10-18): prima un rmtree, che cancellava anche un file
+    arrivato nel frattempo e, se un file non si poteva togliere, faceva
+    fallire un upload già pubblicato e in seed. Quello che resta si dice nel
+    registro."""
     root = os.path.realpath(watch)
     relative = os.path.relpath(os.path.realpath(job.source_path), root)
     parts = relative.split(os.sep)
@@ -698,20 +1063,36 @@ def _remove_split_folder(session: Session, job: UploadJob, watch: str) -> None:
     folder = os.path.join(root, parts[0])
     if os.path.islink(folder) or not os.path.isdir(folder):
         return
-    left = []
+    left, paths = [], []
     for directory, _dirs, files in os.walk(folder, followlinks=False):
         for name in files:
             path = os.path.join(directory, name)
             inside = os.path.relpath(path, folder)
             try:
-                size = os.path.getsize(path)
+                size = os.lstat(path).st_size
             except OSError:
                 continue
             if upload_watch.is_partial(name) or (is_video(name) and upload_inventory.in_torrent(inside, size)):
                 return
             left.append(inside)
-    shutil.rmtree(folder)
-    upload_jobs.log_event(session, job, "watch_folder_removed", folder=parts[0], count=len(left), files=left[:10])
+            paths.append(path)
+    errors = []
+    for path in paths:
+        try:
+            os.unlink(path)
+        except OSError as exc:
+            errors.append(str(exc))
+    for directory, _dirs, _files in sorted(os.walk(folder, followlinks=False), key=lambda entry: -len(entry[0])):
+        with contextlib.suppress(OSError):
+            os.rmdir(directory)  # solo se vuota
+    if os.path.lexists(folder):
+        remaining = sorted(os.path.relpath(os.path.join(d, n), folder)
+                           for d, dirs, files in os.walk(folder, followlinks=False) for n in (*files, *dirs))
+        upload_jobs.log_event(session, job, "watch_folder_remove_failed", level="warning", folder=parts[0],
+                              count=len(remaining), files=remaining[:10], error=errors[0] if errors else None)
+    else:
+        upload_jobs.log_event(session, job, "watch_folder_removed", folder=parts[0], count=len(left),
+                              files=left[:10])
     session.commit()
 
 
@@ -721,7 +1102,12 @@ def _recheck_dupes(session: Session, job: UploadJob, targets: list[UploadTarget]
     frattempo (identico, o nello stesso slot) ferma l'upload su quel tracker.
     Quelli che c'erano già alla decisione li ha visti l'utente. Un reseed no:
     il torrent è già quello del tracker. Se il tracker non risponde si va
-    avanti: l'invio fallirebbe comunque, e il registro lo dice."""
+    avanti: l'invio fallirebbe comunque, e il registro lo dice.
+
+    Lo stesso per un nuovo tentativo (upload_jobs.retry_failed): anche il
+    nostro torrent di un invio interrotto ferma quel tracker. Sempre i
+    risultati di adesso, non quelli tenuti in cache dalla ricerca
+    dell'analisi (10 minuti)."""
     from nazgarr.upload import analysis as upload_analysis
     from nazgarr.upload import dupes as upload_dupes
 
@@ -737,11 +1123,13 @@ def _recheck_dupes(session: Session, job: UploadJob, targets: list[UploadTarget]
         known = {d.get("torrent_id_remote") for d in json.loads(target.dupes_json or "[]")}
         try:
             with adapter_factory.tracker(target.tracker) as adapter:
+                _forget_search(adapter, job.tmdb_id)
                 results, _suggested = upload_dupes.check(adapter.search_by_tmdb(job.tmdb_id), summary)
         except Exception as exc:
             logger.warning("Upload %s: dupe check prima dell'invio fallito su %s", job.id, target.tracker.label,
                            exc_info=True)
-            upload_jobs.log_event(session, job, "dupe_recheck_failed", level="warning", target=target, error=str(exc))
+            upload_jobs.log_event(session, job, "dupe_recheck_failed", level="warning", target=target,
+                                  error=safe_error(exc))
             continue
         new = [r for r in results if r["verdict"] in ("identical", "same_slot") and r["torrent_id_remote"] not in known]
         if new:
@@ -753,17 +1141,157 @@ def _recheck_dupes(session: Session, job: UploadJob, targets: list[UploadTarget]
     session.commit()
 
 
-def handle(session: Session, job: UploadJob, worker) -> None:
-    if not upload_jobs.transition(session, job, "queued", "running", queue_position=None):
-        return
-    upload_jobs.log_event(session, job, "execution_started")
-    session.commit()
-    targets = [t for t in job.targets if t.status == "approved"]
-    if job.scheduled_at is not None:
-        _recheck_dupes(session, job, targets)
-    overrides = json.loads(job.overrides_json or "{}")
-    ctx: dict = {"dir": _job_dir(worker, job), "overrides": overrides, "screenshots": []}
+def _forget_search(adapter, tmdb_id: int | None) -> None:
+    """Toglie dalla cache dell'adapter (UNIT3D: _search_cache, comune agli
+    adapter dello stesso tracker) la ricerca di questo contenuto."""
+    cache = getattr(adapter, "_search_cache", None)
+    if isinstance(cache, dict):
+        cache.pop(tmdb_id, None)
 
+
+def _prepare(session: Session, job: UploadJob, worker, ctx: dict, targets: list[UploadTarget]) -> None:
+    """Una volta per job, se c'è almeno un upload: il torrent (hash dei
+    piece) e gli screenshot. Senza, nessun upload può partire; i reseed sì."""
+    if not any(t.action == "upload" and t.status == "approved" for t in targets):
+        return
+    overrides = ctx["overrides"]
+    try:
+        content = prepare_content(session, job, ctx)
+        ctx["torrent"] = hash_pieces(session, job, content, ctx.get("planned"))
+        # Per la barra degli step (ProgressStep): i passaggi conclusi restano segnati.
+        upload_jobs.log_event(session, job, "torrent_created")
+        session.commit()
+        stored = json.loads(job.screenshot_urls_json or "[]") if ctx.get("retried") else []
+        if stored:
+            # Un nuovo tentativo: quelli già sull'image host valgono ancora,
+            # niente di nuovo da caricare per un tracker che era giù.
+            ctx["screenshots"] = stored
+        else:
+            ctx["screenshots"] = take_screenshots(session, job, worker, _screenshot_count(session, overrides))
+            job.screenshot_urls_json = json.dumps(ctx["screenshots"])
+        upload_jobs.log_event(session, job, "screenshots_done", count=len(ctx["screenshots"]),
+                              **({"reused": True} if stored else {}))
+        session.commit()
+    except _Cancelled:
+        raise
+    except Exception as exc:
+        # Un errore qualunque (un OSError creando gli hardlink, torf che non
+        # legge il disco, un plugin dell'image host), non solo i nostri:
+        # prima gli altri uscivano da qui e il job finiva senza dire perché.
+        if not isinstance(exc, UploadJobError):
+            logger.error("Upload %s: preparazione fallita", job.id, exc_info=exc)
+        _fail_approved(session, job, targets, exc, actions=("upload",), default="upload_prepare_failed")
+
+
+def _screenshot_count(session: Session, overrides: dict) -> int:
+    count = overrides.get("screenshot_count")
+    if count is None:
+        return settings_registry.get_int(session, "upload_screenshot_count")
+    try:
+        return max(0, min(int(count), MAX_SCREENSHOTS))
+    except (TypeError, ValueError):
+        return settings_registry.get_int(session, "upload_screenshot_count")
+
+
+def _fail_approved(session: Session, job: UploadJob, targets: list[UploadTarget], exc: Exception,
+                   actions: tuple[str, ...], default: str) -> None:
+    """I target ancora da fare (di quelle azioni) falliscono tutti con
+    l'errore che li ferma, nel registro con i suoi parametri."""
+    session.rollback()
+    code, params = upload_jobs.error_of(exc)
+    if not isinstance(exc, CodedError):
+        code = default
+    for target in targets:
+        if target.action in actions and target.status == "approved":
+            upload_jobs.set_target_status(target, upload_jobs.TargetStatus.FAILED)
+            target.error_message = code
+            target.finished_at = datetime.now(UTC)
+            upload_jobs.log_event(session, job, code, level="error", target=target, **params)
+    session.commit()
+
+
+def _run_target(session: Session, job: UploadJob, target: UploadTarget, ctx: dict) -> None:
+    _progress(session, job, f"tracker:{target.tracker.label}")
+    try:
+        if target.action == "upload":
+            run_upload(session, job, target, ctx)
+        else:
+            run_reseed(session, job, target, ctx)
+        upload_jobs.set_target_status(target, upload_jobs.TargetStatus.DONE)
+    except Exception as exc:
+        session.rollback()
+        logger.warning("Upload %s: %s fallito su %s", job.id, target.action, target.tracker.label, exc_info=True)
+        code, params = upload_jobs.error_of(exc)
+        published = (ctx.get("published") or {}).get(target.id)
+        if published is not None:
+            # Il tracker l'ha ricevuto (anche se il DB non l'ha ancora
+            # scritto): pubblicato, non in seed. Mai 'failed', che si potrebbe
+            # riprovare con un secondo upload; il seed si riprova da solo.
+            target.torrent_id_remote = published
+            upload_jobs.set_target_status(target, upload_jobs.TargetStatus.DONE)
+            target.error_message = "seed_failed"
+            upload_jobs.log_event(session, job, "seed_failed", level="error", target=target, error=code)
+        elif target.action == "upload" and target.id in (ctx.get("sent") or ()) and _maybe_received(exc):
+            # La richiesta era partita: il tracker può averlo salvato anche
+            # senza una risposta buona. Si riprova solo dopo averlo
+            # controllato sul tracker (upload_jobs.needs_confirmation), come
+            # un invio fermato da un riavvio (audit 2026-10-18).
+            upload_jobs.set_target_status(target, upload_jobs.TargetStatus.FAILED)
+            target.error_message = "upload_outcome_unknown"
+            upload_jobs.log_event(session, job, "upload_outcome_unknown", level="error", target=target,
+                                  error=code, **{k: v for k, v in params.items() if k != "error"})
+        else:
+            upload_jobs.set_target_status(target, upload_jobs.TargetStatus.FAILED)
+            target.error_message = code
+            upload_jobs.log_event(session, job, f"{target.action}_failed", level="error", target=target,
+                                  error=code, **{k: v for k, v in params.items() if k != "error"})
+    target.finished_at = datetime.now(UTC)
+    session.commit()
+
+
+def _maybe_received(exc: BaseException) -> bool:
+    """Un errore dopo che la richiesta di upload era partita: un timeout
+    sulla risposta, un 5xx dopo il salvataggio, una risposta che non si
+    legge ("nessun id riconoscibile" arriva con success: true) possono
+    venire da un torrent che il tracker ha salvato. Dicono di no con
+    certezza solo una connessione mai aperta e un 4xx (il tracker l'ha
+    rifiutata), quando l'adapter li lascia vedere (raise ... from exc,
+    come UNIT3D); un plugin che non lo fa resta fra gli incerti."""
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout)):
+            return False
+        if isinstance(current, httpx.HTTPStatusError) and 400 <= current.response.status_code < 500:
+            return False
+        current = current.__cause__ or current.__context__
+    return True
+
+
+def _housekeeping(session: Session, job: UploadJob, ctx: dict, overrides: dict, cancelled: bool = False) -> None:
+    """Gli hardlink che non seedano niente e la cartella osservata. Mai un
+    motivo per cambiare l'esito del job (audit 2026-10-18): un upload
+    pubblicato e in seed finiva 'failed' se un file della cartella osservata
+    non si poteva togliere. Annullato: solo gli hardlink (la cartella
+    osservata resta com'è)."""
+    steps = [("links", lambda: _cleanup_unused_links(session, job, ctx, overrides))]
+    if not cancelled:
+        steps.append(("watch", lambda: _clear_watch_source(session, job, overrides, ctx)))
+    for what, step in steps:
+        try:
+            step()
+        except Exception as exc:
+            session.rollback()
+            logger.warning("Upload %s: pulizia (%s) non riuscita", job.id, what, exc_info=True)
+            with contextlib.suppress(Exception):
+                upload_jobs.log_event(session, job, "upload_cleanup_failed", level="warning", step=what,
+                                      error=upload_jobs.error_text(exc))
+                session.commit()
+
+
+def _context(session: Session, job: UploadJob, worker, overrides: dict) -> dict:
+    ctx: dict = {"dir": _job_dir(worker, job), "overrides": overrides, "screenshots": []}
     root_cache: list[str] = []
 
     def lazy_seed_root() -> str:
@@ -772,63 +1300,43 @@ def handle(session: Session, job: UploadJob, worker) -> None:
         return root_cache[0]
 
     ctx["seed_root"] = lazy_seed_root
+    return ctx
 
-    try:
-        if any(t.action == "upload" and t.status == "approved" for t in targets):
-            ctx["torrent"] = hash_pieces(session, job, prepare_content(session, job, ctx))
-            # Per la barra degli step (ProgressStep): i passaggi conclusi restano segnati.
-            upload_jobs.log_event(session, job, "torrent_created")
-            session.commit()
-            count = overrides.get("screenshot_count")
-            if count is None:
-                count = settings_registry.get_int(session, "upload_screenshot_count")
-            ctx["screenshots"] = take_screenshots(session, job, worker, count)
-            job.screenshot_urls_json = json.dumps(ctx["screenshots"])
-            upload_jobs.log_event(session, job, "screenshots_done", count=len(ctx["screenshots"]))
-            session.commit()
-    except _Cancelled:
+
+def handle(session: Session, job: UploadJob, worker) -> None:
+    if not upload_jobs.transition(session, job, "queued", "running", queue_position=None):
         return
-    except UploadJobError as exc:
-        # Senza torrent o screenshot nessun upload può partire; i reseed sì.
-        for target in targets:
-            if target.action == "upload" and target.status == "approved":
-                target.status, target.error_message = "failed", exc.code
-                upload_jobs.log_event(session, job, exc.code, level="error", target=target, **exc.params)
-        session.commit()
-
-    for target in targets:
-        session.refresh(job)
-        if job.status == "cancelled":
-            return
-        if target.status != "approved":
-            continue
-        _progress(session, job, f"tracker:{target.tracker.label}")
-        try:
-            if target.action == "upload":
-                run_upload(session, job, target, ctx)
-            else:
-                run_reseed(session, job, target, ctx)
-            upload_jobs.set_target_status(target, upload_jobs.TargetStatus.DONE)
-        except Exception as exc:
-            session.rollback()
-            logger.warning("Upload %s: %s fallito su %s", job.id, target.action, target.tracker.label, exc_info=True)
-            upload_jobs.set_target_status(target, upload_jobs.TargetStatus.FAILED)
-            target.error_message = getattr(exc, "code", None) or str(exc)
-            params = getattr(exc, "params", None) or {"error": str(exc)}
-            upload_jobs.log_event(session, job, f"{target.action}_failed", level="error", target=target,
-                                  error=target.error_message, **{k: v for k, v in params.items() if k != "error"})
-        target.finished_at = datetime.now(UTC)
-        session.commit()
-
-    _cleanup_unused_links(session, job, ctx, overrides)
-    _clear_watch_source(session, job, overrides, ctx)
-    outcomes = [t.status for t in job.targets if t.action != "skip"]
-    if all(s == "done" for s in outcomes):
-        final = "done"
-    elif all(s == "failed" for s in outcomes):
-        final = "failed"
+    retried = upload_jobs.is_retry(job)
+    upload_jobs.log_event(session, job, "execution_started")
+    session.commit()
+    targets = [t for t in job.targets if t.status == "approved"]
+    if job.scheduled_at is not None or retried:
+        _recheck_dupes(session, job, targets)
+    overrides = json.loads(job.overrides_json or "{}")
+    try:
+        ctx = _context(session, job, worker, overrides)
+        ctx["retried"] = retried
+    except Exception as exc:  # la cartella del job non si crea: niente può partire
+        logger.error("Upload %s: cartella del job non disponibile", job.id, exc_info=exc)
+        _fail_approved(session, job, targets, exc, actions=("upload", "reseed"), default="upload_prepare_failed")
+        ctx = {"overrides": overrides}
     else:
-        final = "partial"
+        try:
+            _prepare(session, job, worker, ctx, targets)
+            for target in targets:
+                session.refresh(job)
+                if job.status == "cancelled":
+                    raise _Cancelled()
+                if target.status == "approved":
+                    _run_target(session, job, target, ctx)
+        except _Cancelled:
+            # Annullato a metà: gli hardlink creati e non usati si tolgono
+            # come alla fine (audit 2026-10-18), prima restavano nella
+            # cartella di seed senza che nessuno li seedasse.
+            _housekeeping(session, job, ctx, overrides, cancelled=True)
+            return
+        _housekeeping(session, job, ctx, overrides)
+    final = upload_jobs.outcome(job)
     if upload_jobs.transition(session, job, "running", final, stage=None, progress_done=None, progress_total=None):
         upload_jobs.log_event(session, job, f"job_{final}", level="info" if final == "done" else "warning")
         session.commit()

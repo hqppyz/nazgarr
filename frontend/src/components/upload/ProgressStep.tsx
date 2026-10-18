@@ -4,6 +4,7 @@ import { toast } from 'sonner'
 
 import { useScheduleUpload, type UploadJob } from '@/api/hooks/uploads'
 import { ExecutionSteps } from '@/components/upload/ExecutionSteps'
+import { currentRunEvents } from '@/components/upload/jobState'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -86,7 +87,7 @@ export function ProgressStep({ job }: { job: UploadJob }) {
         </CardTitle>
       </CardHeader>
       <CardContent className="grid gap-4">
-        <ExecutionSteps steps={executionSteps(job)} />
+        <ExecutionSteps steps={executionSteps({ ...job, events: currentRunEvents(job.events) })} />
         {pct !== null && (
           <div className="grid gap-1">
             <Progress value={pct} />

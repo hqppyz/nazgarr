@@ -129,6 +129,70 @@ def test_reset_interrupted_never_repeats_an_upload(db_session, tmp_path):
     assert job.targets[0].error_message == "interrupted"
 
 
+def test_a_restart_while_seeding_leaves_the_upload_published_and_retryable(db_session, tmp_path):
+    """Audit 2026-10-18: un target fermato in 'seeding' (o in 'uploading' dopo
+    che il tracker l'aveva accettato) restava lì per sempre, senza modo di
+    rimetterlo in seed."""
+    from nazgarr.upload import execute as upload_execute
+
+    for label in ("a", "b", "c", "d"):
+        make_tracker(db_session, label)
+    job = _job(db_session, tmp_path)
+    seeding, reseeding, recorded, journaled = job.targets
+    seeding.action, seeding.status, seeding.torrent_id_remote = "upload", "seeding", "100"
+    reseeding.action, reseeding.status = "reseed", "seeding"
+    recorded.action, recorded.status, recorded.torrent_id_remote = "upload", "uploading", "300"
+    journaled.action, journaled.status = "upload", "uploading"
+    job.status = "running"
+    db_session.commit()
+    folder = tmp_path / "data" / "uploads" / str(job.id)
+    folder.mkdir(parents=True)
+    (folder / f"published-{journaled.id}.json").write_text('{"torrent_id_remote": "400"}')
+
+    assert upload_jobs.reset_interrupted(db_session, str(tmp_path / "data")) == [job.id]
+
+    db_session.refresh(job)
+    assert job.status == "queued"
+    assert [(t.status, t.error_message, t.torrent_id_remote) for t in job.targets] == [
+        ("done", "seed_failed", "100"), ("failed", "interrupted", None), ("done", "seed_failed", "300"),
+        ("done", "seed_failed", "400")]
+    assert {e.code for e in job.events} >= {"seed_interrupted", "reseed_interrupted"}
+    # Il seed si può riprovare (qui manca il .torrent, ma non è più "niente da riprovare").
+    with pytest.raises(UploadJobError) as exc:
+        upload_execute.retry_seed(db_session, job, seeding)
+    assert exc.value.code != "upload_seed_retry_unavailable"
+
+
+def test_a_cancelled_job_still_sending_is_neither_deleted_nor_resumed(db_session, tmp_path):
+    make_tracker(db_session)
+    job = _job(db_session, tmp_path)
+    upload_jobs.cancel_job(db_session, job)
+    job.targets[0].action, job.targets[0].status = "upload", "uploading"
+    db_session.commit()
+
+    for refused in (lambda: upload_jobs.delete_job(db_session, job, str(tmp_path / "data")),
+                    lambda: upload_jobs.resume_job(db_session, job)):
+        with pytest.raises(UploadJobError, match="upload_job_busy"):
+            refused()
+
+    # Il worker morto con il job annullato: al riavvio il target si sistema.
+    upload_jobs.reset_interrupted(db_session, str(tmp_path / "data"))
+    db_session.refresh(job)
+    assert (job.status, job.targets[0].status, job.targets[0].error_message) == ("cancelled", "failed", "interrupted")
+    with pytest.raises(UploadJobError, match="upload_job_busy"):
+        upload_jobs.delete_job(db_session, job, str(tmp_path / "data"), active=True)  # il worker ci sta lavorando
+    upload_jobs.delete_job(db_session, job, str(tmp_path / "data"))
+
+    # Finito 'failed' senza aver potuto scrivere l'esito del target pubblicato.
+    other = _job(db_session, tmp_path)
+    other.status = "failed"
+    other.targets[0].action, other.targets[0].status, other.targets[0].torrent_id_remote = "upload", "seeding", "9"
+    db_session.commit()
+    upload_jobs.reset_interrupted(db_session, str(tmp_path / "data"))
+    db_session.refresh(other)
+    assert (other.status, other.targets[0].status, other.targets[0].error_message) == ("failed", "done", "seed_failed")
+
+
 def test_worker_runs_light_states_until_a_gate(db_session, tmp_path):
     make_tracker(db_session)
     job = _job(db_session, tmp_path)
@@ -199,6 +263,206 @@ def test_worker_does_not_fail_a_job_cancelled_while_running(db_session, tmp_path
     worker.kick(job.id, job.status)
     db_session.refresh(job)
     assert job.status == "cancelled"
+
+
+def _queued(db_session, tmp_path):
+    job = _job(db_session, tmp_path)
+    upload_jobs.transition(db_session, job, "identifying", "queued", queue_position=upload_jobs.next_queue_position(
+        db_session))
+    return job
+
+
+def _worker(db_session, tmp_path, handlers, heavy=None):
+    factory = lambda: db_session.__class__(bind=db_session.get_bind())  # noqa: E731
+    return UploadWorker(factory, str(tmp_path), handlers=handlers, light_executor=InlineExecutor(),
+                        heavy_executor=heavy or InlineExecutor())
+
+
+@pytest.mark.parametrize("error", [OSError(13, "Permission denied"), UploadJobError("upload_seed_folder_missing",
+                                                                                     path="/x")])
+def test_an_execution_that_fails_after_starting_keeps_its_real_error(db_session, tmp_path, caplog, error):
+    """Audit 2026-10-18: il passo d'esecuzione porta il job in 'running' prima
+    di lavorare, e il worker prendeva quel cambio per un annullamento: niente
+    log, e il job finiva con "passo non disponibile"."""
+    import logging
+
+    make_tracker(db_session)
+    job = _queued(db_session, tmp_path)
+
+    def start_then_crash(session, j, worker):
+        upload_jobs.transition(session, j, "queued", "running")
+        raise error
+
+    with caplog.at_level(logging.ERROR, logger="nazgarr.upload.worker"):
+        _worker(db_session, tmp_path, {"queued": start_then_crash}).kick(job.id, job.status)
+
+    db_session.refresh(job)
+    assert job.status == "failed"
+    if isinstance(error, UploadJobError):
+        assert job.error_message == "upload_seed_folder_missing"
+    else:
+        assert job.error_message == "upload_step_failed"
+        assert json.loads(job.events[-1].params_json) == {"step": "queued", "error": str(error)}
+    assert "passo 'queued' fallito" in caplog.text
+
+
+def test_a_kick_while_the_queue_goes_idle_is_not_lost(db_session, tmp_path):
+    make_tracker(db_session)
+    job = _queued(db_session, tmp_path)
+    ran = []
+
+    class Deferred:
+        def __init__(self):
+            self.calls = []
+
+        def submit(self, fn, *args):
+            self.calls.append((fn, args))
+
+        def shutdown(self, wait=True, cancel_futures=False):
+            pass
+
+    heavy = Deferred()
+    worker = _worker(db_session, tmp_path, {"queued": lambda s, j, w: (
+        ran.append(j.id), upload_jobs.transition(s, j, "queued", "done"))}, heavy=heavy)
+    real_next = worker._next_due
+    calls = []
+
+    def next_due():
+        calls.append(1)
+        if len(calls) == 1:
+            # La coda non ha trovato niente; prima che si fermi, un altro
+            # thread approva un upload e sveglia la coda.
+            worker.kick(job.id, "queued")
+            return None
+        return real_next()
+
+    worker._next_due = next_due
+    worker.kick(job.id, "queued")
+    fn, args = heavy.calls.pop(0)
+    fn(*args)
+
+    assert ran == [job.id] and heavy.calls == []
+    assert worker._heavy_scheduled is False
+
+
+def test_a_job_deleted_while_its_step_runs_does_not_stop_the_queue(db_session, tmp_path):
+    make_tracker(db_session)
+    first, second = _queued(db_session, tmp_path), _queued(db_session, tmp_path)
+    ran = []
+
+    def handler(session, j, worker):
+        ran.append(j.id)
+        if j.id == first.id:
+            other = db_session.__class__(bind=db_session.get_bind())
+            other.delete(other.get(UploadJob, j.id))
+            other.commit()
+            other.close()
+            raise RuntimeError("the row is gone")
+        upload_jobs.transition(session, j, "queued", "done")
+
+    _worker(db_session, tmp_path, {"queued": handler}).kick(first.id, "queued")
+
+    assert ran == [first.id, second.id]
+    db_session.expire_all()
+    assert db_session.get(UploadJob, second.id).status == "done"
+
+
+def test_the_queue_retries_later_when_even_the_failure_cannot_be_written(db_session, tmp_path, monkeypatch):
+    make_tracker(db_session)
+    job = _queued(db_session, tmp_path)
+    worker = _worker(db_session, tmp_path, {"queued": lambda s, j, w: (_ for _ in ()).throw(RuntimeError("x"))})
+    monkeypatch.setattr(worker, "_fail", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("database is locked")))
+    later = []
+    monkeypatch.setattr(worker, "_retry_later", lambda: later.append(1))
+
+    worker.kick(job.id, "queued")
+
+    assert later == [1] and worker._heavy_scheduled is False
+
+
+def test_the_queue_retries_later_when_it_cannot_read_the_next_job(db_session, tmp_path, monkeypatch):
+    make_tracker(db_session)
+    job = _queued(db_session, tmp_path)
+    worker = _worker(db_session, tmp_path, {})
+    monkeypatch.setattr(worker, "_next_due", lambda: (_ for _ in ()).throw(RuntimeError("disk I/O error")))
+    later = []
+    monkeypatch.setattr(worker, "_retry_later", lambda: later.append(1))
+
+    worker.kick(job.id, "queued")
+
+    assert later == [1] and worker._heavy_scheduled is False
+    # Dopo lo spegnimento il timer non sottomette più niente a un esecutore chiuso.
+    worker.shutdown()
+    worker._schedule_queue()
+    assert worker._heavy_scheduled is False
+
+
+def _published_but_stuck(db_session, tmp_path):
+    """Un job 'running' con un upload pubblicato (l'id nel file del job) ma
+    rimasto 'uploading': il commit dopo l'invio non è andato."""
+    make_tracker(db_session, "a")
+    make_tracker(db_session, "b")
+    job = _queued(db_session, tmp_path)
+    published, waiting = job.targets
+    published.action, published.status = "upload", "uploading"
+    waiting.action, waiting.status = "upload", "approved"
+    db_session.commit()
+    folder = tmp_path / "uploads" / str(job.id)
+    folder.mkdir(parents=True)
+    (folder / f"published-{published.id}.json").write_text('{"torrent_id_remote": "100"}')
+    return job
+
+
+def test_a_running_job_nobody_runs_goes_back_to_the_queue(db_session, tmp_path):
+    """Audit 2026-10-18: un job rimasto 'running' (un errore che il worker non
+    ha potuto registrare) finiva "passo non disponibile" alla ripresa della
+    coda, con i target bloccati in invio fino al riavvio."""
+    job = _published_but_stuck(db_session, tmp_path)
+    upload_jobs.transition(db_session, job, "queued", "running")
+    seen = []
+
+    def execute(session, j, worker):
+        seen.append([(t.status, t.error_message) for t in j.targets])
+        upload_jobs.transition(session, j, "queued", "running")
+        for target in j.targets:
+            if target.status == "approved":
+                target.status = "done"
+        session.commit()
+        upload_jobs.transition(session, j, "running", upload_jobs.outcome(j))
+
+    worker = _worker(db_session, tmp_path, {"queued": execute})
+    worker._run_job(job.id)  # un kick vecchio dell'esecutore "light": non lo tocca
+    db_session.refresh(job)
+    assert job.status == "running" and seen == []
+
+    worker.kick(job.id, "running")
+
+    db_session.refresh(job)
+    assert seen == [[("done", "seed_failed"), ("approved", None)]]
+    assert job.status == "done", [e.code for e in job.events]
+    assert job.targets[0].torrent_id_remote == "100"
+    assert "job_resumed" in [e.code for e in job.events]
+    assert job.error_message is None
+
+
+def test_a_failed_execution_leaves_no_tracker_in_flight(db_session, tmp_path):
+    """L'esecuzione esce con un errore dopo un upload pubblicato: prima il
+    job finiva 'failed' con quel target in 'uploading' (né eliminabile né
+    riprovabile fino al riavvio) e gli altri 'approved' per sempre."""
+    job = _published_but_stuck(db_session, tmp_path)
+
+    def start_then_crash(session, j, worker):
+        upload_jobs.transition(session, j, "queued", "running")
+        raise RuntimeError("database is locked")
+
+    _worker(db_session, tmp_path, {"queued": start_then_crash}).kick(job.id, "queued")
+
+    db_session.refresh(job)
+    published, waiting = job.targets
+    assert job.status == "partial" and job.error_message == "upload_step_failed"
+    assert (published.status, published.error_message, published.torrent_id_remote) == ("done", "seed_failed", "100")
+    assert (waiting.status, waiting.error_message) == ("failed", "upload_step_failed")
+    assert upload_jobs.retryable_targets(job) == [waiting]
 
 
 def test_migration_drops_the_phase6_upload_job(tmp_path):
@@ -413,3 +677,15 @@ def test_target_statuses_go_through_one_function(caplog):
     with caplog.at_level(logging.WARNING, logger=upload_jobs.logger.name):
         set_target_status(target, TargetStatus.CHECKING)  # da uploading: non previsto
     assert target.status == "checking" and "non previsto uploading -> checking" in caplog.text
+
+
+def test_error_texts_for_the_job_log_never_carry_a_passkey():
+    import httpx
+
+    link = "https://t.example/torrent/download/12.0123456789abcdef0123456789abcdef"
+    error = httpx.HTTPStatusError(f"Client error 404 for url {link}", request=httpx.Request("GET", link),
+                                  response=httpx.Response(404))
+    code, params = upload_jobs.error_of(error)
+    assert "0123456789abcdef" not in code and params == {"error": code}
+    assert upload_jobs.error_of(UploadJobError("upload_seed_folder_missing", path="/x")) == (
+        "upload_seed_folder_missing", {"path": "/x"})
