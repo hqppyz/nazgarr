@@ -959,7 +959,7 @@ class _StoppedAdds(FakeAdapter):
     def __init__(self, recheck_status="ok", progress=1.0, start_error=None):
         super().__init__(recheck_status=recheck_status)
         self.progress, self.start_error = progress, start_error
-        self.started, self.stopped, self.kwargs = [], [], []
+        self.started, self.stopped, self.rechecked, self.kwargs = [], [], [], []
 
     def add_torrent(self, torrent_file_or_url, save_path, force_recheck=True, expected_info_hash=None, **kwargs):
         self.kwargs.append(kwargs)
@@ -980,6 +980,9 @@ class _StoppedAdds(FakeAdapter):
     def stop(self, info_hash):
         self.stopped.append(info_hash)
 
+    def recheck(self, info_hash):
+        self.rechecked.append(info_hash)
+
 
 def test_a_reseed_enters_the_client_stopped_and_starts_only_after_a_good_recheck(db_session, tmp_path):
     _root, review = _movie_review(db_session, tmp_path)
@@ -999,10 +1002,55 @@ def test_a_failed_recheck_never_starts_the_reseed(db_session, tmp_path):
 
     seed_job = executor.execute_review(db_session, review, adapter)
     executor.reconcile_seed_job(db_session, seed_job, adapter)
-    executor.adopt_for_retry(db_session, seed_job, adapter)  # un retry che trova ancora il recheck fallito
+    executor.reconcile_seed_job(db_session, seed_job, adapter)  # il job fallito non si muove più
 
     assert seed_job.final_status == "failed" and adapter.started == [] and adapter.stopped == []
     assert "left stopped in the client" in seed_job.error_message
+    assert "Retry once the files are right" in seed_job.error_message
+
+
+def test_a_retry_of_a_stopped_failed_reseed_asks_for_a_recheck_never_a_start(db_session, tmp_path):
+    # Fermo, il client non lo ricontrolla da solo: rileggerlo diceva "failed"
+    # anche con i file sistemati. Il retry è l'approvazione di un recheck.
+    _root, review = _movie_review(db_session, tmp_path)
+    adapter = _StoppedAdds(recheck_status="failed", progress=0.97)
+    seed_job = executor.execute_review(db_session, review, adapter)
+    executor.reconcile_seed_job(db_session, seed_job, adapter)
+    assert seed_job.final_status == "failed"
+
+    executor.adopt_for_retry(db_session, seed_job, adapter)
+
+    assert adapter.rechecked == ["deadbeef"] and adapter.started == [] and adapter.stopped == []
+    assert (seed_job.final_status, seed_job.recheck_status, seed_job.error_message) == ("in_progress", "pending", None)
+    adapter.recheck_status, adapter.progress = "ok", 1.0  # i file ora sono giusti
+    executor.reconcile_seed_job(db_session, seed_job, adapter)
+    assert seed_job.final_status == "seeding" and adapter.started == ["deadbeef"]
+
+
+def test_a_retry_without_a_recheck_in_the_adapter_only_reads_it_again(db_session, tmp_path):
+    seed_job = _failed_recheck_job(db_session, tmp_path)
+    adapter = _StoppedAdds(recheck_status="failed", progress=0.97)
+    adapter.recheck = None  # un plugin senza recheck
+    executor.reconcile_seed_job(db_session, seed_job, adapter)
+
+    executor.adopt_for_retry(db_session, seed_job, adapter)
+
+    assert seed_job.final_status == "failed" and adapter.started == []
+
+
+def test_a_recheck_the_client_refuses_is_a_failed_retry(db_session, tmp_path):
+    seed_job = _failed_recheck_job(db_session, tmp_path)
+    adapter = _StoppedAdds(recheck_status="failed", progress=0.97)
+    executor.reconcile_seed_job(db_session, seed_job, adapter)
+
+    def refuse(info_hash):
+        raise RuntimeError("client down")
+
+    adapter.recheck = refuse
+    with pytest.raises(executor.ExecutionError, match="did not take the recheck"):
+        executor.adopt_for_retry(db_session, seed_job, adapter)
+    db_session.refresh(seed_job)
+    assert seed_job.final_status == "failed" and adapter.started == []
 
 
 def test_the_known_missing_extras_still_count_as_a_good_recheck(db_session, tmp_path):
@@ -1028,6 +1076,42 @@ def test_a_start_the_client_refuses_keeps_the_job_in_progress_and_is_tried_again
     executor.reconcile_seed_job(db_session, seed_job, adapter)
     assert seed_job.final_status == "seeding" and adapter.started == ["deadbeef"]
     assert seed_job.error_message is None
+
+
+@pytest.mark.parametrize("missing", ["no method", "not implemented"])
+def test_a_client_that_cannot_start_it_ends_seeding_with_the_reason(db_session, tmp_path, missing):
+    # Un plugin senza la classe base, o con start() non implementato: prima
+    # restava in corso per sempre, con un avviso a ogni reconcile.
+    seed_job = _failed_recheck_job(db_session, tmp_path)
+    adapter = _StoppedAdds()
+    if missing == "no method":
+        adapter.start = None
+    else:
+        adapter.start_error = NotImplementedError()
+
+    executor.reconcile_seed_job(db_session, seed_job, adapter)
+
+    assert seed_job.final_status == "seeding"
+    assert seed_job.error_message == executor.CANNOT_START
+
+
+def test_a_deluge_reseed_missing_only_its_extras_starts_after_its_recheck(db_session, tmp_path):
+    # Come lo legge Deluge dopo force_recheck su un torrent in pausa: rimesso
+    # in pausa, al 99%, con is_auto_managed (l'opzione salvata) vero. Prima
+    # era "pending" per sempre: mai avviato, mai in seed.
+    from tests.test_torrent_client_deluge import _adapter as deluge_adapter
+    from tests.test_torrent_client_deluge import _DelugeMock
+
+    seed_job = _failed_recheck_job(db_session, tmp_path)
+    seed_job.expected_missing_bytes = 2000
+    mock = _DelugeMock(torrents={"deadbeef": {"state": "Paused", "progress": 99.0, "paused": True,
+                                              "is_auto_managed": True, "total_wanted": 100_000,
+                                              "total_done": 99_000}})
+
+    executor.reconcile_seed_job(db_session, seed_job, deluge_adapter(mock))
+
+    assert seed_job.final_status == "seeding"
+    assert mock.called("core.resume_torrent") == [[["deadbeef"]]]
 
 
 def test_a_reseed_verified_at_100_percent_starts_right_away():

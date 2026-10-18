@@ -39,6 +39,7 @@ from nazgarr.adapters.torrent_client.base import (
     TorrentAddTimeoutError,
     TorrentAlreadyInClientError,
     TorrentClientAdapter,
+    TorrentStatus,
     is_stopped_state,
     layout_kwargs,
     stopped_kwargs,
@@ -620,28 +621,37 @@ def reconcile_seed_job(session: Session, seed_job: SeedJob, adapter: TorrentClie
     con il recheck fallito resta fermo, e il seed job fallito lo dice."""
     if seed_job.info_hash is None:
         raise ExecutionError(f"SeedJob {seed_job.id} does not have an info_hash yet")
+    return _reconcile_with(session, seed_job, adapter, adapter.get_torrent_status(seed_job.info_hash))
 
-    status = adapter.get_torrent_status(seed_job.info_hash)
-    recheck_status = status.recheck_status
+
+def _recheck_outcome(seed_job: SeedJob, status: TorrentStatus) -> str:
+    """L'esito del recheck di un seed job: quello del client, salvo un
+    recheck finito a cui mancano solo i file extra che si sapeva di non
+    avere (nfo, sottotitoli, sample, expected_missing_bytes), che è "ok":
+    il client li scarica dopo l'avvio."""
     allowed = seed_job.expected_missing_bytes or 0
     if (
-        recheck_status == "failed" and status.incomplete and allowed > 0
+        status.recheck_status == "failed" and status.incomplete and allowed > 0
         and status.amount_left is not None and status.amount_left <= allowed
     ):
-        # Recheck finito e mancano solo i file extra che si sapeva di non
-        # avere (nfo, sottotitoli, sample): il client li sta scaricando.
-        recheck_status = "ok"
         logger.info(
             "Seed_job %s: recheck ok, il client scarica %d byte di file extra mancanti",
             seed_job.id, status.amount_left,
         )
+        return "ok"
+    return status.recheck_status
+
+
+def _reconcile_with(session: Session, seed_job: SeedJob, adapter: TorrentClientAdapter,
+                    status: TorrentStatus) -> SeedJob:
+    recheck_status = _recheck_outcome(seed_job, status)
     seed_job.recheck_status = recheck_status
-    if recheck_status == "ok" and is_stopped_state(status.state) and not _start_after_recheck(adapter, seed_job):
-        session.commit()
-        return seed_job  # resta in corso: il prossimo reconcile riprova ad avviarlo
     if recheck_status == "ok":
-        seed_job.final_status = "seeding"
         seed_job.error_message = None  # un retry riuscito: il fallimento di prima non vale più
+        if is_stopped_state(status.state) and not _start_after_recheck(adapter, seed_job):
+            session.commit()
+            return seed_job  # resta in corso: il prossimo reconcile riprova ad avviarlo
+        seed_job.final_status = "seeding"
         logger.info("Recheck ok, seed_job %s in seeding (info_hash=%s)", seed_job.id, seed_job.info_hash)
     elif recheck_status == "failed":
         seed_job.final_status = "failed"
@@ -654,6 +664,7 @@ def reconcile_seed_job(session: Session, seed_job: SeedJob, adapter: TorrentClie
 
 STARTED_LATE = ("The recheck passed, but the client did not start the torrent: Nazgarr tries again at the "
                 "next check, or start it in the client")
+CANNOT_START = "The recheck passed, but this client cannot be told to start it: start it in the client"
 
 
 def _start_after_recheck(adapter: TorrentClientAdapter, seed_job: SeedJob) -> bool:
@@ -661,9 +672,20 @@ def _start_after_recheck(adapter: TorrentClientAdapter, seed_job: SeedJob) -> bo
     sempre fermo (decisione dell'utente, 2026-10-18), o la condizione di
     arresto "file controllati" di un client. False se il client non l'ha
     avviato: il seed job resta in corso, col perché, e il reconcile dopo
-    riprova (prima diventava "seeding" con il torrent fermo per sempre)."""
+    riprova (prima diventava "seeding" con il torrent fermo per sempre).
+    Un adapter che start() non ce l'ha (un plugin senza la classe base) o
+    non lo implementa non lo farà mai: "seeding", col messaggio di avviarlo
+    nel client, invece di riprovare per sempre a ogni reconcile."""
+    start = getattr(adapter, "start", None)
     try:
-        adapter.start(seed_job.info_hash)
+        if not callable(start):
+            raise NotImplementedError
+        start(seed_job.info_hash)
+    except NotImplementedError:
+        logger.warning("Seed_job %s: recheck riuscito, il client non sa avviare %s", seed_job.id,
+                       seed_job.info_hash)
+        seed_job.error_message = CANNOT_START
+        return True
     except Exception as exc:
         logger.warning("Seed_job %s: recheck riuscito, avvio fallito", seed_job.id, exc_info=True)
         seed_job.error_message = f"{STARTED_LATE} ({safe_error(exc)})"
@@ -680,9 +702,11 @@ def _stop_after_failed_recheck(adapter: TorrentClientAdapter, seed_job: SeedJob,
     scrivendoli nei file a save_path, che sono hardlink dei file in libreria
     (gli stessi byte), o i file già nella cartella dei torrent. Niente di
     approvato dall'utente. Ritorna la coda del messaggio del seed job. Un
-    retry che trova il recheck riuscito lo avvia (_start_after_recheck)."""
+    retry lo fa ricontrollare (adopt_for_retry), e il reconcile dopo lo
+    avvia se il recheck riesce (_start_after_recheck)."""
     if is_stopped_state(state):
-        return "; left stopped in the client, so it downloads nothing into the linked files"
+        return ("; left stopped in the client, so it downloads nothing into the linked files: recheck it in the "
+                "client, or Retry once the files are right")
     try:
         adapter.stop(seed_job.info_hash)
     except NotImplementedError:
@@ -697,16 +721,27 @@ def _stop_after_failed_recheck(adapter: TorrentClientAdapter, seed_job: SeedJob,
 
 def adopt_for_retry(session: Session, seed_job: SeedJob, adapter: TorrentClientAdapter) -> SeedJob | None:
     """La parte di un retry che segue un torrent già nel client, senza
-    creare niente: con un info_hash il problema era probabilmente solo il
-    recheck mai confermato, e si reinterroga il client (un torrent fermato
-    dopo un recheck fallito riparte se ora il recheck è riuscito); senza, se
-    il client ha comunque il torrent del candidato (l'aggiunta fallita può
-    essere arrivata lo stesso), lo si segue. None = va rifatto da zero."""
+    creare niente: con un info_hash si reinterroga il client; senza, se il
+    client ha comunque il torrent del candidato (l'aggiunta fallita può
+    essere arrivata lo stesso), lo si segue. None = va rifatto da zero.
+
+    Con un info_hash e il torrent fermo col recheck fallito (un reseed entra
+    fermo e ci resta, decisione dell'utente del 2026-10-18) si chiede un
+    nuovo recheck: un torrent fermo il client non lo ricontrolla da solo, e
+    rileggerlo diceva di nuovo "failed" anche coi file ora giusti. Il retry
+    è l'approvazione dell'utente, ed è un controllo, mai un avvio: il seed
+    job torna in corso e il reconcile dopo lo avvia solo se riesce."""
     if seed_job.info_hash:
         logger.info("Retry seed_job %s: info_hash già presente, reinterrogo il client", seed_job.id)
+        status = adapter.get_torrent_status(seed_job.info_hash)
+        if _recheck_outcome(seed_job, status) == "failed" and is_stopped_state(status.state) and _recheck_for_retry(
+                adapter, seed_job):
+            seed_job.final_status, seed_job.recheck_status, seed_job.error_message = "in_progress", "pending", None
+            session.commit()
+            return seed_job
         seed_job.final_status = "in_progress"
         session.commit()
-        return reconcile_seed_job(session, seed_job, adapter)
+        return _reconcile_with(session, seed_job, adapter, status)
     candidate = session.get(Candidate, seed_job.candidate_id)
     if candidate is not None and candidate.info_hash:
         try:
@@ -722,6 +757,25 @@ def adopt_for_retry(session: Session, seed_job: SeedJob, adapter: TorrentClientA
             session.commit()
             return reconcile_seed_job(session, seed_job, adapter)
     return None
+
+
+def _recheck_for_retry(adapter: TorrentClientAdapter, seed_job: SeedJob) -> bool:
+    """Il recheck chiesto da un retry. False se l'adapter non lo sa fare (un
+    plugin senza recheck): il retry rilegge soltanto, come prima. Un errore
+    del client è un retry fallito, e il seed job resta com'era."""
+    recheck = getattr(adapter, "recheck", None)
+    try:
+        if not callable(recheck):
+            raise NotImplementedError
+        recheck(seed_job.info_hash)
+    except NotImplementedError:
+        logger.warning("Retry seed_job %s: il client non sa ricontrollare %s", seed_job.id, seed_job.info_hash)
+        return False
+    except Exception as exc:
+        raise ExecutionError(f"The client did not take the recheck ({safe_error(exc)}): try again, or recheck "
+                             "it in the client") from exc
+    logger.info("Retry seed_job %s: recheck chiesto al client, resta fermo fino all'esito", seed_job.id)
+    return True
 
 
 def review_of(session: Session, seed_job: SeedJob) -> MatchReview:

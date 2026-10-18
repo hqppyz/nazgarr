@@ -215,8 +215,13 @@ class TorrentClientAdapter(ABC):
         return []
 
     def recheck(self, info_hash: str) -> None:
-        """Fa ricontrollare al client un torrent già aggiunto: il ripiego di
-        un upload aggiunto senza recheck se qualcosa non torna."""
+        """Fa ricontrollare al client un torrent già aggiunto, senza avviarlo
+        se è fermo: il ripiego di un upload aggiunto senza recheck se
+        qualcosa non torna, e il retry di un reseed rimasto fermo dopo un
+        recheck fallito (nazgarr/reseed/executor.py::adopt_for_retry; un
+        torrent fermo il client non lo ricontrolla da solo). Come dopo
+        add_torrent, get_torrent_status dice poi "pending" finché il
+        controllo non ha un esito, mai l'esito di prima."""
         raise NotImplementedError
 
     def remove_torrent(self, info_hash: str, delete_files: bool) -> None:
