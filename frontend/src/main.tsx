@@ -8,6 +8,7 @@ import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 
 import App from './App.tsx'
+import { shouldRetryQuery } from '@/api/client'
 import { AuthGate } from '@/components/auth/AuthGate'
 import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
@@ -22,6 +23,7 @@ polyfillCountryFlagEmojis('Twemoji Country Flags', flagsFont)
 // Dopo ogni salvataggio, la checklist del tour (src/onboarding) si riallinea:
 // un passo si chiude appena la configurazione c'è, ovunque sia stata fatta.
 const queryClient: QueryClient = new QueryClient({
+  defaultOptions: { queries: { retry: shouldRetryQuery } },
   mutationCache: new MutationCache({
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['setup-status'] }),
   }),

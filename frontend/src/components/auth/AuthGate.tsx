@@ -2,6 +2,7 @@ import { type ReactNode, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 
+import { ApiError } from '@/api/client'
 import { logout, useAuthStatus, useLogin, useMe, useSetup } from '@/api/hooks/auth'
 import { AuthContext } from '@/contexts/AuthContext'
 import { Button } from '@/components/ui/button'
@@ -115,15 +116,40 @@ function LoginScreen() {
   )
 }
 
+// Il server non ha risposto (rete, proxy, riavvio del container): né la
+// creazione dell'account né il login, che su un'istanza già configurata
+// farebbero credere di dover ricominciare da capo.
+function UnreachableScreen({ onRetry, retrying }: { onRetry: () => void; retrying: boolean }) {
+  return (
+    <CenteredCard title="Nazgarr" description={t('auth.unreachableDescription')}>
+      <Button onClick={onRetry} disabled={retrying}>
+        {t('common.retry')}
+      </Button>
+    </CenteredCard>
+  )
+}
+
 export function AuthGate({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient()
-  const { data: status, isPending: statusPending } = useAuthStatus()
-  const { data: me, isPending: mePending, isError: meError } = useMe(status?.configured === true)
+  const authStatus = useAuthStatus()
+  const { data: status, isPending: statusPending } = authStatus
+  const meQuery = useMe(status?.configured === true)
+  const { data: me, isPending: mePending, error: meError } = meQuery
 
   if (statusPending) return null
+  if (authStatus.isError && !status) {
+    return <UnreachableScreen onRetry={() => void authStatus.refetch()} retrying={authStatus.isFetching} />
+  }
   if (!status?.configured) return <SetupScreen />
   if (mePending) return null
-  if (meError || !me) return <LoginScreen />
+  // Solo un 401 vuol dire "rifai il login"; un altro errore è il server che
+  // non risponde, e la sessione può essere ancora buona: con i dati di prima
+  // l'app resta com'è, senza, si aspetta il server.
+  const loggedOut = meError instanceof ApiError && meError.status === 401
+  if (meError && !loggedOut && !me) {
+    return <UnreachableScreen onRetry={() => void meQuery.refetch()} retrying={meQuery.isFetching} />
+  }
+  if (loggedOut || !me) return <LoginScreen />
 
   return (
     <AuthContext.Provider value={{ username: me.username, logout: () => logout(queryClient) }}>

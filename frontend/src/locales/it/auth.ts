@@ -11,4 +11,5 @@ export const auth = {
   'auth.signIn': 'Accedi',
   'auth.creationFailed': 'Creazione dell’account non riuscita: {message}',
   'auth.invalidCredentialsToast': 'Credenziali non valide.',
+  'auth.unreachableDescription': 'Il server non risponde. Controlla che Nazgarr sia in esecuzione, poi riprova.',
 } as const
