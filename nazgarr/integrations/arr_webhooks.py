@@ -128,16 +128,20 @@ def locate(session: Session, arr_path: str, size: int | None) -> tuple[Disk, str
     return None
 
 
-def _gone(disk: Disk, relative_path: str) -> bool:
-    """Il file non è più sul disco. Solo "non esiste" vale: un errore di
-    lettura (permessi) lascia la riga com'è, ci pensa la scansione."""
+def _gone(row: MediaFile) -> bool:
+    """Il file della riga non è più sul disco: non esiste, o al suo posto c'è
+    un altro file (un upgrade con lo stesso nome: un altro inode, o un'altra
+    dimensione). Allora la riga passa dal forget, che scollega il torrent
+    vecchio, e record_media_file la rifà col file nuovo, collegato al suo
+    torrent per inode. Un errore di lettura (permessi) lascia la riga com'è,
+    ci pensa la scansione; lo stesso file (stesso inode) non si tocca."""
     try:
-        os.lstat(os.path.join(disk.root_path, relative_path))
+        st = os.lstat(os.path.join(row.disk.root_path, row.relative_path))
     except (FileNotFoundError, NotADirectoryError):
         return True
     except OSError:
         return False
-    return False
+    return (st.st_dev, st.st_ino) != (row.st_dev, row.inode) or st.st_size != row.size_bytes
 
 
 def _common_tail(parts: list[str], relative_path: str) -> int:
@@ -152,13 +156,14 @@ def _common_tail(parts: list[str], relative_path: str) -> int:
 
 
 def known_file(session: Session, arr_path: str, size: int | None) -> MediaFile | None:
-    """La riga attuale di un file che non c'è più (cancellato o rinominato):
-    stessa cartella e nome (le ultime due parti), la stessa dimensione, e il
-    file davvero sparito dal suo disco (audit 2026-10-18). Prima bastavano
-    nome e dimensione, su qualunque disco: con due copie uguali (su due
-    dischi, o in due cartelle media) si dimenticava quella ancora lì, e
-    quella cancellata restava attuale. Con più righe sparite, quella col
-    percorso più simile a quello di Radarr/Sonarr, a parità la più vecchia."""
+    """La riga attuale di un file che non c'è più (cancellato, rinominato o
+    sostituito con lo stesso nome): stessa cartella e nome (le ultime due
+    parti), la stessa dimensione, e il file davvero sparito dal suo disco
+    (_gone, audit 2026-10-18). Prima bastavano nome e dimensione, su
+    qualunque disco: con due copie uguali (su due dischi, o in due cartelle
+    media) si dimenticava quella ancora lì, e quella cancellata restava
+    attuale. Con più righe sparite, quella col percorso più simile a quello
+    di Radarr/Sonarr, a parità la più vecchia."""
     parts = _parts(arr_path)
     if not parts:
         return None
@@ -177,7 +182,7 @@ def known_file(session: Session, arr_path: str, size: int | None) -> MediaFile |
         relative = row.relative_path.lower()
         if relative != tail and not relative.endswith("/" + tail):
             continue
-        if not _gone(row.disk, row.relative_path):
+        if not _gone(row):
             continue
         common = _common_tail(parts, row.relative_path)
         if common > best_tail:

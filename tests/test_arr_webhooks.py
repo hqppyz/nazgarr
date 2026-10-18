@@ -200,6 +200,41 @@ def test_a_delete_of_a_file_still_on_the_disk_forgets_nothing(db_session, tmp_pa
     assert _current(db_session, one, FOO) and _current(db_session, two, FOO)
 
 
+def test_an_upgrade_with_the_same_name_unlinks_the_old_torrent(db_session, tmp_path):
+    """Revisione dell'audit 2026-10-18: un upgrade con lo stesso nome (un file
+    nuovo, un altro inode) deve passare dal forget. Se la riga si aggiornava
+    in place, il seed_file del torrent vecchio restava collegato al file
+    nuovo: in seed per la libreria, e il torrent vecchio mai orfano, fino
+    alla scansione successiva."""
+    root, disk = _library(db_session, tmp_path)
+    folder = root / "media" / "movies" / "The Matrix (1999)"
+    folder.mkdir()
+    torrent_file = root / "torrents" / "The.Matrix.1999.mkv"
+    torrent_file.write_bytes(b"x" * 100)
+    os.link(torrent_file, folder / "The Matrix (1999).mkv")
+    _scan(db_session, disk)
+    _scan(db_session, disk)
+    relative = "media/movies/The Matrix (1999)/The Matrix (1999).mkv"
+    old_seed = db_session.query(SeedFile).filter_by(relative_path="torrents/The.Matrix.1999.mkv").one()
+    assert old_seed.media_file_id is not None
+    # Radarr sostituisce il file con uno nuovo, stesso nome, contenuto diverso.
+    (folder / "The Matrix (1999).mkv").unlink()
+    (folder / "The Matrix (1999).mkv").write_bytes(b"n" * 120)
+
+    event = _event(db_session, "radarr", _radarr(db_session), _download(
+        "/movies/The Matrix (1999)/The Matrix (1999).mkv", 120,
+        deleted=[{"path": "/movies/The Matrix (1999)/The Matrix (1999).mkv", "size": 100}]))
+
+    assert event.status == "done", event.detail
+    assert "replaced" in event.detail
+    db_session.expire_all()
+    assert db_session.get(SeedFile, old_seed.id).media_file_id is None
+    media_file = db_session.query(MediaFile).filter_by(disk_id=disk.id, relative_path=relative).one()
+    assert _current(db_session, disk, relative)
+    assert media_file.size_bytes == 120
+    assert media_file.inode == os.stat(folder / "The Matrix (1999).mkv").st_ino
+
+
 def test_a_path_from_the_webhook_never_leaves_the_media_folders(db_session, tmp_path):
     root, disk = _library(db_session, tmp_path)
     (root / "secret.mkv").write_bytes(b"s" * 10)  # sul disco, fuori dalle cartelle media
