@@ -49,6 +49,7 @@ from nazgarr.core.models import Candidate, Disk, DiskTorrentClient, MatchReview,
 from nazgarr.integrations import adapter_factory
 from nazgarr.library import hardlinks
 from nazgarr.library.tmdb_client import TMDBClient
+from nazgarr.reseed import download_links
 from nazgarr.torrents import client_labels, client_paths
 from nazgarr.torrents.layout import expected_missing_bytes
 from nazgarr.torrents.metainfo import TorrentMetainfoError, compute_info_hash, parse_torrent_info
@@ -126,7 +127,7 @@ def _download_torrent(candidate: Candidate) -> bytes:
         raise ExecutionError("The candidate's tracker no longer exists: its .torrent cannot be downloaded")
     try:
         with adapter_factory.tracker(tracker) as tracker_adapter:
-            return tracker_adapter.download_torrent(candidate.download_link)
+            return download_links.download(tracker_adapter, candidate)  # la chiave rimessa qui
     except Exception as exc:
         raise ExecutionError(f"Could not download the .torrent from {tracker.label}: {safe_error(exc)}") from exc
 

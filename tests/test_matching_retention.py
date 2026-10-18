@@ -132,3 +132,24 @@ def test_a_pack_without_the_seed_file_does_not_hide_it_from_its_own_files(db_ses
     assert reviewed == {"900", "901"}
     # Nessuna riga per il pack valutato da un file che non ne fa parte.
     assert db_session.query(Candidate).count() == 2
+
+
+def test_a_new_search_drops_what_no_longer_concerns_the_file(db_session, tmp_path, monkeypatch):
+    # Righe salvate da una ricerca di prima (i singoli degli altri episodi,
+    # un torrent tolto dal tracker): la ricerca dopo le toglie, ma non quelle
+    # che una review usa.
+    from nazgarr.core import settings_repo
+
+    _no_mediainfo(monkeypatch)
+    settings_repo.set_setting(db_session, "rematch_interval_days", "0")
+    _disk, tracker, (e01, _e02) = _library(db_session, tmp_path)
+    others = [_single(str(100 + n), f"Show.S01E{n:02d}.1080p-GRP.mkv", 1000 + n) for n in range(3, 6)]
+    gone = _single("500", "Show.S01E01.WEB-GONE.mkv", 998)
+    with monkeypatch.context() as old:
+        old.setattr(matching, "_unrelated", lambda *a: False)  # come prima del fix
+        matching.run_media_to_torrent_matching(db_session, tracker, PackTracker([*others, gone]))
+    assert db_session.query(Candidate).filter_by(media_item_id=e01.media_item_id).count() == 4
+
+    matching.run_media_to_torrent_matching(db_session, tracker, PackTracker([]))
+
+    assert db_session.query(Candidate).count() == 0

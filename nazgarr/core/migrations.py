@@ -36,6 +36,68 @@ from nazgarr.core import db
 logger = logging.getLogger(__name__)
 
 
+def clean_stale_candidates(engine: Engine) -> dict[str, int]:
+    """Una tantum (audit 2026-10-18): ogni ricerca riscriveva tutti i suoi
+    risultati come candidate nuovi, e niente li toglieva. Per ogni torrent
+    valutato per lo stesso contenuto, tracker e direzione resta la riga più
+    recente; le altre vanno, coi loro candidate_file, solo se nessuna review
+    e nessun seed_job le usa (seed_job.candidate_id è in cascata: si
+    perderebbe la storia delle esecuzioni). Toglie anche la chiave dei link
+    di download UNIT3D salvati in chiaro (nazgarr/reseed/download_links.py).
+    Idempotente. Se ha tolto molto, compatta il file (VACUUM), se si può."""
+    from nazgarr.reseed.download_links import strip_key
+
+    with engine.begin() as conn:
+        conn.exec_driver_sql("DROP TABLE IF EXISTS temp.stale_candidate")
+        conn.exec_driver_sql("""
+            CREATE TEMP TABLE stale_candidate AS
+            SELECT id FROM (
+                SELECT c.id, ROW_NUMBER() OVER (
+                    PARTITION BY c.media_item_id, c.tracker_id, c.torrent_id_remote, c.direction
+                    ORDER BY c.id DESC) AS position
+                FROM candidate c
+                WHERE NOT EXISTS (SELECT 1 FROM match_review r WHERE r.candidate_id = c.id)
+                  AND NOT EXISTS (SELECT 1 FROM seed_job s WHERE s.candidate_id = c.id)
+            ) WHERE position > 1
+        """)
+        conn.exec_driver_sql("DELETE FROM candidate_file WHERE candidate_id IN (SELECT id FROM temp.stale_candidate)")
+        removed = conn.exec_driver_sql(
+            "DELETE FROM candidate WHERE id IN (SELECT id FROM temp.stale_candidate)").rowcount or 0
+        conn.exec_driver_sql("DROP TABLE temp.stale_candidate")
+        remaining = conn.exec_driver_sql("SELECT count(*) FROM candidate").scalar() or 0
+        keyed = conn.execute(text(
+            "SELECT c.id, c.download_link FROM candidate c JOIN tracker t ON t.id = c.tracker_id "
+            "WHERE t.adapter_type = 'unit3d' AND c.download_link LIKE '%/torrent/download/%'"
+        )).all()
+        stripped = 0
+        for candidate_id, link in keyed:
+            clean = strip_key(link)
+            if clean != link:
+                conn.execute(text("UPDATE candidate SET download_link = :link WHERE id = :id"),
+                             {"link": clean, "id": candidate_id})
+                stripped += 1
+    if removed:
+        logger.info("Database: %d candidati doppi tolti, %d restano", removed, remaining)
+    if stripped:
+        logger.info("Database: chiave tolta da %d link di download", stripped)
+    if removed >= 10_000 and removed >= remaining:
+        _vacuum(engine)
+    return {"removed": removed, "stripped": stripped}
+
+
+def _vacuum(engine: Engine) -> None:
+    """Restituisce al disco lo spazio delle righe tolte. Un di più: serve
+    spazio libero quanto il database, e se manca l'avvio continua."""
+    raw = engine.raw_connection()
+    try:
+        raw.cursor().execute("VACUUM")
+        logger.info("Database compattato")
+    except Exception as exc:  # noqa: BLE001 — mai fermare l'avvio per questo
+        logger.warning("Database non compattato (VACUUM): %s", exc)
+    finally:
+        raw.close()
+
+
 @dataclass(frozen=True)
 class Migration:
     version: int
@@ -62,6 +124,8 @@ MIGRATIONS: tuple[Migration, ...] = (
               before_schema=False),
     Migration(10, "azioni ON DELETE di candidate e seed_job, FK di upload_job.split_from_id",
               db.migrate_foreign_key_actions, before_schema=True),
+    Migration(11, "candidati doppi tolti, link di download senza chiave", clean_stale_candidates,
+              before_schema=False),
 )
 
 LATEST = MIGRATIONS[-1].version

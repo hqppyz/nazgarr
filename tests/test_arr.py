@@ -380,7 +380,10 @@ def test_history_link_is_rewritten_with_the_current_key_without_extra_calls(db_s
     matching.run_media_to_torrent_matching(db_session, tracker, adapter, index)
 
     assert adapter.downloads == [current]
-    assert db_session.query(Candidate).one().download_link == current
+    # Nel DB mai la chiave: si rimette quando il .torrent si scarica (audit 2026-10-18).
+    stored = db_session.query(Candidate).one().download_link
+    assert stored == "https://itatorrents.xyz/torrent/download/4242.rsskey"
+    assert "currentkey" not in stored
 
 
 def test_pipeline_remembers_the_learned_key_and_the_api_never_returns_it(db_session, tmp_path, monkeypatch):

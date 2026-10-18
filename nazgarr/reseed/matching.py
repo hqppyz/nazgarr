@@ -62,6 +62,7 @@ from nazgarr.library.seeding import (
     torrent_format,
 )
 from nazgarr.reseed import review
+from nazgarr.reseed.download_links import stored_link
 from nazgarr.torrents.layout import (
     CONFIDENCE_NO_MATCH,
     CONFIDENCE_PIECE_VERIFIED,  # noqa: F401  (riesportate: le soglie vivono in torrent_layout)
@@ -218,6 +219,7 @@ def _evaluate(ctx: MatchContext, layout: Layout, anchor, *, download_link: str |
 
 def _persist(
     ctx: MatchContext,
+    anchor: MediaFile | SeedFile,
     *,
     media_item_id: int,
     torrent_id_remote: str,
@@ -237,7 +239,7 @@ def _persist(
     crescevano senza limite (audit 2026-10-18). Una riga che una review o
     un seed_job usa non si tocca mai: è quella che l'utente ha visto o che
     è stata eseguita."""
-    candidate = _reusable_candidate(ctx, media_item_id, torrent_id_remote)
+    candidate = _reusable_candidate(ctx, media_item_id, torrent_id_remote, anchor)
     if candidate is None:
         candidate = Candidate(media_item_id=media_item_id, tracker_id=ctx.tracker_row.id,
                               torrent_id_remote=torrent_id_remote, direction=ctx.direction)
@@ -250,7 +252,7 @@ def _persist(
     candidate.size_bytes = size_bytes
     candidate.file_list_json = json.dumps([f.path for f in layout.files])
     candidate.folder = layout.folder
-    candidate.download_link = download_link
+    candidate.download_link = stored_link(ctx.tracker_adapter, download_link)  # mai la chiave nel DB
     candidate.source = source
     candidate.size_match = evaluation.size_match
     candidate.mediainfo_match = evaluation.mediainfo_match
@@ -275,15 +277,24 @@ def _persist(
     return candidate
 
 
-def _reusable_candidate(ctx: MatchContext, media_item_id: int, torrent_id_remote: str) -> Candidate | None:
-    """La riga da aggiornare per questo torrent, se c'è: per contenuto,
-    tracker e direzione, la più recente senza review né seed_job. Lette una
-    volta per contenuto in ogni passaggio, e ognuna usata una volta sola:
-    in una run due file dello stesso contenuto (due versioni di un film)
-    tengono ciascuno la sua valutazione."""
+def _anchor_column(anchor: MediaFile | SeedFile) -> str:
+    return "media_file_id" if isinstance(anchor, MediaFile) else "seed_file_id"
+
+
+def _for_anchor(candidate: Candidate, anchor: MediaFile | SeedFile) -> bool:
+    column = _anchor_column(anchor)
+    return any(getattr(f, column) == anchor.id for f in candidate.files)
+
+
+def _unused_candidates(ctx: MatchContext, media_item_id: int) -> dict[str, list[Candidate]]:
+    """Le righe di questo contenuto su questo tracker e in questa direzione
+    che nessuna review e nessun seed_job usa, per torrent, dalla più recente:
+    lette una volta per contenuto in ogni passaggio. Durante il matching
+    nessun'altra parte crea review o esecuzioni su queste righe."""
     if media_item_id not in ctx._reusable:
         rows = (
             ctx.session.query(Candidate)
+            .options(selectinload(Candidate.files))
             .filter(Candidate.media_item_id == media_item_id, Candidate.tracker_id == ctx.tracker_row.id,
                     Candidate.direction == ctx.direction,
                     ~exists().where(MatchReview.candidate_id == Candidate.id),
@@ -291,11 +302,48 @@ def _reusable_candidate(ctx: MatchContext, media_item_id: int, torrent_id_remote
             .order_by(Candidate.id.desc())
             .all()
         )
-        by_remote: dict[str, Candidate] = {}
+        by_remote: dict[str, list[Candidate]] = {}
         for row in rows:
-            by_remote.setdefault(row.torrent_id_remote, row)
+            by_remote.setdefault(row.torrent_id_remote, []).append(row)
         ctx._reusable[media_item_id] = by_remote
-    return ctx._reusable[media_item_id].pop(torrent_id_remote, None)
+    return ctx._reusable[media_item_id]
+
+
+def _reusable_candidate(ctx: MatchContext, media_item_id: int, torrent_id_remote: str,
+                        anchor: MediaFile | SeedFile) -> Candidate | None:
+    """La riga da aggiornare per questo torrent, se c'è: quella valutata per
+    lo stesso file, altrimenti la più recente. Ognuna si usa una volta sola
+    per passaggio: in una run due file dello stesso contenuto (due versioni
+    di un film) tengono ciascuno la sua valutazione."""
+    rows = _unused_candidates(ctx, media_item_id).get(torrent_id_remote)
+    if not rows:
+        return None
+    pick = next((row for row in rows if _for_anchor(row, anchor)), rows[0])
+    rows.remove(pick)
+    return pick
+
+
+def _drop_stale(ctx: MatchContext, media_item_id: int, anchor: MediaFile | SeedFile, formats: frozenset[str],
+                skip: frozenset[str]) -> None:
+    """Dopo una ricerca: le righe di prima per questo file (nei formati
+    cercati) che la ricerca non ha riscritto, cioè torrent che il tracker non
+    restituisce più o che ora non lo riguardano (il singolo di un altro
+    episodio), o un pack che in questa run ha valutato un altro episodio.
+    Solo righe che nessuna review e nessun seed_job usa, controllato di nuovo
+    nella DELETE stessa: una review in cascata non si perde mai."""
+    stale = []
+    for remote, rows in _unused_candidates(ctx, media_item_id).items():
+        if remote in skip:
+            continue
+        for row in [r for r in rows if _for_anchor(r, anchor) and review.candidate_format(r) in formats]:
+            rows.remove(row)
+            stale.append(row.id)
+    if stale:
+        ctx.session.query(Candidate).filter(
+            Candidate.id.in_(stale),
+            ~exists().where(MatchReview.candidate_id == Candidate.id),
+            ~exists().where(SeedJob.candidate_id == Candidate.id),
+        ).delete(synchronize_session=False)
 
 
 def match_file(ctx: MatchContext, anchor: MediaFile | SeedFile, media_item_id: int, tmdb_id: int,
@@ -351,10 +399,11 @@ def match_file(ctx: MatchContext, anchor: MediaFile | SeedFile, media_item_id: i
         if multi_video:
             ctx.evaluated_packs.add(tc.torrent_id_remote)
         persisted.append(_persist(
-            ctx, media_item_id=media_item_id, torrent_id_remote=tc.torrent_id_remote, name=tc.name,
+            ctx, anchor, media_item_id=media_item_id, torrent_id_remote=tc.torrent_id_remote, name=tc.name,
             size_bytes=tc.size_bytes, layout=layout, evaluation=evaluation, download_link=tc.download_link,
             info_hash=tc.info_hash, source="catalog_search",
         ))
+    _drop_stale(ctx, media_item_id, anchor, formats, skip)
     ctx.session.commit()
     return persisted
 
@@ -394,7 +443,7 @@ def match_from_history(ctx: MatchContext, anchor: MediaFile | SeedFile, media_it
     if len(layout.videos) > 1 and evaluation.ambiguity_reason not in _UNRELATED_REASONS:
         ctx.evaluated_packs.add(grab.torrent_id_remote)
     candidate = _persist(
-        ctx, media_item_id=media_item_id, torrent_id_remote=grab.torrent_id_remote, name=parsed.name,
+        ctx, anchor, media_item_id=media_item_id, torrent_id_remote=grab.torrent_id_remote, name=parsed.name,
         size_bytes=parsed.total_length, layout=layout, evaluation=evaluation, download_link=download_link,
         info_hash=grab.info_hash, source="history",
     )
