@@ -147,7 +147,7 @@ def _torrent_to_add(session: Session, candidate: Candidate, fetch_torrent: Fetch
     if expected and expected != info_hash:
         raise ExecutionError(
             f"The tracker sent a different .torrent (info hash {info_hash}) from the one that was matched "
-            f"and checked ({expected}): nothing added"
+            f"and checked ({expected}): nothing added. Delete this execution so the next scan matches it again"
         )
     if not expected:
         candidate.info_hash = info_hash
