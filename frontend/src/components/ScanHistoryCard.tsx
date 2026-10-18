@@ -1,5 +1,5 @@
 import type { Schemas } from '@/api/client'
-import { useRuns } from '@/api/hooks/runs'
+import { RUNS_SHOWN, useRuns } from '@/api/hooks/runs'
 import { ErrorsPopover } from '@/components/ErrorsPopover'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -8,8 +8,6 @@ import { t } from '@/lib/i18n'
 import { parseApiDate, relativeFromNow } from '@/lib/time'
 
 type Run = Schemas['RunResponse']
-
-const MAX_SHOWN = 10
 
 // "Scan now" registra la run come bulk_import: per l'utente è manuale.
 function isScheduled(run: Run) {
@@ -33,7 +31,7 @@ function StatusNote({ run }: { run: Run }) {
 // alle novità, perché racconta lo stesso: cosa è successo e quando.
 export function ScanHistoryCard({ className }: { className?: string }) {
   const { data: runs, isPending } = useRuns()
-  const shown = runs?.slice(0, MAX_SHOWN)
+  const shown = runs?.slice(0, RUNS_SHOWN)
 
   return (
     <Card className={className}>

@@ -12,10 +12,14 @@ export function nextRunsRefetchInterval(runs: Schemas['RunResponse'][] | undefin
   return anyInProgress ? 3_000 : false
 }
 
+// Le ultime: la run in corso è sempre la prima, e la cronologia ne mostra
+// tante. Tutte, dopo mesi di run ogni ora, erano MB a ogni poll (audit 2026-10-18).
+export const RUNS_SHOWN = 10
+
 export function useRuns() {
   return useQuery({
     queryKey: ['runs'],
-    queryFn: () => unwrap(api.GET('/api/runs')),
+    queryFn: () => unwrap(api.GET('/api/runs', { params: { query: { limit: RUNS_SHOWN } } })),
     refetchInterval: (query) => nextRunsRefetchInterval(query.state.data),
   })
 }

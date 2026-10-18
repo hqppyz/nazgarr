@@ -208,3 +208,31 @@ def test_radarr_identity_wins_over_the_one_guessed_from_the_name(db_session, tmp
     assert counts["corrected"] == 1
     assert (mf.media_item.tmdb_id, mf.resolver_source) == (575264, "radarr")
     assert untouched.media_item.tmdb_id == 7
+
+
+def test_files_gone_from_the_disk_are_neither_unmatched_nor_resolved_again(db_session, tmp_path):
+    """Audit 2026-10-18: lo scanner non cancella le righe, e un video non
+    identificato poi cancellato restava "unmatched" per sempre e tornava al
+    resolver (e su TMDB) a ogni run."""
+    from nazgarr.library import health
+    from nazgarr.library import states as library
+
+    disk, first = _setup(db_session)
+    make_media_file(db_session, disk, "movies/Garbage.Name.mkv", first)  # visto solo dal primo scan
+    first.finished_at = first.started_at
+    second = pipeline.start_run(db_session, run_type="manual")
+    make_media_file(db_session, disk, "movies/Another.Junk.mkv", second)
+    disk.media_scan_id = second.id
+    db_session.commit()
+    asked = []
+
+    class Recording(FakeResolver):
+        def resolve(self, file_path):
+            asked.append(file_path)
+            return None
+
+    counts = media_resolution.resolve_unmatched_media_files(db_session, Recording({}), str(tmp_path / "posters"))
+
+    assert [f["relative_path"] for f in library.unmatched_media_files(db_session)] == ["movies/Another.Junk.mkv"]
+    assert health.shared_metrics(db_session)["unmatched"] == 1
+    assert asked == ["/mnt/disk1/movies/Another.Junk.mkv"] and counts["unresolved"] == 1

@@ -27,13 +27,33 @@ def torrent_host(url: str | None) -> str | None:
     return host.removeprefix("www.") if host else None
 
 
+# Un id di tracker è un intero di SQLite: oltre queste cifre non è un id
+# (int() rifiuta più di 4300 cifre, SQLite più di 2**63).
+MAX_ID_DIGITS = 9
+
+
 def normalize(scope: str | None) -> str:
-    """Un filtro valido, o "all": un valore sconosciuto non restringe nulla."""
+    """Un filtro valido, o "all": un valore sconosciuto non restringe nulla.
+    Un id ha una forma sola (audit 2026-10-18): '01' e '1' sono lo stesso
+    tracker, quindi la stessa risposta in cache (nazgarr/web/response_cache.py),
+    e una cifra non ASCII ('²', che str.isdigit accetta) vale "all", non un 500."""
     if scope in (None, "", ALL):
         return ALL
-    if scope == CONFIGURED or scope.isdigit():
+    if scope == CONFIGURED:
         return scope
+    if scope.isascii() and scope.isdigit() and len(scope) <= MAX_ID_DIGITS:
+        return str(int(scope))
     return ALL
+
+
+def resolve(session: Session, scope: str | None) -> str:
+    """Come normalize, e un tracker che non c'è (tolto, o un id a caso) vale
+    "all" come ogni valore sconosciuto: prima ogni id inventato calcolava e
+    teneva in memoria una vista intera, con ogni file orfano."""
+    scope = normalize(scope)
+    if scope not in (ALL, CONFIGURED) and session.get(Tracker, int(scope)) is None:
+        return ALL
+    return scope
 
 
 def _trackers(session: Session, scope: str) -> list[Tracker]:

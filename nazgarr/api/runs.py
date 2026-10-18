@@ -10,13 +10,13 @@ bloccata per la durata di una run su una libreria grande.
 import json
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session, sessionmaker
 
 from nazgarr.core.errors import coded_detail
 from nazgarr.core.models import RunLog
-from nazgarr.reseed import pipeline
+from nazgarr.reseed import exclusive, pipeline
 from nazgarr.web.deps import get_session
 
 router = APIRouter(prefix="/api/runs", tags=["runs"])
@@ -94,10 +94,14 @@ def _run_bulk_import_bg(session_factory: sessionmaker, run_id: int, data_dir: st
 def trigger_bulk_import(
     request: Request, background_tasks: BackgroundTasks, session: Session = Depends(get_session)
 ):
+    # Aspetta qualche secondo il lavoro a lato in corso (webhook, "Cerca ora"):
+    # mai una run a metà di quello (nazgarr/reseed/exclusive.py).
     try:
-        run = pipeline.try_start_run(session, run_type="bulk_import")
+        run = exclusive.start_run(session, run_type="bulk_import")
     except pipeline.RunInProgressError as exc:
         raise HTTPException(status_code=409, detail=coded_detail("run_in_progress")) from exc
+    except exclusive.Busy as exc:  # nessuna run, ma il lavoro a lato non è finito in tempo
+        raise HTTPException(status_code=409, detail=coded_detail(exc.code)) from exc
     background_tasks.add_task(
         _run_bulk_import_bg, request.app.state.session_factory, run.id, request.app.state.settings.data_dir
     )
@@ -121,8 +125,18 @@ def cancel_run(run_id: int, session: Session = Depends(get_session)):
 
 
 @router.get("", response_model=list[RunResponse])
-def list_runs(session: Session = Depends(get_session)):
-    return [RunResponse.from_model(r) for r in session.query(RunLog).order_by(RunLog.id.desc()).all()]
+def list_runs(
+    limit: int = Query(100, ge=1, le=1000), before_id: int | None = None, session: Session = Depends(get_session),
+):
+    """Dalla più recente, al massimo `limit`; before_id: le run prima di
+    quella (la pagina dopo). run_log non si sfoltisce mai (lo storico della
+    dashboard e last_scan_id ci contano): senza limite, dopo un anno di run
+    ogni ora erano 11 MB, chiesti ogni 3 s durante una run (audit 2026-10-18).
+    La run in corso, se c'è, è sempre la prima."""
+    query = session.query(RunLog)
+    if before_id is not None:
+        query = query.filter(RunLog.id < before_id)
+    return [RunResponse.from_model(r) for r in query.order_by(RunLog.id.desc()).limit(limit).all()]
 
 
 @router.get("/{run_id}", response_model=RunResponse)

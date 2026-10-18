@@ -128,9 +128,42 @@ def locate(session: Session, arr_path: str, size: int | None) -> tuple[Disk, str
     return None
 
 
+def _gone(row: MediaFile) -> bool:
+    """Il file della riga non è più sul disco: non esiste, o al suo posto c'è
+    un altro file (un upgrade con lo stesso nome: un altro inode, o un'altra
+    dimensione). Allora la riga passa dal forget, che scollega il torrent
+    vecchio, e record_media_file la rifà col file nuovo, collegato al suo
+    torrent per inode. Un errore di lettura (permessi) lascia la riga com'è,
+    ci pensa la scansione; lo stesso file (stesso inode) non si tocca."""
+    try:
+        st = os.lstat(os.path.join(row.disk.root_path, row.relative_path))
+    except (FileNotFoundError, NotADirectoryError):
+        return True
+    except OSError:
+        return False
+    return (st.st_dev, st.st_ino) != (row.st_dev, row.inode) or st.st_size != row.size_bytes
+
+
+def _common_tail(parts: list[str], relative_path: str) -> int:
+    """Quante parti finali del percorso di Radarr/Sonarr coincidono con quello della riga."""
+    mine = [p.lower() for p in relative_path.split("/") if p]
+    count = 0
+    for theirs, ours in zip(reversed(parts), reversed(mine), strict=False):
+        if theirs.lower() != ours:
+            break
+        count += 1
+    return count
+
+
 def known_file(session: Session, arr_path: str, size: int | None) -> MediaFile | None:
-    """La riga attuale di un file che non c'è più (cancellato o rinominato):
-    stessa cartella e nome (le ultime due parti), e la stessa dimensione."""
+    """La riga attuale di un file che non c'è più (cancellato, rinominato o
+    sostituito con lo stesso nome): stessa cartella e nome (le ultime due
+    parti), la stessa dimensione, e il file davvero sparito dal suo disco
+    (_gone, audit 2026-10-18). Prima bastavano nome e dimensione, su
+    qualunque disco: con due copie uguali (su due dischi, o in due cartelle
+    media) si dimenticava quella ancora lì, e quella cancellata restava
+    attuale. Con più righe sparite, quella col percorso più simile a quello
+    di Radarr/Sonarr, a parità la più vecchia."""
     parts = _parts(arr_path)
     if not parts:
         return None
@@ -139,13 +172,22 @@ def known_file(session: Session, arr_path: str, size: int | None) -> MediaFile |
     rows = (
         session.query(MediaFile)
         .filter(func.lower(MediaFile.relative_path).like(f"%{tail}"))
+        .order_by(MediaFile.id)
         .all()
     )
+    best, best_tail = None, 0
     for row in rows:
-        if current.get(row.disk_id) == row.last_scan_id and (not size or row.size_bytes == size):
-            if row.relative_path.lower() == tail or row.relative_path.lower().endswith("/" + tail):
-                return row
-    return None
+        if current.get(row.disk_id) != row.last_scan_id or (size and row.size_bytes != size):
+            continue
+        relative = row.relative_path.lower()
+        if relative != tail and not relative.endswith("/" + tail):
+            continue
+        if not _gone(row):
+            continue
+        common = _common_tail(parts, row.relative_path)
+        if common > best_tail:
+            best, best_tail = row, common
+    return best
 
 
 # --- identità ----------------------------------------------------------------------------
@@ -324,12 +366,20 @@ def _complete(session: Session, data_dir: str | None) -> None:
 
 def process_pending(session: Session, now: datetime | None = None, data_dir: str | None = None) -> int:
     """Dallo scheduler: gli eventi in coda da almeno QUIET, uno alla volta.
-    Mai durante una run (lo scheduler riprova al giro dopo). Poi titoli e
-    poster dei contenuti nuovi, e i cambiamenti per la Dashboard."""
-    from nazgarr.reseed import pipeline
+    Mai durante una run, né insieme a "Cerca ora" (nazgarr/reseed/exclusive.py:
+    lo scheduler riprova al giro dopo); una run che parte nel frattempo
+    aspetta la fine. Poi titoli e poster dei contenuti nuovi, e i
+    cambiamenti per la Dashboard."""
+    from nazgarr.reseed import exclusive
 
-    if pipeline.run_in_progress(session):
+    try:
+        with exclusive.side_work(session):
+            return _process_pending(session, now, data_dir)
+    except exclusive.Busy:
         return 0
+
+
+def _process_pending(session: Session, now: datetime | None, data_dir: str | None) -> int:
     now = now or datetime.now(UTC)
     events = (
         session.query(ArrWebhookEvent)

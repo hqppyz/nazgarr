@@ -285,7 +285,14 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Runs */
+        /**
+         * List Runs
+         * @description Dalla più recente, al massimo `limit`; before_id: le run prima di
+         *     quella (la pagina dopo). run_log non si sfoltisce mai (lo storico della
+         *     dashboard e last_scan_id ci contano): senza limite, dopo un anno di run
+         *     ogni ora erano 11 MB, chiesti ogni 3 s durante una run (audit 2026-10-18).
+         *     La run in corso, se c'è, è sempre la prima.
+         */
         get: operations["list_runs_api_runs_get"];
         put?: never;
         /** Trigger Bulk Import */
@@ -474,7 +481,9 @@ export interface paths {
          * Search Item Now
          * @description Cerca subito sui tracker i file orfani di questo contenuto, ignorando
          *     l'intervallo fra una ricerca e l'altra. Non modifica file né client:
-         *     al massimo crea review, che restano da approvare in Reseeding.
+         *     al massimo crea review, che restano da approvare in Reseeding. Mai
+         *     insieme a una run o agli eventi dei webhook (nazgarr/reseed/exclusive.py):
+         *     una run che parte nel frattempo aspetta la fine della ricerca.
          */
         post: operations["search_item_now_api_library_items__content_type___tmdb_id__search_post"];
         delete?: never;
@@ -1355,8 +1364,12 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Not Imported */
-        get: operations["list_not_imported_api_torrents_not_imported_get"];
+        /**
+         * Get Not Imported
+         * @description In cache finché i dati non cambiano (nazgarr/web/response_cache.py), come
+         *     le altre viste della libreria: 304 se il browser ha già quella versione.
+         */
+        get: operations["get_not_imported_api_torrents_not_imported_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1378,6 +1391,7 @@ export interface paths {
          * Refresh Not Imported
          * @description Ricalcola subito, senza aspettare uno scan: rilegge la history di
          *     Radarr/Sonarr e i dati già indicizzati. Sola lettura su file e client.
+         *     Mai insieme a una run o ad altro lavoro a lato (nazgarr/reseed/exclusive.py).
          */
         post: operations["refresh_not_imported_api_torrents_not_imported_refresh_post"];
         delete?: never;
@@ -1437,7 +1451,8 @@ export interface paths {
          * Get Dashboard
          * @description La dashboard si interroga ogni 15 secondi: la risposta resta in cache
          *     finché i dati non cambiano (nazgarr/web/response_cache.py), invece di
-         *     ricalcolare la salute di tutta la libreria a ogni giro.
+         *     ricalcolare la salute di tutta la libreria a ogni giro. Un tracker che
+         *     non c'è vale "all", un disco che non c'è è un 404 (audit 2026-10-18).
          */
         get: operations["get_dashboard_api_dashboard_get"];
         put?: never;
@@ -1460,7 +1475,8 @@ export interface paths {
          * @description Dalla più recente. `days`: solo le scansioni finite negli ultimi N
          *     giorni (finestra 7d/30d/90d della dashboard), fino a 1000; senza, le
          *     ultime `limit`. `tracker`: lo storico di quel filtro, che parte dalla
-         *     prima scansione dopo la sua introduzione.
+         *     prima scansione dopo la sua introduzione; uno che non c'è, quello globale
+         *     come i numeri della dashboard.
          */
         get: operations["get_history_api_dashboard_history_get"];
         put?: never;
@@ -1499,11 +1515,38 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Uploads */
+        /**
+         * List Uploads
+         * @description Dal più recente. scope=active: solo quelli non finiti, pochi, per la
+         *     coda che si interroga ogni 2 s; lo storico è paginato a parte
+         *     (/api/uploads/history). Senza scope tutti, come prima (CLI, istanze
+         *     remote di versioni precedenti).
+         */
         get: operations["list_uploads_api_uploads_get"];
         put?: never;
         /** Create Upload */
         post: operations["create_upload_api_uploads_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/uploads/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Upload History
+         * @description Lo storico (upload finiti) a pagine: before_id = l'id più piccolo della
+         *     pagina prima. Non si interroga in continuazione, e cresce senza fine.
+         */
+        get: operations["upload_history_api_uploads_history_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1627,6 +1670,7 @@ export interface paths {
         /**
          * Reorder Queue
          * @description Ordine della coda: il primo parte per primo quando il worker è libero.
+         *     Risponde con i job non finiti, come GET /api/uploads?scope=active.
          */
         put: operations["reorder_queue_api_uploads_queue_put"];
         post?: never;
@@ -5172,6 +5216,15 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        /** UploadHistoryResponse */
+        UploadHistoryResponse: {
+            /** Jobs */
+            jobs: components["schemas"]["UploadJobSummary"][];
+            /** Total */
+            total: number;
+            /** Next Before Id */
+            next_before_id: number | null;
+        };
         /** UploadJobDetail */
         UploadJobDetail: {
             /** Id */
@@ -6162,7 +6215,10 @@ export interface operations {
     };
     list_runs_api_runs_get: {
         parameters: {
-            query?: never;
+            query?: {
+                limit?: number;
+                before_id?: number | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -6176,6 +6232,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RunResponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -8284,7 +8349,7 @@ export interface operations {
             };
         };
     };
-    list_not_imported_api_torrents_not_imported_get: {
+    get_not_imported_api_torrents_not_imported_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -8510,7 +8575,9 @@ export interface operations {
     };
     list_uploads_api_uploads_get: {
         parameters: {
-            query?: never;
+            query?: {
+                scope?: "all" | "active";
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -8524,6 +8591,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UploadJobSummary"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -8548,6 +8624,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UploadJobDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upload_history_api_uploads_history_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                before_id?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadHistoryResponse"];
                 };
             };
             /** @description Validation Error */

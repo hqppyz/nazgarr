@@ -324,10 +324,15 @@ def unmatched_media_files(
 ) -> list[dict]:
     """media_file video senza alcuna identità risolta ("unmatched", sezione
     3) — mai in media_items_overview, che parte sempre da un media_item. I
-    file non video non hanno mai un'identità, quindi non sono "unmatched"."""
-    query = session.query(MediaFile).filter(MediaFile.media_item_id.is_(None))
+    file non video non hanno mai un'identità, quindi non sono "unmatched".
+    Solo quelli ancora sul disco, come in ogni altra vista: un file
+    cancellato o rinominato restava contato per sempre (audit 2026-10-18)."""
+    latest = latest_scan_by_disk(session, MediaFile)
+    query = session.query(
+        MediaFile.id, MediaFile.disk_id, MediaFile.relative_path, MediaFile.size_bytes, MediaFile.last_scan_id,
+    ).filter(MediaFile.media_item_id.is_(None))
     if disk_id is not None:
-        query = query.filter_by(disk_id=disk_id)
+        query = query.filter(MediaFile.disk_id == disk_id)
     return [
         {
             "id": mf.id, "disk_id": mf.disk_id, "relative_path": mf.relative_path,
@@ -335,5 +340,5 @@ def unmatched_media_files(
             "excluded": exclusions.is_excluded(mf.relative_path), "linked_paths": [],
         }
         for mf in query.order_by(MediaFile.relative_path).all()
-        if is_video(mf.relative_path)
+        if is_video(mf.relative_path) and is_current(mf, latest)
     ]

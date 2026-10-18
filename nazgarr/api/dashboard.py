@@ -8,14 +8,14 @@ from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
-from nazgarr.core.models import FileChange, NotImportedTorrent, RunLog, TrackerHealthSnapshot
+from nazgarr.core.models import Disk, FileChange, NotImportedTorrent, RunLog, TrackerHealthSnapshot
 from nazgarr.library import health, not_imported
 from nazgarr.torrents import tracker_scope
 from nazgarr.web import response_cache
-from nazgarr.web.deps import get_session
+from nazgarr.web.deps import get_or_404, get_session
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
@@ -105,18 +105,18 @@ class ChangesResponse(BaseModel):
     changes: list[FileChangeItem]  # al massimo `limit`, i conteggi valgono per tutti
 
 
-def _kind(change: FileChange) -> str:
-    if change.change == "added":
-        return f"new_{change.side}"
-    if change.change == "removed":
-        return f"removed_{change.side}"
-    if change.change in ("stopped", "resumed"):
-        return change.change
-    if change.state == "seeding":
+def _kind(change: str, side: str, state: str | None) -> str:
+    if change == "added":
+        return f"new_{side}"
+    if change == "removed":
+        return f"removed_{side}"
+    if change in ("stopped", "resumed"):
+        return change
+    if state == "seeding":
         return "now_seeding"
-    if (change.state or "").startswith("orphan"):
+    if (state or "").startswith("orphan"):
         return "now_orphaned"
-    if change.state == "ignored":
+    if state == "ignored":
         return "now_ignored"
     return "state_changed"
 
@@ -157,8 +157,11 @@ def get_dashboard(
 ):
     """La dashboard si interroga ogni 15 secondi: la risposta resta in cache
     finché i dati non cambiano (nazgarr/web/response_cache.py), invece di
-    ricalcolare la salute di tutta la libreria a ogni giro."""
-    scope = tracker_scope.normalize(tracker)
+    ricalcolare la salute di tutta la libreria a ogni giro. Un tracker che
+    non c'è vale "all", un disco che non c'è è un 404 (audit 2026-10-18)."""
+    if disk_id is not None:
+        get_or_404(session, Disk, disk_id, "disk_not_found", id=disk_id)
+    scope = tracker_scope.resolve(session, tracker)
     return response_cache.cached_json(
         request, session, f"dashboard|{disk_id}|{scope}",
         lambda: _dashboard(session, disk_id, scope).model_dump(mode="json"),
@@ -197,8 +200,9 @@ def get_history(
     """Dalla più recente. `days`: solo le scansioni finite negli ultimi N
     giorni (finestra 7d/30d/90d della dashboard), fino a 1000; senza, le
     ultime `limit`. `tracker`: lo storico di quel filtro, che parte dalla
-    prima scansione dopo la sua introduzione."""
-    scope = tracker_scope.normalize(tracker)
+    prima scansione dopo la sua introduzione; uno che non c'è, quello globale
+    come i numeri della dashboard."""
+    scope = tracker_scope.resolve(session, tracker)
     query = _scoped_history(session, scope)
     if days is not None:
         query = query.filter(RunLog.finished_at >= datetime.now(UTC) - timedelta(days=days))
@@ -231,23 +235,40 @@ def get_changes(limit: int = 1000, session: Session = Depends(get_session)):
             baseline_only=latest is not None, health_delta=None, total=0, counts={}, changes=[],
         )
     current, previous = snapshots
-    rows = session.query(FileChange).filter_by(run_id=current.id).order_by(FileChange.id).all()
+    # Conteggi in SQL e solo le righe mostrate (audit 2026-10-18): dopo un
+    # disco aggiunto o un client spento i cambiamenti sono decine di migliaia,
+    # e la dashboard li chiede ogni minuto.
     counts: dict[str, int] = {}
-    items = []
-    for row in rows:
-        kind = _kind(row)
-        counts[kind] = counts.get(kind, 0) + 1
-        if len(items) < max(1, min(limit, 5000)):
-            items.append(FileChangeItem(
-                side=row.side, kind=kind, disk_id=row.disk_id, relative_path=row.relative_path,
-                size_bytes=row.size_bytes, state=row.state, previous_state=row.previous_state,
-                content_type=row.content_type, tmdb_id=row.tmdb_id, origin=row.origin,
-            ))
+    for change, side, state, count in (
+        session.query(FileChange.change, FileChange.side, FileChange.state, func.count(FileChange.id))
+        .filter(FileChange.run_id == current.id)
+        .group_by(FileChange.change, FileChange.side, FileChange.state)
+    ):
+        kind = _kind(change, side, state)
+        counts[kind] = counts.get(kind, 0) + count
+    rows = (
+        session.query(
+            FileChange.change, FileChange.side, FileChange.disk_id, FileChange.relative_path, FileChange.size_bytes,
+            FileChange.state, FileChange.previous_state, FileChange.content_type, FileChange.tmdb_id,
+            FileChange.origin,
+        )
+        .filter(FileChange.run_id == current.id)
+        .order_by(FileChange.id)
+        .limit(max(1, min(limit, 5000)))
+    )
+    items = [
+        FileChangeItem(
+            side=row.side, kind=_kind(row.change, row.side, row.state), disk_id=row.disk_id,
+            relative_path=row.relative_path, size_bytes=row.size_bytes, state=row.state,
+            previous_state=row.previous_state, content_type=row.content_type, tmdb_id=row.tmdb_id, origin=row.origin,
+        )
+        for row in rows
+    ]
     delta = (
         current.health_snapshot - previous.health_snapshot
         if current.health_snapshot is not None and previous.health_snapshot is not None else None
     )
     return ChangesResponse(
         run_id=current.id, since=previous.finished_at, until=current.finished_at, baseline_only=False,
-        health_delta=delta, total=len(rows), counts=counts, changes=items,
+        health_delta=delta, total=sum(counts.values()), counts=counts, changes=items,
     )

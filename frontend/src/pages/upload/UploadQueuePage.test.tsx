@@ -13,19 +13,38 @@ const job = (id: number, status: string, extra = {}) => ({
   finished_at: null, targets: [], ...extra,
 })
 
+const fetchNextPage = vi.fn()
+const history = { hasNextPage: true, isFetchingNextPage: false }
+
 vi.mock('@/api/hooks/uploads', () => ({
+  // La coda: solo i job non finiti (GET /api/uploads?scope=active).
   useUploads: () => ({
     isPending: false,
     data: [
-      job(4, 'done', { finished_at: '2026-09-30T10:00:00', targets: [
-        { id: 1, tracker_label: 'ITT', action: 'upload', status: 'done' },
-        { id: 2, tracker_label: 'Other', action: 'upload', status: 'failed' },
-      ] }),
       job(3, 'queued', { queue_position: 2 }),
       job(2, 'queued', { queue_position: 1 }),
       job(1, 'running', { progress_done: 5, progress_total: 10 }),
     ],
   }),
+  // Lo storico, a pagine (GET /api/uploads/history): la prima, di 41 in tutto.
+  useUploadHistory: () => ({
+    isPending: false,
+    data: {
+      pages: [{
+        total: 41,
+        next_before_id: 4,
+        jobs: [
+          job(4, 'done', { finished_at: '2026-09-30T10:00:00', targets: [
+            { id: 1, tracker_label: 'ITT', action: 'upload', status: 'done' },
+            { id: 2, tracker_label: 'Other', action: 'upload', status: 'failed' },
+          ] }),
+        ],
+      }],
+    },
+    fetchNextPage,
+    ...history,
+  }),
+  useHistoryFollowsQueue: () => undefined,
   useReorderQueue: () => ({ mutate: reorder, isPending: false }),
   useUpload: () => ({ data: undefined }),
   useDeleteUpload: () => ({ mutateAsync: remove, isPending: false }),
@@ -80,5 +99,13 @@ describe('UploadQueuePage', () => {
     fireEvent.click(screen.getAllByRole('button', { name: /Remove the upload/ })[0])
     await vi.waitFor(() => expect(remove).toHaveBeenCalledWith(2))
     expect(cancel).toHaveBeenCalledWith(2)
+  })
+
+  it('shows how many uploads the history holds and loads it a page at a time', () => {
+    render(<MemoryRouter initialEntries={['/?tab=history']}><UploadQueuePage /></MemoryRouter>)
+
+    expect(screen.getByText('History (41)')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Load more' }))
+    expect(fetchNextPage).toHaveBeenCalled()
   })
 })
