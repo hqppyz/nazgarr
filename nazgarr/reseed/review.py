@@ -1192,7 +1192,9 @@ def reconcile_pending_seed_jobs(session: Session, progress=NULL_PROGRESS) -> dic
     """Ricontrolla lo stato reale nel client per ogni seed_job ancora
     'in_progress' con un info_hash già noto — una sola interrogazione di
     stato per client (mai un hardlink o un add_torrent), quindi non viola
-    la regola "nessuna esecuzione senza conferma umana". Un seed appena
+    la regola "nessuna esecuzione senza conferma umana": al più avvia un
+    reseed approvato il cui recheck è riuscito (entra fermo, decisione
+    dell'utente del 2026-10-18) e ferma uno fallito che gira. Un seed appena
     passato a "seeding" viene reso subito visibile nelle viste
     (nazgarr/library/seed_refresh.py) invece di aspettare la run successiva. Chiamata a
     fine run e, fra una run e l'altra, dallo scheduler ogni pochi minuti."""

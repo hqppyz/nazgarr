@@ -142,3 +142,48 @@ def test_search_now_during_a_run_says_a_scan_is_in_progress(client):
     response = client.post("/api/library/items/movie/603/search")
 
     assert response.status_code == 409 and response.json()["detail"]["code"] == "run_in_progress"
+
+
+def test_reconcile_now_and_deleting_an_execution_wait_for_the_side_work(client):
+    """Audit 2026-10-18: controllavano solo che nessuna run fosse in corso,
+    poi lavoravano senza tenere niente, e una run poteva partire a metà."""
+    from nazgarr.core.models import Candidate, MediaItem, SeedJob, Tracker
+
+    db_session = client.app.state.session_factory()
+    item = MediaItem(content_type="movie", tmdb_id=1)
+    tracker = Tracker(label="t", adapter_type="unit3d", base_url="https://t.example", api_token="x")
+    db_session.add_all([item, tracker])
+    db_session.commit()
+    candidate = Candidate(media_item_id=item.id, tracker_id=tracker.id, torrent_id_remote="1", name="x",
+                          size_bytes=1, source="catalog_search", direction="media_to_torrent", confidence=1.0)
+    db_session.add(candidate)
+    db_session.commit()
+    job = SeedJob(candidate_id=candidate.id, final_status="failed")
+    db_session.add(job)
+    db_session.commit()
+
+    started, release = threading.Event(), threading.Event()
+    holder = _hold_side_work(client.app.state.session_factory, started, release)
+    try:
+        reconcile = client.post("/api/reviews/seed-jobs/reconcile")
+        delete = client.delete(f"/api/reviews/seed-jobs/{job.id}")
+    finally:
+        release.set()
+        holder.join(5)
+    for refused in (reconcile, delete):
+        assert refused.status_code == 409 and refused.json()["detail"]["code"] == "side_work_in_progress"
+
+    session = client.app.state.session_factory()
+    try:
+        pipeline.start_run(session, "manual")
+    finally:
+        session.close()
+    during_run = client.delete(f"/api/reviews/seed-jobs/{job.id}")
+    assert during_run.status_code == 409 and during_run.json()["detail"]["code"] == "run_in_progress"
+    assert client.post("/api/reviews/seed-jobs/reconcile").json()["detail"]["code"] == "run_in_progress"
+    db_session.query(RunLog).update({RunLog.finished_at: datetime.now(UTC)})
+    db_session.commit()
+
+    assert client.post("/api/reviews/seed-jobs/reconcile").json() == {"reconciled": 0, "errors": 0}
+    assert client.delete(f"/api/reviews/seed-jobs/{job.id}").status_code == 204
+    db_session.close()

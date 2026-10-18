@@ -15,7 +15,7 @@ from nazgarr.core.errors import coded_detail
 from nazgarr.core.logs import safe_error
 from nazgarr.core.models import Candidate, MatchReview, SeedJob, TorrentClient, Tracker
 from nazgarr.library import seeding
-from nazgarr.reseed import pipeline, review
+from nazgarr.reseed import exclusive, review
 from nazgarr.reseed.executor import ExecutionError
 from nazgarr.torrents import client_labels
 from nazgarr.web.deps import get_or_404, get_session
@@ -372,24 +372,33 @@ def recent_seed_jobs(limit: int = 50, session: Session = Depends(get_session)):
 @router.post("/seed-jobs/reconcile", response_model=ReconcileResponse)
 def reconcile_now(session: Session = Depends(get_session)):
     """Controlla subito l'esito dei recheck in attesa (lo scheduler lo fa
-    comunque ogni 2 minuti). Sola lettura sul client: nessun torrent
-    aggiunto né file modificato."""
-    if pipeline.run_in_progress(session):
-        raise HTTPException(status_code=409, detail=coded_detail("run_in_progress"))
-    return review.reconcile_pending_seed_jobs(session)
+    comunque ogni 2 minuti). Nessun torrent aggiunto né file modificato:
+    avvia i reseed il cui recheck è riuscito (entrano fermi, decisione
+    dell'utente del 2026-10-18) e ferma quelli falliti che girano. Mai
+    insieme a una run o ad altro lavoro a lato (nazgarr/reseed/exclusive.py,
+    audit 2026-10-18): prima controllava solo che nessuna run fosse in
+    corso, e una run poteva partire a metà e riconciliare gli stessi job."""
+    try:
+        with exclusive.side_work(session):
+            return review.reconcile_pending_seed_jobs(session)
+    except exclusive.Busy as exc:
+        raise HTTPException(status_code=409, detail=coded_detail(exc.code)) from exc
 
 
 @router.delete("/seed-jobs/{seed_job_id}", status_code=204)
 def delete_seed_job(seed_job_id: int, session: Session = Depends(get_session)):
     """Elimina un'esecuzione fallita o rimasta in corso: il prossimo scan
-    ripropone il torrent. Niente cambia nel client né sul disco."""
+    ripropone il torrent. Niente cambia nel client né sul disco. Mai
+    insieme a una run (che ricontrolla i job in corso) o ad altro lavoro a
+    lato (nazgarr/reseed/exclusive.py)."""
     seed_job = session.get(SeedJob, seed_job_id)
     if seed_job is None:
         raise HTTPException(status_code=404, detail=coded_detail("seed_job_not_found", id=seed_job_id))
-    if pipeline.run_in_progress(session):  # la run ricontrolla i job in corso
-        raise HTTPException(status_code=409, detail=coded_detail("run_in_progress"))
     try:
-        review.delete_seed_job(session, seed_job)
+        with exclusive.side_work(session):
+            review.delete_seed_job(session, seed_job)
+    except exclusive.Busy as exc:
+        raise HTTPException(status_code=409, detail=coded_detail(exc.code)) from exc
     except ExecutionError as exc:
         raise HTTPException(status_code=409, detail=safe_error(exc)) from exc
 
