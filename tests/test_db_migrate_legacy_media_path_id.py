@@ -26,6 +26,7 @@ import pytest
 from sqlalchemy import inspect, text
 
 from nazgarr.core import db as db_module
+from tests.db_faults import fail_once
 
 LEGACY_SCHEMA = """
 CREATE TABLE disk (
@@ -277,9 +278,10 @@ def test_migrate_legacy_media_path_id_does_not_corrupt_sibling_fk_text(tmp_path)
             )
         )
 
+    # La connessione della migrazione, tornata nel pool: le foreign key devono
+    # essere di nuovo accese (prima un passo poteva lasciarle spente).
     raw_conn = engine.raw_connection()
     try:
-        raw_conn.execute("PRAGMA foreign_keys=ON")
         with pytest.raises(sqlite3.IntegrityError):
             raw_conn.execute(
                 "INSERT INTO seed_file "
@@ -367,3 +369,104 @@ def test_repair_dangling_media_file_legacy_fk_is_a_noop_when_nothing_broken(tmp_
 def test_repair_dangling_media_file_legacy_fk_is_a_noop_on_empty_db(tmp_path):
     engine = db_module.make_engine(str(tmp_path / "empty.db"))
     db_module.repair_dangling_media_file_legacy_fk(engine)  # nessuna tabella media_file: nessun errore
+
+
+def test_an_interrupted_rebuild_leaves_media_file_as_it_was_and_runs_again(tmp_path, monkeypatch):
+    """Un avvio interrotto fra il DROP e il RENAME: prima ogni istruzione
+    faceva commit da sola, e i dati restavano solo in media_file__rebuild
+    (apply_schema creava poi una media_file vuota). Ora è una transazione."""
+    engine = db_module.make_engine(str(tmp_path / "legacy.db"))
+    _seed_legacy_db(engine)
+    fail_once(monkeypatch, engine, sqlite3.SQLITE_ALTER_TABLE, "media_file__rebuild")
+
+    with pytest.raises(sqlite3.DatabaseError):
+        db_module.migrate_legacy_media_path_id(engine)
+
+    inspector = inspect(engine)
+    assert "media_path_id" in {col["name"] for col in inspector.get_columns("media_file")}
+    assert not inspector.has_table("media_file__rebuild")
+
+    db_module.migrate_legacy_media_path_id(engine)
+    with engine.connect() as conn:
+        assert conn.execute(text("SELECT relative_path FROM media_file WHERE id = 42")).scalar() == (
+            "media/tv/Show/S01E01.mkv")
+        assert conn.execute(text("PRAGMA foreign_keys")).scalar() == 1
+
+
+def test_a_leftover_rebuild_table_does_not_block_the_migration(tmp_path):
+    """Un avanzo di un avvio interrotto subito dopo la CREATE: bloccava ogni
+    avvio successivo con "table media_file__rebuild already exists"."""
+    engine = db_module.make_engine(str(tmp_path / "legacy.db"))
+    _seed_legacy_db(engine)
+    with engine.begin() as conn:
+        conn.execute(text("CREATE TABLE media_file__rebuild (id INTEGER PRIMARY KEY)"))
+
+    db_module.migrate_legacy_media_path_id(engine)
+
+    assert "media_path_id" not in {col["name"] for col in inspect(engine).get_columns("media_file")}
+    with engine.connect() as conn:
+        assert conn.execute(text("SELECT count(*) FROM media_file")).scalar() == 1
+
+
+def test_the_half_done_state_of_the_first_version_is_completed(tmp_path):
+    """Lo stato che la prima versione lasciava con un crash fra il DROP e il
+    RENAME: media_file sparita, i dati solo in media_file__rebuild."""
+    engine = db_module.make_engine(str(tmp_path / "legacy.db"))
+    _seed_legacy_db(engine)
+    raw_conn = engine.raw_connection()
+    try:
+        raw_conn.executescript("""
+            PRAGMA foreign_keys=OFF;
+            CREATE TABLE media_file__rebuild (
+                id INTEGER PRIMARY KEY,
+                disk_id INTEGER NOT NULL REFERENCES disk(id) ON DELETE CASCADE,
+                relative_path TEXT NOT NULL,
+                size_bytes INTEGER NOT NULL,
+                st_dev INTEGER NOT NULL,
+                inode INTEGER NOT NULL,
+                nlink INTEGER,
+                content_hash TEXT,
+                media_item_id INTEGER REFERENCES media_item(id) ON DELETE SET NULL,
+                resolver_source TEXT,
+                mediainfo_unique_id TEXT,
+                last_scan_id INTEGER NOT NULL REFERENCES run_log(id),
+                last_seen_at TIMESTAMP NOT NULL,
+                UNIQUE(disk_id, relative_path)
+            );
+            INSERT INTO media_file__rebuild (id, disk_id, relative_path, size_bytes, st_dev, inode, last_scan_id,
+                                             last_seen_at)
+                SELECT id, disk_id, relative_path, size_bytes, st_dev, inode, last_scan_id, last_seen_at
+                FROM media_file;
+            DROP TABLE media_file;
+            PRAGMA foreign_keys=ON;
+        """)
+    finally:
+        raw_conn.close()
+
+    db_module.migrate_legacy_media_path_id(engine)
+
+    inspector = inspect(engine)
+    assert not inspector.has_table("media_file__rebuild")
+    assert not inspector.has_table("media_path")
+    assert {"idx_media_file_media_item_id", "idx_media_file_hardlink"} <= {
+        index["name"] for index in inspector.get_indexes("media_file")}
+    with engine.connect() as conn:
+        assert conn.execute(text("SELECT id FROM media_file")).scalars().all() == [42]
+        assert conn.execute(text("SELECT media_file_id FROM seed_file WHERE id = 7")).scalar() == 42
+
+
+def test_the_repair_leaves_foreign_keys_on_for_the_pool(tmp_path):
+    """Il passo 2 riaccendeva le foreign key prima del commit, dove SQLite
+    ignora la PRAGMA: la connessione tornava nel pool senza."""
+    engine = db_module.make_engine(str(tmp_path / "corrupted.db"))
+    _seed_legacy_db(engine)
+    _replay_old_buggy_migration(engine)
+
+    db_module.repair_dangling_media_file_legacy_fk(engine)
+
+    conns = [engine.connect() for _ in range(3)]
+    try:
+        assert [c.execute(text("PRAGMA foreign_keys")).scalar() for c in conns] == [1, 1, 1]
+    finally:
+        for c in conns:
+            c.close()

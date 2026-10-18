@@ -9,9 +9,13 @@ fase successiva a "scanning" (nazgarr/reseed/pipeline.py::_set_phase, phase
 sull'istanza reale dell'utente solo perché lo scan falliva prima ancora
 di arrivarci."""
 
-from sqlalchemy import text
+import sqlite3
+
+import pytest
+from sqlalchemy import inspect, text
 
 from nazgarr.core import db as db_module
+from tests.db_faults import fail_once
 
 LEGACY_RUN_LOG_SCHEMA = """
 CREATE TABLE disk (
@@ -126,3 +130,38 @@ def test_migrate_legacy_run_log_phase_check_is_a_noop_on_current_schema(tmp_path
             text("SELECT sql FROM sqlite_master WHERE type='table' AND name='run_log'")
         ).scalar()
         assert "reconciling" in sql
+
+
+def test_the_rebuild_leaves_foreign_keys_on_for_the_pool(tmp_path):
+    """Il passo riaccendeva le foreign key prima del commit, dove SQLite
+    ignora la PRAGMA: la connessione tornava nel pool senza, e metà delle
+    sessioni giravano senza ON DELETE."""
+    engine = db_module.make_engine(str(tmp_path / "legacy_run_log.db"))
+    _seed_legacy_run_log_db(engine)
+
+    db_module.migrate_legacy_run_log_phase_check(engine)
+
+    conns = [engine.connect() for _ in range(3)]
+    try:
+        assert [c.execute(text("PRAGMA foreign_keys")).scalar() for c in conns] == [1, 1, 1]
+    finally:
+        for c in conns:
+            c.close()
+
+
+def test_an_interrupted_rebuild_runs_again(tmp_path, monkeypatch):
+    """La CREATE di run_log__rebuild faceva commit da sola: un errore subito
+    dopo bloccava ogni avvio con "table run_log__rebuild already exists"."""
+    engine = db_module.make_engine(str(tmp_path / "legacy_run_log.db"))
+    _seed_legacy_run_log_db(engine)
+    fail_once(monkeypatch, engine, sqlite3.SQLITE_INSERT, "run_log__rebuild")
+
+    with pytest.raises(sqlite3.DatabaseError):
+        db_module.migrate_legacy_run_log_phase_check(engine)
+    assert not inspect(engine).has_table("run_log__rebuild")
+
+    db_module.migrate_legacy_run_log_phase_check(engine)
+    with engine.connect() as conn:
+        assert "reconciling" in conn.execute(
+            text("SELECT sql FROM sqlite_master WHERE type='table' AND name='run_log'")).scalar()
+        assert conn.execute(text("SELECT items_scanned FROM run_log WHERE id = 1")).scalar() == 3

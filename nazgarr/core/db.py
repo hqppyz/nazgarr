@@ -52,6 +52,8 @@ della prima versione."""
 import json
 import logging
 import os
+import sqlite3
+from contextlib import contextmanager
 from pathlib import Path
 
 from sqlalchemy import create_engine, event, inspect, text
@@ -65,6 +67,11 @@ logger = logging.getLogger(__name__)
 _REPO_SCHEMA = Path(__file__).resolve().parents[2] / "docs" / "schema.sql"
 SCHEMA_PATH = _REPO_SCHEMA if _REPO_SCHEMA.exists() else Path(__file__).resolve().parents[1] / "_assets" / "schema.sql"
 
+# PRAGMA optimize col bit 0x10000 (tutte le tabelle, non solo quelle usate
+# dalla connessione) c'è da SQLite 3.46. Il pacchetto pipx usa il SQLite del
+# sistema, che può essere più vecchio (Ubuntu 24.04: 3.45).
+OPTIMIZE_CHECKS_ALL_TABLES = sqlite3.sqlite_version_info >= (3, 46, 0)
+
 
 @event.listens_for(Engine, "connect")
 def _configure_sqlite(dbapi_connection, _connection_record):
@@ -74,11 +81,55 @@ def _configure_sqlite(dbapi_connection, _connection_record):
     # polling dello stato live di una run, a partire dalla Fase 5) non
     # vengono bloccati da uno scrittore concorrente (lo scan in corso).
     cursor.execute("PRAGMA journal_mode=WAL")
+    # synchronous resta FULL, il default: con NORMAL un'interruzione di
+    # corrente può perdere gli ultimi commit, e il worker degli upload conta
+    # su quello che scrive 'uploading' prima di chiamare il tracker per non
+    # caricare due volte lo stesso torrent (upload/jobs.py, reset_interrupted).
+    # 16 MiB di cache per connessione invece di 2: libreria e dashboard
+    # rileggono le stesse pagine. Si riempie solo quando serve.
+    cursor.execute("PRAGMA cache_size=-16384")
+    # Statistiche per il query planner (sqlite_stat1), come SQLite consiglia
+    # per le connessioni che restano aperte: all'apertura, e il pool le
+    # riapre ogni qualche ora (make_engine). Analizza solo le tabelle mai
+    # viste o cambiate molto, con un limite di righe per indice: millisecondi.
+    # Senza attesa (Python ne mette 5 secondi di suo): se un altro scrittore
+    # ha il lock, si salta subito (sarà per la prossima apertura). Prima di
+    # SQLite 3.46 la PRAGMA guarda solo le tabelle già usate dalla
+    # connessione, nessuna appena aperta: lì c'è refresh_planner_statistics.
+    cursor.execute("PRAGMA analysis_limit=1000")
+    if OPTIMIZE_CHECKS_ALL_TABLES:
+        cursor.execute("PRAGMA busy_timeout=0")
+        try:
+            cursor.execute("PRAGMA optimize=0x10002")
+        except sqlite3.OperationalError:
+            pass
     # Scheduler, worker degli upload e controlli completi sono thread dello
     # stesso processo: uno scrittore aspetta l'altro fino a 30 secondi
     # invece di fallire subito con "database is locked".
     cursor.execute("PRAGMA busy_timeout=30000")
     cursor.close()
+
+
+# Ogni quante ore il pool riapre una connessione: la riapertura aggiorna le
+# statistiche del planner (PRAGMA optimize in _configure_sqlite).
+POOL_RECYCLE_SECONDS = 6 * 3600
+
+
+def refresh_planner_statistics(engine: Engine) -> None:
+    """Prima di SQLite 3.46 le statistiche del planner arrivano da qui, una
+    volta a ogni avvio (migrations.upgrade): un ANALYZE di tutte le tabelle,
+    con lo stesso limite di righe per indice di _configure_sqlite. Da 3.46
+    in poi ci pensa già ogni connessione che si apre."""
+    if OPTIMIZE_CHECKS_ALL_TABLES:
+        return
+    raw_conn = engine.raw_connection()
+    try:
+        raw_conn.cursor().execute("ANALYZE")
+        raw_conn.commit()
+    except sqlite3.OperationalError as exc:  # sono un di più: l'avvio continua
+        logger.warning("Statistiche del planner non aggiornate: %s", exc)
+    finally:
+        raw_conn.close()
 
 
 def migrate_legacy_db_filename(data_dir: str) -> str | None:
@@ -109,7 +160,184 @@ def migrate_legacy_db_filename(data_dir: str) -> str | None:
 
 def make_engine(db_path: str) -> Engine:
     Path(db_path).parent.mkdir(parents=True, exist_ok=True)
-    return create_engine(f"sqlite:///{db_path}", connect_args={"check_same_thread": False})
+    return create_engine(f"sqlite:///{db_path}", connect_args={"check_same_thread": False},
+                         pool_recycle=POOL_RECYCLE_SECONDS)
+
+
+def _broken_references(cursor) -> set[tuple] | None:
+    """Ogni riga che punta a una riga che non c'è, come (tabella, rowid,
+    colonne della FK): il numero della FK in foreign_key_check cambia quando
+    una tabella si rifà, le colonne no. None se SQLite non sa controllare."""
+    try:
+        rows = cursor.execute("PRAGMA foreign_key_check").fetchall()
+        columns: dict[str, dict[int, tuple[str, ...]]] = {}
+        broken = set()
+        for table, rowid, _parent, fk_id in rows:
+            if table not in columns:
+                by_id: dict[int, list[str]] = {}
+                for fk in cursor.execute(f'PRAGMA foreign_key_list("{table}")').fetchall():
+                    by_id.setdefault(fk[0], []).append(fk[3])
+                columns[table] = {k: tuple(v) for k, v in by_id.items()}
+            broken.add((table, rowid, columns[table].get(fk_id)))
+        return broken
+    except sqlite3.DatabaseError as exc:
+        logger.warning("Controllo delle foreign key non riuscito, salto il confronto: %s", exc)
+        return None
+
+
+@contextmanager
+def rebuilding_tables(engine: Engine):
+    """La transazione in cui un passo di migrazione rifà una o più tabelle,
+    nel modo che SQLite documenta (lang_altertable.html, "other kinds of
+    table schema changes"). Restituisce il cursore su cui lavorare.
+
+    - Foreign key spente PRIMA della transazione: dentro, la PRAGMA non ha
+      effetto (era il caso dei passi 2 e 3, che le riaccendevano prima del
+      commit: la connessione tornava nel pool senza FK, e metà delle sessioni
+      dell'app giravano senza ON DELETE; audit 2026-10-18).
+    - Tutto in BEGIN IMMEDIATE ... COMMIT: un avvio interrotto a metà non
+      lascia niente a metà. Prima ogni istruzione faceva commit da sola, e un
+      crash fra il DROP e il RENAME lasciava una media_file vuota.
+    - Prima del commit, nessuna riga che puntava a qualcosa di esistente
+      deve restare senza (quelle già rotte prima restano com'erano).
+    - Foreign key riaccese dopo il commit o il rollback.
+
+    Chi rifà una tabella fa prima DROP TABLE IF EXISTS "<tabella>__rebuild":
+    un avanzo di una versione precedente non deve bloccare ogni avvio."""
+    raw_conn = engine.raw_connection()
+    try:
+        cursor = raw_conn.cursor()
+        cursor.execute("PRAGMA foreign_keys=OFF")
+        try:
+            if cursor.execute("PRAGMA foreign_keys").fetchone()[0]:
+                raise RuntimeError("PRAGMA foreign_keys=OFF ignorata: una transazione era già aperta")
+            cursor.execute("BEGIN IMMEDIATE")
+            before = _broken_references(cursor)
+            yield cursor
+            after = _broken_references(cursor) if before is not None else None
+            if after is not None and after - before:
+                new = sorted(after - before, key=repr)
+                raise RuntimeError(f"La migrazione lascerebbe {len(new)} riferimenti rotti, per esempio {new[:5]}")
+            raw_conn.commit()
+        except BaseException:
+            raw_conn.rollback()
+            raise
+        finally:
+            try:
+                cursor.execute("PRAGMA foreign_keys=ON")
+            except sqlite3.Error:
+                raw_conn.invalidate()  # mai di nuovo nel pool senza foreign key
+    finally:
+        raw_conn.close()
+
+
+def _foreign_keys(conn, table: str) -> set[tuple] | None:
+    """Le foreign key di una tabella (colonna, tabella e colonna puntate,
+    azioni), None se la tabella non esiste."""
+    exists = conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (table,)).fetchone()
+    if exists is None:
+        return None
+    return {(fk[3], fk[2], fk[4], fk[5], fk[6]) for fk in conn.execute(f'PRAGMA foreign_key_list("{table}")')}
+
+
+def _clear_dangling_references(cursor, table: str, rebuild: str) -> None:
+    """Nella copia appena riempita (`rebuild`, l'originale `table` c'è
+    ancora), i valori delle foreign key che puntano a righe che non ci sono.
+
+    Una FK ON DELETE SET NULL si azzera, come avrebbe fatto SQLite alla
+    cancellazione. Succede dove la vecchia tabella non la dichiarava: una
+    colonna aggiunta da migrate_schema (un ALTER TABLE ADD COLUMN senza
+    REFERENCES), come upload_job.split_from_id prima della 0.9.4, dove il job
+    di un pack diviso si poteva cancellare e i figli tenevano il suo id. Senza
+    questo il passo 10 si fermava a ogni avvio (riferimenti rotti nuovi).
+    Una FK nuova con un'altra azione non si indovina: errore che nomina
+    tabella e colonna. Per un riferimento a sé stessa (upload_job) la tabella
+    puntata è ancora l'originale, con gli stessi id."""
+    old_fk_columns = {fk[3] for fk in cursor.execute(f'PRAGMA foreign_key_list("{table}")')}
+    for _id, _seq, parent, column, parent_column, _on_update, on_delete, _match in cursor.execute(
+        f'PRAGMA foreign_key_list("{rebuild}")'
+    ).fetchall():
+        target = f'"{parent_column}"' if parent_column else "rowid"
+        dangling = (f'"{column}" IS NOT NULL AND NOT EXISTS '
+                    f'(SELECT 1 FROM "{parent}" WHERE "{parent}".{target} = "{rebuild}"."{column}")')
+        if on_delete == "SET NULL":
+            cleared = cursor.execute(f'UPDATE "{rebuild}" SET "{column}" = NULL WHERE {dangling}').rowcount
+            if cleared:
+                logger.warning("Migrazione di %s: %d valori di %s puntavano a righe di %s che non ci sono più, "
+                               "azzerati (ON DELETE SET NULL)", table, cleared, column, parent)
+        elif column not in old_fk_columns:
+            count = cursor.execute(f'SELECT count(*) FROM "{rebuild}" WHERE {dangling}').fetchone()[0]
+            if count:
+                raise RuntimeError(f"Migrazione di {table}: {count} valori di {column} puntano a righe di "
+                                   f"{parent} che non ci sono, e la sua nuova foreign key ({on_delete}) "
+                                   "non dice cosa farne")
+
+
+def _rebuild_like(cursor, schema: sqlite3.Connection, table: str) -> None:
+    """Rifà una tabella com'è in `schema` (un DB in memoria creato da
+    schema.sql): stessa tecnica sicura delle migrazioni qui sotto, mai un
+    RENAME della tabella che altre referenziano. Stessi id; le colonne che lo
+    schema non ha più si perdono (con un avviso), quelle nuove restano
+    vuote. Gli indici della tabella si rifanno da schema.sql."""
+    create_sql = schema.execute("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?",
+                                (table,)).fetchone()[0]
+    prefix = f"CREATE TABLE {table} ("
+    if not create_sql.startswith(prefix):
+        raise RuntimeError(f"Definizione inattesa di {table} in schema.sql: {create_sql[:60]}")
+    rebuild = f"{table}__rebuild"
+    cursor.execute(f'DROP TABLE IF EXISTS "{rebuild}"')
+    # Un riferimento della tabella a sé stessa (upload_job.split_from_id)
+    # resta scritto col nome finale: punta alla tabella nuova dopo il RENAME.
+    cursor.execute(f'CREATE TABLE "{rebuild}" (' + create_sql[len(prefix):])
+    old_columns = [row[1] for row in cursor.execute(f'PRAGMA table_info("{table}")')]
+    new_columns = {row[1] for row in cursor.execute(f'PRAGMA table_info("{rebuild}")')}
+    dropped = [c for c in old_columns if c not in new_columns]
+    if dropped:
+        logger.warning("Migrazione: %s rifatta senza le colonne %s, che schema.sql non ha più", table, dropped)
+    column_list = ", ".join(f'"{c}"' for c in old_columns if c in new_columns)
+    cursor.execute(f'INSERT INTO "{rebuild}" ({column_list}) SELECT {column_list} FROM "{table}"')
+    copied, original = (cursor.execute(f'SELECT count(*) FROM "{name}"').fetchone()[0] for name in (rebuild, table))
+    if copied != original:
+        raise RuntimeError(f"Migrazione di {table}: copiate {copied} righe su {original}")
+    _clear_dangling_references(cursor, table, rebuild)
+    cursor.execute(f'DROP TABLE "{table}"')
+    cursor.execute(f'ALTER TABLE "{rebuild}" RENAME TO "{table}"')
+    for (index_sql,) in schema.execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'index' AND tbl_name = ? AND sql IS NOT NULL", (table,)
+    ).fetchall():
+        cursor.execute(index_sql)
+
+
+def rebuild_tables_from_schema(engine: Engine, tables: tuple[str, ...], schema_path: Path | None = None) -> list[str]:
+    """Rifà le tabelle indicate come le crea oggi docs/schema.sql, se le loro
+    foreign key sono diverse: un ON DELETE cambiato, o una FK che manca
+    perché la colonna l'ha aggiunta migrate_schema (un ALTER TABLE ADD COLUMN
+    non la dichiara). Un ALTER TABLE non sa cambiare una FK in SQLite: serve
+    rifare la tabella. Idempotente: una tabella già giusta, o che non c'è
+    (la crea apply_schema), non si tocca. Restituisce le tabelle rifatte."""
+    schema = sqlite3.connect(":memory:")
+    try:
+        schema.executescript((schema_path or SCHEMA_PATH).read_text())
+        with engine.connect() as conn:
+            current = {table: _foreign_keys(conn.connection.driver_connection, table) for table in tables}
+        todo = [t for t in tables if current[t] is not None and current[t] != _foreign_keys(schema, t)]
+        if not todo:
+            return []
+        logger.warning("Migrazione: tabelle rifatte con le foreign key di schema.sql: %s", todo)
+        with rebuilding_tables(engine) as cursor:
+            for table in todo:
+                _rebuild_like(cursor, schema, table)
+        return todo
+    finally:
+        schema.close()
+
+
+# Gli indici di media_file com'erano quando la migrazione qui sotto è stata
+# scritta (apply_schema, subito dopo, aggiunge quelli venuti in seguito).
+_LEGACY_MEDIA_FILE_INDEXES = (
+    "CREATE INDEX IF NOT EXISTS idx_media_file_media_item_id ON media_file(media_item_id)",
+    "CREATE INDEX IF NOT EXISTS idx_media_file_hardlink ON media_file(disk_id, st_dev, inode)",
+)
 
 
 def migrate_legacy_media_path_id(engine: Engine) -> None:
@@ -124,9 +352,21 @@ def migrate_legacy_media_path_id(engine: Engine) -> None:
     giusta, si copiano i dati (stessi id delle righe originali: le FK di
     seed_file/match_review/seed_job/upload_job restano valide), si fa DROP
     (non RENAME) dell'originale, e solo allora si rinomina
-    media_file__rebuild in media_file."""
+    media_file__rebuild in media_file.
+
+    Tutto in una transazione (rebuilding_tables). La prima versione faceva
+    commit a ogni istruzione: un avvio interrotto fra il DROP e il RENAME
+    lasciava i dati solo in media_file__rebuild, e apply_schema creava una
+    media_file vuota. Quello stato si completa qui, col RENAME mancante."""
     inspector = inspect(engine)
     if not inspector.has_table("media_file"):
+        if inspector.has_table("media_file__rebuild"):
+            logger.warning("Migrazione legacy: completo la ricostruzione di media_file interrotta a metà")
+            with rebuilding_tables(engine) as cursor:
+                cursor.execute("ALTER TABLE media_file__rebuild RENAME TO media_file")
+                cursor.execute("DROP TABLE IF EXISTS media_path")
+                for index_sql in _LEGACY_MEDIA_FILE_INDEXES:
+                    cursor.execute(index_sql)
         return
     existing_columns = {col["name"] for col in inspector.get_columns("media_file")}
     if "media_path_id" not in existing_columns:
@@ -136,10 +376,9 @@ def migrate_legacy_media_path_id(engine: Engine) -> None:
         "Migrazione legacy: media_file.media_path_id (pre-5fd42fc) rimosso, "
         "dati preservati con gli stessi id"
     )
-    raw_conn = engine.raw_connection()
-    try:
-        raw_conn.executescript("""
-            PRAGMA foreign_keys=OFF;
+    with rebuilding_tables(engine) as cursor:
+        cursor.execute("DROP TABLE IF EXISTS media_file__rebuild")
+        cursor.execute("""
             CREATE TABLE media_file__rebuild (
                 id                      INTEGER PRIMARY KEY,
                 disk_id                 INTEGER NOT NULL REFERENCES disk(id) ON DELETE CASCADE,
@@ -155,7 +394,9 @@ def migrate_legacy_media_path_id(engine: Engine) -> None:
                 last_scan_id            INTEGER NOT NULL REFERENCES run_log(id),
                 last_seen_at            TIMESTAMP NOT NULL,
                 UNIQUE(disk_id, relative_path)
-            );
+            )
+        """)
+        cursor.execute("""
             INSERT INTO media_file__rebuild (
                 id, disk_id, relative_path, size_bytes, st_dev, inode, nlink,
                 content_hash, media_item_id, resolver_source, mediainfo_unique_id,
@@ -165,17 +406,13 @@ def migrate_legacy_media_path_id(engine: Engine) -> None:
                 id, disk_id, relative_path, size_bytes, st_dev, inode, nlink,
                 content_hash, media_item_id, resolver_source, mediainfo_unique_id,
                 last_scan_id, last_seen_at
-            FROM media_file;
-            DROP TABLE media_file;
-            ALTER TABLE media_file__rebuild RENAME TO media_file;
-            DROP TABLE IF EXISTS media_path;
-            CREATE INDEX IF NOT EXISTS idx_media_file_media_item_id ON media_file(media_item_id);
-            CREATE INDEX IF NOT EXISTS idx_media_file_hardlink ON media_file(disk_id, st_dev, inode);
-            PRAGMA foreign_keys=ON;
+            FROM media_file
         """)
-        raw_conn.commit()
-    finally:
-        raw_conn.close()
+        cursor.execute("DROP TABLE media_file")
+        cursor.execute("ALTER TABLE media_file__rebuild RENAME TO media_file")
+        cursor.execute("DROP TABLE IF EXISTS media_path")
+        for index_sql in _LEGACY_MEDIA_FILE_INDEXES:
+            cursor.execute(index_sql)
 
 
 # Le uniche 4 tabelle con una FK diretta verso media_file(id) — vedi
@@ -309,26 +546,25 @@ def repair_dangling_media_file_legacy_fk(engine: Engine) -> None:
             )
         if not broken_tables:
             return
+    finally:
+        raw_conn.close()
 
-        logger.warning(
-            "Riparo %d tabell%s con una FK ancora agganciata a media_file_legacy: %s",
-            len(broken_tables), "a" if len(broken_tables) == 1 else "e", broken_tables,
-        )
-        cursor.execute("PRAGMA foreign_keys=OFF")
+    logger.warning(
+        "Riparo %d tabell%s con una FK ancora agganciata a media_file_legacy: %s",
+        len(broken_tables), "a" if len(broken_tables) == 1 else "e", broken_tables,
+    )
+    with rebuilding_tables(engine) as cursor:
         for table in broken_tables:
             create_sql, index_sqls = _LEGACY_MEDIA_FILE_FK_REBUILD[table]
             columns = [col[1] for col in cursor.execute(f'PRAGMA table_info("{table}")').fetchall()]
             column_list = ", ".join(f'"{c}"' for c in columns)
+            cursor.execute(f'DROP TABLE IF EXISTS "{table}__rebuild"')
             cursor.execute(create_sql)
             cursor.execute(f'INSERT INTO "{table}__rebuild" ({column_list}) SELECT {column_list} FROM "{table}"')
             cursor.execute(f'DROP TABLE "{table}"')
             cursor.execute(f'ALTER TABLE "{table}__rebuild" RENAME TO "{table}"')
             for index_sql in index_sqls:
                 cursor.execute(index_sql)
-        cursor.execute("PRAGMA foreign_keys=ON")
-        raw_conn.commit()
-    finally:
-        raw_conn.close()
 
 
 def migrate_legacy_run_log_phase_check(engine: Engine) -> None:
@@ -369,11 +605,9 @@ def migrate_legacy_run_log_phase_check(engine: Engine) -> None:
         "Migrazione legacy: run_log.current_phase esteso a 'resolving'/'indexing'/'reconciling' "
         "(pre-1149b94), dati preservati con gli stessi id"
     )
-    raw_conn = engine.raw_connection()
-    try:
-        cursor = raw_conn.cursor()
-        cursor.execute("PRAGMA foreign_keys=OFF")
+    with rebuilding_tables(engine) as cursor:
         source_columns = [row[1] for row in cursor.execute("PRAGMA table_info(run_log)").fetchall()]
+        cursor.execute("DROP TABLE IF EXISTS run_log__rebuild")
         cursor.execute("""
             CREATE TABLE run_log__rebuild (
                 id                  INTEGER PRIMARY KEY,
@@ -400,10 +634,6 @@ def migrate_legacy_run_log_phase_check(engine: Engine) -> None:
         cursor.execute(f'INSERT INTO run_log__rebuild ({column_list}) SELECT {column_list} FROM run_log')
         cursor.execute("DROP TABLE run_log")
         cursor.execute("ALTER TABLE run_log__rebuild RENAME TO run_log")
-        cursor.execute("PRAGMA foreign_keys=ON")
-        raw_conn.commit()
-    finally:
-        raw_conn.close()
 
 
 def migrate_legacy_upload_job(engine: Engine) -> None:
@@ -440,8 +670,14 @@ def migrate_schema(engine: Engine) -> None:
     tipo di modifica che questo progetto si è finora impegnato a fare."""
     from nazgarr.core.models import Base  # import qui: evita un ciclo db<->models
 
-    inspector = inspect(engine)
     with engine.begin() as conn:
+        # PRAGMA table_info legge lo schema che la connessione ha in memoria,
+        # che non si aggiorna da solo se un'altra connessione del pool ha
+        # appena cambiato una tabella: una lettura vera lo ricarica. Senza,
+        # una colonna appena aggiunta altrove sembrava mancare ("duplicate
+        # column name" all'ALTER TABLE).
+        conn.execute(text("SELECT count(*) FROM sqlite_master"))
+        inspector = inspect(conn)
         for table in Base.metadata.sorted_tables:
             if not inspector.has_table(table.name):
                 continue  # tabella nuova: apply_schema l'ha già creata per intero
@@ -496,10 +732,7 @@ def migrate_notification_services(engine: Engine) -> int:
     config_columns = ({c["name"] for c in inspector.get_columns("adapter_config")}
                       if inspector.has_table("adapter_config") else set())
     created = 0
-    raw_conn = engine.raw_connection()
-    try:
-        cursor = raw_conn.cursor()
-        cursor.execute("PRAGMA foreign_keys=OFF")
+    with rebuilding_tables(engine) as cursor:
         if config_columns:
             events = "events_json" if "events_json" in config_columns else "NULL"
             rows = cursor.execute(
@@ -515,6 +748,7 @@ def migrate_notification_services(engine: Engine) -> int:
                 created += 1
             cursor.execute("DELETE FROM adapter_config WHERE kind = 'notification'")
         if "notification_type" in delivery_columns:
+            cursor.execute("DROP TABLE IF EXISTS event_delivery__rebuild")
             cursor.execute("""
                 CREATE TABLE event_delivery__rebuild (
                     id              INTEGER PRIMARY KEY,
@@ -549,10 +783,6 @@ def migrate_notification_services(engine: Engine) -> int:
             cursor.execute(
                 "CREATE INDEX IF NOT EXISTS ix_event_delivery_due ON event_delivery(status, next_attempt_at)"
             )
-        raw_conn.commit()
-        cursor.execute("PRAGMA foreign_keys=ON")
-    finally:
-        raw_conn.close()
     return created
 
 
@@ -657,6 +887,18 @@ def migrate_new_default_exclusion_presets(engine: Engine) -> bool:
             return False
         settings_repo.set_setting(session, "exclusion_presets", ",".join([*keys, *added]))
         return True
+
+
+def migrate_foreign_key_actions(engine: Engine) -> list[str]:
+    """Le azioni alla cancellazione di docs/schema.sql anche sui DB già
+    esistenti (audit 2026-10-18): candidate.tracker_id in cascata (prima
+    cancellare un tracker che aveva trovato un candidato dava un errore 500),
+    i file di partenza di seed_job in cascata e i suoi risultati azzerati
+    (prima un disco con un reseed non si poteva più cancellare), e la FK di
+    upload_job.split_from_id, che manca dove la colonna l'ha aggiunta
+    migrate_schema (i DB di prima della 0.9.4). Prima dello schema: le
+    tabelle rifatte hanno già tutte le colonne e gli indici."""
+    return rebuild_tables_from_schema(engine, ("candidate", "seed_job", "upload_job"))
 
 
 def encrypt_plaintext_secrets(engine: Engine) -> int:

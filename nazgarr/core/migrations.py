@@ -15,6 +15,13 @@ Per un cambiamento che apply_schema e migrate_schema non sanno fare
 (rinominare o togliere una colonna, cambiare un vincolo, spostare dati):
 una funzione idempotente in nazgarr/core/db.py e una riga nuova in fondo a
 MIGRATIONS, col numero successivo. Mai rinumerare quelle già rilasciate.
+Un passo che rifà una tabella lavora dentro db.rebuilding_tables (foreign
+key spente fuori dalla transazione, tutto in una transazione, riaccese dopo
+il commit) e fa prima DROP TABLE IF EXISTS della sua tabella temporanea:
+così un avvio interrotto a metà si ripete senza danni. Per cambiare solo
+le foreign key (un ON DELETE, una FK che manca) basta
+db.rebuild_tables_from_schema, che rifà la tabella com'è in schema.sql
+(passo 10).
 """
 
 import logging
@@ -53,6 +60,8 @@ MIGRATIONS: tuple[Migration, ...] = (
               before_schema=False),
     Migration(9, "preset di esclusione nuovi attivi di default", db.migrate_new_default_exclusion_presets,
               before_schema=False),
+    Migration(10, "azioni ON DELETE di candidate e seed_job, FK di upload_job.split_from_id",
+              db.migrate_foreign_key_actions, before_schema=True),
 )
 
 LATEST = MIGRATIONS[-1].version
@@ -84,10 +93,21 @@ def upgrade(engine: Engine) -> int:
         logger.warning("Database alla versione %d, più nuova di questo Nazgarr (%d)", start, LATEST)
     pending = [m for m in MIGRATIONS if m.version > start]
     _run(engine, [m for m in pending if m.before_schema])
-    db.apply_schema(engine)
+    # Le colonne nuove prima dello schema: un indice di schema.sql può usare
+    # una colonna che un DB più vecchio riceve solo da migrate_schema (per
+    # esempio upload_job.split_from_id), e la sua CREATE INDEX fallirebbe.
+    # Le tabelle che mancano le crea poi apply_schema, già complete.
     db.migrate_schema(engine)
-    _run(engine, [m for m in pending if not m.before_schema])
+    db.apply_schema(engine)
+    after = [m for m in pending if not m.before_schema]
+    _run(engine, after)
+    if after:
+        db.apply_schema(engine)  # una tabella rifatta perde i suoi indici: schema.sql li rimette
     db.encrypt_plaintext_secrets(engine)
     if start < LATEST:
         _set_version(engine, LATEST)
+    db.refresh_planner_statistics(engine)  # solo con SQLite prima della 3.46
+    # L'app parte con connessioni nuove, configurate da db._configure_sqlite
+    # (foreign key accese), non con quelle passate per le migrazioni.
+    engine.dispose()
     return start

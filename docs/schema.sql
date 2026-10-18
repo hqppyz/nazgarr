@@ -498,7 +498,9 @@ CREATE INDEX IF NOT EXISTS idx_ctf_client_torrent_id ON client_torrent_file(clie
 CREATE TABLE IF NOT EXISTS candidate (
     id                   INTEGER PRIMARY KEY,
     media_item_id        INTEGER NOT NULL REFERENCES media_item(id) ON DELETE CASCADE,
-    tracker_id           INTEGER NOT NULL REFERENCES tracker(id),
+    tracker_id           INTEGER NOT NULL REFERENCES tracker(id) ON DELETE CASCADE,
+        -- deleting a tracker takes its candidates with it, and their files, reviews and executions
+        -- (audit 2026-10-18: before, any tracker that had found a candidate could not be deleted)
     torrent_id_remote    TEXT NOT NULL,          -- id on the tracker
     info_hash            TEXT,
     name                 TEXT NOT NULL,
@@ -647,14 +649,17 @@ CREATE TABLE IF NOT EXISTS file_change (
 CREATE TABLE IF NOT EXISTS seed_job (
     id                          INTEGER PRIMARY KEY,
     candidate_id                INTEGER NOT NULL REFERENCES candidate(id) ON DELETE CASCADE,
-    source_media_file_id        INTEGER REFERENCES media_file(id),
+    source_media_file_id        INTEGER REFERENCES media_file(id) ON DELETE CASCADE,
         -- set for direction='media_to_torrent': the local file the hardlink is created from
-    source_seed_file_id         INTEGER REFERENCES seed_file(id),
-        -- set for direction='torrent_to_client': the file already present, to be linked to the client
-    result_seed_file_id         INTEGER REFERENCES seed_file(id),
+    source_seed_file_id         INTEGER REFERENCES seed_file(id) ON DELETE CASCADE,
+        -- set for direction='torrent_to_client': the file already present, to be linked to the client.
+        -- Exactly one of the two is always set, like match_review's pair: an execution leaves with
+        -- its file (only deleting its disk removes one), never stays without one (audit 2026-10-18:
+        -- before, a disk that had a single reseed could not be deleted)
+    result_seed_file_id         INTEGER REFERENCES seed_file(id) ON DELETE SET NULL,
         -- the hardlink created (media_to_torrent) or the confirmed seed_file (torrent_to_client) —
         -- known only once execution succeeds, filled in by whichever scan next picks it up
-    result_client_torrent_id    INTEGER REFERENCES client_torrent(id),
+    result_client_torrent_id    INTEGER REFERENCES client_torrent(id) ON DELETE SET NULL,
         -- known only after the add to the client and the next poll — never at add_torrent time
     info_hash                   TEXT,
         -- known as soon as add_torrent() succeeds (returned by the client adapter) — used by
@@ -862,3 +867,27 @@ CREATE INDEX IF NOT EXISTS idx_upload_job_status ON upload_job(status);
 CREATE INDEX IF NOT EXISTS idx_upload_target_job_id ON upload_target(job_id);
 CREATE INDEX IF NOT EXISTS idx_upload_event_job_id ON upload_event(job_id);
 CREATE INDEX IF NOT EXISTS idx_file_change_run_id ON file_change(run_id);
+-- Every other foreign key column too (audit 2026-10-18): with PRAGMA foreign_keys=ON each
+-- deleted parent row looks up its children, a full scan of the child table when nothing
+-- indexes that column. Deleting a disk with 3000 files took 53 s against 200k
+-- candidate_file rows (0.3 s with these), holding the write lock the whole time.
+-- tests/test_consistency.py fails when a REFERENCES column is not the first column of an
+-- index; only the run_log references are left out (scans are never deleted, and
+-- last_scan_id changes at every scan).
+CREATE INDEX IF NOT EXISTS idx_candidate_file_media_file_id ON candidate_file(media_file_id);
+CREATE INDEX IF NOT EXISTS idx_candidate_file_seed_file_id ON candidate_file(seed_file_id);
+CREATE INDEX IF NOT EXISTS idx_match_attempt_media_file_id ON match_attempt(media_file_id);
+CREATE INDEX IF NOT EXISTS idx_match_attempt_seed_file_id ON match_attempt(seed_file_id);
+CREATE INDEX IF NOT EXISTS idx_not_imported_replaced_by ON not_imported_torrent(replaced_by_media_file_id);
+CREATE INDEX IF NOT EXISTS idx_seed_job_result_seed_file_id ON seed_job(result_seed_file_id);
+CREATE INDEX IF NOT EXISTS idx_seed_job_result_client_torrent_id ON seed_job(result_client_torrent_id);
+CREATE INDEX IF NOT EXISTS idx_event_delivery_event_id ON event_delivery(event_id);
+CREATE INDEX IF NOT EXISTS idx_event_delivery_webhook_id ON event_delivery(webhook_id);
+CREATE INDEX IF NOT EXISTS idx_event_delivery_notification_id ON event_delivery(notification_id);
+CREATE INDEX IF NOT EXISTS idx_disk_torrent_client_client_id ON disk_torrent_client(torrent_client_id);
+CREATE INDEX IF NOT EXISTS idx_upload_job_disk_id ON upload_job(disk_id);
+CREATE INDEX IF NOT EXISTS idx_upload_job_split_from_id ON upload_job(split_from_id);
+CREATE INDEX IF NOT EXISTS idx_watch_entry_job_id ON watch_entry(job_id);
+CREATE INDEX IF NOT EXISTS idx_upload_target_tracker_id ON upload_target(tracker_id);
+CREATE INDEX IF NOT EXISTS idx_upload_target_torrent_client_id ON upload_target(torrent_client_id);
+CREATE INDEX IF NOT EXISTS idx_upload_event_target_id ON upload_event(target_id);
