@@ -11,10 +11,20 @@ Dove stanno:
   (nazgarr/integrations/notifications.py), con gli stessi validate/public.
 
 Gli adapter integrati non dichiarano campi e usano le colonne di sempre.
+
+Cambiare l'host (o passare da https a http) di un campo url richiede di
+reinviare i segreti salvati nella stessa richiesta, come per l'indirizzo di
+un tracker o di un client (nazgarr/api/types.py require_secrets_for_new_host):
+qui, in validate, vale per tutti quelli che ci passano (servizi di notifica,
+anche nella prova con service_id, adapter globali, campi dei plugin sulle
+righe di tracker e client; audit 2026-10-18). Prima una API key di
+scrittura puntava il campo url di un plugin (il server di ntfy
+dell'esempio) a un proprio host e riceveva il token salvato.
 """
 
 import json
 from typing import Any
+from urllib.parse import urlsplit
 
 from sqlalchemy.orm import Session
 
@@ -58,10 +68,45 @@ def _coerce(field: ConfigField, value: Any) -> Any:
     return text
 
 
+def _destination(url: Any) -> tuple[str, str]:
+    parts = urlsplit(str(url or ""))
+    return parts.scheme.lower(), parts.netloc.lower()
+
+
+def _url_change(old: Any, new: Any) -> str | None:
+    """Come nazgarr/api/types.py::_change: "host" se l'host è un altro,
+    "insecure" se è lo stesso passato da https a http, None se no."""
+    old_scheme, old_netloc = _destination(old)
+    new_scheme, new_netloc = _destination(new)
+    if new_netloc != old_netloc:
+        return "host"
+    return "insecure" if old_scheme == "https" and new_scheme == "http" else None
+
+
+def _require_secrets_for_new_destination(spec: AdapterSpec, incoming: dict, existing: dict, config: dict) -> None:
+    """I segreti salvati che la richiesta non reinvia (assenti o null: uno
+    vuoto si cancella, e non va da nessuna parte) quando un campo url cambia
+    host o passa a http. Il valore di prima e quello di dopo contano col
+    default, che è l'indirizzo vero quando non se ne salva uno."""
+    changes = [
+        _url_change(existing.get(f.key, f.default), config.get(f.key, f.default))
+        for f in spec.config_fields if f.type == "url" and f.key in incoming
+    ]
+    changes = [c for c in changes if c]
+    if not changes:
+        return
+    missing = [f.key for f in spec.config_fields
+               if f.type == "secret" and existing.get(f.key) and incoming.get(f.key) is None]
+    if missing:
+        code = "secret_required_for_new_host" if "host" in changes else "secret_required_for_insecure_scheme"
+        raise AdapterConfigError(code, fields=", ".join(missing))
+
+
 def validate(spec: AdapterSpec, incoming: dict | None, existing: dict | None = None) -> dict:
     """I nuovi valori sopra quelli che c'erano. Un segreto non inviato (o
-    null) resta com'era, uno inviato vuoto si cancella. Un campo che l'adapter
-    non dichiara è un errore; uno obbligatorio mancante pure."""
+    null) resta com'era, uno inviato vuoto si cancella, salvo che un campo
+    url cambi host: allora i segreti salvati vanno reinviati. Un campo che
+    l'adapter non dichiara è un errore; uno obbligatorio mancante pure."""
     fields = {f.key: f for f in spec.config_fields}
     incoming = incoming or {}
     unknown = sorted(set(incoming) - set(fields))
@@ -76,6 +121,8 @@ def validate(spec: AdapterSpec, incoming: dict | None, existing: dict | None = N
             config.pop(key, None)
         else:
             config[key] = value
+    if existing:
+        _require_secrets_for_new_destination(spec, incoming, existing, config)
     missing = [f.key for f in spec.required_fields if config.get(f.key) in (None, "")]
     if missing:
         raise AdapterConfigError("adapter_config_missing_field", field=missing[0])

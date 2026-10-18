@@ -169,6 +169,63 @@ def test_secrets_never_come_back_and_an_unsaved_config_can_be_tried(client):
         REGISTRY.unregister("notification", "fake")
 
 
+def test_a_service_pointed_elsewhere_needs_its_secrets_again(client):
+    """Come l'esempio nazgarr-ntfy (server + token): con service_id e un
+    altro server, la prova mandava subito il token salvato al nuovo host, e
+    il PATCH lo teneva (audit 2026-10-18)."""
+    sent = []
+
+    class _Ntfy(sdk.NotificationAdapter):
+        def __init__(self, config):
+            self.config = config
+
+        def send(self, notification):
+            sent.append(dict(self.config))
+
+    sdk.register(sdk.AdapterSpec("notification", "ntfyx", "ntfy", lambda ctx: _Ntfy(ctx.config),
+                                 config_fields=(sdk.ConfigField("server", "Server", type="url",
+                                                                default="https://ntfy.sh"),
+                                                sdk.ConfigField("topic", "Topic", required=True),
+                                                sdk.ConfigField("token", "Token", type="secret")),
+                                 plugin="nazgarr-ntfyx"))
+    try:
+        saved = client.post("/api/notifications", json={"name": "N", "adapter_type": "ntfyx", "config": {
+            "server": "https://ntfy.example.org", "topic": "t", "token": "TOPSECRET"}}).json()
+        attack = {"server": "https://attacker.example"}
+        tried = client.post("/api/notifications/test", json={"adapter_type": "ntfyx", "service_id": saved["id"],
+                                                             "config": attack})
+        assert tried.status_code == 400
+        assert tried.json()["detail"] == {"code": "secret_required_for_new_host", "params": {"fields": "token"}}
+        patched = client.patch(f"/api/notifications/{saved['id']}", json={"config": attack})
+        assert patched.status_code == 400 and sent == []
+        insecure = client.patch(f"/api/notifications/{saved['id']}",
+                                json={"config": {"server": "http://ntfy.example.org"}})
+        assert insecure.json()["detail"]["code"] == "secret_required_for_insecure_scheme"
+        # Con il token reinviato si cambia; il resto si cambia senza.
+        assert client.patch(f"/api/notifications/{saved['id']}", json={"config": {"topic": "u"}}).status_code == 200
+        moved = client.patch(f"/api/notifications/{saved['id']}",
+                             json={"config": {"server": "https://new.example", "token": "NEW"}})
+        assert moved.status_code == 200 and moved.json()["values"]["server"] == "https://new.example"
+    finally:
+        REGISTRY.unregister("notification", "ntfyx")
+
+
+def test_a_global_plugin_adapter_pointed_elsewhere_needs_its_secrets_again(client):
+    spec = sdk.register(sdk.AdapterSpec(
+        "image_host", "selfhostx", "Self host", lambda ctx: None, plugin="nazgarr-selfhostx",
+        config_fields=(sdk.ConfigField("endpoint", "Endpoint", type="url", default="https://img.example"),
+                       sdk.ConfigField("api_key", "API key", type="secret", required=True))))
+    try:
+        path = f"/api/plugins/config/{spec.kind}/{spec.adapter_type}"
+        assert client.put(path, json={"config": {"api_key": "KEY"}}).status_code == 200
+        response = client.put(path, json={"config": {"endpoint": "https://attacker.example"}})
+        assert response.status_code == 400
+        assert response.json()["detail"]["code"] == "secret_required_for_new_host"
+        assert client.get(path).json()["values"]["endpoint"] is None  # non salvato
+    finally:
+        REGISTRY.unregister("image_host", "selfhostx")
+
+
 def test_a_plugin_icon_must_be_a_small_data_image():
     with pytest.raises(ValueError):
         sdk.register(sdk.AdapterSpec("notification", "x", "X", lambda ctx: None, icon="https://example.com/x.svg"))

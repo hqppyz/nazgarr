@@ -113,6 +113,8 @@ Import only from `nazgarr.sdk`, never from the rest of `nazgarr`: `nazgarr.sdk` 
 
 An adapter whose required fields are not all filled in is skipped, like an image host without its API key.
 
+Keep the address your adapter talks to in a `url` field, never in a `text` one: when a `url` field moves to another host (its default counts as the old value when none was saved), or from `https://` to `http://`, the saved `secret` fields must be sent again in the same request, or the change is refused (`secret_required_for_new_host`, `secret_required_for_insecure_scheme`). Your stored token can then never be pointed at a host chosen by someone holding a write API key.
+
 ### `AdapterContext`
 
 `build` receives:
@@ -491,7 +493,7 @@ curl -H "X-Api-Key: nzg_..." http://nazgarr:3019/api/dashboard
 - manage API keys: creating or revoking them requires the real login, so a stolen key cannot create more keys to stay in;
 - read or change secret settings (API keys, tokens, passwords) or the login's own settings;
 - change the safety settings (verification before executing, the client's recheck, automatic execution and its thresholds);
-- move a tracker, client or Radarr/Sonarr instance to another host, or the same host from `https://` to `http://`, without sending its secrets again in the same request, so a changed address can never receive the saved token (nor read it in clear on the way).
+- move a tracker, client, Radarr/Sonarr instance, notification service or plugin adapter (a `url` field of its settings) to another host, or the same host from `https://` to `http://`, without sending its secrets again in the same request, so a changed address can never receive the saved token (nor read it in clear on the way). The test of a saved notification service with other values follows the same rule.
 
 A wrong or revoked key always gets `401`; a read key gets `403` on anything but `GET`. Error messages returned by the API never contain credentials (download keys, passkeys, tokens in URLs).
 

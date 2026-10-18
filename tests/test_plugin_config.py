@@ -54,10 +54,43 @@ def test_values_are_checked_against_the_declared_fields(deluge):
         assert err.value.code == code
 
     # Un segreto non inviato resta, uno vuoto si cancella (e qui è obbligatorio).
-    kept = plugin_config.validate(deluge, {"url": "http://e", "password": None}, config)
-    assert kept["password"] == "pw" and kept["url"] == "http://e"
+    kept = plugin_config.validate(deluge, {"url": "http://d:8112", "port": 1, "password": None}, config)
+    assert kept["password"] == "pw" and kept["port"] == 1
     with pytest.raises(plugin_config.AdapterConfigError):
         plugin_config.validate(deluge, {"password": ""}, config)
+
+
+def test_a_new_host_needs_the_secrets_again(deluge):
+    """Un campo url puntato altrove si teneva il segreto salvato: una API key
+    di scrittura se lo faceva mandare (audit 2026-10-18)."""
+    stored = {"url": "https://d:8112", "password": "pw"}
+    for incoming, code in (({"url": "https://attacker.example"}, "secret_required_for_new_host"),
+                           ({"url": "https://attacker.example", "password": None}, "secret_required_for_new_host"),
+                           ({"url": "http://d:8112"}, "secret_required_for_insecure_scheme")):
+        with pytest.raises(plugin_config.AdapterConfigError) as err:
+            plugin_config.validate(deluge, incoming, stored)
+        assert err.value.code == code and err.value.params == {"fields": "password"}
+    moved = plugin_config.validate(deluge, {"url": "https://e", "password": "new"}, stored)
+    assert moved == {"url": "https://e", "password": "new"}
+    # Lo stesso indirizzo (anche riscritto uguale) o https su un host http: nessun segreto da reinviare.
+    assert plugin_config.validate(deluge, {"url": "https://d:8112"}, stored)["password"] == "pw"
+    upgraded = plugin_config.validate(deluge, {"url": "https://d"}, {"url": "http://d", "password": "pw"})
+    assert upgraded["password"] == "pw"
+
+
+def test_a_new_host_over_the_default_counts_too():
+    spec = sdk.AdapterSpec("image_host", "selfhost", "Self host", lambda ctx: None, plugin="nazgarr-selfhost",
+                           config_fields=(sdk.ConfigField("endpoint", "Endpoint", type="url",
+                                                          default="https://img.example"),
+                                          sdk.ConfigField("api_key", "API key", type="secret", required=True)))
+    with pytest.raises(plugin_config.AdapterConfigError) as err:
+        plugin_config.validate(spec, {"endpoint": "https://attacker.example"}, {"api_key": "k"})
+    assert err.value.code == "secret_required_for_new_host"
+    # Tolto l'indirizzo salvato si torna al default: un altro host anche quello.
+    with pytest.raises(plugin_config.AdapterConfigError):
+        plugin_config.validate(spec, {"endpoint": ""}, {"endpoint": "https://other.example", "api_key": "k"})
+    # Alla creazione non c'è niente di salvato da proteggere.
+    assert plugin_config.validate(spec, {"endpoint": "https://mine.example", "api_key": "k"})["api_key"] == "k"
 
 
 def test_a_plugin_client_is_configured_through_the_api_and_its_secret_never_comes_back(client, deluge):
@@ -78,6 +111,11 @@ def test_a_plugin_client_is_configured_through_the_api_and_its_secret_never_come
     with client.app.state.session_factory() as session:
         adapter = adapter_factory.build_torrent_client_adapter(session.get(TorrentClient, data["id"]))
     assert adapter.config == {"url": "http://d:8112", "password": "pw", "port": 1234, "ssl": False, "mode": None}
+
+    # Il campo url del plugin su un altro host, con base_url uguale: prima
+    # passava, col segreto salvato (audit 2026-10-18).
+    moved = client.patch(f"/api/torrent-clients/{data['id']}", json={"config": {"url": "http://attacker:8112"}})
+    assert moved.status_code == 400 and moved.json()["detail"]["code"] == "secret_required_for_new_host"
 
 
 def test_a_builtin_client_takes_no_plugin_config(client):
