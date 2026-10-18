@@ -7,9 +7,6 @@ export const disks = {
   'disks.subfolderPlaceholder': 'Subfolder of disk_scan_root…',
   'disks.multiDiskHelp': 'The folders mounted in the container that are not a disk yet.',
   'disks.create': 'Create',
-  'disks.verifyHardlink': 'Verify hardlink (st_dev)',
-  'disks.diskConsistent': 'Disk consistent.',
-  'disks.diskInconsistent': 'Disk no longer consistent.',
   'disks.verificationFailed': 'Verification failed: {message}',
   'disks.setPath': '— set —',
   'disks.editDisk': 'Edit disk',
@@ -24,8 +21,6 @@ export const disks = {
     'Where your new uploads seed from: the hardlinks with the torrent names, and the folder the client gets. Empty = the first seeding folder.',
   'disks.newHardlinkFolderHelp':
     'Where a NEW hardlink is created (and the save path handed to the client). It never narrows the "already seeding" search, which always covers every seeding folder. Empty = the first seeding folder.',
-  'disks.mediaFolder': 'Media folder',
-  'disks.seedingFolder': 'Seeding folder',
   'disks.noDisksConfigured': 'No disks configured.',
   'disks.createFolderFailed': 'Failed to create folder: {message}',
   'disks.navigateToFile': 'Browse to the file and select it.',

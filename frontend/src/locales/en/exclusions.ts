@@ -1,5 +1,4 @@
 export const exclusions = {
-  'exclusions.tab': 'Exclusions',
   'exclusions.presetsTitle': 'Presets',
   'exclusions.presetsDescription':
     'Ready-made patterns for common junk. Excluded files stay on disk and are still scanned. They are just hidden by default in Media files and Torrent files and never counted in the totals.',
@@ -24,5 +23,4 @@ export const exclusions = {
     'Excluded files never trigger TMDB or tracker lookups, but a file that is part of a torrent is still used when that torrent is recreated.',
   'exclusions.save': 'Save patterns',
   'exclusions.saved': 'Exclusion patterns saved.',
-  'exclusions.presetsSaved': 'Exclusion presets updated.',
 } as const

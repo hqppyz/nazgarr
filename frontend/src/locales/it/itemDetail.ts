@@ -20,7 +20,6 @@ export const itemDetail = {
   'itemDetail.searchNow': 'Cerca ora',
   'itemDetail.searchDone': 'Cercati {files} file: {candidates} candidati. I match vanno in revisione, non viene eseguito niente.',
   'itemDetail.searchRateLimited': 'Limite di richieste del tracker raggiunto dopo {files} file ({candidates} candidati): riprova più tardi.',
-  'itemDetail.searchFailed': 'Ricerca non riuscita: {message}',
   'itemDetail.neverSearched': 'Non ancora cercato su nessun tracker.',
   'itemDetail.nothingToSearch': 'È tutto in seed: niente da cercare.',
   'itemDetail.searched': 'cercato {when}',
@@ -30,7 +29,6 @@ export const itemDetail = {
   'itemDetail.recheck': 'recheck {status}',
   'itemDetail.checkNow': 'Controlla ora',
   'itemDetail.checkNowHint': 'Chiedi subito al client se il recheck è finito (viene controllato anche in automatico ogni 2 minuti).',
-  'itemDetail.checkNowFailed': 'Impossibile controllare: {message}',
   'itemDetail.uploadOrReseed': 'Upload / reseed',
   'itemDetail.uploadOrReseedHelp':
     'Apre un nuovo upload su questo file: se un tracker ha già la release identica, propone invece un reseed.',

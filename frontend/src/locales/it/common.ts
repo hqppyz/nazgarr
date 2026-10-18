@@ -34,7 +34,6 @@ export const common = {
   'common.actionFailed': 'Non riuscito: {message}',
   'common.saveFailed': 'Salvataggio non riuscito: {message}',
   'common.leaveBlank': 'Lascia vuoto per non cambiarlo',
-  'common.workInProgress': 'Lavori in corso',
   'common.workInProgressHint': 'Questa sezione è in costruzione e sarà disponibile in una versione futura.',
   'common.errorsTitle': '{count} errori',
   'common.errorsNoDetail': 'Per questi errori non è stato salvato nessun dettaglio: vedi la scheda Log.',

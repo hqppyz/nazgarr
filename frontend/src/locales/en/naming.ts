@@ -1,7 +1,6 @@
 export const naming = {
   'naming.variablesHelp': 'Click a variable to insert it where the cursor is. Hover it to see its value in the preview.',
   'naming.noValue': 'no value in the preview',
-  'naming.usesDefault': 'empty: uses the default template',
   'naming.template.default': 'Default',
   'naming.template.tv': 'series',
   'naming.template.REMUX': 'REMUX',
@@ -24,8 +23,6 @@ export const naming = {
   'naming.titleBoth': 'Original + tracker language',
   'naming.separator': 'Separator',
   'naming.groupSeparator': 'Before the group',
-  'naming.audioLanguages': 'Audio languages',
-  'naming.subsLanguages': 'Subtitle languages',
   'naming.languages.none': 'Not written',
   'naming.languages.all': 'All (ENG ITA)',
   'naming.languages.primary_first': 'Primary first (ITA ENG, ITA MULTI)',

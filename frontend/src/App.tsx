@@ -23,8 +23,6 @@ const UploadJobPage = lazyPage(() => import('@/pages/upload/UploadJobPage'), (m)
 const UploadDemoPage = lazyPage(() => import('@/pages/upload/UploadDemoPage'), (m) => m.UploadDemoPage)
 const ConfigurationPage = lazyPage(() => import('@/pages/config/ConfigurationPage'), (m) => m.ConfigurationPage)
 const InstancesPage = lazyPage(() => import('@/pages/InstancesPage'), (m) => m.InstancesPage)
-// Il laboratorio del logo porta Three.js: mai precaricato.
-const RingLabPage = lazyPage(() => import('@/pages/lab/RingLabPage'), (m) => m.default, { preload: false })
 
 // Ogni voce di navigazione (NAV_DASHBOARD + NAV_GROUPS) diventa una route:
 // ComingSoon di default, sostituita da una pagina reale via `overrides`
@@ -52,9 +50,6 @@ function App() {
         <Route path="/library" element={<LibraryDefaultView />} />
         {/* "Non importati" è diventato Triage: i link salvati arrivano lì. */}
         <Route path="/torrent/not-imported" element={<Navigate to="/torrent/triage" replace />} />
-        {/* Prototipo del logo (branch feature/ring-logo): fuori dalla navigazione,
-            caricato a parte perché porta con sé Three.js. */}
-        <Route path="/lab/ring" element={<RingLabPage />} />
         {ALL_ITEMS.map((item) => (
           <Route key={item.to} path={item.to} element={overrides[item.to] ?? <ComingSoon title={item.title} />} />
         ))}

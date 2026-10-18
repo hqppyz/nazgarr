@@ -9,7 +9,6 @@ export const security = {
   'security.passwordChanged': 'Password cambiata.',
   'security.twoFactorTitle': 'Autenticazione a due fattori',
   'security.twoFactorDescription': 'Non ancora disponibile — prevista in una versione futura.',
-  'security.apiKeysTitle': 'API key',
   'security.apiKeyNewTitle': 'Nuova API key',
   'security.apiKeyAccess': 'Accesso',
   'security.apiKeysNone': 'Ancora nessuna API key.',
@@ -27,7 +26,6 @@ export const security = {
   'security.apiKeyLevelHelp.write':
     'Può fare quello che fai tu dopo il login (creare job, cambiare impostazioni), tranne gestire le API key.',
   'security.apiKeyCreate': 'Crea key',
-  'security.apiKeyUsed': 'usata {when}',
   'security.apiKeyNeverUsed': 'mai usata',
   'security.apiKeyRevokedAt': 'revocata {when}',
   'security.apiKeyRevoke': 'Revoca',

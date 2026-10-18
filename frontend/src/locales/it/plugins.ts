@@ -12,8 +12,6 @@ export const plugins = {
   'plugins.status.failed': 'errore',
   'plugins.status.incompatible': 'incompatibile',
   'plugins.status.install_failed': 'non installato',
-  'plugins.events': 'Eventi',
-  'plugins.lastDelivery': 'Ultimo: {event}, {status}',
   'plugins.kind.tracker': 'Tracker',
   'plugins.kind.torrent_client': 'Client torrent',
   'plugins.kind.media_resolver': 'Resolver media',

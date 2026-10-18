@@ -1,5 +1,4 @@
 export const exclusions = {
-  'exclusions.tab': 'Esclusioni',
   'exclusions.presetsTitle': 'Preset',
   'exclusions.presetsDescription':
     'Pattern pronti per i file spazzatura più comuni. I file esclusi restano sul disco e vengono comunque scansionati. Sono solo nascosti di default in File media e File torrent e non vengono mai contati nei totali.',
@@ -24,5 +23,4 @@ export const exclusions = {
     'I file esclusi non attivano mai ricerche su TMDB o sui tracker, ma un file che fa parte di un torrent viene comunque usato quando quel torrent viene ricreato.',
   'exclusions.save': 'Salva i pattern',
   'exclusions.saved': 'Pattern di esclusione salvati.',
-  'exclusions.presetsSaved': 'Preset di esclusione aggiornati.',
 } as const

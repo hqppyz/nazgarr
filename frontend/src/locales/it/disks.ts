@@ -7,9 +7,6 @@ export const disks = {
   'disks.subfolderPlaceholder': 'Sottocartella di disk_scan_root…',
   'disks.multiDiskHelp': 'Le cartelle montate nel container non ancora aggiunte come disco.',
   'disks.create': 'Crea',
-  'disks.verifyHardlink': 'Verifica hardlink (st_dev)',
-  'disks.diskConsistent': 'Disco coerente.',
-  'disks.diskInconsistent': 'Il disco non è più coerente.',
   'disks.verificationFailed': 'Verifica non riuscita: {message}',
   'disks.setPath': '— imposta —',
   'disks.editDisk': 'Modifica disco',
@@ -23,8 +20,6 @@ export const disks = {
     'Dove i tuoi nuovi upload vanno in seed: gli hardlink con i nomi del torrent, e la cartella che riceve il client. Vuoto = la prima cartella di seeding.',
   'disks.newHardlinkFolderHelp':
     'Dove viene creato un NUOVO hardlink (e il save_path del client). Non limita mai la ricerca "già in seed", che copre sempre tutte le cartelle di seeding. Vuoto = la prima cartella di seeding.',
-  'disks.mediaFolder': 'Cartella media',
-  'disks.seedingFolder': 'Cartella dei torrent',
   'disks.noDisksConfigured': 'Nessun disco configurato.',
   'disks.createFolderFailed': 'Creazione della cartella non riuscita: {message}',
   'disks.navigateToFile': 'Vai al file e selezionalo.',
