@@ -38,6 +38,7 @@ export const errors = {
 
   'errors.review_not_found': 'Proposta {id} non trovata.',
   'errors.seed_job_not_found': 'SeedJob {id} non trovato.',
+  'errors.seed_job_not_deletable': 'Il SeedJob {id} è {status}: si eliminano solo le esecuzioni fallite o in corso.',
   'errors.review_already_verifying': 'La proposta {id} è già in verifica: aspetta che finisca il suo controllo completo degli hash.',
   'errors.full_check_not_found': 'Controllo completo degli hash {id} non trovato: è finito da tempo, o Nazgarr si è riavviato.',
   'errors.full_check_candidate_not_found': 'Candidato torrent {id} non trovato.',

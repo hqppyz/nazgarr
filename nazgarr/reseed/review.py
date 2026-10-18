@@ -31,6 +31,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from nazgarr.adapters.torrent_client.base import TorrentClientAdapter
 from nazgarr.core import settings_registry
+from nazgarr.core.errors import CodedError
 from nazgarr.core.logs import safe_error
 from nazgarr.core.models import (
     Candidate,
@@ -1085,6 +1086,16 @@ def list_failed_seed_jobs(session: Session) -> list[SeedJob]:
 DELETABLE_SEED_JOB_STATUSES = ("failed", "in_progress")
 
 
+class SeedJobNotDeletable(CodedError, ExecutionError):
+    """Un'esecuzione in seed (o in un altro stato finale che non è un
+    fallimento) non si elimina: l'API lo dice col codice
+    seed_job_not_deletable (audit 2026-10-18, prima un testo libero).
+    Resta un ExecutionError per chi lo chiama da Python."""
+
+    def __init__(self, seed_job: SeedJob):
+        super().__init__("seed_job_not_deletable", id=seed_job.id, status=seed_job.final_status)
+
+
 def delete_seed_job(session: Session, seed_job: SeedJob) -> None:
     """Toglie un'esecuzione fallita o rimasta in corso, così il prossimo scan
     ripropone il torrent per quel file: un candidato con un seed_job non
@@ -1096,7 +1107,7 @@ def delete_seed_job(session: Session, seed_job: SeedJob) -> None:
     esecuzione (stesso inode), un torrent ancora nel client va tolto dal
     client perché il candidato torni."""
     if seed_job.final_status not in DELETABLE_SEED_JOB_STATUSES:
-        raise ExecutionError(f"SeedJob {seed_job.id} is {seed_job.final_status}: only failed or running ones")
+        raise SeedJobNotDeletable(seed_job)
     candidate = session.get(Candidate, seed_job.candidate_id)
     file_filter = (
         {"media_file_id": seed_job.source_media_file_id} if seed_job.source_media_file_id is not None

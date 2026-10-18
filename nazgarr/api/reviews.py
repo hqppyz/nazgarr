@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session, object_session, selectinload
 
-from nazgarr.core.errors import coded_detail
+from nazgarr.core.errors import coded_detail, from_coded_error
 from nazgarr.core.logs import safe_error
 from nazgarr.core.models import Candidate, MatchReview, SeedJob, TorrentClient, Tracker
 from nazgarr.library import seeding
@@ -399,8 +399,8 @@ def delete_seed_job(seed_job_id: int, session: Session = Depends(get_session)):
             review.delete_seed_job(session, seed_job)
     except exclusive.Busy as exc:
         raise HTTPException(status_code=409, detail=coded_detail(exc.code)) from exc
-    except ExecutionError as exc:
-        raise HTTPException(status_code=409, detail=safe_error(exc)) from exc
+    except review.SeedJobNotDeletable as exc:
+        raise HTTPException(status_code=409, detail=from_coded_error(exc)) from exc
 
 
 @router.get("/failed", response_model=list[SeedJobResponse])

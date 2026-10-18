@@ -38,6 +38,7 @@ export const errors = {
 
   'errors.review_not_found': 'Review {id} not found.',
   'errors.seed_job_not_found': 'SeedJob {id} not found.',
+  'errors.seed_job_not_deletable': 'SeedJob {id} is {status}: only failed or in-progress executions can be deleted.',
   'errors.review_already_verifying': 'Review {id} is already being verified: wait for its full hash check to finish.',
   'errors.full_check_not_found': 'Full hash check {id} not found: it ended a while ago, or Nazgarr restarted.',
   'errors.full_check_candidate_not_found': 'Torrent candidate {id} not found.',
