@@ -99,11 +99,16 @@ jobs:
           git tag -f stable "v$VERSION^{commit}"
           git push -f origin stable
 
-  package:
+  # Il pacchetto si costruisce senza permessi di scrittura né token: npm ci,
+  # pip e la build eseguono codice di terzi, e prima lo facevano con il
+  # GITHUB_TOKEN in scrittura nell'ambiente e salvato da checkout in
+  # .git/config (audit 2026-10-18). L'unico passo che scrive, allegare il
+  # pacchetto alla release, è attach-package, che non esegue codice del repo.
+  build-package:
     needs: promote
     runs-on: ubuntu-latest
     permissions:
-      contents: write  # asset della release
+      contents: read
     outputs:
       built: ${{ steps.build.outputs.built }}
     steps:
@@ -111,6 +116,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
         with:
           ref: v${{ needs.promote.outputs.version }}
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
@@ -125,10 +131,9 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       # Una versione di prima del pacchetto (senza lo script) non ne ha uno.
-      - name: Build and attach the package
+      - name: Build the package
         id: build
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ needs.promote.outputs.version }}
         run: |
           set -euo pipefail
@@ -138,10 +143,9 @@ jobs:
             exit 0
           fi
           scripts/build_package.sh "$VERSION" "$(git rev-parse --short HEAD)"
-          gh release upload "v$VERSION" dist/* --clobber
           echo "built=true" >> "$GITHUB_OUTPUT"
 
-      - name: Keep the package for the publishing jobs
+      - name: Keep the package for the next jobs
         if: steps.build.outputs.built == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
@@ -150,13 +154,34 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  # Solo scaricare l'artifact e caricarlo: nessun checkout, nessun codice
+  # del repo o di terzi accanto al token in scrittura.
+  attach-package:
+    needs: [promote, build-package]
+    if: needs.build-package.outputs.built == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # asset della release
+    steps:
+      - name: Download the package
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        with:
+          name: python-package
+          path: dist
+
+      - name: Attach the package to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.promote.outputs.version }}
+        run: gh release upload "v$VERSION" dist/* --clobber --repo "$GITHUB_REPOSITORY"
+
   # Pubblicazione con Trusted Publishing (OIDC): nessun token salvato, PyPI
   # riconosce questo workflow e il suo environment. Prima TestPyPI, la prova
   # generale; poi PyPI, solo se la prova è andata. Una versione pubblicata
   # non si può ricaricare (solo ritirare): per questo solo le stable.
   publish-testpypi:
-    needs: package
-    if: needs.package.outputs.built == 'true'
+    needs: [build-package, attach-package]
+    if: needs.build-package.outputs.built == 'true'
     runs-on: ubuntu-latest
     environment:
       name: testpypi
@@ -177,8 +202,8 @@ jobs:
           skip-existing: true  # una promozione rilanciata non fallisce qui
 
   publish-pypi:
-    needs: [package, publish-testpypi]
-    if: needs.package.outputs.built == 'true'
+    needs: [build-package, publish-testpypi]
+    if: needs.build-package.outputs.built == 'true'
     runs-on: ubuntu-latest
     environment:
       name: pypi
