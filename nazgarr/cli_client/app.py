@@ -53,6 +53,11 @@ def build() -> typer.Typer:
                                 help="Address of the instance, overriding the profile."),
         json_output: bool = typer.Option(False, "--json", help="Print the raw JSON answer (for scripts and jq)."),
     ):
+        # Solo un --url scritto sul comando: NAZGARR_URL lo legge
+        # profiles.resolve, che sa quando cede a un profilo scelto. Per nome:
+        # Typer ha un suo ParameterSource, non quello di click.
+        if getattr(ctx.get_parameter_source("url"), "name", None) == "ENVIRONMENT":
+            url = None
         ctx.obj = State(profile=profile, url=url, json=json_output)
 
     # --- server ---------------------------------------------------------------

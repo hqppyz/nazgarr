@@ -3,7 +3,10 @@
 server arrivano come codice e parametri e si mostrano con lo stesso testo
 inglese dell'interfaccia (messages_en.json)."""
 
+import ipaddress
+import socket
 from collections.abc import Callable
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -44,8 +47,46 @@ def _error(response: httpx.Response) -> ApiError:
                     text=str(detail) if detail else f"HTTP {response.status_code}")
 
 
+def _public_address(host: str) -> bool:
+    """Un host che si risolve in un indirizzo di internet. Uno che non si
+    risolve no: la richiesta fallirà comunque, e non si avvisa a vuoto."""
+    try:
+        addresses = {info[4][0] for info in socket.getaddrinfo(host, None)}
+    except (socket.gaierror, UnicodeError):
+        return False
+    for address in addresses:
+        ip = ipaddress.ip_address(address.split("%", 1)[0])
+        if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped:
+            ip = ip.ipv4_mapped
+        if ip.is_global:  # non LAN, loopback, link-local né 100.64.0.0/10 (Tailscale)
+            return True
+    return False
+
+
+_WARNED: set[str] = set()
+
+
+def warn_if_insecure(url: str) -> None:
+    """Un avviso, una volta per indirizzo, se password e API key andrebbero
+    in chiaro su internet: http:// verso un indirizzo pubblico (audit
+    2026-10-18). La LAN, una VPN e il loopback in http vanno bene
+    (docs/SPEC.md, la stessa regola delle altre istanze), e il container usa
+    http://127.0.0.1:3019. Solo un avviso: l'istanza può essere dietro un
+    tunnel che il CLI non vede."""
+    parts = urlsplit(url)
+    if parts.scheme.lower() != "http" or not parts.hostname or url in _WARNED:
+        return
+    _WARNED.add(url)
+    if _public_address(parts.hostname):
+        from nazgarr.cli_client.output import err_console
+
+        err_console.print(f"[yellow]Warning:[/yellow] {url} is a public address over http://: your password and "
+                          "API key travel in clear. Use https:// (a reverse proxy with TLS) or a VPN.")
+
+
 class Api:
     def __init__(self, url: str, api_key: str | None = None, token: str | None = None):
+        warn_if_insecure(url.rstrip("/"))
         headers = {"Accept": "application/json"}
         if api_key:
             headers["X-Api-Key"] = api_key
