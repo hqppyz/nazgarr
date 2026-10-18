@@ -21,6 +21,7 @@ from nazgarr.core.run_progress import NULL_PROGRESS
 from nazgarr.core.settings_repo import get_setting, set_setting
 from nazgarr.library.exclusions import load_exclusions
 from nazgarr.library.poster_cache import download_poster, poster_file
+from nazgarr.library.scan_state import is_current, latest_scan_by_disk
 
 logger = logging.getLogger(__name__)
 
@@ -71,23 +72,40 @@ def get_or_create_media_item(session: Session, resolved: ResolvedMedia) -> Media
     return item
 
 
+_LOAD_CHUNK = 500  # id per IN (...): sotto il limite di variabili dei SQLite vecchi
+
+
 def _files_to_resolve(session: Session, arr_index, reread_parsed: bool) -> list[MediaFile]:
     """File ancora senza identità, più quelli da rileggere:
     - Radarr/Sonarr fanno fede: un file che conoscono ma identificato da
       altro (nome del file) si riallinea alla loro identità;
-    - un cambio di IDENTITY_RULES_VERSION rilegge i file identificati dal nome."""
-    files = []
-    for mf in session.query(MediaFile).all():
+    - un cambio di IDENTITY_RULES_VERSION rilegge i file identificati dal nome.
+    Solo i file ancora sul disco (audit 2026-10-18): uno sparito non ha niente
+    da identificare, e prima tornava al resolver (e su TMDB) a ogni run. La
+    sua riga tiene l'identità che ha: se il file torna, la ritrova. La scelta
+    si fa sulle sole colonne che servono; oggetti ORM solo per i file scelti."""
+    latest = latest_scan_by_disk(session, MediaFile)
+    ids = []
+    for mf in session.query(
+        MediaFile.id, MediaFile.disk_id, MediaFile.relative_path, MediaFile.size_bytes, MediaFile.last_scan_id,
+        MediaFile.media_item_id, MediaFile.resolver_source,
+    ).order_by(MediaFile.id):
         if not is_video(mf.relative_path):  # nfo, sottotitoli, immagini: nessuna identità da cercare
             continue
+        if not is_current(mf, latest):
+            continue
         if mf.media_item_id is None:
-            files.append(mf)
+            ids.append(mf.id)
         elif mf.resolver_source in ARR_SOURCES:
             continue
         elif reread_parsed and mf.resolver_source == "filename_parser":
-            files.append(mf)
+            ids.append(mf.id)
         elif arr_index is not None and arr_index.identity_for(mf.relative_path, mf.size_bytes) is not None:
-            files.append(mf)
+            ids.append(mf.id)
+    files = []
+    for start in range(0, len(ids), _LOAD_CHUNK):
+        chunk = ids[start:start + _LOAD_CHUNK]
+        files.extend(session.query(MediaFile).filter(MediaFile.id.in_(chunk)).order_by(MediaFile.id).all())
     return files
 
 
