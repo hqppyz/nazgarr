@@ -19,6 +19,7 @@ visto: quello da cui Radarr/Sonarr hanno appena importato un file
 import json
 import logging
 import os
+import stat
 from datetime import UTC, datetime
 
 from sqlalchemy import func
@@ -28,7 +29,7 @@ from nazgarr.adapters.torrent_client.base import ClientTorrentInfo, TorrentClien
 from nazgarr.core.db_utils import bulk_upsert
 from nazgarr.core.fs_scope import ScopeViolation, resolve_scoped
 from nazgarr.core.models import ClientTorrent, ClientTorrentFile, MediaFile, RunLog, SeedFile, SeedJob, TorrentClient
-from nazgarr.library import disk_folders
+from nazgarr.library import disk_folders, hardlinks
 from nazgarr.library.scan_state import latest_scan_by_disk
 from nazgarr.torrents import client_paths
 from nazgarr.torrents.indexer import client_disks, store_client_torrents
@@ -36,13 +37,41 @@ from nazgarr.torrents.indexer import client_disks, store_client_torrents
 logger = logging.getLogger(__name__)
 
 
-def _stat(disk, relative_path: str) -> os.stat_result | None:
-    """Il file del disco, mai fuori (cartella e nomi vengono dal tracker) né
-    attraverso un link simbolico; None se non c'è."""
+def _stat(disk, relative_path: str, folder: str) -> os.stat_result | None:
+    """Il file del disco così come è scritto, mai fuori (cartella e nomi
+    vengono dal tracker) né attraverso un link simbolico: né il file né una
+    cartella fra `folder` e il file (hardlinks.refuse_symlinks); None se non
+    c'è. folder è la cartella configurata da cui parte il percorso (quella
+    dei nuovi hardlink, una della libreria): come per lo scanner e
+    l'executor lei può essere un link dentro il disco, sotto di lei niente.
+    Prima lo stat passava dal percorso già risolto da resolve_scoped, e
+    follow_symlinks=False non valeva più (audit 2026-10-18): un link
+    simbolico al posto dell'hardlink, verso il file della libreria, ne
+    aveva l'inode e passava per il suo hardlink, in seed da un percorso
+    che lo scanner salta."""
+    path = os.path.join(disk.root_path, relative_path)
     try:
-        return os.stat(resolve_scoped(disk.root_path, relative_path), follow_symlinks=False)
-    except (OSError, ScopeViolation):
+        resolve_scoped(disk.root_path, relative_path)
+        hardlinks.refuse_symlinks(os.path.join(disk.root_path, folder), path)
+        st = os.lstat(path)
+    except (OSError, ScopeViolation, hardlinks.LinkProblem):
         return None
+    return None if stat.S_ISLNK(st.st_mode) else st
+
+
+def _media_folder(disk, relative_path: str) -> str:
+    """La cartella della libreria da cui lo scanner ha visto il file (la più
+    interna che lo contiene); "" se nessuna: allora tutto il percorso dalla
+    radice del disco."""
+    path = os.path.normpath(relative_path)
+    inside = [f for f in (os.path.normpath(folder) for folder in disk.media_folders)
+              if f == "." or path.startswith(f + os.sep)]
+    best = max(inside, key=len, default="")
+    return "" if best == "." else best
+
+
+def _library_stat(disk, media: MediaFile) -> os.stat_result | None:
+    return _stat(disk, media.relative_path, _media_folder(disk, media.relative_path))
 
 
 def _same_file(a: os.stat_result | None, b: os.stat_result | None) -> bool:
@@ -89,9 +118,9 @@ def _hardlink_paths(seed_job: SeedJob, mf: MediaFile) -> list[tuple[str, MediaFi
     anchor = next(((path, media) for path, media in entries if media is not None and media.id == mf.id), None)
     chosen = placements[0]
     if anchor is not None and len(placements) > 1:
-        library = _stat(disk, mf.relative_path)
-        chosen = next((prefix for prefix in placements if _same_file(_stat(disk, rel(prefix, anchor[0])), library)),
-                      placements[0])
+        library = _library_stat(disk, mf)
+        chosen = next((prefix for prefix in placements
+                       if _same_file(_stat(disk, rel(prefix, anchor[0]), base), library)), placements[0])
     return [(rel(chosen, path), media) for path, media in entries]
 
 
@@ -103,13 +132,14 @@ def _register_hardlinks(session: Session, seed_job: SeedJob, scan_id: int) -> in
     scan_id = latest_scan_by_disk(session, SeedFile).get(disk.id) or scan_id
     now = datetime.now(UTC)
     rows = []
+    base = disk.effective_new_torrent_rel_path or ""
     for relative_path, media in _hardlink_paths(seed_job, mf):
-        st = _stat(disk, relative_path)
+        st = _stat(disk, relative_path, base)
         if st is None:
-            continue  # extra non ancora scaricato dal client: lo vedrà il prossimo scan
+            continue  # extra non ancora scaricato dal client (o un link simbolico): lo vedrà il prossimo scan
         # Collegato al file della libreria solo se è davvero il suo hardlink:
         # un altro file allo stesso percorso non diventa "in seed" per lui.
-        linked = media is not None and _same_file(st, _stat(disk, media.relative_path))
+        linked = media is not None and _same_file(st, _library_stat(disk, media))
         rows.append({
             "disk_id": disk.id, "relative_path": relative_path, "size_bytes": st.st_size,
             "st_dev": st.st_dev, "inode": st.st_ino, "media_file_id": media.id if linked else None,

@@ -104,7 +104,7 @@ class LinkProblem(Exception):
         self.code, self.path, self.detail = code, path, detail
 
 
-def _refuse_symlinks(root: str, target: str) -> None:
+def refuse_symlinks(root: str, target: str) -> None:
     """Nessun link simbolico fra root e la destinazione, sul percorso così
     come è scritto (audit 2026-10-18). resolve_scoped lo risolve, e prima il
     controllo guardava il percorso già risolto: un link simbolico al posto
@@ -131,12 +131,12 @@ def _refuse_symlinks(root: str, target: str) -> None:
 def check_link(source: str, target: str, root: str) -> str | None:
     """Prima di creare: la sorgente è un file vero (non un link simbolico),
     sullo stesso filesystem di root; nessun link simbolico sul percorso
-    della destinazione (_refuse_symlinks: al suo posto è target_exists,
+    della destinazione (refuse_symlinks: al suo posto è target_exists,
     dovunque punti, una cartella sopra è fuori scope), che resta dentro root
     anche a percorso risolto (ScopeViolation, nazgarr/core/fs_scope.py) ed è
     libera. Prima i link simbolici, poi la risoluzione: risolto, un link al
     posto della destinazione che punta fuori da root era un "fuori scope"
-    invece di un target_exists (_refuse_symlinks guarda soltanto, con
+    invece di un target_exists (refuse_symlinks guarda soltanto, con
     lstat, non scrive niente). Restituisce la destinazione risolta, da
     passare a create_links, o None se c'è già lo stesso file (un cross-seed
     con lo stesso nome: si riusa). Il percorso va passato così come è
@@ -147,7 +147,7 @@ def check_link(source: str, target: str, root: str) -> str | None:
     source_dev, root_dev = os.stat(source).st_dev, os.stat(root).st_dev
     if source_dev != root_dev:
         raise LinkProblem("cross_device", source, f"{source_dev} != {root_dev}")
-    _refuse_symlinks(root, target)
+    refuse_symlinks(root, target)
     resolved = resolve_scoped(root, os.path.relpath(target, root))
     if os.path.lexists(resolved):
         if not os.path.samefile(source, resolved):
