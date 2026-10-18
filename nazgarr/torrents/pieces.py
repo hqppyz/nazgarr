@@ -56,10 +56,13 @@ class PieceVerifyResult:
 
     @property
     def clean(self) -> bool:
-        """Nessun mismatch reale, e almeno un dato utile è stato ottenuto
-        (una piece verificata o di boundary) — mai True su un risultato
-        vuoto (es. file illeggibile, vedi verify_file_pieces)."""
-        return self.mismatches == 0 and (self.ok > 0 or self.boundary > 0)
+        """Nessun mismatch reale e almeno un piece letto e verificato. Mai
+        True su un risultato vuoto (file illeggibile, vedi
+        verify_file_pieces) né con soli piece di boundary: quelli non si
+        leggono, e un file più piccolo di un piece in un pack risultava
+        "verificato" (0.99) senza che se ne fosse letto un byte (audit
+        2026-10-18). Lo stesso criterio di layout._match_by_content."""
+        return self.mismatches == 0 and self.ok > 0
 
 
 def verify_file_pieces(

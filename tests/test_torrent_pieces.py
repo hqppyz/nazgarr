@@ -210,3 +210,51 @@ def test_a_file_shorter_than_its_piece_is_a_mismatch(tmp_path):
     )
 
     assert (result.ok, result.mismatches) == (1, 1)
+
+
+def test_only_boundary_pieces_is_no_proof(tmp_path):
+    # Due file da 10 byte, piece da 32: l'unico piece è a cavallo, mai letto.
+    content = b"a" * 10 + b"b" * 10
+    path = tmp_path / "file_b.mkv"
+    path.write_bytes(b"X" * 10)  # contenuto sbagliato, stessa size
+
+    result = verify_file_pieces(
+        str(path), piece_length=32, pieces=_pieces(content, 32), total_length=20, file_offset=10, file_length=10,
+    )
+
+    assert (result.ok, result.mismatches, result.boundary) == (0, 0, 1)
+    assert result.clean is False
+
+
+def test_a_tiny_wrong_episode_in_a_pack_is_never_piece_verified(tmp_path):
+    # Il caso riprodotto: E01 sbagliato ma della size giusta, più piccolo di
+    # un piece. Prima risultava verificato a 0.99 e il pack veniva consigliato.
+    from nazgarr.torrents import layout as torrent_layout
+    from nazgarr.torrents.metainfo import TorrentFileEntry, TorrentInfo
+
+    e01, e02 = b"1" * 24, b"2" * 40
+    stream = e01 + e02
+    parsed = TorrentInfo(
+        name="Show.S01", piece_length=32, pieces=_pieces(stream, 32), is_multi_file=True, total_length=64,
+        files=[TorrentFileEntry("Show.S01E01.mkv", 24, 0), TorrentFileEntry("Show.S01E02.mkv", 40, 24)],
+    )
+    (tmp_path / "e01.mkv").write_bytes(b"X" * 24)
+    (tmp_path / "e02.mkv").write_bytes(e02)
+    matches = [
+        torrent_layout.FileMatch(
+            layout_file=torrent_layout.LayoutFile(entry.path, entry.length, True),
+            local=torrent_layout.LocalFile("media", i, 1, name, str(tmp_path / name), entry.length),
+        )
+        for i, (entry, name) in enumerate(zip(parsed.files, ("e01.mkv", "e02.mkv"), strict=True), start=1)
+    ]
+
+    evaluation = torrent_layout.evaluate(
+        matches, torrent_layout.Layout(folder="Show.S01", files=[m.layout_file for m in matches], torrent=parsed),
+        anchor_id=1, unique_ids=None, single_unique_id=None, compute_unique_id=lambda _: None,
+        fetch_torrent=lambda: parsed,
+    )
+
+    e01_match = evaluation.files[0]
+    assert e01_match.piece_verified is None and e01_match.confidence == torrent_layout.CONFIDENCE_SIZE_ONLY
+    assert evaluation.confidence == torrent_layout.CONFIDENCE_SIZE_ONLY
+    assert evaluation.piece_verified is None
