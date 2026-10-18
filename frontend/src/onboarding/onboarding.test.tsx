@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { GettingStartedCard } from '@/onboarding/GettingStartedCard'
 import { DEFAULT_STATE, parseState, type OnboardingState } from '@/onboarding/state'
@@ -30,7 +30,6 @@ beforeEach(() => {
   current = null
   steps = status([])
 })
-afterEach(cleanup)
 
 describe('onboarding state', () => {
   it('reads what was saved and ignores anything else', () => {

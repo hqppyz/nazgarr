@@ -1,6 +1,6 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { NotImportedView } from '@/pages/torrent/NotImportedView'
 
@@ -48,7 +48,6 @@ vi.mock('@/api/hooks/library', () => ({
 }))
 vi.mock('@/pages/library/ItemDetailSheet', () => ({ ItemDetailSheet: () => null }))
 
-afterEach(cleanup)
 
 describe('NotImportedView', () => {
   it('shows each torrent with its reason and what replaced it, filterable by category', () => {

@@ -1,7 +1,7 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { Seasons } from '@/pages/library/ItemDetailSheet'
 import type { PackSelection } from '@/lib/pack'
@@ -32,7 +32,6 @@ vi.mock('@/api/hooks/reviews', () => ({
   useReconcileNow: () => ({ mutate: vi.fn() }),
 }))
 
-afterEach(cleanup)
 
 const files = [6, 7].map((e) => ({
   media_file_id: e, season_number: 1, episode_number: e, disk_id: 1, is_video: true, excluded: false,
