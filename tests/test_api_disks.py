@@ -225,3 +225,25 @@ def test_a_folder_with_library_files_is_never_watched(client):
     assert refused.status_code == 400 and refused.json()["detail"]["code"] == "watch_folder_has_library_files"
     assert client.patch(url, json={"watch_rel_path": "media/incoming"}).status_code == 200
 
+
+def test_a_disk_never_holds_nazgarr_own_folders(client, tmp_path, monkeypatch):
+    """Con una radice dei dischi ampia (la home, per pipx) un disco poteva
+    contenere config, secret.key e DB, e mostrarli o metterli in un torrent
+    (audit 2026-10-18). Neanche fra le proposte, né le cartelle nascoste."""
+    import os
+
+    settings = client.app.state.settings
+    data_parent = client.scan_root / "apps"
+    data_dir = data_parent / "nazgarr-data"
+    data_dir.mkdir(parents=True)
+    (client.scan_root / ".config").mkdir()
+    (client.scan_root / "disk1").mkdir()
+    monkeypatch.setattr(settings, "data_dir", str(data_dir))
+
+    for root in (data_parent, data_dir, data_dir / "posters"):
+        os.makedirs(root, exist_ok=True)
+        refused = client.post("/api/disks", json={"label": "x", "root_path": str(root)})
+        assert refused.status_code == 400, root
+        assert refused.json()["detail"]["code"] == "disk_root_contains_app_data"
+    mounts = client.get("/api/disks/available-mounts").json()["mounts"]
+    assert mounts == [str(client.scan_root / "disk1")]

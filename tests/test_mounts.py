@@ -107,3 +107,17 @@ def test_nested_disks_are_refused(client):
     assert nested.status_code == 400 and nested.json()["detail"]["code"] == "disk_root_nested"
     body = client.get("/api/disks/available-mounts").json()
     assert body["scope_source"] == "config" and body["mounts"] == []
+
+
+def test_nazgarr_own_folders_are_never_inside_a_disk(tmp_path):
+    home = tmp_path / "home"
+    config, data = home / ".config" / "nazgarr", home / ".local" / "share" / "nazgarr"
+    for folder in (config, data, home / "media"):
+        folder.mkdir(parents=True)
+    scope = mounts.scope(str(home), [str(config)], container=False, data_dir=str(data))
+
+    assert scope.app_folder_in(str(home)) == str(config.resolve())  # la radice le contiene
+    assert scope.app_folder_in(str(home / ".local")) == str(data.resolve())
+    assert scope.app_folder_in(str(data / "posters")) == str(data.resolve())  # dentro data_dir: è tutta sua
+    assert scope.app_folder_in(str(home / "media")) is None
+    assert scope.contains(str(home / "media"))

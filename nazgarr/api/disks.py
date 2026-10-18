@@ -160,8 +160,8 @@ def _get_disk_or_404(session: Session, disk_id: int) -> Disk:
 
 def disk_scope(request: Request) -> container_mounts.Scope:
     settings = request.app.state.settings
-    own = [settings.data_dir, os.path.dirname(os.path.abspath(os.environ.get("CONFIG_PATH", "config.yaml")))]
-    return container_mounts.scope(settings.disk_scan_root, own)
+    config_dir = os.path.dirname(os.path.abspath(os.environ.get("CONFIG_PATH", "config.yaml")))
+    return container_mounts.scope(settings.disk_scan_root, [config_dir], data_dir=settings.data_dir)
 
 
 def _inside(path: str, root: str) -> bool:
@@ -177,10 +177,13 @@ def list_available_mounts(scope: container_mounts.Scope, used_paths: set[str]) -
     if scope.source == "mounts":
         candidates = [m.mount_point for m in scope.mounts]
     else:
+        # Niente cartelle nascoste fra le proposte: con una radice ampia
+        # (la home) erano ~/.config, ~/.local... Si possono sempre scrivere.
         candidates = [entry.path for root in scope.roots if os.path.isdir(root)
-                      for entry in os.scandir(root) if entry.is_dir()]
+                      for entry in os.scandir(root) if entry.is_dir() and not entry.name.startswith(".")]
     return sorted(c for c in candidates
-                  if not any(_inside(os.path.realpath(c), used) for used in used_real))
+                  if not any(_inside(os.path.realpath(c), used) for used in used_real)
+                  and scope.app_folder_in(c) is None)
 
 
 def create_disk(session: Session, label: str, root_path: str, scope: container_mounts.Scope) -> Disk:
@@ -188,6 +191,11 @@ def create_disk(session: Session, label: str, root_path: str, scope: container_m
         raise DiskValidationError("disk_root_path_not_a_directory", path=root_path)
     if not scope.contains(root_path):
         raise DiskValidationError("disk_root_path_outside_scan_root", scan_root=", ".join(scope.roots))
+    # Mai un disco che contiene le cartelle di Nazgarr (secret.key, il DB):
+    # si potrebbero sfogliare e mettere in un torrent (audit 2026-10-18).
+    app_folder = scope.app_folder_in(root_path)
+    if app_folder is not None:
+        raise DiskValidationError("disk_root_contains_app_data", path=root_path, folder=app_folder)
     # Un disco dentro un altro (o che ne contiene uno): gli stessi file contati due volte.
     real = os.path.realpath(root_path)
     for other in session.query(Disk).all():
