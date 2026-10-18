@@ -255,7 +255,7 @@ class UploadWorker:
         if isinstance(exc, CodedError):
             self._fail(session, job, exc.code, **exc.params)
         else:
-            self._fail(session, job, "upload_step_failed", step=step, error=str(exc))
+            self._fail(session, job, "upload_step_failed", step=step, error=upload_jobs.error_text(exc))
 
     def _run_verify(self, target_id: int, torrent_id_remote: str) -> None:
         from nazgarr.upload import verify as upload_verify

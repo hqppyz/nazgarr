@@ -24,6 +24,7 @@ from sqlalchemy.orm import Session
 
 from nazgarr.core.errors import CodedError
 from nazgarr.core.fs_scope import resolve_scoped
+from nazgarr.core.logs import safe_error
 from nazgarr.core.models import (
     UPLOAD_TARGET_STATUSES,
     Disk,
@@ -62,7 +63,9 @@ def error_of(exc: BaseException) -> tuple[str, dict]:
     registrava l'errore (audit 2026-10-18)."""
     if isinstance(exc, CodedError):
         return exc.code, dict(exc.params)
-    text = str(exc) or type(exc).__name__
+    # Il testo va nel registro del job (e nel CLI): un errore di httpx ha
+    # l'URL completo, con chiavi e passkey.
+    text = safe_error(exc) or type(exc).__name__
     return text, {"error": text}
 
 

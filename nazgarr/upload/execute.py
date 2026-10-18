@@ -42,6 +42,7 @@ from nazgarr.core import settings_registry
 from nazgarr.core.errors import CodedError
 from nazgarr.core.file_types import is_video
 from nazgarr.core.fs_scope import ScopeViolation, resolve_scoped
+from nazgarr.core.logs import safe_error
 from nazgarr.core.models import TorrentClient, TrackerUploadProfile, UploadJob, UploadTarget
 from nazgarr.core.version import CREATED_BY
 from nazgarr.integrations import adapter_factory
@@ -535,7 +536,7 @@ def _tracker_torrent(session: Session, job: UploadJob, target: UploadTarget, dat
                     content = adapter.download_torrent(link)
                     torf.Torrent.read_stream(io.BytesIO(content))
                 except Exception as exc:
-                    raise UploadJobError("upload_tracker_torrent_unavailable", error=str(exc)) from exc
+                    raise UploadJobError("upload_tracker_torrent_unavailable", error=safe_error(exc)) from exc
                 os.makedirs(job_dir, exist_ok=True)
                 with open(seed_copy, "wb") as f:
                     f.write(content)
@@ -561,7 +562,7 @@ def retry_seed(session: Session, job: UploadJob, target: UploadTarget, data_dir:
     try:
         torrent = torf.Torrent.read(torrent_path)
     except torf.TorfError as exc:
-        raise UploadJobError("upload_tracker_torrent_unavailable", error=str(exc)) from exc
+        raise UploadJobError("upload_tracker_torrent_unavailable", error=safe_error(exc)) from exc
     save_path = next((p for p in _seed_candidates(session, job) if files_in_place(torrent, p)), None)
     if save_path is None:
         save_path = _relink_for_seed(session, job, torrent)
@@ -606,7 +607,7 @@ def _tracker_copy(adapter, uploaded, torrent: torf.Torrent, job_dir: str, tracke
         content = adapter.download_torrent(uploaded.download_link)
         theirs = torf.Torrent.read_stream(io.BytesIO(content))
     except Exception as exc:
-        raise UploadJobError("upload_tracker_torrent_unavailable", error=str(exc)) from exc
+        raise UploadJobError("upload_tracker_torrent_unavailable", error=safe_error(exc)) from exc
     path = os.path.join(job_dir, f"tracker-{tracker_id}-seed.torrent")
     with open(path, "wb") as f:
         f.write(content)
@@ -1008,7 +1009,8 @@ def _recheck_dupes(session: Session, job: UploadJob, targets: list[UploadTarget]
         except Exception as exc:
             logger.warning("Upload %s: dupe check prima dell'invio fallito su %s", job.id, target.tracker.label,
                            exc_info=True)
-            upload_jobs.log_event(session, job, "dupe_recheck_failed", level="warning", target=target, error=str(exc))
+            upload_jobs.log_event(session, job, "dupe_recheck_failed", level="warning", target=target,
+                                  error=safe_error(exc))
             continue
         new = [r for r in results if r["verdict"] in ("identical", "same_slot") and r["torrent_id_remote"] not in known]
         if new:

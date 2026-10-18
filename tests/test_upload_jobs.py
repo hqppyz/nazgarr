@@ -592,3 +592,15 @@ def test_target_statuses_go_through_one_function(caplog):
     with caplog.at_level(logging.WARNING, logger=upload_jobs.logger.name):
         set_target_status(target, TargetStatus.CHECKING)  # da uploading: non previsto
     assert target.status == "checking" and "non previsto uploading -> checking" in caplog.text
+
+
+def test_error_texts_for_the_job_log_never_carry_a_passkey():
+    import httpx
+
+    link = "https://t.example/torrent/download/12.0123456789abcdef0123456789abcdef"
+    error = httpx.HTTPStatusError(f"Client error 404 for url {link}", request=httpx.Request("GET", link),
+                                  response=httpx.Response(404))
+    code, params = upload_jobs.error_of(error)
+    assert "0123456789abcdef" not in code and params == {"error": code}
+    assert upload_jobs.error_of(UploadJobError("upload_seed_folder_missing", path="/x")) == (
+        "upload_seed_folder_missing", {"path": "/x"})
