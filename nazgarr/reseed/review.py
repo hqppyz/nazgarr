@@ -745,11 +745,10 @@ def list_ready_for_review(session: Session) -> list[MatchReview]:
         session.query(MatchReview).filter(MatchReview.status.in_(READY_FOR_DECISION_STATUSES))).all()
 
 
-def approve_all(session: Session, decided_by: str = "user") -> int:
-    reviews = list_ready_for_review(session)
-    for review in reviews:
-        approve(session, review, decided_by=decided_by)
-    return len(reviews)
+def count_ready_for_review(session: Session) -> int:
+    """Quante sono, contate in SQL."""
+    return without_seed_job(
+        session.query(MatchReview.id).filter(MatchReview.status.in_(READY_FOR_DECISION_STATUSES))).count()
 
 
 def list_failed_seed_jobs(session: Session) -> list[SeedJob]:
@@ -803,24 +802,6 @@ def retry_failed(session: Session, seed_job: SeedJob) -> SeedJob:
         return retry_seed_job(session, seed_job, adapter, torrent_client_id)
     finally:
         close_adapter(adapter)
-
-
-def retry_all_failed(session: Session) -> dict[str, int]:
-    seed_jobs = list_failed_seed_jobs(session)
-    succeeded = 0
-    failed = 0
-    for seed_job in seed_jobs:
-        try:
-            result = retry_failed(session, seed_job)
-        except ExecutionError:
-            logger.exception("Retry fallito per seed_job %s", seed_job.id)
-            failed += 1
-            continue
-        if result.final_status == "failed":
-            failed += 1
-        else:
-            succeeded += 1
-    return {"succeeded": succeeded, "failed": failed}
 
 
 def reconcile_pending_seed_jobs(session: Session, progress=NULL_PROGRESS) -> dict[str, int]:

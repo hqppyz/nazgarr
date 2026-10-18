@@ -183,6 +183,7 @@ class _BulkRun:
 
     def __init__(self, session: Session, run: RunLog, data_dir: str):
         self.session, self.run_log, self.data_dir = session, run, data_dir
+        self.run_id = run.id
         self.totals = {
             "media_files_scanned": 0, "seed_files_scanned": 0,
             "torrents_indexed": 0, "files_indexed": 0,
@@ -530,13 +531,25 @@ class _BulkRun:
         # Torrent in seed senza hardlink in libreria, e perché (vista Not imported).
         self._guard("not imported torrents", lambda: not_imported.classify_not_imported(session, self.arr_index, run))
 
-    def finish(self) -> RunLog:
-        session, run, totals = self.session, self.run_log, self.totals
-        self.progress.finish()
-        run.finished_at = datetime.now(UTC)
+    def _closing_totals(self, finished_at: datetime) -> None:
+        run, totals = self.run_log, self.totals
+        run.finished_at = finished_at
         run.items_scanned = totals["media_files_scanned"] + totals["seed_files_scanned"]
         run.matches_found = totals["candidates_found"]
         run.auto_executed = totals["auto_executed"]
+
+    def finish(self) -> RunLog:
+        """La fine della run. finished_at e i totali si scrivono insieme alla
+        fotografia della salute (l'evento run.finished la riporta), ma un
+        errore nella fotografia o nel commit finale non deve mai lasciare la
+        run senza fine: il rollback di _fail buttava via anche finished_at, e
+        la run restava "in corso" fino al riavvio, fermando ogni run
+        pianificata, il controllo dei recheck e i webhook di Radarr/Sonarr
+        (audit 2026-10-18)."""
+        session, run = self.session, self.run_log
+        self.progress.finish()
+        finished_at = datetime.now(UTC)
+        self._closing_totals(finished_at)
         try:
             data = library.LibraryData(session)
             shared = health.shared_metrics(session)
@@ -553,11 +566,39 @@ class _BulkRun:
             _save_tracker_snapshots(session, run, data, shared)
         except Exception as exc:
             self._fail("library health snapshot", exc)
-            run.pending_review = len(review.list_ready_for_review(session))
+            self._closing_totals(finished_at)  # il rollback li aveva tolti
+            try:
+                run.pending_review = review.count_ready_for_review(session)
+            except Exception:
+                logger.exception("Run #%s: review in attesa non contate", self.run_id)
+                session.rollback()
+                self._closing_totals(finished_at)
         run.errors = self.errors
-        session.commit()
+        try:
+            session.commit()
+        except Exception:
+            logger.exception("Run #%s: salvataggio finale fallito, chiudo la run con il minimo", self.run_id)
+            session.rollback()
+            self._close_anyway(finished_at)
+        totals = self.totals
         logger.info(
             "Run #%s completata: %d item scansionati, %d match, %d auto-eseguiti, %d errori",
-            run.id, run.items_scanned, run.matches_found, run.auto_executed, self.errors,
+            self.run_id, totals["media_files_scanned"] + totals["seed_files_scanned"], totals["candidates_found"],
+            totals["auto_executed"], self.errors,
         )
         return run
+
+    def _close_anyway(self, finished_at: datetime) -> None:
+        """Ultima rete: solo la fine e l'errore, con un UPDATE che non
+        dipende dagli oggetti della sessione. Se fallisce anche questo, la
+        chiude close_interrupted_runs al prossimo avvio."""
+        try:
+            self.session.query(RunLog).filter(RunLog.id == self.run_id, RunLog.finished_at.is_(None)).update(
+                {"finished_at": finished_at, "current_phase": None, "errors": self.errors + 1,
+                 "last_error": "the end of the run could not be saved (details in the logs)"},
+                synchronize_session=False,
+            )
+            self.session.commit()
+        except Exception:
+            logger.exception("Run #%s: nemmeno la chiusura minima è riuscita", self.run_id)
+            self.session.rollback()
