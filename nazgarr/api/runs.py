@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from nazgarr.core.errors import coded_detail
 from nazgarr.core.models import RunLog
-from nazgarr.reseed import pipeline
+from nazgarr.reseed import exclusive, pipeline
 from nazgarr.web.deps import get_session
 
 router = APIRouter(prefix="/api/runs", tags=["runs"])
@@ -94,8 +94,10 @@ def _run_bulk_import_bg(session_factory: sessionmaker, run_id: int, data_dir: st
 def trigger_bulk_import(
     request: Request, background_tasks: BackgroundTasks, session: Session = Depends(get_session)
 ):
+    # Aspetta qualche secondo il lavoro a lato in corso (webhook, "Cerca ora"):
+    # mai una run a metà di quello (nazgarr/reseed/exclusive.py).
     try:
-        run = pipeline.try_start_run(session, run_type="bulk_import")
+        run = exclusive.start_run(session, run_type="bulk_import")
     except pipeline.RunInProgressError as exc:
         raise HTTPException(status_code=409, detail=coded_detail("run_in_progress")) from exc
     background_tasks.add_task(

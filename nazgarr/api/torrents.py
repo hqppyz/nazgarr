@@ -28,7 +28,7 @@ from nazgarr.core.models import (
 from nazgarr.integrations import adapter_factory, arr
 from nazgarr.library import not_imported
 from nazgarr.library.detail import _host, _quality
-from nazgarr.reseed import pipeline
+from nazgarr.reseed import exclusive
 from nazgarr.torrents import seed_requirements
 from nazgarr.torrents.tracker_scope import torrent_host
 from nazgarr.web import response_cache
@@ -261,15 +261,19 @@ def list_not_imported(session: Session) -> NotImportedResponse:
 @router.post("/not-imported/refresh", response_model=NotImportedResponse)
 def refresh_not_imported(session: Session = Depends(get_session)):
     """Ricalcola subito, senza aspettare uno scan: rilegge la history di
-    Radarr/Sonarr e i dati già indicizzati. Sola lettura su file e client."""
-    if pipeline.run_in_progress(session):
-        raise HTTPException(status_code=409, detail=coded_detail("run_in_progress"))
+    Radarr/Sonarr e i dati già indicizzati. Sola lettura su file e client.
+    Mai insieme a una run o ad altro lavoro a lato (nazgarr/reseed/exclusive.py)."""
     try:
-        arr_index = arr.build_arr_index(session)
-    except Exception:
-        logger.warning("Radarr/Sonarr non raggiungibili, ricalcolo senza history", exc_info=True)
-        arr_index = None
-    not_imported.classify_not_imported(session, arr_index if arr_index is not None and len(arr_index) else None)
+        with exclusive.side_work(session):
+            try:
+                arr_index = arr.build_arr_index(session)
+            except Exception:
+                logger.warning("Radarr/Sonarr non raggiungibili, ricalcolo senza history", exc_info=True)
+                arr_index = None
+            not_imported.classify_not_imported(
+                session, arr_index if arr_index is not None and len(arr_index) else None)
+    except exclusive.Busy as exc:
+        raise HTTPException(status_code=409, detail=coded_detail("run_in_progress")) from exc
     return list_not_imported(session)
 
 

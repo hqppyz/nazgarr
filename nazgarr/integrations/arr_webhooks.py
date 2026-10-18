@@ -361,12 +361,20 @@ def _complete(session: Session, data_dir: str | None) -> None:
 
 def process_pending(session: Session, now: datetime | None = None, data_dir: str | None = None) -> int:
     """Dallo scheduler: gli eventi in coda da almeno QUIET, uno alla volta.
-    Mai durante una run (lo scheduler riprova al giro dopo). Poi titoli e
-    poster dei contenuti nuovi, e i cambiamenti per la Dashboard."""
-    from nazgarr.reseed import pipeline
+    Mai durante una run, né insieme a "Cerca ora" (nazgarr/reseed/exclusive.py:
+    lo scheduler riprova al giro dopo); una run che parte nel frattempo
+    aspetta la fine. Poi titoli e poster dei contenuti nuovi, e i
+    cambiamenti per la Dashboard."""
+    from nazgarr.reseed import exclusive
 
-    if pipeline.run_in_progress(session):
+    try:
+        with exclusive.side_work(session):
+            return _process_pending(session, now, data_dir)
+    except exclusive.Busy:
         return 0
+
+
+def _process_pending(session: Session, now: datetime | None, data_dir: str | None) -> int:
     now = now or datetime.now(UTC)
     events = (
         session.query(ArrWebhookEvent)

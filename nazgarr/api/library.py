@@ -23,7 +23,7 @@ from nazgarr.library import duplicates
 from nazgarr.library import states as library
 from nazgarr.library.exclusions import CompiledExclusions, load_exclusions
 from nazgarr.library.poster_cache import poster_file
-from nazgarr.reseed import matching, pipeline
+from nazgarr.reseed import exclusive, matching
 from nazgarr.torrents import tracker_scope
 from nazgarr.web import response_cache
 from nazgarr.web.deps import get_or_404, get_session
@@ -316,10 +316,18 @@ class SearchNowResponse(BaseModel):
 def search_item_now(content_type: str, tmdb_id: int, session: Session = Depends(get_session)):
     """Cerca subito sui tracker i file orfani di questo contenuto, ignorando
     l'intervallo fra una ricerca e l'altra. Non modifica file né client:
-    al massimo crea review, che restano da approvare in Reseeding."""
+    al massimo crea review, che restano da approvare in Reseeding. Mai
+    insieme a una run o agli eventi dei webhook (nazgarr/reseed/exclusive.py):
+    una run che parte nel frattempo aspetta la fine della ricerca."""
     _content_type_or_404(content_type)
-    if pipeline.run_in_progress(session):
-        raise HTTPException(status_code=409, detail=coded_detail("run_in_progress"))
+    try:
+        with exclusive.side_work(session):
+            return _search_now(session, content_type, tmdb_id)
+    except exclusive.Busy as exc:
+        raise HTTPException(status_code=409, detail=coded_detail("run_in_progress")) from exc
+
+
+def _search_now(session: Session, content_type: str, tmdb_id: int) -> SearchNowResponse:
     mf_ids = {
         mf.id for mf in session.query(MediaFile).join(MediaItem, MediaItem.id == MediaFile.media_item_id)
         .filter(MediaItem.content_type == content_type, MediaItem.tmdb_id == tmdb_id).all()

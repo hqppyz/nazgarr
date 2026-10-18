@@ -1,0 +1,124 @@
+"""Run e lavoro a lato mai insieme (nazgarr/reseed/exclusive.py, audit
+2026-10-18): prima il lavoro a lato controllava solo che nessuna run fosse
+in corso, e una run poteva partire a metà."""
+
+import threading
+import time
+from datetime import UTC, datetime, timedelta
+
+import pytest
+
+from nazgarr.core import db
+from nazgarr.core.models import ArrWebhookEvent, RadarrInstance, RunLog
+from nazgarr.integrations import arr_webhooks
+from nazgarr.reseed import exclusive, pipeline
+
+
+def _hold_side_work(session_factory, started: threading.Event, release: threading.Event) -> threading.Thread:
+    def work():
+        session = session_factory()
+        try:
+            with exclusive.side_work(session):
+                started.set()
+                release.wait(5)
+        finally:
+            session.close()
+
+    thread = threading.Thread(target=work)
+    thread.start()
+    assert started.wait(5)
+    return thread
+
+
+@pytest.fixture
+def factory(db_session):
+    return db.make_session_factory(db_session.get_bind())
+
+
+def test_a_scheduled_run_waits_for_the_side_work_instead_of_starting_halfway(db_session, factory):
+    started, release = threading.Event(), threading.Event()
+    holder = _hold_side_work(factory, started, release)
+    order = []
+
+    def scheduled():
+        session = factory()
+        try:
+            pipeline.try_start_run(session, run_type="scheduled")
+            order.append("run started")
+        finally:
+            session.close()
+
+    runner = threading.Thread(target=scheduled)
+    runner.start()
+    time.sleep(0.2)
+    order.append("side work done")
+    release.set()
+    holder.join(5)
+    runner.join(5)
+
+    assert order == ["side work done", "run started"]
+
+
+def test_scan_now_waits_a_little_then_gives_up(db_session, factory):
+    started, release = threading.Event(), threading.Event()
+    holder = _hold_side_work(factory, started, release)
+    try:
+        with pytest.raises(pipeline.RunInProgressError):
+            exclusive.start_run(db_session, "bulk_import", wait_seconds=0.1)
+    finally:
+        release.set()
+        holder.join(5)
+
+    assert exclusive.start_run(db_session, "bulk_import", wait_seconds=0.1).finished_at is None
+
+
+def test_side_work_never_runs_with_a_run_or_another_side_work(db_session, factory):
+    started, release = threading.Event(), threading.Event()
+    holder = _hold_side_work(factory, started, release)
+    try:
+        with pytest.raises(exclusive.Busy):  # un altro lavoro a lato
+            with exclusive.side_work(db_session):
+                pytest.fail("must not run")
+    finally:
+        release.set()
+        holder.join(5)
+
+    pipeline.start_run(db_session, "manual")
+    with pytest.raises(exclusive.Busy):  # una run in corso
+        with exclusive.side_work(db_session):
+            pytest.fail("must not run")
+
+
+def test_webhook_events_wait_while_other_side_work_runs(db_session, factory):
+    radarr = RadarrInstance(label="r", base_url="http://radarr:7878", api_key="k", webhook_token="t")
+    db_session.add(radarr)
+    db_session.commit()
+    arr_webhooks.receive(db_session, "radarr", radarr, {"eventType": "Test"})
+    later = datetime.now(UTC) + timedelta(minutes=1)
+    started, release = threading.Event(), threading.Event()
+    holder = _hold_side_work(factory, started, release)
+    try:
+        assert arr_webhooks.process_pending(db_session, now=later) == 0
+    finally:
+        release.set()
+        holder.join(5)
+    assert db_session.query(ArrWebhookEvent).one().status == "pending"
+
+    assert arr_webhooks.process_pending(db_session, now=later) == 1
+    assert db_session.query(RunLog).count() == 0
+
+
+def test_search_now_is_refused_while_side_work_runs(client):
+    started, release = threading.Event(), threading.Event()
+    holder = _hold_side_work(client.app.state.session_factory, started, release)
+    try:
+        response = client.post("/api/library/items/movie/603/search")
+        refresh = client.post("/api/torrents/not-imported/refresh")
+    finally:
+        release.set()
+        holder.join(5)
+
+    assert response.status_code == 409 and response.json()["detail"]["code"] == "run_in_progress"
+    assert refresh.status_code == 409
+    # Finito il lavoro a lato, la ricerca risponde di nuovo (qui: nessun file di quel contenuto).
+    assert client.post("/api/library/items/movie/603/search").status_code == 404

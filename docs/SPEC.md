@@ -316,6 +316,7 @@ Inherits ratio-guardian §9-11 in full:
 - Forced recheck, never skipped.
 - Periodic reconciliation of recheck status (async on the client).
 - Bulk import mode (one-off full scan) + scheduled run (cron configurable from the UI), both on the same engine.
+- **One thing at a time** (audit 2026-10-18, `nazgarr/reseed/exclusive.py`): runs never overlap, and the side work that writes the same tables (applying Radarr/Sonarr webhook events with their optional search, "Search now", recomputing Not imported) never overlaps a run or another side work. Side work holds the lock a run starts with for its whole duration: when a run is in progress or other side work holds it, it doesn't start (the webhook queue waits for the scheduler's next round, the API answers 409); a scheduled run that comes due meanwhile waits for it to finish instead of starting halfway, and "Scan now" waits up to 10 s, then answers 409. Before, side work only checked that no run was in progress and a run could start in the middle of it (two matchers on one tracker: an `IntegrityError` on `match_attempt` and the rest of that tracker skipped).
 
 ## 9. Upload: creating and publishing a new torrent
 
