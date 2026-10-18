@@ -290,7 +290,10 @@ def test_a_cancel_during_the_dupe_checks_stops_the_analysis(db_session, tmp_path
 
     db_session.refresh(analyzing_job)
     assert analyzing_job.status == "cancelled" and len(asked) == 1 and proposed == []
-    assert [t.status for t in analyzing_job.targets] == ["awaiting_decision", "pending"]
+    # Nemmeno il tracker che si stava controllando si scrive: torna com'era.
+    assert [t.status for t in analyzing_job.targets] == ["pending", "pending"]
+    assert [t.dupes_json for t in analyzing_job.targets] == [None, None]
+    assert "dupe_check_done" not in [e.code for e in analyzing_job.events]
 
 
 def test_an_analysis_started_after_this_one_wins(db_session, tmp_path, monkeypatch, analyzing_job):
@@ -309,7 +312,8 @@ def test_an_analysis_started_after_this_one_wins(db_session, tmp_path, monkeypat
     upload_analysis.handle(db_session, analyzing_job, None)
 
     assert len(asked) == 1 and analyzing_job.status == "analyzing"
-    assert "analysis_done" not in [e.code for e in analyzing_job.events]
+    codes = [e.code for e in analyzing_job.events]
+    assert "analysis_done" not in codes and "dupe_check_done" not in codes
 
 
 def test_a_truncated_catalogue_is_said_at_the_decision(db_session, tmp_path, monkeypatch, analyzing_job):
