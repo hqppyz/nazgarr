@@ -7,11 +7,29 @@ per i test (stesso pattern di nazgarr/adapters/torrent_client/qbittorrent.py),
 mai una connessione reale nei test.
 """
 
+import threading
 from typing import Protocol
 
 import httpx
 
 TMDB_API_BASE = "https://api.themoviedb.org/3"
+
+_shared: httpx.Client | None = None
+_shared_lock = threading.Lock()
+
+
+def shared_http_client() -> httpx.Client:
+    """Un solo client HTTP verso TMDB per tutto il processo (audit
+    2026-10-18): un TMDBClient si crea per run, per esecuzione, per gruppo
+    di webhook e per passo di upload, e ognuno apriva il suo httpx.Client
+    senza mai chiuderlo, con le connessioni lasciate al garbage collector.
+    httpx.Client è thread-safe, e la chiave viaggia nei parametri di ogni
+    richiesta: lo stesso client va bene per qualunque chiave."""
+    global _shared
+    with _shared_lock:
+        if _shared is None or _shared.is_closed:
+            _shared = httpx.Client(base_url=TMDB_API_BASE, timeout=10.0)
+        return _shared
 
 
 def year_of(date: str | None) -> int | None:
@@ -52,7 +70,7 @@ class TMDBSearchClient(Protocol):
 class TMDBClient:
     def __init__(self, api_key: str, client: httpx.Client | None = None):
         self.api_key = api_key
-        self._client = client or httpx.Client(base_url=TMDB_API_BASE, timeout=10.0)
+        self._client = client or shared_http_client()
 
     def search_movie(self, query: str, year: int | None = None) -> dict | None:
         # primary_release_year e non year: "year" su TMDB vale per QUALUNQUE
