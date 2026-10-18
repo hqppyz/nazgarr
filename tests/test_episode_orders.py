@@ -587,3 +587,44 @@ def test_translations_index_each_pair_of_orders_once(monkeypatch):
     assert [eo.translate_files(job, 3, e) for e in (1, 2, 200)] == [[(2, 101)], [(2, 102)], [(2, 300)]]
     assert len(parsed) == 2  # il JSON del job letto una volta, non a ogni file
     assert eo.translate_files(job, 9, 9) == [(9, 9)]
+
+
+def _titled(key, titles, source="tvdb", refs=False):
+    return EpisodeOrder(key, key, source, {1: [
+        OrderEpisode(n, [t], None, [(1, n)] if refs else []) for n, t in enumerate(titles, 1)]})
+
+
+def test_a_title_override_needs_the_same_numbers_and_a_title_unique_on_both_sides():
+    """Audit 2026-10-18: "Part I" passava per "Part II" (il controllo dei
+    numeri guardava solo le cifre), e due episodi con lo stesso titolo
+    nell'ordinamento finivano sullo stesso riferimento."""
+    tmdb = _titled("tmdb:default", ["Pilot", "The Best of Both Worlds", "The Best of Both Worlds Part II", "Restless"],
+                   "tmdb", refs=True)
+    sonarr = _titled("sonarr:aired", ["Pilot", "The Best of Both Worlds Part I", "The Best of Both Worlds Part II",
+                                      "Restless"])
+    eo.align_to(sonarr, tmdb)
+    assert [e.refs for e in sonarr.seasons[1]] == [[(1, 1)], [(1, 2)], [(1, 3)], [(1, 4)]]
+    assert eo.translate_found(sonarr, tmdb, {1: [1, 2, 3, 4]}) == {1: [1, 2, 3, 4]}
+
+    # Lo stesso titolo due volte nell'ordinamento (una volta sola nel riferimento): resta la posizione.
+    tmdb = EpisodeOrder("tmdb:default", "TMDB", "tmdb", {
+        1: [OrderEpisode(1, ["Pilot"], None, [(1, 1)]), OrderEpisode(2, ["Second"], None, [(1, 2)])],
+        2: [OrderEpisode(1, ["The Pilot"], None, [(2, 1)]), OrderEpisode(2, ["Fourth"], None, [(2, 2)])]})
+    sonarr = EpisodeOrder("sonarr:aired", "S", "sonarr", {
+        1: [OrderEpisode(1, ["Pilot"]), OrderEpisode(2, ["Second"])],
+        2: [OrderEpisode(1, ["Pilot"]), OrderEpisode(2, ["Fourth"])]})
+    eo.align_to(sonarr, tmdb)
+    assert [e.refs for s in (1, 2) for e in sonarr.seasons[s]] == [[(1, 1)], [(1, 2)], [(2, 1)], [(2, 2)]]
+
+
+def test_a_near_title_never_takes_an_episode_an_identical_title_already_owns():
+    tmdb = _titled("tmdb:default", ["Into the Woods", "Bushwhacked", "Restless"], "tmdb", refs=True)
+    # "Into the Wood" somiglia a "Into the Woods", che però è già di un altro episodio.
+    dvd = _titled("tvdb:dvd", ["Bushwhacked", "Into the Woods", "Into the Wood"])
+    eo.align_to(dvd, tmdb)
+    assert [e.refs for e in dvd.seasons[1]] == [[(1, 2)], [(1, 1)], [(1, 3)]]
+    # Senza un titolo identico che lo prenda, un refuso vale ancora.
+    typo = _titled("tvdb:dvd", ["Restless", "Into the Wood", "Bushwhacked"])
+    eo.align_to(typo, tmdb)
+    assert [e.refs for e in typo.seasons[1]] == [[(1, 3)], [(1, 1)], [(1, 2)]]
+

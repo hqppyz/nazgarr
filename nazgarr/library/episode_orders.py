@@ -17,6 +17,7 @@ volta per la serie, poi TVDB aired, poi TMDB), sempre modificabile, e avvisa
 solo se i file non seguono TVDB aired, l'ordine di Sonarr. Più gli episodi
 trovati, tradotti in ognuno."""
 
+import bisect
 import difflib
 import functools
 import json
@@ -25,7 +26,7 @@ import re
 import threading
 import time
 import unicodedata
-from collections import OrderedDict, defaultdict
+from collections import Counter, OrderedDict, defaultdict
 from collections.abc import Callable
 from copy import deepcopy
 from dataclasses import asdict, dataclass, field
@@ -201,10 +202,34 @@ def _title_parts(ep: OrderEpisode) -> list[str]:
     return [_title_key(part) for title in ep.titles for part in _SEGMENTS.split(title or "")]
 
 
+# Numeri romani e in lettere, per non scambiare "Part I" con "Part II":
+# contano come le cifre nel controllo dei titoli quasi uguali.
+_NUMERALS = {
+    **{roman: n for n, roman in enumerate(("i", "ii", "iii", "iv", "v", "vi", "vii", "viii", "ix", "x"), 1)},
+    **{word: n for n, word in enumerate(("one", "two", "three", "four", "five", "six", "seven", "eight", "nine",
+                                         "ten"), 1)},
+}
+
+
+def _numbers(key: str) -> tuple[int, ...]:
+    """I numeri di un titolo (già _title_key), in cifre, romani o in lettere."""
+    out: list[int] = []
+    for token in key.split():
+        if token in _NUMERALS:
+            out.append(_NUMERALS[token])
+        else:
+            out.extend(int(d) for d in re.findall(r"\d+", token))
+    return tuple(out)
+
+
 def _by_title(episodes: list[tuple[int, OrderEpisode]],
               reference: list[tuple[int, OrderEpisode]]) -> dict[int, list[Ref]]:
     """Posizione in `episodes` -> riferimenti, per gli episodi di cui ogni
-    segmento ha un titolo che nel riferimento è di un episodio solo."""
+    segmento ha un titolo che nel riferimento è di un episodio solo, e
+    nell'ordinamento pure (audit 2026-10-18: due "Pilot" nell'ordinamento
+    finivano sullo stesso riferimento). Un titolo quasi uguale vale solo con
+    gli stessi numeri, anche romani ("Part I" non è "Part II"), e mai verso
+    un episodio che un titolo identico ha già preso: lì resta la posizione."""
     owners: dict[str, set[Ref]] = defaultdict(set)
     for season, ep in reference:
         for part in _title_parts(ep):
@@ -212,25 +237,51 @@ def _by_title(episodes: list[tuple[int, OrderEpisode]],
                 owners[part].add((season, ep.number))
     if not owners:
         return {}
-    titles = list(owners)
+    # Per i titoli quasi uguali, solo quelli con gli stessi numeri e una
+    # lunghezza che può arrivare a TITLE_SIMILARITY (audit 2026-10-18:
+    # difflib su tutti i titoli della serie, per ogni titolo senza un
+    # uguale, costava secondi alle serie lunghe).
+    by_numbers: dict[tuple[int, ...], list[str]] = defaultdict(list)
+    for title in owners:
+        by_numbers[_numbers(title)].append(title)
+    for titles in by_numbers.values():
+        titles.sort(key=len)
+    lengths = {key: [len(t) for t in titles] for key, titles in by_numbers.items()}
+    low, high = TITLE_SIMILARITY / (2 - TITLE_SIMILARITY), (2 - TITLE_SIMILARITY) / TITLE_SIMILARITY
 
-    def owner(part: str) -> Ref | None:
-        if part not in owners:
-            close = [t for t in difflib.get_close_matches(part, titles, n=3, cutoff=TITLE_SIMILARITY)
-                     if re.findall(r"\d+", t) == re.findall(r"\d+", part)]
+    def owner(part: str) -> tuple[Ref | None, bool]:
+        """(riferimento, trovato con un titolo identico)."""
+        exact = part in owners
+        if not exact:
+            key = _numbers(part)
+            titles = by_numbers.get(key, [])
+            window = titles[bisect.bisect_left(lengths.get(key, []), len(part) * low):
+                            bisect.bisect_right(lengths.get(key, []), len(part) * high)]
+            close = difflib.get_close_matches(part, window, n=3, cutoff=TITLE_SIMILARITY)
             if len(close) != 1:
-                return None
+                return None, False
             part = close[0]
-        return next(iter(owners[part])) if len(owners[part]) == 1 else None
+        return (next(iter(owners[part])) if len(owners[part]) == 1 else None), exact
 
-    out = {}
+    mine = Counter(part for _season, ep in episodes for part in set(_title_parts(ep)) if not _GENERIC_TITLE.match(part))
+    found: dict[int, list[tuple[Ref | None, bool]]] = {}
     for i, (_season, ep) in enumerate(episodes):
         parts = _title_parts(ep)
-        if not parts or any(_GENERIC_TITLE.match(p) for p in parts):
+        if not parts or any(_GENERIC_TITLE.match(p) or mine[p] > 1 for p in parts):
             continue
-        found = [owner(p) for p in parts]
-        if all(found):
-            out[i] = sorted(set(found))
+        found[i] = [owner(p) for p in parts]
+    claimed: dict[Ref, set[int]] = defaultdict(set)
+    for i, owned in found.items():
+        for ref, exact in owned:
+            if ref is not None and exact:
+                claimed[ref].add(i)
+    out = {}
+    for i, owned in found.items():
+        if not all(ref for ref, _exact in owned):
+            continue
+        if any(not exact and claimed.get(ref, set()) - {i} for ref, exact in owned):
+            continue
+        out[i] = sorted({ref for ref, _exact in owned})
     return out
 
 
