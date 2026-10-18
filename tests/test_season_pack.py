@@ -361,7 +361,7 @@ def test_retry_of_a_failed_job_follows_the_torrent_already_in_the_client(db_sess
     client = LateClient(has_torrent=True)
     client.added.append(("x", str(tmp_path / "torrents")))
     client.status = TorrentStatus(PACK_HASH, "checkingUP", "pending", 0.4)
-    executor.retry_seed_job(db_session, seed_job, client)
+    assert executor.adopt_for_retry(db_session, seed_job, client) is seed_job
 
     assert (seed_job.info_hash, seed_job.final_status) == (PACK_HASH, "in_progress")
     assert len(client.added) == 1  # nessuna nuova aggiunta

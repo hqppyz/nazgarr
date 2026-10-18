@@ -733,17 +733,3 @@ def retry_from_scratch(
     logger.info("Retry seed_job %s: riparto da zero (nessun info_hash mai ottenuto)", seed_job.id)
     return execute_review(session, review_of(session, seed_job), adapter, torrent_client_id, skip_recheck=skip_recheck)
 
-
-def retry_seed_job(
-    session: Session, seed_job: SeedJob, adapter: TorrentClientAdapter, torrent_client_id: int | None = None
-) -> SeedJob:
-    """Ritenta un seed_job failed: segue il torrent se il client ce l'ha
-    (adopt_for_retry), altrimenti da zero (retry_from_scratch). Con il
-    controllo completo prima di eseguire acceso, il retry da zero passa da
-    lì (nazgarr/reseed/review.py::retry_failed)."""
-    if seed_job.final_status != "failed":
-        raise ExecutionError(f"SeedJob {seed_job.id} is not in failed status (current: {seed_job.final_status})")
-    adopted = adopt_for_retry(session, seed_job, adapter)
-    if adopted is not None:
-        return adopted
-    return retry_from_scratch(session, seed_job, adapter, torrent_client_id)
