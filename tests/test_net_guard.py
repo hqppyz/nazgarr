@@ -1,5 +1,9 @@
 import socket
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
+import httpcore
+import httpx
 import pytest
 
 from nazgarr.core import net_guard
@@ -66,3 +70,126 @@ def test_a_host_that_cannot_be_encoded_is_refused_not_a_raw_unicode_error():
     for url in ("https://x..tracker.example/", "https://" + "a" * 70 + ".example/"):
         with pytest.raises(net_guard.ForbiddenDestination, match="Invalid host"):
             net_guard.check_url(url)
+
+
+# --- la connessione va all'indirizzo controllato (audit 2026-10-18) ----------------
+
+def _changing_resolver(answers):
+    """Un DNS che a ogni domanda per un nome dà la risposta successiva (un
+    rebinding: prima un indirizzo pubblico, poi i metadati del cloud)."""
+    asked = []
+
+    def resolve(host, port, *args, **kwargs):
+        asked.append(host)
+        table = answers[host]
+        ips = table.pop(0) if len(table) > 1 else table[0]
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (ip, port or 0)) for ip in ips]
+    return resolve, asked
+
+
+@pytest.fixture
+def connects(monkeypatch):
+    """Ogni connect_tcp che arriva al backend vero di httpcore, che qui non
+    apre niente (nessuna rete nei test)."""
+    calls = []
+
+    def connect_tcp(self, host, port, timeout=None, local_address=None, socket_options=None):
+        calls.append((host, port))
+        raise httpcore.ConnectError("no network in tests")
+
+    monkeypatch.setattr(httpcore.SyncBackend, "connect_tcp", connect_tcp)
+    return calls
+
+
+def test_a_name_rebound_after_the_check_is_never_connected_to(monkeypatch, connects):
+    resolve, asked = _changing_resolver({"tracker.example": [["93.184.216.34"], ["169.254.169.254"]]})
+    monkeypatch.setattr(net_guard.socket, "getaddrinfo", resolve)
+    client = net_guard.http_client()
+
+    net_guard.check_url("http://tracker.example/latest/meta-data/")  # al controllo: un indirizzo pubblico
+    with pytest.raises(httpx.ConnectError, match="not a destination"):
+        client.get("http://tracker.example/latest/meta-data/")
+
+    assert asked == ["tracker.example", "tracker.example"]  # risolto di nuovo solo per connettersi
+    assert connects == []  # mai un socket verso i metadati
+
+
+def test_the_socket_goes_to_the_checked_address_and_tls_keeps_the_name(monkeypatch):
+    """Il socket va all'IP controllato; SNI e verifica del certificato
+    (server_hostname) restano sul nome dell'URL, e così l'header Host."""
+    monkeypatch.setattr(net_guard.socket, "getaddrinfo", _changing_resolver(
+        {"tracker.example": [["93.184.216.34", "93.184.216.35"]]})[0])
+    seen = {}
+
+    class Stream(httpcore.NetworkStream):
+        def start_tls(self, ssl_context, server_hostname=None, timeout=None):
+            seen["server_hostname"] = server_hostname
+            raise httpcore.ConnectError("stop after the handshake would start")
+
+        def close(self):
+            pass
+
+    attempts = []
+
+    def connect_tcp(self, host, port, timeout=None, local_address=None, socket_options=None):
+        attempts.append(host)
+        if host == "93.184.216.34":
+            raise httpcore.ConnectError("unreachable")  # il primo non risponde: si prova il secondo
+        return Stream()
+
+    monkeypatch.setattr(httpcore.SyncBackend, "connect_tcp", connect_tcp)
+    with pytest.raises(httpx.ConnectError):
+        net_guard.http_client().get("https://tracker.example/api/torrents")
+
+    assert attempts == ["93.184.216.34", "93.184.216.35"]
+    assert seen["server_hostname"] == "tracker.example"
+
+
+def test_a_pinned_client_still_talks_http_with_the_original_host(monkeypatch):
+    hosts = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802
+            hosts.append(self.headers["Host"])
+            self.send_response(200)
+            self.send_header("Content-Length", "2")
+            self.end_headers()
+            self.wfile.write(b"ok")
+
+        def log_message(self, *args):
+            pass
+
+    server = HTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    port = server.server_address[1]
+    real_getaddrinfo = socket.getaddrinfo
+
+    def resolve(host, *args, **kwargs):
+        return real_getaddrinfo("127.0.0.1" if host == "arr.example" else host, *args, **kwargs)
+
+    monkeypatch.setattr(net_guard.socket, "getaddrinfo", resolve)
+    try:
+        with net_guard.http_client(timeout=5) as client:
+            response = client.get(f"http://arr.example:{port}/api/v3/system/status")
+    finally:
+        server.shutdown()
+        server.server_close()
+
+    assert (response.status_code, response.text) == (200, "ok")
+    assert hosts == [f"arr.example:{port}"]
+
+
+def test_a_name_that_does_not_resolve_when_connecting_is_a_connect_error(monkeypatch, connects):
+    monkeypatch.setattr(net_guard.socket, "getaddrinfo", _resolver({}))
+    with pytest.raises(httpx.ConnectError, match="Cannot resolve"):
+        net_guard.http_client().get("http://gone.example/")
+    assert connects == []
+
+
+def test_pin_leaves_clients_with_their_own_transport_alone():
+    mock = httpx.Client(transport=httpx.MockTransport(lambda request: httpx.Response(204)))
+    assert net_guard.pin(mock) is mock and mock.get("http://169.254.169.254/").status_code == 204
+    pinned = net_guard.http_client()
+    backend = pinned._transport._pool._network_backend
+    assert net_guard.pin(pinned)._transport._pool._network_backend is backend  # una volta sola
