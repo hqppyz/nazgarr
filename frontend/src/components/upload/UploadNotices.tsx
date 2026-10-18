@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 
@@ -32,11 +32,17 @@ function remember(id: number) {
 // e, aprendo l'app, niente arretrati (la coda degli upload li mostra già).
 export function UploadNotices() {
   const navigate = useNavigate()
-  const [after, setAfter] = useState<number | null>(lastSeen)
+  // Il cursore (l'ultimo avviso visto) sta in un ref letto da queryFn: nello
+  // stato, e quindi nella chiave, ogni risposta costava un render in più e una
+  // query nuova subito, invece di aspettare il giro successivo.
+  const after = useRef<number | null>(lastSeen())
   const shown = useRef(new Set<number>())
   const { data } = useQuery({
-    queryKey: ['uploads', 'notices', after],
-    queryFn: () => unwrap(api.GET('/api/uploads/notices', { params: { query: after == null ? {} : { after } } })),
+    queryKey: ['uploads', 'notices'],
+    queryFn: () => {
+      const cursor = after.current
+      return unwrap(api.GET('/api/uploads/notices', { params: { query: cursor == null ? {} : { after: cursor } } }))
+    },
     refetchInterval: POLL_MS,
   })
 
@@ -54,11 +60,11 @@ export function UploadNotices() {
         action: { label: t('upload.notice.open'), onClick: () => navigate(`/upload/${notice.upload_id}`) },
       })
     }
-    if (data.latest_id !== after) {
+    if (data.latest_id !== after.current) {
       remember(data.latest_id)
-      setAfter(data.latest_id)
+      after.current = data.latest_id
     }
-  }, [data]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [data, navigate])
 
   return null
 }
