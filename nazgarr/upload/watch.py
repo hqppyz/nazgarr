@@ -112,10 +112,12 @@ def scan(session: Session, kick: Callable[[int, str], None] | None = None, now: 
             except OSError:
                 continue  # sparito o illeggibile mentre lo si leggeva: al prossimo giro
             if row is None:
+                # Niente flush: aprirebbe la scrittura su SQLite e la terrebbe
+                # mentre si leggono gli alberi delle release dopo (audit
+                # 2026-10-18). La riga va col prossimo commit.
                 row = WatchEntry(disk_id=disk.id, relative_path=relative, size_bytes=size, mtime=mtime,
                                  stable_since=now)
                 session.add(row)
-                session.flush()
                 unchanged = True  # visto ora: pronto se nessuno ci scrive (spostato dentro)
             else:
                 unchanged = (row.size_bytes, row.mtime) == (size, mtime)
@@ -125,14 +127,19 @@ def scan(session: Session, kick: Callable[[int, str], None] | None = None, now: 
             if partial or size == 0 or not unchanged or not quiet:
                 continue
             session.commit()  # gli elementi nuovi di questo giro restano anche se l'upload non parte
+            # L'elemento si prende nello stesso commit del job (quello di
+            # create_job): prima erano due commit, e se il secondo falliva (il
+            # DB occupato, un kill) il giro dopo creava un secondo upload
+            # della stessa release (audit 2026-10-18).
+            row.started_at = now
             try:
                 job = upload_jobs.create_job(
                     session, disk, relative, overrides={"group": releaser} if releaser else None, origin="watch"
                 )
             except UploadJobError as exc:
+                session.rollback()
                 if exc.code == "upload_no_trackers":
                     continue  # nessun tracker con un profilo, per ora: si riprova
-                session.rollback()
                 row = session.get(WatchEntry, row.id)
                 row.started_at, row.error_message = now, exc.code
                 logger.warning("Cartella osservata: upload di %r non creato (%s)", relative, exc.code)
@@ -141,11 +148,17 @@ def scan(session: Session, kick: Callable[[int, str], None] | None = None, now: 
                 session.rollback()
                 continue
             row = session.get(WatchEntry, row.id)
-            row.job_id, row.started_at = job.id, now
+            row.job_id = job.id
             created.append(job.id)
             logger.info("Cartella osservata: upload #%s avviato per %r", job.id, relative)
             events.emit(session, "upload.detected", {"upload_id": job.id, "path": relative, "disk": disk.label})
-            session.commit()
+            try:
+                session.commit()
+            except Exception:
+                # Il job e l'elemento preso ci sono già: manca solo il
+                # collegamento (e l'avviso). Il job parte lo stesso.
+                session.rollback()
+                logger.warning("Cartella osservata: upload #%s non collegato a %r", job.id, relative, exc_info=True)
             if kick is not None:
                 kick(job.id, job.status)
         # Uscito prima di partire (spostato, cancellato): se torna, si riparte da capo.
