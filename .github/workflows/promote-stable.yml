@@ -36,6 +36,7 @@ jobs:
     permissions:
       contents: write
       packages: write
+      actions: read  # lo stato della CI sul commit della versione
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
@@ -87,6 +88,17 @@ jobs:
           # La release la crea docker-publish.yml solo per le build di main.
           if ! gh release view "v$VERSION" --repo "$GITHUB_REPOSITORY" --json tagName >/dev/null; then
             echo "No GitHub Release for v$VERSION: only versions published by docker-publish.yml can be promoted" >&2
+            exit 1
+          fi
+          # La CI (ruff, pytest, oxlint, vitest, build) passata su quel commit:
+          # l'ultima esecuzione di ci.yml, così una rilanciata dopo un errore
+          # occasionale conta (audit 2026-10-18; v0.7.9 era uscita con la CI
+          # rossa). Una versione caricata su PyPI non si può ricaricare.
+          ci=$(gh api -X GET "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs" \
+            -f head_sha="$COMMIT" -f per_page=1 \
+            --jq '.workflow_runs[0] | if . == null then "none" else "\(.status)/\(.conclusion)" end')
+          if [[ "$ci" != "completed/success" ]]; then
+            echo "CI on $COMMIT is '$ci', not completed/success: fix it or re-run it before promoting v$VERSION" >&2
             exit 1
           fi
           echo "Promoting v$VERSION ($COMMIT) to stable"

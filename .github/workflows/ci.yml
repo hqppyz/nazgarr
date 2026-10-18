@@ -4,6 +4,8 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Chiamata anche da docker-publish.yml, che pubblica solo se passa.
+  workflow_call: {}
 
 # Solo lettura: la CI non pubblica niente.
 permissions:
