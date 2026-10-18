@@ -13,25 +13,33 @@ FROM --platform=$BUILDPLATFORM node:22-slim@sha256:43ac6c60b8f89723f746e8a92ce91
 WORKDIR /frontend
 
 COPY frontend/package.json frontend/package-lock.json ./
-RUN npm ci
+# --ignore-scripts: nessuno script di installazione dei pacchetti (la via
+# solita di un pacchetto compromesso); nessuna dipendenza ne ha bisogno su
+# Linux (audit 2026-10-18).
+RUN npm ci --ignore-scripts
 
 COPY frontend .
 RUN npm run build
-
-# Stage 2: backend Python + frontend statico servito dallo stesso
-# container (nazgarr/web/frontend.py) - un solo container con supervisord, un solo processo (CLAUDE.md).
-FROM python:3.12-slim@sha256:dddfd7e07f9d15aeeca61529320492139d21cac7f0070c00609243e51e4e0016
 
 # ffmpeg (solo per gli screenshot del modulo Upload, docs/SPEC.md sezione 9):
 # un binario statico invece del pacchetto Debian, che si portava dietro ~170 MB
 # compressi di librerie (encoder, audio di sistema, grafica) mai usate. Questo
 # ha i decoder, zscale/tonemap per l'HDR e signalstats, per amd64 e arm64.
 # ffprobe serve al ripiego per il Dolby Vision che il contenitore non
-# dichiara (nazgarr/upload/dovi_probe.py). Fissato per digest come le immagini base.
+# dichiara (nazgarr/upload/dovi_probe.py). Fissato per digest come le immagini
+# base, e come loro in una riga FROM: Dependabot legge solo quelle, non
+# un'immagine scritta dentro COPY --from, e senza lo stage il digest non
+# riceveva mai una proposta di aggiornamento (audit 2026-10-18). Senza
+# --platform: ogni architettura prende il suo binario.
+FROM mwader/static-ffmpeg:7.1@sha256:a8090df5f5608daef387e1b2e93b98aaacb4d92153ad904e7d715c725724fca4 AS ffmpeg
+
+# Stage finale: backend Python + frontend statico servito dallo stesso
+# container (nazgarr/web/frontend.py) - un solo container con supervisord, un solo processo (CLAUDE.md).
+FROM python:3.12-slim@sha256:dddfd7e07f9d15aeeca61529320492139d21cac7f0070c00609243e51e4e0016
+
 # MediaInfo non serve dal sistema: pymediainfo porta con sé libmediainfo
 # nelle sue wheel Linux (amd64 e arm64), e la CLI non viene mai chiamata.
-COPY --from=mwader/static-ffmpeg:7.1@sha256:a8090df5f5608daef387e1b2e93b98aaacb4d92153ad904e7d715c725724fca4 \
-    /ffmpeg /ffprobe /usr/local/bin/
+COPY --from=ffmpeg /ffmpeg /ffprobe /usr/local/bin/
 
 WORKDIR /app
 
@@ -39,6 +47,10 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY nazgarr nazgarr
+# Il server gira come PUID (supervisord) e non può scrivere __pycache__ in
+# /app/nazgarr, che è di root: senza i .pyc già compilati qui ricompilava in
+# memoria i suoi ~160 moduli a ogni avvio (audit 2026-10-18).
+RUN python -m compileall -q nazgarr
 COPY docs docs
 COPY docker docker
 COPY config.example.yaml .

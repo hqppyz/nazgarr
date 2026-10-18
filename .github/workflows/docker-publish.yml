@@ -17,6 +17,10 @@ name: Build and publish Docker image
 # immagine :nightly e :sha-xxxxxxx con versione X.Y.Z-dev.<sha>, senza tag
 # git né release, per provare un branch prima del merge. Il push successivo
 # su main riporta :nightly su main.
+# In ogni caso si pubblica solo se la CI (ci.yml: ruff, pytest, oxlint,
+# vitest, build) passa sullo stesso commit: prima nulla aspettava la CI, e
+# v0.7.9 era uscita come nightly e release con pytest rosso (audit
+# 2026-10-18).
 on:
   push:
     branches: [main]
@@ -85,8 +89,13 @@ jobs:
           echo "commit=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
           echo "Version: $version (commit ${GITHUB_SHA::7})"
 
+  ci:
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
   build:
-    needs: version
+    needs: [version, ci]
     strategy:
       fail-fast: true
       matrix:

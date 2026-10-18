@@ -12,7 +12,9 @@ cd "$(dirname "$0")/.."
 version="${1:-$(sed -n 's/^BASE_VERSION = "\(.*\)"/\1/p' nazgarr/core/version.py)}"
 commit="${2:-$(git rev-parse --short HEAD 2>/dev/null || true)}"
 
-(cd frontend && npm ci && npm run build)
+# --ignore-scripts: nessuno script di installazione dei pacchetti, come nel
+# Dockerfile e nella CI.
+(cd frontend && npm ci --ignore-scripts && npm run build)
 rm -rf nazgarr/_assets
 mkdir -p nazgarr/_assets
 cp -R frontend/dist nazgarr/_assets/web

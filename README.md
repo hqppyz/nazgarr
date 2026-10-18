@@ -133,12 +133,19 @@ launchctl load -w ~/Library/LaunchAgents/io.github.lktorrentz.nazgarr.plist    #
 
 Run it as the user that owns your media and torrent folders, and as a single process (the upload worker and the scheduler live inside it). Update with `pipx upgrade nazgarr`. Windows is not tested yet.
 
+`pipx install nazgarr` takes the newest version of every library it needs, so it also gets their security fixes; each release is tested that way before it reaches PyPI. To install exactly the library versions a release was tested with in CI and ships in the Docker image (resolved for Python 3.12), pin them with the `constraints.txt` attached to its [GitHub Release](https://github.com/lktorrentz/nazgarr/releases). To update a pinned install, run it again with the new version and `--force`:
+
+```bash
+VERSION=X.Y.Z   # the stable release you want
+pipx install "nazgarr==$VERSION" --pip-args="--constraint https://github.com/lktorrentz/nazgarr/releases/download/v$VERSION/constraints.txt"
+```
+
 ### Release channels
 
 | Tag | What it is |
 | --- | --- |
 | `:stable` (also `:latest`) | Releases promoted by hand after testing. Use this one. The Python package follows it. |
-| `:nightly` | A test build for every push to `main`. It moves fast and may break. |
+| `:nightly` | A test build for every push to `main` that passes CI (ruff, tests, frontend build). It moves fast and may break. |
 | `:X.Y.Z` | Every published version, pinned. |
 
 Configuration › Application › Check for updates follows the channel you're on. It can also check on its own every 12 hours (off by default: it contacts GitHub), and then the sidebar says when a new version is out. Before you update, it shows what changes and anything you need to do; after the update, Nazgarr shows what's new once. The detailed notes of each stable release are in [CHANGELOG.md](CHANGELOG.md).
