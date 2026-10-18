@@ -39,11 +39,30 @@ api.use({
     }
     return request
   },
-  onResponse({ response }) {
-    if (response.status === 401) clearToken()
+  async onResponse({ request, response }) {
+    if (response.status === 401 && (await isSessionFailure(request, response))) clearToken()
     return response
   },
 })
+
+// Le due risposte di questa istanza a una sessione che non vale più
+// (nazgarr/web/auth.py::require_auth).
+const SESSION_CODES = new Set(['auth_required', 'auth_setup_required'])
+
+// Un 401 attraverso il proxy di un'altra istanza può essere di quella: la sua
+// API key cambiata o revocata (api_key_invalid). La sessione qui è ancora
+// buona, e scartare il token butterebbe fuori anche da questa istanza a ogni
+// chiamata. Solo i codici di una sessione scaduta qui scartano il token.
+async function isSessionFailure(request: Request, response: Response): Promise<boolean> {
+  if (!new URL(request.url).pathname.startsWith('/api/remote/')) return true
+  try {
+    const body = (await response.clone().json()) as { detail?: { code?: unknown } } | null
+    const code = body?.detail?.code
+    return typeof code === 'string' && SESSION_CODES.has(code)
+  } catch {
+    return false
+  }
+}
 
 /**
  * L'errore di una chiamata alle API: il messaggio già tradotto, più lo stato

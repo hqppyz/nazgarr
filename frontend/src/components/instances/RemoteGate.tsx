@@ -67,8 +67,32 @@ export function RemoteBar() {
   )
 }
 
+// Al posto delle viste di un'altra istanza che non si possono aprire: perché,
+// e le due uscite (tornare a questa, o la sua interfaccia).
+function BlockedPanel({ instance, children }: { instance: Instance; children: React.ReactNode }) {
+  return (
+    <div className="mx-auto mt-10 grid max-w-xl gap-3 rounded-lg border border-red-500/40 bg-red-500/10 p-6">
+      <p className="flex items-center gap-2 font-medium">
+        <TriangleAlertIcon className="size-5 text-red-600 dark:text-red-400" />
+        {t('instances.blockedTitle', { label: instance.label })}
+      </p>
+      <p className="text-sm text-muted-foreground">{children}</p>
+      <div className="flex flex-wrap gap-2">
+        <Button variant="outline" size="sm" onClick={() => switchInstance(null)}>
+          {t('instances.backToThis')}
+        </Button>
+        <Button variant="ghost" size="sm" render={<a href={safeHref(instance.base_url)} target="_blank" rel="noreferrer" />}>
+          {t('instances.openItsUi')}
+          <ExternalLinkIcon className="size-3.5" />
+        </Button>
+      </div>
+    </div>
+  )
+}
+
 // Le viste di un'altra istanza: niente se è bloccata (major diversa, o più
-// nuova di questa: decisione dell'utente, 2026-10-03), altrimenti le viste.
+// nuova di questa: decisione dell'utente, 2026-10-03) o se rifiuta la chiave
+// (cambiata o revocata là: ogni vista fallirebbe), altrimenti le viste.
 export function RemoteGate({ children }: { children: React.ReactNode }) {
   const id = activeInstanceId()
   const { data } = useInstances(true)
@@ -83,26 +107,14 @@ export function RemoteGate({ children }: { children: React.ReactNode }) {
   if (loading || !instance) return null
   const status = instance.status
   const compat = status?.compatibility ?? 'unknown'
+  if (status?.status === 'bad_key') {
+    return <BlockedPanel instance={instance}>{t('instances.badKeyHelp', { label: instance.label })}</BlockedPanel>
+  }
   if (!compat.startsWith('block')) return <>{children}</>
   return (
-    <div className="mx-auto mt-10 grid max-w-xl gap-3 rounded-lg border border-red-500/40 bg-red-500/10 p-6">
-      <p className="flex items-center gap-2 font-medium">
-        <TriangleAlertIcon className="size-5 text-red-600 dark:text-red-400" />
-        {t('instances.blockedTitle', { label: instance.label })}
-      </p>
-      <p className="text-sm text-muted-foreground">
-        {t(`instances.compat.${compat}`)} · {t('instances.version', { version: status?.version ?? '?' })} ·{' '}
-        {t('instances.thisInstance')} {localVersion}
-      </p>
-      <div className="flex flex-wrap gap-2">
-        <Button variant="outline" size="sm" onClick={() => switchInstance(null)}>
-          {t('instances.backToThis')}
-        </Button>
-        <Button variant="ghost" size="sm" render={<a href={safeHref(instance.base_url)} target="_blank" rel="noreferrer" />}>
-          {t('instances.openItsUi')}
-          <ExternalLinkIcon className="size-3.5" />
-        </Button>
-      </div>
-    </div>
+    <BlockedPanel instance={instance}>
+      {t(`instances.compat.${compat}`)} · {t('instances.version', { version: status?.version ?? '?' })} ·{' '}
+      {t('instances.thisInstance')} {localVersion}
+    </BlockedPanel>
   )
 }

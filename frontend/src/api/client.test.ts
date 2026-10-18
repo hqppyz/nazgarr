@@ -41,6 +41,23 @@ describe('api client middleware', () => {
     await api.GET('/api/disks', { baseUrl: BASE, fetch })
     expect(getToken()).toBeNull()
   })
+
+  it('keeps the token when another instance refuses its API key', async () => {
+    setToken('tok')
+    localStorage.setItem('nazgarr-instance', '3')
+    const { fetch } = serve(401, { detail: { code: 'api_key_invalid' } })
+    const { response } = await api.GET('/api/disks', { baseUrl: BASE, fetch })
+    expect(response.status).toBe(401)
+    expect(getToken()).toBe('tok')
+  })
+
+  it('still drops the token when the proxy itself finds the session over', async () => {
+    setToken('tok')
+    localStorage.setItem('nazgarr-instance', '3')
+    const { fetch } = serve(401, { detail: { code: 'auth_required' } })
+    await api.GET('/api/disks', { baseUrl: BASE, fetch })
+    expect(getToken()).toBeNull()
+  })
 })
 
 describe('unwrap', () => {
