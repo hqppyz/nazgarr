@@ -16,14 +16,17 @@ import os
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
+from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from nazgarr.core import mounts as container_mounts
 from nazgarr.core.errors import CodedError, coded_detail, from_coded_error
 from nazgarr.core.fs_scope import ScopeViolation, resolve_scoped
-from nazgarr.core.models import ClientTorrentFile, Disk, SeedFile
+from nazgarr.core.models import ClientTorrentFile, Disk, MediaFile, SeedFile, SeedJob, UploadJob
 from nazgarr.library import disk_folders, hardlinks
+from nazgarr.library.scan_state import latest_scan_by_disk
+from nazgarr.upload import jobs as upload_jobs
 from nazgarr.web.deps import get_or_404, get_session
 
 router = APIRouter(prefix="/api/disks", tags=["disks"])
@@ -159,8 +162,8 @@ def _get_disk_or_404(session: Session, disk_id: int) -> Disk:
 
 def disk_scope(request: Request) -> container_mounts.Scope:
     settings = request.app.state.settings
-    own = [settings.data_dir, os.path.dirname(os.path.abspath(os.environ.get("CONFIG_PATH", "config.yaml")))]
-    return container_mounts.scope(settings.disk_scan_root, own)
+    config_dir = os.path.dirname(os.path.abspath(os.environ.get("CONFIG_PATH", "config.yaml")))
+    return container_mounts.scope(settings.disk_scan_root, [config_dir], data_dir=settings.data_dir)
 
 
 def _inside(path: str, root: str) -> bool:
@@ -176,10 +179,13 @@ def list_available_mounts(scope: container_mounts.Scope, used_paths: set[str]) -
     if scope.source == "mounts":
         candidates = [m.mount_point for m in scope.mounts]
     else:
+        # Niente cartelle nascoste fra le proposte: con una radice ampia
+        # (la home) erano ~/.config, ~/.local... Si possono sempre scrivere.
         candidates = [entry.path for root in scope.roots if os.path.isdir(root)
-                      for entry in os.scandir(root) if entry.is_dir()]
+                      for entry in os.scandir(root) if entry.is_dir() and not entry.name.startswith(".")]
     return sorted(c for c in candidates
-                  if not any(_inside(os.path.realpath(c), used) for used in used_real))
+                  if not any(_inside(os.path.realpath(c), used) for used in used_real)
+                  and scope.app_folder_in(c) is None)
 
 
 def create_disk(session: Session, label: str, root_path: str, scope: container_mounts.Scope) -> Disk:
@@ -187,6 +193,11 @@ def create_disk(session: Session, label: str, root_path: str, scope: container_m
         raise DiskValidationError("disk_root_path_not_a_directory", path=root_path)
     if not scope.contains(root_path):
         raise DiskValidationError("disk_root_path_outside_scan_root", scan_root=", ".join(scope.roots))
+    # Mai un disco che contiene le cartelle di Nazgarr (secret.key, il DB):
+    # si potrebbero sfogliare e mettere in un torrent (audit 2026-10-18).
+    app_folder = scope.app_folder_in(root_path)
+    if app_folder is not None:
+        raise DiskValidationError("disk_root_contains_app_data", path=root_path, folder=app_folder)
     # Un disco dentro un altro (o che ne contiene uno): gli stessi file contati due volte.
     real = os.path.realpath(root_path)
     for other in session.query(Disk).all():
@@ -334,10 +345,13 @@ def update_disk(disk_id: int, body: DiskUpdateRequest, session: Session = Depend
 
 def _watch_folder(session: Session, disk: Disk, relative: str | None) -> str | None:
     """La cartella osservata: dentro il disco ed esistente. Mai il disco
-    intero, la cartella media, quella dei torrent o quella degli upload (né
-    una che le contiene), e mai una dove un client scarica o seeda: ogni
-    download partirebbe come una release. Una sottocartella dedicata (es.
-    torrents/watch) va bene."""
+    intero, la cartella media, quella dei torrent, quella dei nuovi hardlink
+    di un reseed o quella degli upload (né una che le contiene), mai una dove
+    un client scarica o seeda (ogni download partirebbe come una release), e
+    mai una con dei file della libreria (audit 2026-10-18: media/Movies faceva
+    partire un upload per ogni film). Una sottocartella dedicata (es.
+    torrents/watch, o media/incoming vuota) va bene. Le altre cartelle non
+    possono poi finirci dentro (disk_folders.validate e validate_target)."""
     if relative is None:
         return None
     try:
@@ -349,7 +363,8 @@ def _watch_folder(session: Session, disk: Disk, relative: str | None) -> str | N
     root = os.path.realpath(disk.root_path)
     if path == root:
         raise HTTPException(status_code=400, detail=coded_detail("watch_folder_overlaps", path=relative))
-    for other in (*disk.media_folders, *disk.seeding_folders, disk.effective_upload_rel_path):
+    for other in (*disk.media_folders, *disk.seeding_folders, disk.effective_new_torrent_rel_path,
+                  disk.effective_upload_rel_path):
         if not other:
             continue
         other_path = os.path.realpath(os.path.join(disk.root_path, other))
@@ -364,6 +379,15 @@ def _watch_folder(session: Session, disk: Disk, relative: str | None) -> str | N
     )
     if any(seed_path.startswith(relative_path + "/") for (seed_path,) in tracked):
         raise HTTPException(status_code=400, detail=coded_detail("watch_folder_used_by_client", path=relative))
+    # Dentro una cartella media va bene solo una sottocartella dedicata: una
+    # che ha già file della libreria (l'ultima scansione) è la libreria stessa.
+    latest = latest_scan_by_disk(session, MediaFile).get(disk.id)
+    library = session.query(MediaFile.id).filter(
+        MediaFile.disk_id == disk.id, MediaFile.last_scan_id == latest,
+        MediaFile.relative_path.startswith(relative_path + "/", autoescape=True),
+    )
+    if latest is not None and library.first() is not None:
+        raise HTTPException(status_code=400, detail=coded_detail("watch_folder_has_library_files", path=relative))
     return relative_path
 
 
@@ -389,8 +413,37 @@ def remove_folder(disk_id: int, folder_id: int, session: Session = Depends(get_s
     return DiskResponse.from_model(disk)
 
 
+def _busy_with(session: Session, disk: Disk) -> str | None:
+    """Cosa sta lavorando sui file del disco: un reseed in esecuzione (un
+    seed_job in corso di un suo file) o un upload nel worker. Cancellare il
+    disco in quel momento toglieva dal DB le righe che il lavoro stava
+    scrivendo: un 500 a metà, o un'esecuzione che non si ritrova più."""
+    media_ids = session.query(MediaFile.id).filter(MediaFile.disk_id == disk.id)
+    seed_ids = session.query(SeedFile.id).filter(SeedFile.disk_id == disk.id)
+    reseed = session.query(SeedJob.id).filter(
+        SeedJob.final_status == "in_progress",
+        or_(SeedJob.source_media_file_id.in_(media_ids), SeedJob.source_seed_file_id.in_(seed_ids)),
+    ).first()
+    if reseed is not None:
+        return "reseed"
+    upload = session.query(UploadJob.id).filter(
+        UploadJob.disk_id == disk.id, UploadJob.status.in_(upload_jobs.WORKER_STATES)).first()
+    return "upload" if upload is not None else None
+
+
 @router.delete("/{disk_id}", status_code=204)
 def delete_disk(disk_id: int, session: Session = Depends(get_session)):
+    """Toglie il disco e, a cascata, quello che Nazgarr sa dei suoi file
+    (docs/schema.sql); sul disco non cambia niente. Rifiutato (409) mentre
+    un reseed o un upload lavora sui suoi file."""
     disk = _get_disk_or_404(session, disk_id)
+    busy = _busy_with(session, disk)
+    if busy is not None:
+        raise HTTPException(status_code=409, detail=coded_detail("disk_busy", label=disk.label, work=busy))
     session.delete(disk)
-    session.commit()
+    try:
+        session.commit()
+    except IntegrityError as exc:
+        # Una riga che lo usa ancora (scritta nel frattempo): un 409 chiaro, non un 500.
+        session.rollback()
+        raise HTTPException(status_code=409, detail=coded_detail("disk_delete_conflict", label=disk.label)) from exc

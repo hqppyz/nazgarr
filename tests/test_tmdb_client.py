@@ -69,3 +69,14 @@ def test_search_prefers_the_result_released_in_the_requested_year():
 
     assert client.search_movie("Mission Impossible Fallout", year=2018)["id"] == 353081
 
+
+
+def test_clients_built_without_a_client_share_one_connection_pool():
+    """Un TMDBClient per run, esecuzione, webhook e upload: ognuno apriva il
+    suo httpx.Client senza chiuderlo (audit 2026-10-18)."""
+    from nazgarr.library import tmdb_client
+
+    first, second = TMDBClient(api_key="a"), TMDBClient(api_key="b")
+    assert first._client is second._client is tmdb_client.shared_http_client()
+    first._client.close()  # chiuso da qualcuno: il prossimo ne apre un altro
+    assert not TMDBClient(api_key="c")._client.is_closed

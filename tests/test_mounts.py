@@ -107,3 +107,26 @@ def test_nested_disks_are_refused(client):
     assert nested.status_code == 400 and nested.json()["detail"]["code"] == "disk_root_nested"
     body = client.get("/api/disks/available-mounts").json()
     assert body["scope_source"] == "config" and body["mounts"] == []
+
+
+def test_nazgarr_own_folders_are_never_inside_a_disk(tmp_path):
+    home = tmp_path / "home"
+    config, data = home / ".config" / "nazgarr", home / ".local" / "share" / "nazgarr"
+    for folder in (config, data, home / "media"):
+        folder.mkdir(parents=True)
+    scope = mounts.scope(str(home), [str(config)], container=False, data_dir=str(data))
+
+    assert scope.app_folder_in(str(home)) == str(config.resolve())  # la radice le contiene
+    assert scope.app_folder_in(str(home / ".local")) == str(data.resolve())
+    assert scope.app_folder_in(str(data / "posters")) == str(data.resolve())  # dentro data_dir: è tutta sua
+    assert scope.app_folder_in(str(home / "media")) is None
+    assert scope.contains(str(home / "media"))
+
+
+def test_the_data_folder_given_apart_is_still_left_out_of_the_mounts(tmp_path):
+    data, media = tmp_path / "appdata", tmp_path / "media"
+    data.mkdir()
+    media.mkdir()
+    text = "\n".join([_line(str(data), device="9:1"), _line(str(media), device="9:2")])
+    scope = mounts.scope(None, [], mounts=mounts.parse_mountinfo(text), container=True, data_dir=str(data))
+    assert [m.mount_point for m in scope.mounts] == [str(media)]

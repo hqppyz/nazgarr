@@ -16,13 +16,14 @@ from urllib.parse import urljoin
 
 import httpx
 
-from nazgarr.core import net_guard
+from nazgarr.core import http_limits, net_guard
 
 logger = logging.getLogger(__name__)
 
 MAX_BYTES = 256 * 1024
 RETRY_SECONDS = 7 * 24 * 3600
 TIMEOUT_SECONDS = 5.0
+DEADLINE_SECONDS = 20.0  # per tutta la risposta: il timeout di httpx vale per ogni lettura
 _TYPES = {
     "image/x-icon": ".ico", "image/vnd.microsoft.icon": ".ico", "image/png": ".png", "image/jpeg": ".jpg",
     "image/gif": ".gif", "image/webp": ".webp",
@@ -56,21 +57,20 @@ MAX_REDIRECTS = 3
 def _get(client: httpx.Client, url: str, limit: int) -> tuple[httpx.Response, bytes] | None:
     """Una GET che segue al massimo MAX_REDIRECTS redirect, controllando ogni
     destinazione (nazgarr/core/net_guard.py: mai i metadati del cloud), e smette di
-    leggere oltre limit byte invece di caricare tutto in memoria."""
+    leggere oltre limit byte invece di caricare tutto in memoria. La lettura
+    passa da nazgarr/core/http_limits.py (audit 2026-10-18): iter_bytes di httpx
+    decomprimeva ogni blocco di rete in una volta, senza tetto, quindi un
+    gzip di pochi KB arrivava a GB prima del primo conteggio."""
     for _ in range(MAX_REDIRECTS + 1):
         try:
             net_guard.check_url(url)
-            with client.stream("GET", url) as response:
+            with client.stream("GET", url, headers={"Accept-Encoding": http_limits.ACCEPT_ENCODING}) as response:
                 if response.is_redirect and response.headers.get("location"):
                     url = urljoin(str(response.url), response.headers["location"])
                     continue
-                body = b""
-                for chunk in response.iter_bytes():
-                    body += chunk
-                    if len(body) > limit:
-                        return None
+                body = http_limits.read_limited(response, limit, time.monotonic() + DEADLINE_SECONDS)
                 return response, body
-        except (httpx.HTTPError, net_guard.ForbiddenDestination):
+        except (httpx.HTTPError, net_guard.ForbiddenDestination, http_limits.ResponseLimitExceeded):
             return None
     return None
 

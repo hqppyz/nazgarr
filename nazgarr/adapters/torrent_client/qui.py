@@ -35,8 +35,6 @@ scrivere, non può sceglierla a runtime.
 """
 
 import logging
-import os
-import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -46,24 +44,21 @@ from nazgarr.adapters.torrent_client.base import (
     ERROR_STATES,
     ClientTorrentFileInfo,
     ClientTorrentInfo,
-    TorrentAddTimeoutError,
     TorrentAlreadyInClientError,
     TorrentClientAdapter,
     TorrentStatus,
+    expected_hash,
+    local_torrent_bytes,
+    number,
+    require_recheck,
     seeders,
+    wait_for_hash,
 )
 
 logger = logging.getLogger(__name__)
 
 # Richieste di dettaglio in parallelo durante l'indicizzazione (rete locale).
 DETAIL_WORKERS = 8
-
-
-def _number(value, kind):
-    try:
-        return kind(value) if value is not None else None
-    except (TypeError, ValueError):
-        return None
 
 
 class QuiTorrentClientAdapter(TorrentClientAdapter):
@@ -130,15 +125,14 @@ class QuiTorrentClientAdapter(TorrentClientAdapter):
         expected_info_hash: str | None = None, skip_check_verified: bool = False,
         category: str | None = None, tags: list[str] | None = None, content_layout: str = "Original",
     ) -> str:
-        if not force_recheck:
-            raise ValueError(
-                "force_recheck=False non è permesso: il recheck reale è "
-                "un requisito funzionale, vedi docs/SPEC.md sezione 8."
-            )
+        require_recheck(force_recheck)
 
-        before_hashes = {t["hash"] for t in self._fetch_all_torrents() if t.get("hash")}
-        expected = expected_info_hash.lower() if expected_info_hash else None
-        if expected and expected in {h.lower() for h in before_hashes}:
+        before_hashes = self._hashes()
+        content = local_torrent_bytes(torrent_file_or_url)
+        # Come in qbittorrent.py: si aspetta proprio quel torrent (l'hash del
+        # chiamante o dei byte mandati), mai "un torrent nuovo qualunque".
+        expected = expected_hash(expected_info_hash, content)
+        if expected and expected in before_hashes:
             raise TorrentAlreadyInClientError(
                 f"Torrent {expected} is already in the client (possibly with another save path): nothing added"
             )
@@ -160,17 +154,16 @@ class QuiTorrentClientAdapter(TorrentClientAdapter):
             files["category"] = (None, category)
         if tags:
             files["tags"] = (None, ",".join(tags))
-        if os.path.isfile(torrent_file_or_url):
-            with open(torrent_file_or_url, "rb") as f:
-                torrent_bytes = f.read()
-            files["torrent"] = ("torrent.torrent", torrent_bytes, "application/x-bittorrent")
+        if content is not None:
+            files["torrent"] = ("torrent.torrent", content, "application/x-bittorrent")
         else:
             files["urls"] = (None, torrent_file_or_url)
 
         response = self._client.post(f"/api/instances/{self.instance_id}/torrents", files=files)
         response.raise_for_status()
 
-        info_hash = self._wait_for_new_hash(before_hashes, expected)
+        info_hash = wait_for_hash(self._hashes, before_hashes, expected, self.poll_interval,
+                                  self.poll_timeout, f"qui instance {self.instance_id}")
         if not skip_check_verified:
             self._bulk_action([info_hash], "recheck")
         self.start(info_hash)
@@ -182,24 +175,8 @@ class QuiTorrentClientAdapter(TorrentClientAdapter):
     def stop(self, info_hash: str) -> None:
         self._bulk_action([info_hash], "pause")
 
-    def _wait_for_new_hash(self, before_hashes: set[str], expected: str | None = None) -> str:
-        deadline = time.monotonic() + self.poll_timeout
-        while time.monotonic() < deadline:
-            current_hashes = {t["hash"] for t in self._fetch_all_torrents() if t.get("hash")}
-            if expected is not None:
-                found = next((h for h in current_hashes if h.lower() == expected), None)
-                if found is not None:
-                    return found
-                time.sleep(self.poll_interval)
-                continue
-            new_hashes = current_hashes - before_hashes
-            if new_hashes:
-                return next(iter(new_hashes))
-            time.sleep(self.poll_interval)
-        raise TorrentAddTimeoutError(
-            f"Nessun nuovo torrent rilevato sull'istanza qui {self.instance_id} "
-            f"entro {self.poll_timeout}s dall'aggiunta"
-        )
+    def _hashes(self) -> set[str]:
+        return {t["hash"].lower() for t in self._fetch_all_torrents() if t.get("hash")}
 
     def content_layout(self) -> str:
         """La preferenza del qBittorrent dietro questa istanza di qui."""
@@ -232,7 +209,7 @@ class QuiTorrentClientAdapter(TorrentClientAdapter):
         self._bulk_action([info_hash], "delete", deleteFiles=delete_files)
 
     def get_torrent_status(self, info_hash: str) -> TorrentStatus:
-        torrent = next((t for t in self._fetch_all_torrents() if t.get("hash") == info_hash), None)
+        torrent = self._find(info_hash)
         if torrent is None:
             raise ValueError(f"Torrent {info_hash} non trovato sull'istanza qui {self.instance_id}")
 
@@ -257,9 +234,16 @@ class QuiTorrentClientAdapter(TorrentClientAdapter):
     def get_torrent_info(self, info_hash: str) -> ClientTorrentInfo | None:
         # Nessun endpoint per un solo torrent (vedi get_torrent_status): lista
         # completa, poi file e tracker del solo torrent cercato.
-        torrent = next((t for t in self._fetch_all_torrents() if (t.get("hash") or "").lower() == info_hash.lower()),
-                       None)
+        torrent = self._find(info_hash)
         return self._torrent_info(torrent) if torrent is not None else None
+
+    def _find(self, info_hash: str) -> dict | None:
+        """Il torrent con quell'hash, a prescindere da maiuscole e minuscole."""
+        wanted = info_hash.lower()
+        return next((t for t in self._fetch_all_torrents() if (t.get("hash") or "").lower() == wanted), None)
+
+    def count_torrents(self) -> int:
+        return len(self._fetch_all_torrents())
 
     def list_torrents(self, on_progress: Callable[[int, int], None] | None = None) -> list[ClientTorrentInfo]:
         logger.debug("qui[%s]: list_torrents() — recupero la lista paginata...", self.instance_id)
@@ -305,9 +289,9 @@ class QuiTorrentClientAdapter(TorrentClientAdapter):
             category=torrent.get("category") or None,
             tracker_url=self._first_tracker_url(info_hash),
             files=files,
-            ratio=_number(torrent.get("ratio"), float),
-            seeding_time_seconds=_number(torrent.get("seeding_time"), int),
-            added_on=_number(torrent.get("added_on"), int),
+            ratio=number(torrent.get("ratio"), float),
+            seeding_time_seconds=number(torrent.get("seeding_time"), int),
+            added_on=number(torrent.get("added_on"), int),
             swarm_seeders=seeders(torrent.get("num_complete")),
         )
 

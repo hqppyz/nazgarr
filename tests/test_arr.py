@@ -427,3 +427,53 @@ def test_history_pages_are_fetched_in_parallel_and_yielded_in_order():
     ids = [event["id"] for event in api.history(1)]
 
     assert ids == list(range(total))
+
+
+def test_an_oversized_or_forbidden_answer_skips_the_instance(db_session, monkeypatch):
+    """Le risposte di Radarr/Sonarr si leggono con un tetto (audit
+    2026-10-18): un corpo enorme o un gzip che si espande non entra tutto
+    in memoria, e l'istanza si salta come una irraggiungibile. Un indirizzo
+    che ora si risolve nei metadati del cloud non si chiama."""
+    import httpx
+
+    from nazgarr.integrations import arr
+    from tests.http_helpers import chunked, gzip_bomb, peak_bytes
+
+    calls = []
+    # ~64 KB sul filo a pezzi da 16 KiB, 64 MB decompressi: in streaming,
+    # perché un corpo dato coi byte httpx lo decomprime tutto da sé.
+    stream, sent, total = chunked(gzip_bomb(64 * 1024 * 1024, prefix=b"["), 16 * 1024)
+
+    def handler(request):
+        calls.append(str(request.url))
+        assert request.headers["Accept-Encoding"] == "gzip, deflate"
+        return httpx.Response(200, content=stream(), headers={"Content-Encoding": "gzip"})
+
+    monkeypatch.setattr(arr, "MAX_RESPONSE_BYTES", 1024 * 1024)
+    instance = RadarrInstance(id=1, label="r", base_url="http://radarr", api_key="k")
+    api = arr.ArrApi(instance, client=httpx.Client(transport=httpx.MockTransport(handler), base_url="http://radarr"))
+
+    def refused():
+        with pytest.raises(ValueError, match="bigger than 1 MB"):
+            api.get("/api/v3/movie")
+
+    assert peak_bytes(refused) < 8 * 1024 * 1024  # a passi da 1 MB, mai un pezzo espanso intero
+    assert total >= 4 and len(sent) == 1  # fermato al primo pezzo, non a fine corpo
+
+    db_session.add(RadarrInstance(label="cloud", base_url="http://169.254.169.254", api_key="k", enabled=True))
+    db_session.commit()
+    index = build_arr_index(db_session, api_factory=lambda row: arr.ArrApi(
+        row, client=httpx.Client(transport=httpx.MockTransport(handler), base_url=row.base_url)))
+    assert len(index) == 0 and len(calls) == 1  # solo la prima richiesta, all'istanza sana
+
+
+def test_a_grab_written_with_the_default_port_still_matches_the_tracker():
+    from nazgarr.integrations.arr import host_of
+
+    assert host_of("https://ITT.example:443/torrent/download/1.key") == host_of("https://www.itt.example") == \
+        "itt.example"
+    assert host_of("http://itt.example:80/x") == "itt.example"
+    # Una porta diversa da quella dello schema resta: è un altro servizio.
+    assert host_of("https://itt.example:8443/x") == "itt.example:8443"
+    assert host_of("http://itt.example:443/x") == "itt.example:443"
+    assert host_of("http://[::1") is None

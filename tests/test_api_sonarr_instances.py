@@ -43,12 +43,17 @@ def test_get_sonarr_instance_not_found_returns_coded_error(client):
     assert response.json()["detail"] == {"code": "sonarr_instance_not_found", "params": {"id": 999999}}
 
 
-def test_test_connection_reports_ok_with_version(client, monkeypatch):
-    def fake_get(url, headers=None, auth=None, timeout=None):
-        assert headers["X-Api-Key"] == "secret"
-        return httpx.Response(200, json={"version": "4.0.9"}, request=httpx.Request("GET", url))
+def _fake_status(monkeypatch, api_key, body=None, **response):
+    def handler(request):
+        assert request.headers["X-Api-Key"] == api_key
+        return httpx.Response(200, json=body if body is not None else {"version": "4.0.9"}, **response)
 
-    monkeypatch.setattr(sonarr_instances_module.httpx, "get", fake_get)
+    monkeypatch.setattr(sonarr_instances_module, "status_client",
+                        lambda auth, timeout: httpx.Client(transport=httpx.MockTransport(handler)))
+
+
+def test_test_connection_reports_ok_with_version(client, monkeypatch):
+    _fake_status(monkeypatch, "secret")
 
     create = client.post(
         "/api/sonarr-instances", json={"label": "x", "base_url": "http://sonarr", "api_key": "secret"}
@@ -63,15 +68,20 @@ def test_test_connection_reports_ok_with_version(client, monkeypatch):
 def test_stateless_test_connection_before_creating(client, monkeypatch):
     """Il dialog "Add instance" può testare prima di salvare — nessun
     instance_id coinvolto, i valori vengono dal form."""
-
-    def fake_get(url, headers=None, auth=None, timeout=None):
-        assert headers["X-Api-Key"] == "draft-key"
-        return httpx.Response(200, json={"version": "4.0.9"}, request=httpx.Request("GET", url))
-
-    monkeypatch.setattr(sonarr_instances_module.httpx, "get", fake_get)
+    _fake_status(monkeypatch, "draft-key")
 
     response = client.post(
         "/api/sonarr-instances/test", json={"base_url": "http://sonarr:8989", "api_key": "draft-key"}
     )
     assert response.status_code == 200
     assert response.json() == {"status": "ok", "version": "4.0.9", "error": None}
+
+
+def test_an_oversized_status_answer_is_an_error_not_read_whole(client, monkeypatch):
+    """/system/status letto con un tetto (audit 2026-10-18), come l'indice."""
+    _fake_status(monkeypatch, "draft-key", body={"version": "4", "pad": "x" * (2 * 1024 * 1024)})
+
+    response = client.post(
+        "/api/sonarr-instances/test", json={"base_url": "http://sonarr:8989", "api_key": "draft-key"}
+    )
+    assert response.json()["status"] == "error" and "bigger than" in response.json()["error"]

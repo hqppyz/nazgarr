@@ -219,17 +219,21 @@ def qui_instances(body: QuiInstancesRequest, session: Session = Depends(get_sess
 
 @router.post("/{torrent_client_id}/test", response_model=TorrentClientTestResponse)
 def test_torrent_client(torrent_client_id: int, session: Session = Depends(get_session)):
-    """Sola lettura: chiama adapter.list_torrents() e riporta successo/errore,
-    senza bisogno di dischi configurati né di passare da uno scan completo —
-    utile per verificare le credenziali subito dopo aver creato/modificato
-    un client (docs/SPEC.md sezione 5)."""
+    """Sola lettura: conta i torrent del client (adapter.count_torrents) e
+    riporta successo/errore, senza bisogno di dischi configurati né di
+    passare da uno scan completo — utile per verificare le credenziali
+    subito dopo aver creato/modificato un client (docs/SPEC.md sezione 5).
+    Prima chiedeva l'elenco completo coi file di ogni torrent solo per
+    contarli: con migliaia di torrent il proxy davanti scadeva (audit
+    2026-10-18)."""
     tc = _get_torrent_client_or_404(session, torrent_client_id)
     try:
         with adapter_factory.torrent_client(tc) as adapter:
-            torrents = adapter.list_torrents()
+            count = getattr(adapter, "count_torrents", None)  # un plugin senza la classe base
+            torrents_found = count() if callable(count) else len(adapter.list_torrents())
     except Exception as exc:
         return TorrentClientTestResponse(status="error", error=safe_error(exc))
-    return TorrentClientTestResponse(status="ok", torrents_found=len(torrents))
+    return TorrentClientTestResponse(status="ok", torrents_found=torrents_found)
 
 
 class PathCheckExample(BaseModel):

@@ -52,20 +52,40 @@ class Mount:
         return self.fstype == "fuse.shfs" or self.source == "shfs"
 
 
+def _inside(path: str, folder: str) -> bool:
+    return path == folder or path.startswith(folder.rstrip(os.sep) + os.sep)
+
+
 @dataclass
 class Scope:
     roots: list[str]  # dove può stare un disco
     source: str  # "config" (disk_scan_root) | "mounts" (rilevati) | "default"
     mounts: list[Mount] = field(default_factory=list)  # le cartelle di dati rilevate
     warnings: list[dict] = field(default_factory=list)
+    # Le cartelle di Nazgarr (config.yaml e secret.key, data_dir col DB), risolte.
+    own_dirs: list[str] = field(default_factory=list)
+    data_dir: str | None = None
 
     def contains(self, path: str) -> bool:
         real = os.path.realpath(path)
-        for root in self.roots:
-            real_root = os.path.realpath(root)
-            if real == real_root or real.startswith(real_root.rstrip(os.sep) + os.sep):
-                return True
-        return False
+        return any(_inside(real, os.path.realpath(root)) for root in self.roots)
+
+    def app_folder_in(self, path: str) -> str | None:
+        """La cartella di Nazgarr che un disco con questa radice
+        esporrebbe (al browser, a un upload che la mette in un torrent):
+        una cartella sua uguale alla radice o dentro, o la data_dir che
+        contiene la radice (è tutta di Nazgarr). Con disk_scan_root ampio
+        (la home, per un'installazione pipx) un disco poteva contenerle
+        (audit 2026-10-18). Una radice dentro la cartella del config resta
+        possibile: quella cartella può essere una qualunque (config.yaml
+        nella cartella di lavoro)."""
+        real = os.path.realpath(path)
+        for own in self.own_dirs:
+            if _inside(own, real):
+                return own
+        if self.data_dir and _inside(real, self.data_dir):
+            return self.data_dir
+        return None
 
 
 def _unescape(value: str) -> str:
@@ -138,19 +158,24 @@ def read_mounts() -> list[Mount]:
 
 
 def scope(configured_root: str | None, own_dirs: list[str] = (), mounts: list[Mount] | None = None,
-          container: bool | None = None) -> Scope:
+          container: bool | None = None, data_dir: str | None = None) -> Scope:
     """Il confine dei dischi: disk_scan_root se impostato, se no le cartelle
     di dati montate nel container, se no /data. I mount rilevati (e i loro
-    avvisi) si riportano comunque: servono ai suggerimenti."""
+    avvisi) si riportano comunque: servono ai suggerimenti. own_dirs (e
+    data_dir, che ne fa parte) sono le cartelle di Nazgarr: mai un disco
+    che le contiene, in ogni modo (Scope.app_folder_in)."""
     container = in_container() if container is None else container
-    detected = data_mounts(read_mounts() if mounts is None else mounts, own_dirs) if container else []
+    every_own = [d for d in (*own_dirs, data_dir) if d]
+    detected = data_mounts(read_mounts() if mounts is None else mounts, every_own) if container else []
     warnings = mount_warnings(detected)
+    own = {"own_dirs": [os.path.realpath(d) for d in every_own],
+           "data_dir": os.path.realpath(data_dir) if data_dir else None}
     if configured_root:
         outside = [m.mount_point for m in detected
                    if not Scope([configured_root], "config").contains(m.mount_point)]
         if outside:
             warnings.append({"code": "mounts_outside_scan_root", "scan_root": configured_root, "paths": outside})
-        return Scope([configured_root], "config", detected, warnings)
+        return Scope([configured_root], "config", detected, warnings, **own)
     if detected:
-        return Scope([m.mount_point for m in detected], "mounts", detected, warnings)
-    return Scope([DEFAULT_ROOT], "default", detected, warnings)
+        return Scope([m.mount_point for m in detected], "mounts", detected, warnings, **own)
+    return Scope([DEFAULT_ROOT], "default", detected, warnings, **own)

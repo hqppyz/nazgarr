@@ -172,3 +172,131 @@ def test_a_folder_made_from_the_ui_copies_the_permissions_of_the_one_above(clien
         os.umask(previous)
     for folder in (disk_dir / "torrents", disk_dir / "torrents" / "uploads"):
         assert os.stat(folder).st_mode & 0o777 == 0o775
+
+
+def _disk(client, *folders):
+    root = client.scan_root / "disk1"
+    for folder in folders:
+        (root / folder).mkdir(parents=True, exist_ok=True)
+    return client.post("/api/disks", json={"label": "Disk 1", "root_path": str(root)}).json()
+
+
+def test_the_folder_for_new_reseed_hardlinks_is_never_watched(client):
+    """Anche vuota (audit 2026-10-18): ogni reseed lì diventava una release,
+    e approvarla toglieva i file da cui il torrent del reseed seeda. E al
+    contrario, le cartelle dei reseed e degli upload non finiscono dopo
+    dentro quella osservata."""
+    created = _disk(client, "media", "torrents/new", "torrents/watch/x")
+    url = f"/api/disks/{created['id']}"
+    client.patch(url, json={"media_rel_path": "media", "torrents_rel_path": "torrents",
+                            "new_torrent_rel_path": "torrents/new"})
+    for bad in ("torrents/new", "torrents"):
+        assert client.patch(url, json={"watch_rel_path": bad}).json()["detail"]["code"] == "watch_folder_overlaps"
+    assert client.patch(url, json={"watch_rel_path": "torrents/watch"}).status_code == 200
+
+    for field, path in (("new_torrent_rel_path", "torrents/watch/x"), ("upload_rel_path", "torrents/watch")):
+        refused = client.patch(url, json={field: path})
+        assert refused.status_code == 400, field
+        assert refused.json()["detail"]["code"] == "folder_overlaps"
+    assert client.get("/api/disks").json()[0]["new_torrent_rel_path"] == "torrents/new"
+
+
+def test_a_folder_with_library_files_is_never_watched(client):
+    """Una sottocartella media dedicata va bene; una che ha già film della
+    libreria (media/Movies) faceva partire un upload per ognuno."""
+    from datetime import UTC, datetime
+
+    from nazgarr.core.models import MediaFile
+    from nazgarr.reseed import pipeline
+
+    created = _disk(client, "media/Movies", "media/incoming", "torrents")
+    url = f"/api/disks/{created['id']}"
+    client.patch(url, json={"media_rel_path": "media", "torrents_rel_path": "torrents"})
+    session = client.app.state.session_factory()
+    try:
+        run = pipeline.start_run(session, "manual")
+        session.add(MediaFile(disk_id=created["id"], relative_path="media/Movies/A (2020)/A.mkv", size_bytes=1,
+                              st_dev=1, inode=1, last_scan_id=run.id, last_seen_at=datetime.now(UTC)))
+        session.commit()
+    finally:
+        session.close()
+
+    refused = client.patch(url, json={"watch_rel_path": "media/Movies"})
+    assert refused.status_code == 400 and refused.json()["detail"]["code"] == "watch_folder_has_library_files"
+    assert client.patch(url, json={"watch_rel_path": "media/incoming"}).status_code == 200
+
+
+def test_a_disk_is_not_deleted_while_a_reseed_or_an_upload_works_on_it(client):
+    from nazgarr.core.models import SeedJob, UploadJob
+    from tests.test_delete_used_tracker_and_disk import _used_tracker_and_disk
+
+    disk_id, _tracker_id = _used_tracker_and_disk(client)
+    session = client.app.state.session_factory()
+    try:
+        job = session.query(SeedJob).one()
+        job.final_status = "in_progress"
+        session.commit()
+    finally:
+        session.close()
+
+    busy = client.delete(f"/api/disks/{disk_id}")
+    assert busy.status_code == 409
+    assert busy.json()["detail"] == {"code": "disk_busy", "params": {"label": "Disk 1", "work": "reseed"}}
+
+    session = client.app.state.session_factory()
+    try:
+        session.query(SeedJob).one().final_status = "seeding"
+        session.add(UploadJob(disk_id=disk_id, relative_path="media/m.mkv", source_path="/x", status="queued"))
+        session.commit()
+    finally:
+        session.close()
+    assert client.delete(f"/api/disks/{disk_id}").json()["detail"]["params"]["work"] == "upload"
+
+    session = client.app.state.session_factory()
+    try:
+        session.query(UploadJob).one().status = "done"
+        session.commit()
+    finally:
+        session.close()
+    assert client.delete(f"/api/disks/{disk_id}").status_code == 204
+
+
+def test_a_constraint_failing_on_delete_is_a_409_not_a_500(client):
+    from sqlalchemy import text
+
+    created = _disk(client, "media")
+    session = client.app.state.session_factory()
+    try:
+        session.execute(text("CREATE TRIGGER keep_disk BEFORE DELETE ON disk "
+                             "BEGIN SELECT RAISE(ABORT, 'FOREIGN KEY constraint failed'); END"))
+        session.commit()
+    finally:
+        session.close()
+
+    response = client.delete(f"/api/disks/{created['id']}")
+
+    assert response.status_code == 409 and response.json()["detail"]["code"] == "disk_delete_conflict"
+    assert [d["id"] for d in client.get("/api/disks").json()] == [created["id"]]
+
+
+def test_a_disk_never_holds_nazgarr_own_folders(client, tmp_path, monkeypatch):
+    """Con una radice dei dischi ampia (la home, per pipx) un disco poteva
+    contenere config, secret.key e DB, e mostrarli o metterli in un torrent
+    (audit 2026-10-18). Neanche fra le proposte, né le cartelle nascoste."""
+    import os
+
+    settings = client.app.state.settings
+    data_parent = client.scan_root / "apps"
+    data_dir = data_parent / "nazgarr-data"
+    data_dir.mkdir(parents=True)
+    (client.scan_root / ".config").mkdir()
+    (client.scan_root / "disk1").mkdir()
+    monkeypatch.setattr(settings, "data_dir", str(data_dir))
+
+    for root in (data_parent, data_dir, data_dir / "posters"):
+        os.makedirs(root, exist_ok=True)
+        refused = client.post("/api/disks", json={"label": "x", "root_path": str(root)})
+        assert refused.status_code == 400, root
+        assert refused.json()["detail"]["code"] == "disk_root_contains_app_data"
+    mounts = client.get("/api/disks/available-mounts").json()["mounts"]
+    assert mounts == [str(client.scan_root / "disk1")]

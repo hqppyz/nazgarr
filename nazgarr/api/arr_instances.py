@@ -7,6 +7,8 @@ un router solo, costruito per ognuno da make_router
 (nazgarr/api/radarr_instances.py, nazgarr/api/sonarr_instances.py, che
 tengono i nomi dei modelli dello schema OpenAPI usati dal frontend)."""
 
+import json
+import time
 from datetime import datetime
 
 import httpx
@@ -15,6 +17,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session, object_session
 
 from nazgarr.api.types import HttpUrlStr, check_destinations, require_secrets_for_new_host
+from nazgarr.core import http_limits
 from nazgarr.core.errors import coded_detail
 from nazgarr.core.logs import safe_error
 from nazgarr.integrations import arr_webhooks
@@ -22,6 +25,13 @@ from nazgarr.web.deps import get_session
 
 DEFAULT_PRIORITY = 0
 DEFAULT_TIMEOUT_SECONDS = 15
+# /system/status è qualche KB: una risposta più grande non è Radarr/Sonarr.
+MAX_STATUS_BYTES = 1024 * 1024
+
+
+def status_client(auth, timeout_seconds: int) -> httpx.Client:
+    """Il client HTTP della prova di connessione (sostituibile nei test)."""
+    return httpx.Client(auth=auth, timeout=timeout_seconds)
 
 
 class ArrInstanceCreateRequest(BaseModel):
@@ -120,12 +130,15 @@ def make_router(
         Servarr: non serve un adapter completo per verificare le credenziali."""
         auth = (basic_auth_username, basic_auth_password) if basic_auth_username else None
         try:
-            reply = httpx.get(
-                f"{base_url.rstrip('/')}/api/v3/system/status",
-                headers={"X-Api-Key": api_key}, auth=auth, timeout=timeout_seconds,
-            )
-            reply.raise_for_status()
-            version = reply.json().get("version")
+            # Letta in streaming con un tetto (nazgarr/core/http_limits.py), come l'indice.
+            with status_client(auth, timeout_seconds) as client, client.stream(
+                "GET", f"{base_url.rstrip('/')}/api/v3/system/status",
+                headers={"X-Api-Key": api_key, "Accept-Encoding": http_limits.ACCEPT_ENCODING},
+            ) as reply:
+                reply.raise_for_status()
+                body = http_limits.read_limited(reply, MAX_STATUS_BYTES, time.monotonic() + 4 * timeout_seconds)
+            status = json.loads(body)
+            version = status.get("version") if isinstance(status, dict) else None
         except Exception as exc:
             return test_response(status="error", error=safe_error(exc))
         return test_response(status="ok", version=version)
@@ -165,6 +178,7 @@ def make_router(
         dal dialog "Edit instance" quando l'API key (write-only) non è stata
         ridigitata."""
         instance = get_or_404(session, instance_id)
+        check_destinations(instance.base_url)  # a ogni richiesta, non solo quando l'indirizzo si salva
         timeout = instance.timeout_seconds if instance.timeout_seconds is not None else DEFAULT_TIMEOUT_SECONDS
         return test_connection(
             instance.base_url, instance.api_key, timeout, instance.basic_auth_username, instance.basic_auth_password

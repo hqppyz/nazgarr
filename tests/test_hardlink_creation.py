@@ -48,8 +48,9 @@ def test_create_links_removes_what_it_created_if_one_fails(area, monkeypatch):
     tmp_path, source, root = area
     first, second = os.path.join(root, "a", "1.mkv"), os.path.join(root, "b", "2.mkv")
     real = os.link
+    # Il link si crea dentro la cartella aperta (dst_dir_fd): t è il solo nome.
     monkeypatch.setattr(os, "link", lambda s, t, **kw: (_ for _ in ()).throw(OSError("full"))
-                        if t == second else real(s, t, **kw))
+                        if os.path.basename(t) == "2.mkv" else real(s, t, **kw))
     with pytest.raises(OSError):
         hardlinks.create_links([(source, first), (source, second)])
     assert not os.path.lexists(first) and os.path.isfile(source)
@@ -135,3 +136,140 @@ def test_under_an_acl_managed_folder_the_mode_is_left_to_the_acl(tmp_path, stric
     monkeypatch.undo()
     assert chmods == []
     assert os.stat(acl_root / "Movie.2020.1080p").st_mode & 0o700 == 0o700
+
+
+# --- link simbolici sulla destinazione (audit 2026-10-18) ----------------------
+
+
+def test_a_symlink_at_the_destination_is_never_followed(area):
+    """resolve_scoped risolve il percorso, e il controllo guardava quello già
+    risolto: un link simbolico rotto al posto della destinazione faceva
+    nascere l'hardlink dove puntava, uno verso un hardlink già lì passava
+    per un cross-seed da riusare."""
+    tmp_path, source, root = area
+    os.makedirs(os.path.join(root, "other"))
+    dangling = os.path.join(root, "Movie.mkv")
+    os.symlink(os.path.join(root, "other", "elsewhere.mkv"), dangling)
+    with pytest.raises(hardlinks.LinkProblem) as problem:
+        hardlinks.check_link(source, dangling, root)
+    assert problem.value.code == "target_exists"
+
+    existing = os.path.join(root, "other", "Movie.mkv")
+    os.link(source, existing)
+    same_inode = os.path.join(root, "Same.mkv")
+    os.symlink(existing, same_inode)
+    with pytest.raises(hardlinks.LinkProblem) as problem:
+        hardlinks.check_link(source, same_inode, root)
+    assert problem.value.code == "target_exists"  # mai "riusato": il client seederebbe da un link simbolico
+
+    # Uno che punta fuori da root (un link alla libreria, come fa cross-seed)
+    # è sempre un target_exists, non un "fuori scope": è la destinazione a
+    # essere occupata, come dice docs/SPEC.md §3.
+    outside = tmp_path / "library-copy.mkv"
+    outside.write_bytes(b"x")
+    to_library = os.path.join(root, "Linked.mkv")
+    os.symlink(outside, to_library)
+    with pytest.raises(hardlinks.LinkProblem) as problem:
+        hardlinks.check_link(source, to_library, root)
+    assert problem.value.code == "target_exists"
+
+
+def test_a_destination_written_outside_the_root_is_out_of_scope(area):
+    tmp_path, source, root = area
+    with pytest.raises(ScopeViolation):
+        hardlinks.check_link(source, os.path.join(root, "..", "Movie.mkv"), root)
+    assert not os.path.lexists(os.path.join(os.path.dirname(root), "Movie.mkv"))
+
+
+def test_a_symlinked_folder_on_the_way_is_out_of_scope_wherever_it_points(area):
+    tmp_path, source, root = area
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    os.symlink(outside, os.path.join(root, "Escape"))
+    with pytest.raises(ScopeViolation):
+        hardlinks.check_link(source, os.path.join(root, "Escape", "Movie.mkv"), root)
+    os.makedirs(os.path.join(root, "real"))
+    os.symlink(os.path.join(root, "real"), os.path.join(root, "Inside"))
+    with pytest.raises(ScopeViolation):
+        hardlinks.check_link(source, os.path.join(root, "Inside", "Movie.mkv"), root)
+
+
+def test_cross_device_is_refused(area, monkeypatch):
+    tmp_path, source, root = area
+    real_stat = os.stat
+
+    class Other:
+        def __init__(self, st):
+            self._st = st
+
+        def __getattr__(self, name):
+            return getattr(self._st, name)
+
+        st_dev = 12345
+
+    monkeypatch.setattr(os, "stat", lambda p, *a, **kw: Other(real_stat(p, *a, **kw)) if str(p) == source
+                        else real_stat(p, *a, **kw))
+    with pytest.raises(hardlinks.LinkProblem) as problem:
+        hardlinks.check_link(source, os.path.join(root, "Movie.mkv"), root)
+    assert problem.value.code == "cross_device"
+
+
+def test_a_folder_swapped_for_a_symlink_after_the_check_is_not_followed(area):
+    """Fra check_link e create_links (una commit del DB per l'esecutore) una
+    cartella del percorso poteva diventare un link simbolico, e makedirs e
+    link lo seguivano fuori dalla cartella approvata (audit 2026-10-18)."""
+    tmp_path, source, root = area
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    target = os.path.join(root, "Release.Folder", "Movie.mkv")
+    resolved = hardlinks.check_link(source, target, root)  # la cartella non c'è ancora
+
+    os.symlink(outside, os.path.join(root, "Release.Folder"))
+    with pytest.raises(OSError):
+        hardlinks.create_links([(source, resolved)])
+    assert os.listdir(outside) == []
+
+
+def test_removing_never_goes_through_a_folder_swapped_for_a_symlink(area):
+    tmp_path, source, root = area
+    target = hardlinks.check_link(source, os.path.join(root, "Release", "Movie.mkv"), root)
+    created = hardlinks.create_links([(source, target)])
+    victim_dir = tmp_path / "victim"
+    victim_dir.mkdir()
+    (victim_dir / "Movie.mkv").write_bytes(b"not ours")
+
+    os.rename(os.path.join(root, "Release"), os.path.join(root, "Moved"))
+    os.symlink(victim_dir, os.path.join(root, "Release"))
+    hardlinks.remove_links(created)
+
+    assert (victim_dir / "Movie.mkv").read_bytes() == b"not ours"
+
+
+def test_remove_links_can_prune_the_folders_left_empty(area):
+    tmp_path, source, root = area
+    first = hardlinks.check_link(source, os.path.join(root, "Pack", "Season 1", "e1.mkv"), root)
+    second = hardlinks.check_link(source, os.path.join(root, "Pack", "Other", "e2.mkv"), root)
+    created = hardlinks.create_links([(source, first), (source, second)])
+    with open(os.path.join(root, "Pack", "Other", "keep.nfo"), "w") as f:
+        f.write("x")
+
+    hardlinks.remove_links(created, prune_up_to=os.path.realpath(root))
+
+    assert not os.path.exists(os.path.join(root, "Pack", "Season 1"))
+    assert os.listdir(os.path.join(root, "Pack", "Other")) == ["keep.nfo"]
+    assert os.path.isdir(root) and os.path.isfile(source)
+
+
+def test_a_folder_that_can_only_be_traversed_does_not_stop_the_link(area):
+    """Un NAS con una cartella 0711 sopra i dischi: come con un percorso,
+    basta poterla attraversare (O_PATH / O_SEARCH), non leggerla."""
+    tmp_path, source, root = area
+    os.makedirs(os.path.join(root, "pool", "Movies"))
+    target = hardlinks.check_link(source, os.path.join(root, "pool", "Movies", "New", "Movie.mkv"), root)
+    os.chmod(os.path.join(root, "pool"), 0o311)
+    try:
+        assert hardlinks.create_links([(source, target)]) == [target]
+        hardlinks.remove_links([target])
+    finally:
+        os.chmod(os.path.join(root, "pool"), 0o755)
+    assert not os.path.exists(target)

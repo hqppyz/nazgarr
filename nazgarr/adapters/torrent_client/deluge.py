@@ -46,6 +46,7 @@ from nazgarr.adapters.torrent_client.base import (
     TorrentClientAdapter,
     TorrentStatus,
     local_torrent_bytes,
+    number,
     require_recheck,
     seeders,
     wait_for_hash,
@@ -65,13 +66,6 @@ NOT_AUTHENTICATED = 1  # codice d'errore della Web UI senza sessione
 
 class DelugeError(Exception):
     pass
-
-
-def _number(value, kind):
-    try:
-        return kind(value) if value is not None else None
-    except (TypeError, ValueError):
-        return None
 
 
 class DelugeAdapter(TorrentClientAdapter):
@@ -140,6 +134,9 @@ class DelugeAdapter(TorrentClientAdapter):
 
     def _hashes(self) -> set[str]:
         return set((self._call("core.get_torrents_status", {}, ["hash"]) or {}).keys())
+
+    def count_torrents(self) -> int:
+        return len(self._hashes())  # solo gli hash, senza i file
 
     def add_torrent(
         self, torrent_file_or_url: str, save_path: str, force_recheck: bool = True,
@@ -269,8 +266,8 @@ class DelugeAdapter(TorrentClientAdapter):
                 ClientTorrentFileInfo(path_in_torrent=f.get("path", ""), size_bytes=int(f.get("size") or 0))
                 for f in torrent.get("files") or []
             ],
-            ratio=_number(torrent.get("ratio"), float) if (torrent.get("ratio") or 0) >= 0 else None,
-            seeding_time_seconds=_number(torrent.get("seeding_time"), int),
-            added_on=_number(torrent.get("time_added"), int),
+            ratio=number(torrent.get("ratio"), float) if (torrent.get("ratio") or 0) >= 0 else None,
+            seeding_time_seconds=number(torrent.get("seeding_time"), int),
+            added_on=number(torrent.get("time_added"), int),
             swarm_seeders=seeders(torrent.get("total_seeds")),
         )

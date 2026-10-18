@@ -8,12 +8,19 @@ Una cartella si aggiunge solo se:
 - non coincide con un'altra cartella del disco, non ne contiene una e non
   sta dentro un'altra (una media dentro una di seeding conterebbe due volte
   gli stessi file);
-- non contiene la cartella osservata (da dove le release se ne vanno).
+- non sta dentro la cartella osservata e non coincide con essa (da dove le
+  release se ne vanno); contenerla sì: una sottocartella dedicata (es.
+  torrents/watch) è il caso normale.
+
+Lo stesso vale per la cartella dei nuovi hardlink di un reseed e per quella
+degli upload (validate_target), e al contrario la cartella osservata non
+può contenere nessuna di queste (nazgarr/api/disks.py::_watch_folder).
 
 Togliere una cartella non tocca niente sul disco: i suoi file escono dalla
 libreria alla scansione successiva.
 """
 
+import contextlib
 import os
 import secrets
 
@@ -22,6 +29,7 @@ from sqlalchemy.orm import Session
 from nazgarr.core.errors import CodedError
 from nazgarr.core.fs_scope import ScopeViolation, resolve_scoped
 from nazgarr.core.models import DISK_FOLDER_KINDS, Disk, DiskFolder
+from nazgarr.library import hardlinks
 
 
 class FolderError(CodedError):
@@ -54,10 +62,7 @@ def validate(disk: Disk, kind: str, relative: str) -> str:
             raise FolderError("folder_already_added", path=normalized)
         if _inside_or_same(path, other) or _inside_or_same(other, path):
             raise FolderError("folder_overlaps", path=normalized, other=folder.relative_path, kind=folder.kind)
-    if disk.watch_rel_path:
-        watch = os.path.realpath(os.path.join(root, disk.watch_rel_path))
-        if _inside_or_same(path, watch):
-            raise FolderError("folder_overlaps", path=normalized, other=disk.watch_rel_path, kind="watch")
+    _outside_watch(disk, root, path, normalized)
     return normalized
 
 
@@ -80,7 +85,18 @@ def validate_target(disk: Disk, relative: str) -> str:
     seeding = [os.path.realpath(os.path.join(root, f)) for f in disk.seeding_folders]
     if not any(_inside_or_same(path, folder) for folder in seeding):
         raise FolderError("folder_not_in_seeding", path=normalized)
+    _outside_watch(disk, root, path, normalized)
     return normalized
+
+
+def _outside_watch(disk: Disk, root: str, path: str, normalized: str) -> None:
+    """Mai dentro la cartella osservata, né la stessa (audit 2026-10-18): ogni
+    reseed o upload lì dentro partirebbe come una release, e approvarla
+    toglierebbe i file da cui un torrent seeda."""
+    if disk.watch_rel_path:
+        watch = os.path.realpath(os.path.join(root, disk.watch_rel_path))
+        if _inside_or_same(path, watch):
+            raise FolderError("folder_overlaps", path=normalized, other=disk.watch_rel_path, kind="watch")
 
 
 def add(session: Session, disk: Disk, kind: str, relative: str) -> DiskFolder:
@@ -155,7 +171,10 @@ def _link_test(anchor_relative: str, anchor: str, targets: list[tuple[str, str]]
     stesso st_dev da solo non lo garantisce: un mount di rete o un bind di
     un'altra cartella). Sulla user share di Unraid (/mnt/user, shfs)
     funzionano: shfs crea il link sullo stesso disco fisico del file. File
-    nascosti, tolti subito."""
+    nascosti, tolti subito, e solo quelli creati qui (audit 2026-10-18:
+    prima un link fallito con EEXIST toglieva il file che c'era già, e due
+    cartelle salvate con nomi diversi per la stessa cartella toglievano il
+    file di prova prima del tempo, con un 500)."""
     name = TEST_PREFIX + secrets.token_hex(4)
     source = os.path.join(anchor, name)
     checks = []
@@ -164,11 +183,15 @@ def _link_test(anchor_relative: str, anchor: str, targets: list[tuple[str, str]]
             pass
     except OSError as exc:
         return [_check("link_test_write_failed", "error", folder=anchor_relative, error=exc.strerror or str(exc))]
+    anchor_real = os.path.realpath(anchor)
     try:
         for relative, folder in targets:
-            target = os.path.join(folder, name if folder != anchor else name + "-link")
+            same_folder = os.path.realpath(folder) == anchor_real
+            target = os.path.join(os.path.realpath(folder), name + "-link" if same_folder else name)
+            created: list[str] = []
             try:
-                os.link(source, target, follow_symlinks=False)
+                # Attraverso hardlinks.py come ogni hardlink (mai un link simbolico seguito).
+                created = hardlinks.create_links([(source, target)])
                 same = os.stat(target).st_ino == os.stat(source).st_ino
                 checks.append(_check("hardlink_ok" if same else "hardlink_failed", "ok" if same else "error",
                                      source=anchor_relative, folder=relative,
@@ -177,10 +200,10 @@ def _link_test(anchor_relative: str, anchor: str, targets: list[tuple[str, str]]
                 checks.append(_check("hardlink_failed", "error", source=anchor_relative, folder=relative,
                                      error=exc.strerror or str(exc)))
             finally:
-                if os.path.lexists(target):
-                    os.unlink(target)
+                hardlinks.remove_links(created)
     finally:
-        os.unlink(source)
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(source)
     return checks
 
 
@@ -202,8 +225,11 @@ def test_disk(session: Session, disk: Disk) -> dict:
     usable: list[tuple[str, str]] = []
     for kind, folders in (("seeding", disk.seeding_folders), ("media", disk.media_folders)):
         for relative in folders:
-            path = os.path.join(root, relative)
-            if not os.path.isdir(path):
+            try:
+                path = resolve_scoped(disk.root_path, relative)  # una cartella salvata prima delle regole
+            except ScopeViolation:
+                path = None
+            if path is None or not os.path.isdir(path):
                 checks.append(_check("folder_missing", "error", folder=relative, kind=kind))
             elif os.stat(path).st_dev != root_dev:
                 checks.append(_check("folder_other_filesystem", "error", folder=relative, kind=kind))

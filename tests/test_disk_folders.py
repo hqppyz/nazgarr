@@ -38,7 +38,7 @@ def test_more_media_and_seeding_folders_on_one_disk(db_session, disk):
     ("media", "movies", "folder_already_added"),
     ("seeding", "movies", "folder_overlaps"),          # la stessa cartella come media e come seeding
     ("media", "movies/sub", "folder_overlaps"),       # dentro un'altra
-    ("seeding", "torrents/watch", "folder_overlaps"),  # contiene la cartella osservata
+    ("seeding", "torrents/watch", "folder_overlaps"),  # è la cartella osservata (né dentro, né la stessa)
     ("other", "tv", "folder_kind_invalid"),
 ])
 def test_a_folder_is_refused_when(db_session, disk, kind, path, code):
@@ -183,3 +183,68 @@ def test_a_changed_st_dev_alone_is_only_a_warning_and_is_updated_when_links_work
     assert changed["level"] == "warning" and changed["params"]["updated"] is True
     assert disk.st_dev == os.stat(disk.root_path).st_dev
     assert ("hardlink_ok", "ok") in _codes(result)  # l'unica cartella: un link dentro la stessa
+
+
+def test_reseed_and_upload_folders_never_go_inside_the_watched_folder(db_session, disk):
+    """Prima si controllava solo al momento di scegliere la cartella
+    osservata, mai dopo (audit 2026-10-18): una cartella degli upload dentro
+    quella osservata diventava una release, e approvarla toglieva i file da
+    cui seedavano gli upload precedenti."""
+    os.makedirs(os.path.join(disk.root_path, "torrents", "watch", "out"))
+    disk_folders.add(db_session, disk, "seeding", "torrents")
+    disk.watch_rel_path = "torrents/watch"
+    db_session.commit()
+    for path in ("torrents/watch", "torrents/watch/out"):
+        with pytest.raises(FolderError) as exc:
+            disk_folders.validate_target(disk, path)
+        assert (exc.value.code, exc.value.params["kind"]) == ("folder_overlaps", "watch")
+    assert disk_folders.validate_target(disk, "torrents") == "torrents"  # contenerla va bene
+
+
+def test_the_disk_test_never_removes_a_file_it_did_not_create(db_session, disk, monkeypatch):
+    """Un link fallito con EEXIST toglieva il file che c'era già (audit
+    2026-10-18): si toglie solo quello che la prova ha creato."""
+    disk_folders.add(db_session, disk, "seeding", "torrents")
+    disk_folders.add(db_session, disk, "media", "movies")
+    monkeypatch.setattr(disk_folders.secrets, "token_hex", lambda n: "deadbeef")
+    planted = os.path.join(disk.root_path, "movies", disk_folders.TEST_PREFIX + "deadbeef")
+    with open(planted, "w") as f:
+        f.write("not nazgarr's")
+
+    result = disk_folders.test_disk(db_session, disk)
+
+    assert ("hardlink_failed", "error") in _codes(result)
+    with open(planted) as f:
+        assert f.read() == "not nazgarr's"
+    leftovers = [n for n in os.listdir(os.path.join(disk.root_path, "torrents")) if n.startswith(".nazgarr")]
+    assert leftovers == []
+
+
+def test_the_same_folder_saved_twice_is_tested_without_an_error(db_session, disk):
+    """Due righe vecchie per la stessa cartella ("torrents" e "torrents/",
+    copiate dalla migrazione senza validate): la prova toglieva il proprio
+    file prima del tempo e finiva in un 500."""
+    from nazgarr.core.models import DiskFolder
+
+    disk.folders.extend([DiskFolder(kind="seeding", relative_path="torrents"),
+                         DiskFolder(kind="seeding", relative_path="torrents/")])
+    db_session.commit()
+
+    result = disk_folders.test_disk(db_session, disk)
+
+    assert _codes(result) == [("hardlink_ok", "ok")]
+    assert not [n for n in os.listdir(os.path.join(disk.root_path, "torrents")) if n.startswith(".nazgarr")]
+
+
+def test_a_stored_folder_outside_the_disk_is_reported_not_written(db_session, disk, tmp_path):
+    from nazgarr.core.models import DiskFolder
+
+    (tmp_path / "elsewhere").mkdir()
+    disk.folders.extend([DiskFolder(kind="seeding", relative_path="torrents"),
+                         DiskFolder(kind="media", relative_path="../elsewhere")])
+    db_session.commit()
+
+    result = disk_folders.test_disk(db_session, disk)
+
+    assert ("folder_missing", "error") in _codes(result)
+    assert os.listdir(tmp_path / "elsewhere") == []

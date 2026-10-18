@@ -60,6 +60,9 @@ import time
 import xmlrpc.client
 from collections.abc import Callable
 from urllib.parse import quote, unquote, urlsplit
+from xml.parsers.expat import ExpatError
+
+import httpx
 
 from nazgarr.adapters.torrent_client.base import (
     ClientTorrentFileInfo,
@@ -83,6 +86,11 @@ FIELDS = (
     "d.size_bytes=", "d.completed_bytes=", "d.left_bytes=",
 )
 KEYS = [f[2:-1].replace("timestamp.", "").replace(".", "_") for f in FIELDS]
+FILE_FIELDS = ("f.path=", "f.size_bytes=")
+TRACKER_FIELDS = ("t.url=",)
+# Torrent per richiesta durante l'indicizzazione (due chiamate ciascuno
+# dentro un system.multicall): risposte di qualche centinaio di KB.
+DETAIL_BATCH = 100
 CHECKING = "checking"
 
 
@@ -130,8 +138,6 @@ class RTorrentAdapter(TorrentClientAdapter):
         if http_client is not None:
             self._client = http_client
         else:
-            import httpx
-
             auth = (username, password or "") if username else None
             self._client = httpx.Client(auth=auth, timeout=60.0)
 
@@ -265,17 +271,59 @@ class RTorrentAdapter(TorrentClientAdapter):
         rows = self._rows(info_hash.upper())
         return self._info(rows[0]) if rows else None
 
+    def count_torrents(self) -> int:
+        return len(self._hashes())  # solo gli hash, senza i file
+
     def list_torrents(self, on_progress: Callable[[int, int], None] | None = None) -> list[ClientTorrentInfo]:
         rows = self._rows()
-        result = []
-        for i, row in enumerate(rows):
-            result.append(self._info(row))
+        result: list[ClientTorrentInfo] = []
+        batched = True
+        for start in range(0, len(rows), DETAIL_BATCH):
+            batch = rows[start:start + DETAIL_BATCH]
+            details = self._details(batch) if batched else None
+            if details is None:
+                batched = False  # l'endpoint non accetta le richieste a gruppi: una per torrent, come prima
+                details = [self._detail(row["hash"]) for row in batch]
+            for row, (files, trackers) in zip(batch, details, strict=True):
+                result.append(self._info(row, files, trackers))
             if on_progress is not None:
-                on_progress(i + 1, len(rows))
+                on_progress(len(result), len(rows))
         return result
 
-    def _info(self, row: dict) -> ClientTorrentInfo:
+    def _detail(self, target: str) -> tuple[list, list]:
+        return (self._call("f.multicall", target, "", *FILE_FIELDS) or [],
+                self._call("t.multicall", target, "", *TRACKER_FIELDS) or [])
+
+    def _details(self, rows: list[dict]) -> list[tuple[list, list]] | None:
+        """File e tracker di più torrent in una sola richiesta
+        (system.multicall): prima erano due richieste per torrent, minuti
+        per migliaia di torrent dietro il PHP di ruTorrent (audit
+        2026-10-18). None se l'endpoint rifiuta la richiesta intera: si
+        torna a una per torrent. Un errore su un torrent (uno appena tolto
+        dal client) resta un errore dell'indicizzazione, come prima: mai un
+        elenco parziale, che toglierebbe dall'indice torrent che ci sono."""
+        calls = []
+        for row in rows:
+            calls.append({"methodName": "f.multicall", "params": [row["hash"], "", *FILE_FIELDS]})
+            calls.append({"methodName": "t.multicall", "params": [row["hash"], "", *TRACKER_FIELDS]})
+        try:
+            results = self._call("system.multicall", calls)
+        except (xmlrpc.client.Fault, httpx.HTTPStatusError, ExpatError) as exc:
+            logger.info("rTorrent: system.multicall rifiutato (%s), file e tracker una richiesta per torrent", exc)
+            return None
+        if not isinstance(results, list) or len(results) != len(calls):
+            logger.info("rTorrent: risposta inattesa a system.multicall, file e tracker una richiesta per torrent")
+            return None
+        for row, result in zip((r for r in rows for _ in range(2)), results, strict=True):
+            if isinstance(result, dict):  # {"faultCode", "faultString"}
+                raise xmlrpc.client.Fault(result.get("faultCode", -1),
+                                          f"{row['hash']}: {result.get('faultString', 'fault')}")
+        return [(results[i][0] or [], results[i + 1][0] or []) for i in range(0, len(results), 2)]
+
+    def _info(self, row: dict, files_rows: list | None = None, tracker_rows: list | None = None) -> ClientTorrentInfo:
         target = row["hash"]
+        if files_rows is None or tracker_rows is None:
+            files_rows, tracker_rows = self._detail(target)
         directory = (row["directory"] or "").rstrip("/")
         # d.directory di un torrent multi-file è la sua cartella (save path +
         # nome): la save path è la cartella che la contiene, e i percorsi dei
@@ -286,9 +334,9 @@ class RTorrentAdapter(TorrentClientAdapter):
             save_path, root = directory, ""
         files = [
             ClientTorrentFileInfo(path_in_torrent=f"{root}/{path}" if root else path, size_bytes=int(size or 0))
-            for path, size in self._call("f.multicall", target, "", "f.path=", "f.size_bytes=") or []
+            for path, size in files_rows
         ]
-        trackers = self._call("t.multicall", target, "", "t.url=") or []
+        trackers = tracker_rows
         finished = int(row["finished"] or 0)
         return ClientTorrentInfo(
             info_hash=target.lower(),

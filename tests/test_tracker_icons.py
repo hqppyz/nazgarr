@@ -1,6 +1,7 @@
 import httpx
 
 from nazgarr.torrents import tracker_icons
+from tests.http_helpers import chunked, gzip_bomb, peak_bytes
 
 PNG = b"\x89PNG\r\n\x1a\n" + b"x" * 20
 
@@ -67,3 +68,27 @@ def test_a_huge_icon_is_not_read_to_the_end(tmp_path):
     big = PNG + b"x" * (tracker_icons.MAX_BYTES + 10)
     client = _client({"https://t.example/favicon.ico": (big, "image/png")})
     assert tracker_icons.fetch_icon(str(tmp_path), 5, "https://t.example", client) is None
+
+
+def test_a_gzip_bomb_is_refused_before_it_is_expanded(tmp_path):
+    """iter_bytes di httpx decomprimeva un blocco di rete intero in una volta
+    (audit 2026-10-18): ora la lettura passa da http_limits, a passi. Il
+    corpo arriva a pezzi da 16 KiB, ognuno dei quali si espande a ~16 MB:
+    prima ogni pezzo finiva tutto in memoria prima del conteggio."""
+    bomb = gzip_bomb(64 * 1024 * 1024, prefix=PNG)
+    assert len(bomb) < 100 * 1024
+    stream, sent, total = chunked(bomb, 16 * 1024)
+
+    def handler(request):
+        assert request.headers["Accept-Encoding"] == "gzip, deflate"
+        if request.url.path != "/favicon.ico":
+            return httpx.Response(404)
+        return httpx.Response(200, content=stream(), headers={"content-type": "image/png", "content-encoding": "gzip"})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    got = []
+    peak = peak_bytes(lambda: got.append(tracker_icons.fetch_icon(str(tmp_path), 6, "https://t.example", client)))
+
+    assert got == [None]
+    assert total >= 4 and len(sent) == 1  # fermato al primo pezzo, non a fine corpo
+    assert peak < 8 * 1024 * 1024  # qualche passo da 1 MB, mai un pezzo espanso intero
