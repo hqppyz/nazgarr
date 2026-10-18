@@ -302,7 +302,10 @@ def get_item_detail(content_type: str, tmdb_id: int, session: Session = Depends(
     detail = library_detail.item_detail(session, _content_type_or_404(content_type), tmdb_id)
     if detail is None:
         raise HTTPException(status_code=404, detail=coded_detail("media_item_not_found"))
-    detail["reviews"] = [ReviewResponse.from_model(r) for r in detail["reviews"]]
+    # Una lettura per tutte le review della scheda (ReviewContext), come la
+    # coda: prima ogni review ricostruiva il suo contesto, una quindicina di
+    # query a testa (audit 2026-10-18).
+    detail["reviews"] = ReviewResponse.many(session, detail["reviews"])
     return detail
 
 
