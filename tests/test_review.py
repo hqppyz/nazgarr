@@ -437,3 +437,25 @@ def test_automatic_execution_skips_a_review_decided_meanwhile(db_session, monkey
 
     assert executed == [first.id]
     assert result["executed"] == 1
+
+
+def test_the_users_own_upload_is_never_proposed_as_a_reseed(db_session):
+    # Il flusso degli upload aggiunge il torrent al client senza indicizzarlo
+    # subito: fino alla run dopo, "Cerca ora" trovava l'upload stesso e lo
+    # proponeva (audit 2026-10-18, finding 171).
+    from nazgarr.core.models import UploadJob, UploadTarget
+
+    tracker = _tracker(db_session)
+    item = _media_item(db_session)
+    mf = _media_file_stub(db_session, item)
+    job = UploadJob(disk_id=mf.disk_id, relative_path=mf.relative_path, source_path="/mnt/d/movies/x.mkv",
+                    status="done")
+    db_session.add(job)
+    db_session.commit()
+    db_session.add(UploadTarget(job_id=job.id, tracker_id=tracker.id, status="seeding", torrent_id_remote="77"))
+    db_session.commit()
+
+    assert review.create_review_for_media_file(
+        db_session, mf, [_candidate(db_session, item, tracker, confidence=0.99, remote="77")]) is None
+    assert review.create_review_for_media_file(
+        db_session, mf, [_candidate(db_session, item, tracker, confidence=0.99, remote="78")]) is not None

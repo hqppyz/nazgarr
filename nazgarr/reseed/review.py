@@ -41,6 +41,7 @@ from nazgarr.core.models import (
     SeedJob,
     TorrentClient,
     Tracker,
+    UploadTarget,
 )
 from nazgarr.core.run_progress import NULL_PROGRESS
 from nazgarr.integrations.adapter_factory import build_torrent_client_adapter, close_adapter
@@ -243,6 +244,18 @@ def _torrents_already_in_progress(
     return _busy_for([*active.values(), *running], media_file_id, seed_file_id)
 
 
+def _own_uploads(session: Session) -> tuple[set[tuple[int, str]], set[str]]:
+    """I torrent pubblicati da un upload di Nazgarr: (tracker_id,
+    torrent_id_remote) e info hash. Il flusso degli upload aggiunge il
+    torrent al client senza registrarlo subito fra quelli indicizzati, così
+    fino alla run dopo il file sembrava orfano e "Cerca ora" proponeva di
+    riaggiungere l'upload stesso (audit 2026-10-18)."""
+    rows = session.query(UploadTarget.tracker_id, UploadTarget.torrent_id_remote, UploadTarget.info_hash).filter(
+        (UploadTarget.torrent_id_remote.isnot(None)) | (UploadTarget.info_hash.isnot(None))).all()
+    return ({(tracker_id, remote) for tracker_id, remote, _h in rows if remote is not None},
+            {info_hash.lower() for _t, _r, info_hash in rows if info_hash})
+
+
 class ReviewQueue:
     """La coda vista da un passaggio di matching su un tracker: gli info hash
     nei client e i torrent già occupati, letti una volta sola invece che a
@@ -255,6 +268,7 @@ class ReviewQueue:
     def __init__(self, session: Session, in_client: set[str] | None = None):
         self.in_client = hashes_in_clients(session) if in_client is None else in_client
         self._active, self._running = _busy_rows(session, self.in_client)
+        self.uploaded, self.uploaded_hashes = _own_uploads(session)
 
     def busy_for(self, media_file_id: int | None, seed_file_id: int | None) -> set[tuple[int, str]]:
         return _busy_for([*self._active.values(), *self._running], media_file_id, seed_file_id)
@@ -319,15 +333,19 @@ def _create_review(
     if queue is not None:
         in_client = queue.in_client
         busy = queue.busy_for(media_file_id, seed_file_id)
+        uploaded, uploaded_hashes = queue.uploaded, queue.uploaded_hashes
     else:
         in_client = hashes_in_clients(session) if in_client is None else in_client
         busy = _torrents_already_in_progress(
             session, media_file_id=media_file_id, seed_file_id=seed_file_id, in_client=in_client)
+        uploaded, uploaded_hashes = _own_uploads(session)
     # Un torrent già in un client (con un'altra copia dei file) non si può
-    # aggiungere di nuovo: il client lo rifiuterebbe come duplicato.
+    # aggiungere di nuovo: il client lo rifiuterebbe come duplicato. Né uno
+    # caricato da Nazgarr: è già in seed dall'upload.
     plausible = [
         c for c in plausible
-        if (c.tracker_id, c.torrent_id_remote) not in rejected | busy and (c.info_hash or "").lower() not in in_client
+        if (c.tracker_id, c.torrent_id_remote) not in rejected | busy | uploaded
+        and (c.info_hash or "").lower() not in in_client | uploaded_hashes
     ]
     if not plausible:
         return None  # la proposta in coda, se c'è, resta
