@@ -47,7 +47,6 @@ def test_an_oversized_or_interrupted_download_leaves_no_poster_behind(tmp_path, 
     import pytest
 
     from nazgarr.library import poster_cache
-
     from tests.http_helpers import chunked
 
     monkeypatch.setattr(poster_cache, "MAX_POSTER_BYTES", 100)
