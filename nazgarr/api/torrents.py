@@ -4,12 +4,13 @@ la rimozione di un torrent dal client con i suoi file (decisione dell'utente,
 2026-10-03): solo su conferma esplicita, solo se il requisito di seed è
 soddisfatto e nessun altro torrent usa quei file."""
 
+import functools
 import logging
 import os
 from datetime import datetime
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session, joinedload
 
@@ -30,6 +31,7 @@ from nazgarr.library.detail import _host, _quality
 from nazgarr.reseed import pipeline
 from nazgarr.torrents import seed_requirements
 from nazgarr.torrents.tracker_scope import torrent_host
+from nazgarr.web import response_cache
 from nazgarr.web.deps import get_session
 
 router = APIRouter(prefix="/api/torrents", tags=["torrents"])
@@ -184,8 +186,22 @@ class NotImportedResponse(BaseModel):
     torrents: list[NotImportedItem]
 
 
+# La qualità dal nome del file (guessit, qualche ms a nome): la stessa per
+# lo stesso nome, e con migliaia di righe era quasi tutto il tempo della
+# vista, a ogni richiesta (audit 2026-10-18: 1500 righe, 14 s).
+_quality_of = functools.lru_cache(maxsize=16384)(_quality)
+
+
 @router.get("/not-imported", response_model=NotImportedResponse)
-def list_not_imported(session: Session = Depends(get_session)):
+def get_not_imported(request: Request, session: Session = Depends(get_session)):
+    """In cache finché i dati non cambiano (nazgarr/web/response_cache.py), come
+    le altre viste della libreria: 304 se il browser ha già quella versione."""
+    return response_cache.cached_json(
+        request, session, "not-imported", lambda: list_not_imported(session).model_dump(mode="json"),
+    )
+
+
+def list_not_imported(session: Session) -> NotImportedResponse:
     # Torrent e file sostitutivo caricati con le righe, non uno per riga.
     rows = session.query(NotImportedTorrent).options(
         joinedload(NotImportedTorrent.client_torrent), joinedload(NotImportedTorrent.replaced_by),
@@ -217,10 +233,10 @@ def list_not_imported(session: Session = Depends(get_session)):
             tracker=_host(ct.tracker_url), category=row.category, detail=row.detail, matched_by=row.matched_by,
             content_type=row.content_type, tmdb_id=row.tmdb_id, title=title, year=year,
             season_number=row.season_number, episode_number=row.episode_number,
-            quality=_quality(os.path.basename(row.main_path)) if row.main_path else None,
+            quality=_quality_of(os.path.basename(row.main_path)) if row.main_path else None,
             replaced_by=ReplacedBy(
                 relative_path=replaced.relative_path, size_bytes=replaced.size_bytes,
-                quality=_quality(os.path.basename(replaced.relative_path)),
+                quality=_quality_of(os.path.basename(replaced.relative_path)),
             ) if replaced else None,
             total_bytes=row.total_bytes, video_bytes=row.video_bytes, file_count=row.file_count,
             ratio=ct.ratio, seeding_time_seconds=ct.seeding_time_seconds, added_at=ct.added_at, state=ct.state,
@@ -254,7 +270,7 @@ def refresh_not_imported(session: Session = Depends(get_session)):
         logger.warning("Radarr/Sonarr non raggiungibili, ricalcolo senza history", exc_info=True)
         arr_index = None
     not_imported.classify_not_imported(session, arr_index if arr_index is not None and len(arr_index) else None)
-    return list_not_imported(session=session)
+    return list_not_imported(session)
 
 
 # Avvisi che impediscono la rimozione: i file servono ad altri torrent, o il
@@ -309,5 +325,5 @@ def remove_not_imported(client_torrent_id: int, body: RemoveRequest, session: Se
         synchronize_session=False)
     session.delete(ct)
     session.commit()
-    return list_not_imported(session=session)
+    return list_not_imported(session)
 

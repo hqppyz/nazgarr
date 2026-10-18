@@ -115,6 +115,13 @@ export function useNotImported() {
   })
 }
 
+// Dopo una rimozione cambiano le altre viste della libreria, non questa: la
+// risposta è già la lista nuova. Ricaricarla la faceva ricalcolare una
+// seconda volta al server (audit 2026-10-18).
+export function isOtherLibraryQuery(query: { queryKey: readonly unknown[] }) {
+  return query.queryKey[1] !== 'not-imported'
+}
+
 // Toglie il torrent dal client e ne cancella i file: solo dopo la conferma
 // nella finestra (RemoveTorrentDialog), il server ricontrolla tutto.
 export function useRemoveNotImported() {
@@ -129,7 +136,7 @@ export function useRemoveNotImported() {
       ),
     onSuccess: (data) => {
       queryClient.setQueryData(['library', 'not-imported'], data)
-      queryClient.invalidateQueries({ queryKey: ['library'] })
+      queryClient.invalidateQueries({ queryKey: ['library'], predicate: isOtherLibraryQuery })
       queryClient.invalidateQueries({ queryKey: ['dashboard'] })
     },
   })

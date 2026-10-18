@@ -156,6 +156,48 @@ def test_api_says_whether_the_tracker_seeding_requirement_is_met(db_session, tmp
     assert body["h-random"].status == "unknown_tracker"
 
 
+def test_the_view_is_cached_until_the_data_change_and_names_are_parsed_once(db_session, tmp_path, monkeypatch):
+    """Audit 2026-10-18: guessit su ogni riga a ogni richiesta, 14 s con 1500
+    righe. Ora la vista passa dalla cache delle viste (ETag, 304) e la
+    qualità di un nome si calcola una volta sola."""
+    import json
+    from datetime import UTC, datetime
+
+    from starlette.requests import Request
+
+    from nazgarr.api import torrents as torrents_api
+    from nazgarr.core.models import RunLog, Tracker
+    from nazgarr.library import detail
+    from nazgarr.web import response_cache
+
+    def get(etag=None):
+        headers = [(b"if-none-match", etag.encode())] if etag else []
+        return torrents_api.get_not_imported(Request({"type": "http", "headers": headers}), db_session)
+
+    index = _setup(db_session, tmp_path)
+    not_imported.classify_not_imported(db_session, index)
+    for run in db_session.query(RunLog).filter(RunLog.finished_at.is_(None)):
+        run.finished_at = datetime.now(UTC)  # durante una run la versione è una finestra di 15 s
+    db_session.commit()
+    response_cache.clear()
+    torrents_api._quality_of.cache_clear()
+    names = []
+    real = detail.guess_name
+    monkeypatch.setattr(detail, "guess_name", lambda name: names.append(name) or real(name))
+
+    first = get()
+    same = get(first.headers["etag"])
+    tracker = Tracker(label="T", adapter_type="unit3d", base_url="https://t.example", api_token="x",
+                      min_ratio=1.0, seed_rule="all")
+    db_session.add(tracker)
+    db_session.commit()  # il requisito di seed di un tracker cambia la vista
+    changed = get(first.headers["etag"])
+
+    assert first.status_code == 200 and same.status_code == 304 and changed.status_code == 200
+    assert len(names) == len(set(names))  # la seconda volta, dalla memoria
+    assert json.loads(changed.body)["torrents"] and json.loads(first.body)["summary"]["superseded"]["count"] == 2
+
+
 def test_api_warns_about_what_seed_time_and_ratio_do_not_say(db_session, tmp_path):
     from nazgarr.api.torrents import list_not_imported, removal_warnings
     from nazgarr.core.models import ClientTorrentFile
