@@ -2070,7 +2070,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Logs */
+        /**
+         * Logs
+         * @description Le ultime voci del log per la tab Logs, che le chiede ogni 10 s: dalla
+         *     fine del file, senza rileggerlo e analizzarlo tutto (audit 2026-10-18).
+         */
         get: operations["logs_api_system_logs_get"];
         put?: never;
         post?: never;
