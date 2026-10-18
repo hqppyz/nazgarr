@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from nazgarr.core.models import Disk, FileChange, NotImportedTorrent, RunLog, TrackerHealthSnapshot
@@ -105,18 +105,18 @@ class ChangesResponse(BaseModel):
     changes: list[FileChangeItem]  # al massimo `limit`, i conteggi valgono per tutti
 
 
-def _kind(change: FileChange) -> str:
-    if change.change == "added":
-        return f"new_{change.side}"
-    if change.change == "removed":
-        return f"removed_{change.side}"
-    if change.change in ("stopped", "resumed"):
-        return change.change
-    if change.state == "seeding":
+def _kind(change: str, side: str, state: str | None) -> str:
+    if change == "added":
+        return f"new_{side}"
+    if change == "removed":
+        return f"removed_{side}"
+    if change in ("stopped", "resumed"):
+        return change
+    if state == "seeding":
         return "now_seeding"
-    if (change.state or "").startswith("orphan"):
+    if (state or "").startswith("orphan"):
         return "now_orphaned"
-    if change.state == "ignored":
+    if state == "ignored":
         return "now_ignored"
     return "state_changed"
 
@@ -235,23 +235,40 @@ def get_changes(limit: int = 1000, session: Session = Depends(get_session)):
             baseline_only=latest is not None, health_delta=None, total=0, counts={}, changes=[],
         )
     current, previous = snapshots
-    rows = session.query(FileChange).filter_by(run_id=current.id).order_by(FileChange.id).all()
+    # Conteggi in SQL e solo le righe mostrate (audit 2026-10-18): dopo un
+    # disco aggiunto o un client spento i cambiamenti sono decine di migliaia,
+    # e la dashboard li chiede ogni minuto.
     counts: dict[str, int] = {}
-    items = []
-    for row in rows:
-        kind = _kind(row)
-        counts[kind] = counts.get(kind, 0) + 1
-        if len(items) < max(1, min(limit, 5000)):
-            items.append(FileChangeItem(
-                side=row.side, kind=kind, disk_id=row.disk_id, relative_path=row.relative_path,
-                size_bytes=row.size_bytes, state=row.state, previous_state=row.previous_state,
-                content_type=row.content_type, tmdb_id=row.tmdb_id, origin=row.origin,
-            ))
+    for change, side, state, count in (
+        session.query(FileChange.change, FileChange.side, FileChange.state, func.count(FileChange.id))
+        .filter(FileChange.run_id == current.id)
+        .group_by(FileChange.change, FileChange.side, FileChange.state)
+    ):
+        kind = _kind(change, side, state)
+        counts[kind] = counts.get(kind, 0) + count
+    rows = (
+        session.query(
+            FileChange.change, FileChange.side, FileChange.disk_id, FileChange.relative_path, FileChange.size_bytes,
+            FileChange.state, FileChange.previous_state, FileChange.content_type, FileChange.tmdb_id,
+            FileChange.origin,
+        )
+        .filter(FileChange.run_id == current.id)
+        .order_by(FileChange.id)
+        .limit(max(1, min(limit, 5000)))
+    )
+    items = [
+        FileChangeItem(
+            side=row.side, kind=_kind(row.change, row.side, row.state), disk_id=row.disk_id,
+            relative_path=row.relative_path, size_bytes=row.size_bytes, state=row.state,
+            previous_state=row.previous_state, content_type=row.content_type, tmdb_id=row.tmdb_id, origin=row.origin,
+        )
+        for row in rows
+    ]
     delta = (
         current.health_snapshot - previous.health_snapshot
         if current.health_snapshot is not None and previous.health_snapshot is not None else None
     )
     return ChangesResponse(
         run_id=current.id, since=previous.finished_at, until=current.finished_at, baseline_only=False,
-        health_delta=delta, total=len(rows), counts=counts, changes=items,
+        health_delta=delta, total=sum(counts.values()), counts=counts, changes=items,
     )

@@ -59,3 +59,36 @@ def test_changes_between_two_scans(db_session, tmp_path):
     body = get_changes(session=db_session)
     assert body.counts == {"new_media": 1, "removed_media": 1, "now_seeding": 2, "stopped": 2}
     assert body.baseline_only is False and body.since is not None
+
+
+def test_the_counts_cover_every_change_but_only_the_page_is_loaded(db_session, tmp_path):
+    """Audit 2026-10-18: ogni riga del run diventava un oggetto ORM, ogni
+    minuto, anche dopo un cambio da decine di migliaia di file."""
+    from sqlalchemy import event
+
+    root = tmp_path / "disk"
+    (root / "media").mkdir(parents=True)
+    (root / "torrents").mkdir()
+    disk = Disk(label="d", root_path=str(root), media_rel_path="media", torrents_rel_path="torrents")
+    tc = TorrentClient(label="q", adapter_type="qbittorrent", base_url="http://q")
+    db_session.add_all([disk, tc])
+    db_session.commit()
+    (root / "media" / "Kept.mkv").write_bytes(b"k")
+    _scan(db_session, disk, tc, root, [])
+    for i in range(5):
+        (root / "media" / f"New{i}.mkv").write_bytes(b"n")
+    _scan(db_session, disk, tc, root, [])
+    loaded = []
+
+    def on_load(target, _context):
+        loaded.append(target)
+
+    event.listen(FileChange, "load", on_load)
+    try:
+        body = get_changes(limit=2, session=db_session)
+    finally:
+        event.remove(FileChange, "load", on_load)
+
+    assert body.total == 5 and body.counts == {"new_media": 5}
+    assert [c.relative_path for c in body.changes] == ["media/New0.mkv", "media/New1.mkv"]
+    assert loaded == []
