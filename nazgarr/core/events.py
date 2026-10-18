@@ -70,16 +70,21 @@ def notification_targets(session: Session, name: str) -> list:
 
 def store(
     session: Session, name: str, data: dict, *, only_webhook_id: int | None = None,
-    only_notification_id: int | None = None,
+    only_notification_id: int | None = None, targets: tuple[list, list] | None = None,
 ) -> object | None:
     """Salva l'evento e le sue consegne (senza commit). None se nessuno è
-    iscritto. only_*: una consegna sola a quel destinatario (l'invio di prova)."""
+    iscritto. only_*: una consegna sola a quel destinatario (l'invio di prova).
+    targets: (webhook, servizi di notifica) iscritti, se il chiamante li ha
+    già letti."""
     from nazgarr.core.models import Event, EventDelivery, NotificationService, Webhook
 
     only = only_webhook_id is not None or only_notification_id is not None
     with session.no_autoflush:
-        webhooks = webhook_targets(session, name) if not only else []
-        notifications = notification_targets(session, name) if not only else []
+        if targets is not None and not only:
+            webhooks, notifications = targets
+        else:
+            webhooks = webhook_targets(session, name) if not only else []
+            notifications = notification_targets(session, name) if not only else []
         if only_webhook_id is not None:
             webhook = session.get(Webhook, only_webhook_id)
             webhooks = [webhook] if webhook is not None else []
@@ -173,10 +178,16 @@ def _payload(session: Session, name: str, obj) -> dict:
 
 
 def _after_flush_postexec(session: Session, _flush_context) -> None:
+    """Gli iscritti si leggono una volta per evento in ogni flush, e il
+    payload si costruisce solo se qualcuno è iscritto (audit 2026-10-18:
+    prima due query e il payload per ogni review cambiata, anche le
+    migliaia chiuse in un colpo da close_resolved_reviews senza nessun
+    webhook)."""
     pending = session.info.pop(_PENDING, None)
     if not pending:
         return
     seen = set()
+    targets: dict[str, tuple[list, list]] = {}
     for name, obj in pending:
         key = (name, type(obj).__name__, obj.id)
         if key in seen:
@@ -184,7 +195,11 @@ def _after_flush_postexec(session: Session, _flush_context) -> None:
         seen.add(key)
         try:
             with session.no_autoflush:
-                store(session, name, _payload(session, name, obj))
+                if name not in targets:
+                    targets[name] = (webhook_targets(session, name), notification_targets(session, name))
+                if not any(targets[name]):
+                    continue
+                store(session, name, _payload(session, name, obj), targets=targets[name])
         except Exception:  # mai rompere il commit di chi ha causato l'evento
             logger.exception("Evento %s non salvato", name)
 
