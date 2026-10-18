@@ -87,7 +87,11 @@ def test_a_downgrade_to_http_needs_the_secrets_again(client):
                                                  "rss_key": "rss"}).json()
     downgraded = client.patch(f"/api/trackers/{created['id']}", json={"base_url": "http://t.example"})
     assert downgraded.status_code == 400
-    assert downgraded.json()["detail"]["code"] == "secret_required_for_new_host"
+    # Un codice suo: "punta a un altro host" non era vero.
+    assert downgraded.json()["detail"] == {"code": "secret_required_for_insecure_scheme",
+                                           "params": {"fields": "api_token"}}
+    moved = client.patch(f"/api/trackers/{created['id']}", json={"base_url": "https://other.example"})
+    assert moved.json()["detail"]["code"] == "secret_required_for_new_host"
     ok = client.patch(f"/api/trackers/{created['id']}", json={"base_url": "http://t.example", "api_token": "tok"})
     assert ok.status_code == 200 and ok.json()["has_rss_key"] is False  # non gliela si manda in chiaro
 

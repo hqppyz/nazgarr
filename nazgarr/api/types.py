@@ -65,15 +65,23 @@ def _destination(url: str | None) -> tuple[str, str]:
     return parts.scheme.lower(), parts.netloc.lower()
 
 
+def _change(old_url: str | None, new_url: str | None) -> str | None:
+    """"host" se l'host è un altro, "insecure" se è lo stesso passato da https
+    a http, None se no (o se l'indirizzo non cambia)."""
+    if new_url is None:
+        return None
+    old_scheme, old_netloc = _destination(old_url)
+    new_scheme, new_netloc = _destination(new_url)
+    if new_netloc != old_netloc:
+        return "host"
+    return "insecure" if old_scheme == "https" and new_scheme == "http" else None
+
+
 def host_changed(old_url: str | None, new_url: str | None) -> bool:
     """Un altro host, o lo stesso passato da https a http: in tutti e due i
     casi i segreti salvati arriverebbero a chi prima non li vedeva (nel
     secondo in chiaro, a chiunque sia sulla strada; audit 2026-10-18)."""
-    if new_url is None:
-        return False
-    old_scheme, old_netloc = _destination(old_url)
-    new_scheme, new_netloc = _destination(new_url)
-    return new_netloc != old_netloc or (old_scheme == "https" and new_scheme == "http")
+    return _change(old_url, new_url) is not None
 
 
 def require_secrets_for_new_host(old_url: str | None, new_url: str | None, missing: list[str]) -> None:
@@ -82,11 +90,14 @@ def require_secrets_for_new_host(old_url: str | None, new_url: str | None, missi
     API key di scrittura) punterebbe un tracker a un proprio server e si
     farebbe mandare il token alla prima ricerca. Se l'host cambia (o passa da
     https a http), i segreti salvati (missing: quelli non reinseriti) vanno
-    reinseriti nella stessa richiesta."""
+    reinseriti nella stessa richiesta. Per il passaggio a http un codice a
+    parte: il messaggio dell'altro parla di un nuovo host."""
     from fastapi import HTTPException
 
     from nazgarr.core.errors import coded_detail
 
-    if not host_changed(old_url, new_url) or not missing:
+    change = _change(old_url, new_url)
+    if change is None or not missing:
         return
-    raise HTTPException(status_code=400, detail=coded_detail("secret_required_for_new_host", fields=", ".join(missing)))
+    code = "secret_required_for_new_host" if change == "host" else "secret_required_for_insecure_scheme"
+    raise HTTPException(status_code=400, detail=coded_detail(code, fields=", ".join(missing)))
