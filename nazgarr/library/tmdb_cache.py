@@ -26,7 +26,6 @@ from nazgarr.core.db_utils import bulk_upsert
 from nazgarr.core.models import TmdbSearchCache
 from nazgarr.library.tmdb_client import TMDBSearchClient, year_of
 
-
 # Quanto si ricorda che una ricerca non ha trovato niente: un giorno, così un
 # titolo aggiunto a TMDB si trova al più tardi la scansione del giorno dopo.
 MISS_TTL_SECONDS = 24 * 3600
