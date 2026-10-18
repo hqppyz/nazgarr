@@ -230,7 +230,12 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        /** Delete Disk */
+        /**
+         * Delete Disk
+         * @description Toglie il disco e, a cascata, quello che Nazgarr sa dei suoi file
+         *     (docs/schema.sql); sul disco non cambia niente. Rifiutato (409) mentre
+         *     un reseed o un upload lavora sui suoi file.
+         */
         delete: operations["delete_disk_api_disks__disk_id__delete"];
         options?: never;
         head?: never;
@@ -588,10 +593,13 @@ export interface paths {
         put?: never;
         /**
          * Test Torrent Client
-         * @description Sola lettura: chiama adapter.list_torrents() e riporta successo/errore,
-         *     senza bisogno di dischi configurati né di passare da uno scan completo —
-         *     utile per verificare le credenziali subito dopo aver creato/modificato
-         *     un client (docs/SPEC.md sezione 5).
+         * @description Sola lettura: conta i torrent del client (adapter.count_torrents) e
+         *     riporta successo/errore, senza bisogno di dischi configurati né di
+         *     passare da uno scan completo — utile per verificare le credenziali
+         *     subito dopo aver creato/modificato un client (docs/SPEC.md sezione 5).
+         *     Prima chiedeva l'elenco completo coi file di ogni torrent solo per
+         *     contarli: con migliaia di torrent il proxy davanti scadeva (audit
+         *     2026-10-18).
          */
         post: operations["test_torrent_client_api_torrent_clients__torrent_client_id__test_post"];
         delete?: never;
