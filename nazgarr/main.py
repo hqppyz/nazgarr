@@ -110,8 +110,10 @@ app = FastAPI(title="Nazgarr", lifespan=lifespan, docs_url=None, redoc_url=None)
 # /api/auth/* è l'unico router mai protetto da require_auth (altrimenti
 # nessuno potrebbe mai autenticarsi la prima volta) — vedi nazgarr/api/auth.py.
 # Le viste della libreria restituiscono JSON da diversi MB (decine di
-# migliaia di file): compressi in gzip pesano una frazione in rete.
-app.add_middleware(GZipMiddleware, minimum_size=1024)
+# migliaia di file): compressi in gzip pesano una frazione in rete. Livello 6,
+# non il 9 di Starlette: su 3,7 MB 15 ms invece di 54, per un file appena più
+# grande (audit 2026-10-18).
+app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=6)
 app.add_middleware(SecurityMiddleware)
 # Per ultimo, quindi il più esterno: un corpo troppo grande si ferma prima di
 # qualunque altra cosa, login compreso (nazgarr/web/body_limit.py).

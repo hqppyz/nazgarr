@@ -277,3 +277,46 @@ def test_the_torrent_it_was_imported_from_counts_as_seeding_right_away(db_sessio
     from nazgarr.integrations import arr_webhooks as hooks
     assert hooks._register_download(db_session, {"downloadId": info_hash.upper()}) is None
     assert asked == [info_hash]
+
+
+def _hook(client):
+    created = client.post("/api/radarr-instances", json={
+        "label": "r", "base_url": "http://radarr:7878", "api_key": "k"}).json()
+    return client.post(f"/api/radarr-instances/{created['id']}/webhook").json()
+
+
+def test_a_webhook_waiting_for_the_database_does_not_stop_the_other_requests(client):
+    # Prima le query giravano sul loop: un commit che aspettava il lock di
+    # SQLite (una scansione che scrive) fermava ogni richiesta (audit 2026-10-18).
+    import sqlite3
+    import threading
+    import time
+
+    setup = _hook(client)
+    writer = sqlite3.connect(client.scan_root.parent / "data" / "nazgarr.db", check_same_thread=False)
+    writer.execute("BEGIN IMMEDIATE")  # il lock di scrittura, come una scansione a metà commit
+    results = []
+    hook = threading.Thread(target=lambda: results.append(client.post(
+        setup["path"], json={"eventType": "Test"}, headers=_basic(setup["token"]))))
+    hook.start()
+    try:
+        time.sleep(0.5)  # il webhook ora aspetta il lock
+        started = time.monotonic()
+        assert client.get("/api/health", headers={"Authorization": ""}).status_code == 200
+        assert time.monotonic() - started < 2
+        assert results == []  # ancora in attesa: il test ha misurato davvero il caso
+    finally:
+        writer.rollback()
+        writer.close()
+        hook.join(timeout=30)
+    assert results[0].json() == {"status": "accepted"}
+
+
+def test_an_oversized_event_is_refused_before_it_is_read(client):
+    from nazgarr.api.arr_hooks import MAX_BODY
+
+    setup = _hook(client)
+    big = json.dumps({"eventType": "Test", "x": "a" * MAX_BODY})
+    assert client.post(setup["path"], content=big, headers=_basic(setup["token"])).status_code == 413
+    assert client.post(setup["path"], content=b"not json", headers=_basic(setup["token"])).status_code == 400
+    assert client.post(setup["path"], content=b"[1]", headers=_basic(setup["token"])).status_code == 400
