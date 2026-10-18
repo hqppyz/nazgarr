@@ -67,11 +67,14 @@ from nazgarr.torrents.layout import (
     Layout,
     LayoutEvaluation,
     LocalFiles,
+    catalog_names_safe,
     evaluate,
     layout_from_catalog,
     layout_from_torrent,
     map_media_side,
     map_seed_side,
+    other_episode,
+    seed_root,
 )
 from nazgarr.torrents.metainfo import TorrentInfo, TorrentMetainfoError, compute_info_hash, parse_torrent_info
 
@@ -85,6 +88,8 @@ logger = logging.getLogger(__name__)
 # Motivi per cui un torrent non riguarda proprio il file cercato (es. il
 # pack di un'altra stagione, trovato cercando per tmdb_id della serie):
 # nessuna riga di audit, sarebbe solo rumore moltiplicato per ogni episodio.
+# Il singolo di un altro episodio e, lato torrent, un torrent senza l'anchor
+# si scartano già prima di valutarli (_unrelated).
 _UNRELATED_REASONS = {"anchor_not_in_torrent"}
 
 
@@ -108,6 +113,7 @@ class MatchContext:
     piece_checks: dict = field(default_factory=dict)
     _torrents: dict[str, TorrentInfo | None] = field(default_factory=dict)
     _info_hashes: dict[str, str] = field(default_factory=dict)
+    _episode_mappings: dict = field(default_factory=dict)
 
     _in_client: set[str] | None = None
 
@@ -131,6 +137,15 @@ class MatchContext:
 
             self.translator = Translator(self.session)
         return self.translator
+
+    def translate_episodes(self, tmdb_id: int, torrent: frozenset, library: set) -> dict:
+        """Translator.mapping, una volta per serie ed episodi del torrent: i
+        singoli di un'altra serie di episodi si ripresentano per ogni episodio
+        cercato (layout.other_episode)."""
+        key = (tmdb_id, torrent)
+        if key not in self._episode_mappings:
+            self._episode_mappings[key] = self.episode_translator().mapping(tmdb_id, set(torrent), library)
+        return self._episode_mappings[key]
 
     def fetch_torrent(self, url: str | None) -> TorrentInfo | None:
         """Scarica e analizza un .torrent tramite l'adapter (rate limit del
@@ -158,6 +173,20 @@ def _map(ctx: MatchContext, layout: Layout, anchor: MediaFile | SeedFile):
     if ctx.direction == "media_to_torrent":
         return map_media_side(layout, anchor, ctx.local_files(), ctx.arr_index, ctx.episode_translator())
     return map_seed_side(layout, anchor, ctx.local_files())
+
+
+def _unrelated(ctx: MatchContext, layout: Layout, anchor: MediaFile | SeedFile) -> bool:
+    """Un torrent del catalogo che non riguarda il file cercato, prima di
+    valutarlo: lato libreria il singolo di un altro episodio della serie,
+    lato torrent un torrent in cui l'anchor non c'è (un altro torrent dello
+    stesso contenuto). Né l'uno né l'altro diventa una riga di audit, come
+    il pack di un'altra stagione (audit 2026-10-18: erano righe a confidence
+    0 per ogni episodio cercato, rifatte a ogni nuova ricerca; e un pack
+    senza l'anchor finiva in evaluated_packs, così il seed_file che ne fa
+    parte lo saltava per tutta la run)."""
+    if ctx.direction == "media_to_torrent":
+        return other_episode(layout, anchor, ctx.local_files(), ctx.translate_episodes)
+    return seed_root(layout, anchor) is None
 
 
 def _evaluate(ctx: MatchContext, layout: Layout, anchor, *, download_link: str | None,
@@ -235,11 +264,17 @@ def match_file(ctx: MatchContext, anchor: MediaFile | SeedFile, media_item_id: i
     for tc in ctx.tracker_adapter.search_by_tmdb(tmdb_id):
         if tc.torrent_id_remote in skip:
             continue
+        if not catalog_names_safe(tc.file_list, tc.folder):
+            logger.warning("Torrent %s del tracker %r con nomi di file non validi: ignorato",
+                           tc.torrent_id_remote, ctx.tracker_row.label)
+            continue
         layout = layout_from_catalog(tc.file_list, tc.file_sizes, tc.folder, tc.size_bytes, tc.name)
         multi_video = len(layout.videos) > 1
         if multi_video and tc.torrent_id_remote in ctx.evaluated_packs:
             continue  # già valutato in questa run per un altro episodio dello stesso pack
         if torrent_format(len(layout.videos)) not in formats:
+            continue
+        if _unrelated(ctx, layout, anchor):
             continue
         evaluation = _evaluate(
             ctx, layout, anchor, download_link=tc.download_link,
