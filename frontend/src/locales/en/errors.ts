@@ -40,8 +40,12 @@ export const errors = {
   'errors.seed_job_not_found': 'SeedJob {id} not found.',
 
   'errors.tracker_not_found': 'Tracker {id} not found.',
+  'errors.tracker_busy': '{label} has an execution or an upload in progress: wait for it to finish, or cancel the upload, then delete it',
+  'errors.tracker_in_use': '{label} is still referenced by other data and cannot be deleted: disable it instead',
   'errors.secret_required_for_new_host':
     'The address points to another host: enter {fields} again, so they are never sent to a new server by mistake',
+  'errors.secret_required_for_insecure_scheme': 'The address moves from https:// to http://: enter {fields} again, so they are never sent in clear by mistake',
+  'errors.request_too_large': 'The request is too large: at most {limit} bytes',
   'errors.setting_safety_for_api_key': 'API keys cannot change the safety settings: log in to change them',
   'errors.setting_invalid_value': '{key}: value not valid for this setting.',
   'errors.setting_protected': 'This setting is managed from its own page',
@@ -75,6 +79,7 @@ export const errors = {
   'errors.tracker_adapter_type_unsupported': 'Unsupported adapter_type: {adapter_type} (supported: {supported})',
   'errors.tracker_no_upload_profile': 'Tracker {tracker} has no upload profile.',
   'errors.tracker_upload_profile_conflict': 'Tracker {id} already has an upload profile.',
+  'errors.upload_invalid_naming_rules': 'Naming rules not valid: {field} does not have the expected form',
   'errors.tracker_missing_announce_url': "Tracker '{tracker}' has no announce_url configured.",
 
   'errors.torrent_client_not_found': 'Torrent client {id} not found.',
@@ -174,6 +179,7 @@ export const errors = {
   'errors.instance_incompatible': '{label} runs {version}, not compatible with this instance ({local}).',
   'errors.instance_unreachable': '{label} is not reachable: {error}',
   'errors.instance_response_too_large': 'The answer from {label} is too large.',
+  'errors.instance_bad_key': '{label} refused its API key (revoked, or changed there): create a new one on {label}, then update it in Settings › System › Instances',
   'errors.client_cannot_see_path': 'The client cannot see {path}: it sees only {folder} (as {client_root}). Pick a folder inside it, or change the client mapping.',
   'errors.client_mapping_needs_client_root': 'Also set how the client sees that folder.',
   'errors.client_root_not_absolute': 'How the client sees the folder must be an absolute path, e.g. /downloads (not {path})',

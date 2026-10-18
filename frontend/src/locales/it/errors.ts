@@ -40,8 +40,12 @@ export const errors = {
   'errors.seed_job_not_found': 'SeedJob {id} non trovato.',
 
   'errors.tracker_not_found': 'Tracker {id} non trovato.',
+  'errors.tracker_busy': '{label} ha un’esecuzione o un upload in corso: aspetta che finisca, o annulla l’upload, poi eliminalo',
+  'errors.tracker_in_use': '{label} è ancora usato da altri dati e non si può eliminare: disattivalo invece',
   'errors.secret_required_for_new_host':
     'L’indirizzo punta a un altro host: inserisci di nuovo {fields}, così non vengono mai inviati per errore a un nuovo server',
+  'errors.secret_required_for_insecure_scheme': 'L’indirizzo passa da https:// a http://: inserisci di nuovo {fields}, così non vengono mai inviati in chiaro per errore',
+  'errors.request_too_large': 'La richiesta è troppo grande: al massimo {limit} byte',
   'errors.setting_safety_for_api_key': 'Le API key non possono cambiare le impostazioni di sicurezza: accedi per cambiarle',
   'errors.setting_invalid_value': '{key}: valore non valido per questa impostazione.',
   'errors.setting_protected': 'Questa impostazione si gestisce dalla sua pagina',
@@ -75,6 +79,7 @@ export const errors = {
   'errors.tracker_adapter_type_unsupported': 'adapter_type non supportato: {adapter_type} (supportati: {supported})',
   'errors.tracker_no_upload_profile': 'Il tracker {tracker} non ha un profilo di upload.',
   'errors.tracker_upload_profile_conflict': 'Il tracker {id} ha già un profilo di upload.',
+  'errors.upload_invalid_naming_rules': 'Regole di naming non valide: {field} non ha la forma attesa',
   'errors.tracker_missing_announce_url': "Il tracker '{tracker}' non ha un announce_url configurato.",
 
   'errors.torrent_client_not_found': 'Client torrent {id} non trovato.',
@@ -174,6 +179,7 @@ export const errors = {
   'errors.instance_incompatible': '{label} ha la {version}, non compatibile con questa istanza ({local}).',
   'errors.instance_unreachable': '{label} non è raggiungibile: {error}',
   'errors.instance_response_too_large': 'La risposta di {label} è troppo grande.',
+  'errors.instance_bad_key': '{label} ha rifiutato la sua API key (revocata, o cambiata lì): creane una nuova su {label}, poi aggiornala in Impostazioni › Sistema › Istanze',
   'errors.client_cannot_see_path': "Il client non vede {path}: vede solo {folder} (come {client_root}). Scegli una cartella dentro quella, o cambia la corrispondenza del client.",
   'errors.client_mapping_needs_client_root': 'Indica anche come il client vede quella cartella.',
   'errors.client_root_not_absolute': 'Come il client vede la cartella dev’essere un percorso assoluto, es. /downloads (non {path})',
