@@ -91,8 +91,8 @@ def _counts(engine) -> dict[str, int]:
 
 
 def _structure(engine) -> dict[str, tuple]:
-    """Colonne e indici di ogni tabella: quello che un aggiornamento e
-    un'installazione nuova devono avere uguale."""
+    """Colonne, foreign key (con l'azione ON DELETE) e indici di ogni tabella:
+    quello che un aggiornamento e un'installazione nuova devono avere uguale."""
     with engine.connect() as conn:
         def rows(pragma, table):
             return conn.execute(text(f'PRAGMA {pragma}("{table}")')).all()
@@ -100,6 +100,7 @@ def _structure(engine) -> dict[str, tuple]:
         return {
             t: (
                 {r[1] for r in rows("table_info", t)},
+                {(r[3], r[2], r[4], r[6]) for r in rows("foreign_key_list", t)},
                 {r[1] for r in rows("index_list", t) if not r[1].startswith("sqlite_autoindex")},
             )
             for t in _tables(engine)
@@ -109,7 +110,8 @@ def _structure(engine) -> dict[str, tuple]:
 def test_an_upgrade_from_0_9_0_keeps_every_row_and_ends_like_a_new_database(tmp_path):
     """Un DB creato dalla 0.9.0, con dati: l'aggiornamento non perde righe,
     non lascia riferimenti rotti e arriva alla forma di un DB nuovo (anche
-    gli indici su colonne arrivate dopo, come upload_job.split_from_id)."""
+    gli indici su colonne arrivate dopo, come upload_job.split_from_id, e le
+    azioni ON DELETE del passo 10)."""
     old = _v0_9_0_database(tmp_path)
     before = _counts(old)
 
@@ -167,6 +169,65 @@ def test_a_failed_step_does_not_move_the_version(tmp_path, monkeypatch):
     with pytest.raises(RuntimeError):
         migrations.upgrade(engine)
     assert migrations.current_version(engine) == 0
+
+
+def _ids(engine, table: str) -> list[int]:
+    with engine.connect() as conn:
+        return conn.execute(text(f'SELECT id FROM "{table}" ORDER BY id')).scalars().all()
+
+
+def test_after_the_upgrade_a_used_tracker_and_a_used_disk_can_be_deleted(tmp_path):
+    """Audit 2026-10-18: candidate.tracker_id e i file di partenza di seed_job
+    non avevano un'azione alla cancellazione, e cancellare un tracker che
+    aveva trovato un candidato, o un disco con un reseed, dava un 500
+    (FOREIGN KEY constraint failed). Lo stesso DELETE delle API, con le
+    foreign key accese come in ogni connessione dell'app."""
+    engine = _v0_9_0_database(tmp_path)
+    migrations.upgrade(engine)
+    with engine.begin() as conn:
+        conn.execute(text("DELETE FROM tracker WHERE id = 2"))  # il candidato 3, la sua review, il suo seed_job
+    with engine.begin() as conn:
+        conn.execute(text("DELETE FROM disk WHERE id = 1"))  # i file 1 di media e di seed: i seed_job 1 e 2
+
+    assert _ids(engine, "candidate") == [1, 2]
+    assert _ids(engine, "seed_job") == []
+    assert _ids(engine, "match_review") == []
+    assert _ids(engine, "candidate_file") == [1, 2]
+    assert _ids(engine, "client_torrent") == [1]  # il torrent nel client resta, la sua riga anche
+    assert _ids(engine, "upload_job") == [1, 2]  # lo storico degli upload resta, senza disco
+    with engine.connect() as conn:
+        assert conn.execute(text("SELECT disk_id FROM upload_job WHERE id = 1")).scalar() is None
+        assert conn.execute(text("SELECT media_file_id, seed_file_id FROM candidate_file")).all() == [
+            (None, None), (None, None)]
+        assert conn.execute(text("PRAGMA foreign_key_check")).all() == []
+
+
+def test_the_foreign_key_step_runs_once_and_an_interrupted_one_runs_again(tmp_path, monkeypatch):
+    """Il passo 10 rifà candidate, seed_job e upload_job in una transazione:
+    interrotto a metà, il DB resta com'era e il riavvio lo ripete; dopo,
+    rilanciarlo non tocca niente."""
+    import sqlite3
+
+    import pytest
+
+    from tests.db_faults import fail_once
+
+    engine = _v0_9_0_database(tmp_path)
+    before = _counts(engine)
+    with monkeypatch.context() as patch:
+        fail_once(patch, engine, sqlite3.SQLITE_ALTER_TABLE, "seed_job__rebuild")
+        with pytest.raises(sqlite3.DatabaseError):
+            db.migrate_foreign_key_actions(engine)
+    assert _counts(engine) == before
+    with engine.connect() as conn:
+        assert {fk[6] for fk in conn.execute(text("PRAGMA foreign_key_list(candidate)"))} == {"CASCADE", "NO ACTION"}
+
+    assert db.migrate_foreign_key_actions(engine) == ["candidate", "seed_job", "upload_job"]
+    assert db.migrate_foreign_key_actions(engine) == []
+    assert _counts(engine) == before
+    with engine.connect() as conn:
+        assert conn.execute(text("PRAGMA foreign_key_check")).all() == []
+        assert conn.execute(text("PRAGMA foreign_keys")).scalar() == 1
 
 
 def test_the_app_starts_on_fresh_connections_after_the_upgrade(tmp_path, monkeypatch):

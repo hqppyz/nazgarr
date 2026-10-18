@@ -57,6 +57,8 @@ MIGRATIONS: tuple[Migration, ...] = (
               before_schema=False),
     Migration(9, "preset di esclusione nuovi attivi di default", db.migrate_new_default_exclusion_presets,
               before_schema=False),
+    Migration(10, "azioni ON DELETE di candidate e seed_job, FK di upload_job.split_from_id",
+              db.migrate_foreign_key_actions, before_schema=True),
 )
 
 LATEST = MIGRATIONS[-1].version

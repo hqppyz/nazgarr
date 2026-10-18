@@ -30,6 +30,23 @@ def _schema_db() -> sqlite3.Connection:
     return conn
 
 
+def test_schema_sql_and_the_models_have_the_same_foreign_keys():
+    """Anche le azioni alla cancellazione: un ON DELETE solo nel modello non
+    arriva mai al DB (lo crea schema.sql), e uno solo nello schema sparisce
+    da quello che il codice crede di sapere."""
+    conn = _schema_db()
+    tables = [name for (name,) in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")]
+    in_sql = {
+        (t, fk[3], fk[2], fk[4], fk[6])
+        for t in tables for fk in conn.execute(f'PRAGMA foreign_key_list("{t}")')
+    }
+    in_models = {
+        (t.name, fk.parent.name, fk.column.table.name, fk.column.name, (fk.ondelete or "NO ACTION").upper())
+        for t in models.Base.metadata.sorted_tables for fk in t.foreign_keys
+    }
+    assert in_sql == in_models
+
+
 # Le righe di run_log non si cancellano mai (lo storico delle scansioni), e
 # last_scan_id cambia a ogni scan: un indice costerebbe solo in scrittura.
 _NEVER_DELETED_PARENTS = {"run_log"}

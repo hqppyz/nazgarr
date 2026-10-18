@@ -181,6 +181,73 @@ def rebuilding_tables(engine: Engine):
         raw_conn.close()
 
 
+def _foreign_keys(conn, table: str) -> set[tuple] | None:
+    """Le foreign key di una tabella (colonna, tabella e colonna puntate,
+    azioni), None se la tabella non esiste."""
+    exists = conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (table,)).fetchone()
+    if exists is None:
+        return None
+    return {(fk[3], fk[2], fk[4], fk[5], fk[6]) for fk in conn.execute(f'PRAGMA foreign_key_list("{table}")')}
+
+
+def _rebuild_like(cursor, schema: sqlite3.Connection, table: str) -> None:
+    """Rifà una tabella com'è in `schema` (un DB in memoria creato da
+    schema.sql): stessa tecnica sicura delle migrazioni qui sotto, mai un
+    RENAME della tabella che altre referenziano. Stessi id; le colonne che lo
+    schema non ha più si perdono (con un avviso), quelle nuove restano
+    vuote. Gli indici della tabella si rifanno da schema.sql."""
+    create_sql = schema.execute("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?",
+                                (table,)).fetchone()[0]
+    prefix = f"CREATE TABLE {table} ("
+    if not create_sql.startswith(prefix):
+        raise RuntimeError(f"Definizione inattesa di {table} in schema.sql: {create_sql[:60]}")
+    rebuild = f"{table}__rebuild"
+    cursor.execute(f'DROP TABLE IF EXISTS "{rebuild}"')
+    # Un riferimento della tabella a sé stessa (upload_job.split_from_id)
+    # resta scritto col nome finale: punta alla tabella nuova dopo il RENAME.
+    cursor.execute(f'CREATE TABLE "{rebuild}" (' + create_sql[len(prefix):])
+    old_columns = [row[1] for row in cursor.execute(f'PRAGMA table_info("{table}")')]
+    new_columns = {row[1] for row in cursor.execute(f'PRAGMA table_info("{rebuild}")')}
+    dropped = [c for c in old_columns if c not in new_columns]
+    if dropped:
+        logger.warning("Migrazione: %s rifatta senza le colonne %s, che schema.sql non ha più", table, dropped)
+    column_list = ", ".join(f'"{c}"' for c in old_columns if c in new_columns)
+    cursor.execute(f'INSERT INTO "{rebuild}" ({column_list}) SELECT {column_list} FROM "{table}"')
+    copied, original = (cursor.execute(f'SELECT count(*) FROM "{name}"').fetchone()[0] for name in (rebuild, table))
+    if copied != original:
+        raise RuntimeError(f"Migrazione di {table}: copiate {copied} righe su {original}")
+    cursor.execute(f'DROP TABLE "{table}"')
+    cursor.execute(f'ALTER TABLE "{rebuild}" RENAME TO "{table}"')
+    for (index_sql,) in schema.execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'index' AND tbl_name = ? AND sql IS NOT NULL", (table,)
+    ).fetchall():
+        cursor.execute(index_sql)
+
+
+def rebuild_tables_from_schema(engine: Engine, tables: tuple[str, ...], schema_path: Path | None = None) -> list[str]:
+    """Rifà le tabelle indicate come le crea oggi docs/schema.sql, se le loro
+    foreign key sono diverse: un ON DELETE cambiato, o una FK che manca
+    perché la colonna l'ha aggiunta migrate_schema (un ALTER TABLE ADD COLUMN
+    non la dichiara). Un ALTER TABLE non sa cambiare una FK in SQLite: serve
+    rifare la tabella. Idempotente: una tabella già giusta, o che non c'è
+    (la crea apply_schema), non si tocca. Restituisce le tabelle rifatte."""
+    schema = sqlite3.connect(":memory:")
+    try:
+        schema.executescript((schema_path or SCHEMA_PATH).read_text())
+        with engine.connect() as conn:
+            current = {table: _foreign_keys(conn.connection.driver_connection, table) for table in tables}
+        todo = [t for t in tables if current[t] is not None and current[t] != _foreign_keys(schema, t)]
+        if not todo:
+            return []
+        logger.warning("Migrazione: tabelle rifatte con le foreign key di schema.sql: %s", todo)
+        with rebuilding_tables(engine) as cursor:
+            for table in todo:
+                _rebuild_like(cursor, schema, table)
+        return todo
+    finally:
+        schema.close()
+
+
 # Gli indici di media_file com'erano quando la migrazione qui sotto è stata
 # scritta (apply_schema, subito dopo, aggiunge quelli venuti in seguito).
 _LEGACY_MEDIA_FILE_INDEXES = (
@@ -736,6 +803,18 @@ def migrate_new_default_exclusion_presets(engine: Engine) -> bool:
             return False
         settings_repo.set_setting(session, "exclusion_presets", ",".join([*keys, *added]))
         return True
+
+
+def migrate_foreign_key_actions(engine: Engine) -> list[str]:
+    """Le azioni alla cancellazione di docs/schema.sql anche sui DB già
+    esistenti (audit 2026-10-18): candidate.tracker_id in cascata (prima
+    cancellare un tracker che aveva trovato un candidato dava un errore 500),
+    i file di partenza di seed_job in cascata e i suoi risultati azzerati
+    (prima un disco con un reseed non si poteva più cancellare), e la FK di
+    upload_job.split_from_id, che manca dove la colonna l'ha aggiunta
+    migrate_schema (i DB di prima della 0.9.4). Prima dello schema: le
+    tabelle rifatte hanno già tutte le colonne e gli indici."""
+    return rebuild_tables_from_schema(engine, ("candidate", "seed_job", "upload_job"))
 
 
 def encrypt_plaintext_secrets(engine: Engine) -> int:

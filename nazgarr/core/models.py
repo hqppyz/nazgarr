@@ -587,7 +587,7 @@ class Candidate(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     media_item_id: Mapped[int] = mapped_column(ForeignKey("media_item.id", ondelete="CASCADE"), nullable=False)
-    tracker_id: Mapped[int] = mapped_column(ForeignKey("tracker.id"), nullable=False)
+    tracker_id: Mapped[int] = mapped_column(ForeignKey("tracker.id", ondelete="CASCADE"), nullable=False)
     torrent_id_remote: Mapped[str] = mapped_column(nullable=False)
     info_hash: Mapped[str | None]
     name: Mapped[str] = mapped_column(nullable=False)
@@ -957,10 +957,13 @@ class SeedJob(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     candidate_id: Mapped[int] = mapped_column(ForeignKey("candidate.id", ondelete="CASCADE"), nullable=False)
-    source_media_file_id: Mapped[int | None] = mapped_column(ForeignKey("media_file.id"))
-    source_seed_file_id: Mapped[int | None] = mapped_column(ForeignKey("seed_file.id"))
-    result_seed_file_id: Mapped[int | None] = mapped_column(ForeignKey("seed_file.id"))
-    result_client_torrent_id: Mapped[int | None] = mapped_column(ForeignKey("client_torrent.id"))
+    # Uno dei due file di partenza c'è sempre: l'esecuzione se ne va con lui
+    # (docs/schema.sql). I risultati invece si azzerano soltanto.
+    source_media_file_id: Mapped[int | None] = mapped_column(ForeignKey("media_file.id", ondelete="CASCADE"))
+    source_seed_file_id: Mapped[int | None] = mapped_column(ForeignKey("seed_file.id", ondelete="CASCADE"))
+    result_seed_file_id: Mapped[int | None] = mapped_column(ForeignKey("seed_file.id", ondelete="SET NULL"))
+    result_client_torrent_id: Mapped[int | None] = mapped_column(
+        ForeignKey("client_torrent.id", ondelete="SET NULL"))
     info_hash: Mapped[str | None]
     hardlink_created_at: Mapped[datetime | None]
     torrent_added_at: Mapped[datetime | None]

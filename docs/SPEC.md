@@ -168,6 +168,16 @@ On read, every state query (§3) and every dashboard count (§10) is an indexed 
 
 Matching/reseeding entities (`candidate`, `match_review`, `seed_job`) and the new upload entities (§9) stay as in ratio-guardian, adapted to reference `media_item`/`media_file` instead of ratio-guardian's merged row — full detail in `docs/schema.sql`. One real gap found while building Fase 4: `candidate.media_item_id` alone isn't enough to know *which physical file* a match applies to when a `media_item` has more than one `media_file` (different quality versions of the same content) — never an issue in ratio-guardian, where a media_item *was* the physical file. Fixed by adding `match_review.media_file_id`/`match_review.seed_file_id` (whichever applies to the candidate's `direction`), so the decision — not just the search result — carries the physical file it's about.
 
+### Deleting a tracker, a disk or a client (audit 2026-10-18)
+
+Every foreign key says what a delete does, so deleting a configured tracker, disk or client never fails on what depends on it. Before, a tracker that had found a single candidate, or a disk with one successful reseed, could no longer be deleted (a 500, `FOREIGN KEY constraint failed`). Only database rows change: nothing on disk or in a torrent client.
+
+- **Tracker**: its candidates go with it, with their files, reviews and executions (`seed_job`), and so do its match attempts, upload targets and upload profile. Disabling a tracker (`enabled = false`) keeps all of that.
+- **Disk**: its folders, its media and seed files, their reviews, match attempts and executions go with it. An execution always has exactly one source file, like a review, so it leaves with it instead of staying with neither. Candidates belong to the tracker and stay, without their local file. Upload jobs and not-imported rows stay, without the reference.
+- **Client**: its indexed torrents go; an execution only loses its `result_client_torrent_id`.
+
+Every foreign key column leads an index (`tests/test_consistency.py` checks it), except the references to `run_log`, whose rows are never deleted. Without them each deleted row scanned its child tables: 53 s for a disk with 3000 files against 200k `candidate_file` rows, holding the write lock. Existing databases get the new delete actions from migration step 10. It rebuilds `candidate`, `seed_job` and `upload_job` as `docs/schema.sql` has them, which also gives `upload_job.split_from_id` the foreign key it lacked where `migrate_schema` had added the column (databases from before 0.9.4). A step that rebuilds a table runs inside `db.rebuilding_tables`: foreign keys off outside the transaction, one transaction, foreign keys back on after the commit. An interrupted start then leaves nothing half done, and the pooled connections never lose foreign key enforcement.
+
 ## 5. Torrent clients: multi-client support from v1
 
 An explicit requirement, unlike ratio-guardian (which starts with a single qBittorrent adapter and is generically extensible but with no immediate commitment to other clients). Priority:
