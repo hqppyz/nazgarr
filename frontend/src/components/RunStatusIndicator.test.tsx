@@ -1,5 +1,5 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { fireEvent, render, screen } from '@testing-library/react'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { RunStatusIndicator } from '@/components/RunStatusIndicator'
 
@@ -17,7 +17,6 @@ vi.mock('@/api/hooks/runs', () => ({
 
 describe('RunStatusIndicator', () => {
   beforeEach(() => localStorage.clear())
-  afterEach(cleanup)
 
   it('keeps the summary of a finished scan until it is closed, also after a reload', () => {
     const { unmount } = render(<RunStatusIndicator />)

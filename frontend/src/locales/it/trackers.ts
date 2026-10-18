@@ -41,8 +41,6 @@ export const trackers = {
   'trackers.emptyCustomProfile': 'Profilo personalizzato vuoto',
   'trackers.copiedFromBundled':
     'Copiato dal profilo incluso "{key}" — ricontrolla gli id sul tuo account prima del primo upload vero.',
-  'trackers.descriptionTemplate': 'Template della descrizione (Jinja2)',
-  'trackers.namingRules': 'Regole per il nome',
   'trackers.customProfile': 'personalizzato',
   'trackers.namingUpdateBadge': 'nuove regole disponibili',
   'trackers.noUploadProfile': 'nessuno: niente upload su questo tracker',

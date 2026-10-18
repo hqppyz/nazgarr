@@ -11,4 +11,5 @@ export const auth = {
   'auth.signIn': 'Sign in',
   'auth.creationFailed': 'Account creation failed: {message}',
   'auth.invalidCredentialsToast': 'Invalid credentials.',
+  'auth.unreachableDescription': 'The server is not answering. Check that Nazgarr is running, then try again.',
 } as const

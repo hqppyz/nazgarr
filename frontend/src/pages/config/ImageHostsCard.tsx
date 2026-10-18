@@ -27,6 +27,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { autosaveFeedback } from '@/lib/autosave'
 import { t } from '@/lib/i18n'
+import { safeHref } from '@/lib/safeUrl'
 import { cn } from '@/lib/utils'
 
 type Adapter = Schemas['AdapterResponse']
@@ -36,6 +37,21 @@ type Adapter = Schemas['AdapterResponse']
 const REMOVED_LABELS: Record<string, string> = {
   ptpimg: 'PTPImg', imgbox: 'Imgbox', pixhost: 'Pixhost', onlyimage: 'OnlyImage', dalexni: 'Dalexni',
   utppm: 'utp.pm', seedpool_cdn: 'Seedpool CDN',
+}
+
+// Gli host inclusi aprono la descrizione col loro sito ("https://imgbb.com",
+// "https://lensdump.com (paid API)"): un link solo se la prima parola è un
+// URL http(s). La frase libera di un plugin (docs/SDK.md), o un indirizzo
+// con un altro schema, resta testo: niente link relativi alla SPA, niente
+// schemi strani da un'altra istanza guardata attraverso il proxy.
+export function HostDescription({ description }: { description: string }) {
+  const href = safeHref(description.split(' ')[0])
+  if (!href) return <p className="text-xs text-muted-foreground">{description}</p>
+  return (
+    <a href={href} target="_blank" rel="noreferrer" className="w-fit text-xs text-muted-foreground underline-offset-4 hover:underline">
+      {description}
+    </a>
+  )
 }
 
 function HostRow({ adapter }: { adapter: Adapter }) {
@@ -84,12 +100,7 @@ function HostRow({ adapter }: { adapter: Adapter }) {
       </div>
       {open && data && (
         <div className="grid gap-3 border-t px-3 py-3">
-          {adapter.description && (
-            <a href={adapter.description.split(' ')[0]} target="_blank" rel="noreferrer"
-               className="w-fit text-xs text-muted-foreground underline-offset-4 hover:underline">
-              {adapter.description}
-            </a>
-          )}
+          {adapter.description && <HostDescription description={adapter.description} />}
           <AdapterConfigFields
             idPrefix={`image-host-${adapter.adapter_type}`}
             fields={adapter.config_fields}

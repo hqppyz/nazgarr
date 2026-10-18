@@ -34,6 +34,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch'
 import { t, uiLocale } from '@/lib/i18n'
 import { TrackerLogo } from '@/pages/config/ServiceIcons'
+import { safeHref } from '@/lib/safeUrl'
 import { cn, selectLabel } from '@/lib/utils'
 import { TrackerSeedRequirement } from '@/pages/config/TrackerSeedRequirement'
 import { UploadProfileDialog } from '@/pages/config/UploadProfileDialog'
@@ -180,6 +181,9 @@ function AddTrackerDialog() {
   const matched = bundled?.find((p) => p.key === presetKey)
     ?? bundled?.find((p) => p.base_url && hostOf(p.base_url) === hostOf(baseUrl))
   const announcePage = matched?.announce_url_page
+  // Da un profilo incluso, o da un'altra istanza attraverso il proxy: un link
+  // solo se è http(s), altrimenti l'indirizzo come testo.
+  const announceHref = safeHref(announcePage)
 
   function applyPreset(key: string) {
     setPresetKey(key)
@@ -302,7 +306,9 @@ function AddTrackerDialog() {
             {announcePage && (
               <p className="text-xs text-muted-foreground">
                 {t('trackers.announceUrlWhere')}{' '}
-                <a href={announcePage} target="_blank" rel="noreferrer" className="underline">{announcePage}</a>
+                {announceHref
+                  ? <a href={announceHref} target="_blank" rel="noreferrer" className="underline">{announcePage}</a>
+                  : <span className="break-all">{announcePage}</span>}
               </p>
             )}
           </div>

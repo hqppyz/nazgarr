@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
-import { api, unwrap } from '@/api/client'
+import { api, ApiError, unwrap } from '@/api/client'
 import type { Schemas } from '@/api/client'
+import { TOAST_ERRORS } from '@/lib/mutationErrors'
 
 export function useTrackers() {
   return useQuery({
@@ -30,6 +31,7 @@ export function useUpdateTracker() {
 export function useDeleteTracker() {
   const queryClient = useQueryClient()
   return useMutation({
+    meta: TOAST_ERRORS,
     mutationFn: (id: number) => unwrap(api.DELETE('/api/trackers/{tracker_id}', { params: { path: { tracker_id: id } } })),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['trackers'] }),
   })
@@ -45,13 +47,16 @@ export function useBundledUploadProfiles() {
 export function useUploadProfile(trackerId: number) {
   return useQuery({
     queryKey: ['trackers', trackerId, 'upload-profile'],
+    // 404 = il tracker non ha ancora un profilo: un valore, non un errore.
     queryFn: async () => {
-      const { data, error, response } = await api.GET('/api/trackers/{tracker_id}/upload-profile', {
-        params: { path: { tracker_id: trackerId } },
-      })
-      if (response.status === 404) return null
-      if (error) throw new Error(JSON.stringify(error))
-      return data ?? null
+      try {
+        return await unwrap(api.GET('/api/trackers/{tracker_id}/upload-profile', {
+          params: { path: { tracker_id: trackerId } },
+        }))
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 404) return null
+        throw error
+      }
     },
   })
 }
@@ -59,6 +64,7 @@ export function useUploadProfile(trackerId: number) {
 export function useCreateUploadProfile(trackerId: number) {
   const queryClient = useQueryClient()
   return useMutation({
+    meta: TOAST_ERRORS,
     mutationFn: (body: Schemas['UploadProfileCreateRequest']) =>
       unwrap(api.POST('/api/trackers/{tracker_id}/upload-profile', { params: { path: { tracker_id: trackerId } }, body })),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['trackers', trackerId, 'upload-profile'] }),
@@ -82,6 +88,7 @@ export function useUpdateUploadProfile(trackerId: number) {
 export function useDeleteUploadProfile(trackerId: number) {
   const queryClient = useQueryClient()
   return useMutation({
+    meta: TOAST_ERRORS,
     mutationFn: () =>
       unwrap(api.DELETE('/api/trackers/{tracker_id}/upload-profile', { params: { path: { tracker_id: trackerId } } })),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['trackers', trackerId, 'upload-profile'] }),

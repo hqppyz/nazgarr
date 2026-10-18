@@ -1,9 +1,8 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { fireEvent, render, screen } from '@testing-library/react'
+import { describe, expect, it, vi } from 'vitest'
 
 import { RowContextMenu } from '@/components/RowContextMenu'
 
-afterEach(cleanup)
 
 describe('RowContextMenu', () => {
   it('opens on right click and runs the chosen action', async () => {

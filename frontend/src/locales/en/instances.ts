@@ -34,10 +34,9 @@ export const instances = {
   'instances.backToThis': 'Back to this instance',
   'instances.openItsUi': 'Open its interface',
   'instances.blockedTitle': '{label} cannot be opened from here',
+  'instances.badKeyHelp':
+    '{label} refuses the API key this instance uses to reach it: it was changed or revoked there. Create a new one on {label} (Settings › Extensions › API keys), then go back to this instance and update it in Settings › System › Instances.',
   'instances.warnOlder': '{label} runs {version}, older than this instance ({local}): update it to see everything.',
-  'instances.remoteSettingsNotice':
-    'On {label}, secrets (API keys of services), safety settings and API keys can be changed only from its own interface.',
-  'instances.notOnRemote': 'This section belongs to the instance you logged in to: go back to it to use it.',
   'instances.seeding': 'Library seeding',
   'instances.reviews': 'Reviews waiting',
   'instances.uploads': 'Uploads in progress',

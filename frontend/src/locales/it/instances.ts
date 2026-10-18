@@ -34,10 +34,9 @@ export const instances = {
   'instances.backToThis': 'Torna a questa istanza',
   'instances.openItsUi': 'Apri la sua interfaccia',
   'instances.blockedTitle': '{label} non si può aprire da qui',
+  'instances.badKeyHelp':
+    '{label} rifiuta la API key che questa istanza usa per raggiungerla: là è stata cambiata o revocata. Creane una nuova su {label} (Impostazioni › Estensioni › API key), poi torna a questa istanza e aggiornala in Impostazioni › Sistema › Istanze.',
   'instances.warnOlder': "{label} ha la {version}, più vecchia di questa istanza ({local}): aggiornala per vedere tutto.",
-  'instances.remoteSettingsNotice':
-    "Su {label} i segreti (chiavi dei servizi), le impostazioni di sicurezza e le API key si cambiano solo dalla sua interfaccia.",
-  'instances.notOnRemote': "Questa sezione è dell'istanza su cui hai fatto il login: torna a quella per usarla.",
   'instances.seeding': 'Libreria in seed',
   'instances.reviews': 'Review in attesa',
   'instances.uploads': 'Upload in corso',

@@ -1,7 +1,6 @@
 export const naming = {
   'naming.variablesHelp': 'Clicca una variabile per inserirla dove si trova il cursore. Passaci sopra per vederne il valore nell’anteprima.',
   'naming.noValue': 'nessun valore nell’anteprima',
-  'naming.usesDefault': 'vuoto: usa il template predefinito',
   'naming.template.default': 'Predefinito',
   'naming.template.tv': 'serie',
   'naming.template.REMUX': 'REMUX',
@@ -24,8 +23,6 @@ export const naming = {
   'naming.titleBoth': 'Originale + lingua del tracker',
   'naming.separator': 'Separatore',
   'naming.groupSeparator': 'Prima del gruppo',
-  'naming.audioLanguages': 'Lingue audio',
-  'naming.subsLanguages': 'Lingue dei sottotitoli',
   'naming.languages.none': 'Non scritte',
   'naming.languages.all': 'Tutte (ENG ITA)',
   'naming.languages.primary_first': 'Prima la principale (ITA ENG, ITA MULTI)',

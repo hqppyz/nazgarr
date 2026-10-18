@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { api, unwrap } from '@/api/client'
+import { TOAST_ERRORS } from '@/lib/mutationErrors'
 
 export function useApiKeys() {
   return useQuery({ queryKey: ['api-keys'], queryFn: () => unwrap(api.GET('/api/api-keys')) })
@@ -18,6 +19,7 @@ export function useCreateApiKey() {
 export function useRevokeApiKey() {
   const queryClient = useQueryClient()
   return useMutation({
+    meta: TOAST_ERRORS,
     mutationFn: (id: number) => unwrap(api.POST('/api/api-keys/{key_id}/revoke', { params: { path: { key_id: id } } })),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['api-keys'] }),
   })

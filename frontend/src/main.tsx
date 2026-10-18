@@ -8,10 +8,22 @@ import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 
 import App from './App.tsx'
+import { shouldRetryQuery } from '@/api/client'
 import { AuthGate } from '@/components/auth/AuthGate'
+import { CrashPanel } from '@/components/CrashPanel'
+import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
-import { CACHE_BUSTER, CACHE_MAX_AGE_MS, queryPersister, shouldPersistQuery } from '@/lib/queryPersistence'
+import { reportMutationError } from '@/lib/mutationErrors'
+import { touringNow } from '@/onboarding/state'
+import {
+  activeTrackerFilter,
+  applyPersistedDefaults,
+  CACHE_BUSTER,
+  CACHE_MAX_AGE_MS,
+  queryPersister,
+  shouldPersistQuery,
+} from '@/lib/queryPersistence'
 import './index.css'
 
 // Windows non ha le bandiere fra le emoji (le lingue nell'anteprima MediaInfo):
@@ -21,17 +33,20 @@ polyfillCountryFlagEmojis('Twemoji Country Flags', flagsFont)
 
 // Dopo ogni salvataggio, la checklist del tour (src/onboarding) si riallinea:
 // un passo si chiude appena la configurazione c'è, ovunque sia stata fatta.
+// Solo finché il tour è aperto (o mai visto): dopo, nessuno la guarda, e ogni
+// salvataggio automatico costava una richiesta in più.
 const queryClient: QueryClient = new QueryClient({
+  defaultOptions: { queries: { retry: shouldRetryQuery } },
   mutationCache: new MutationCache({
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['setup-status'] }),
+    onSuccess: () => {
+      if (touringNow(queryClient)) void queryClient.invalidateQueries({ queryKey: ['setup-status'] })
+    },
+    onError: (error, _variables, _context, mutation) => reportMutationError(error, mutation),
   }),
 })
-// gcTime almeno quanto la cache persistita, ma solo per le query persistite
-// (le viste della libreria, src/lib/queryPersistence.ts): una query
-// ripristinata da IndexedDB non deve essere scartata dopo i 5 minuti di
-// default. Le altre (ricerche, anteprime dei nomi) restano ai 5 minuti,
-// invece di restare in memoria per tutta la sessione.
-queryClient.setQueryDefaults(['library'], { gcTime: CACHE_MAX_AGE_MS })
+// Le liste della libreria e il filtro per tracker restano in memoria quanto
+// la cache persistita (src/lib/queryPersistence.ts).
+applyPersistedDefaults(queryClient)
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
@@ -42,15 +57,22 @@ createRoot(document.getElementById('root')!).render(
           persister: queryPersister,
           maxAge: CACHE_MAX_AGE_MS,
           buster: CACHE_BUSTER,
-          dehydrateOptions: { shouldDehydrateQuery: shouldPersistQuery },
+          dehydrateOptions: {
+            shouldDehydrateQuery: (query) => shouldPersistQuery(query, activeTrackerFilter(queryClient)),
+            shouldDehydrateMutation: () => false,
+          },
         }}
       >
         <TooltipProvider>
-          <AuthGate>
-            <BrowserRouter>
-              <App />
-            </BrowserRouter>
-          </AuthGate>
+          {/* L'ultima rete: un errore che nessuna vista ha fermato (il layout,
+              il login) mostra il messaggio e "Ricarica" invece della pagina bianca. */}
+          <ErrorBoundary fallback={({ error, reset }) => <CrashPanel error={error} onRetry={reset} fullPage />}>
+            <AuthGate>
+              <BrowserRouter>
+                <App />
+              </BrowserRouter>
+            </AuthGate>
+          </ErrorBoundary>
           <Toaster />
         </TooltipProvider>
       </PersistQueryClientProvider>

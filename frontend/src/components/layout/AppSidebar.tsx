@@ -59,7 +59,9 @@ function StatBox({ dotClassName, label, value }: { dotClassName: string; label: 
 const COPYRIGHT_YEAR = new Date().getFullYear()
 
 function AppSidebarFooter() {
-  const { data: dashboard } = useDashboard()
+  // Salute e review in attesa su ogni pagina: basta un minuto (sulla
+  // dashboard la pagina stessa li rinfresca ogni 15 s, stessa query).
+  const { data: dashboard } = useDashboard(60_000)
   const { data: health } = useHealth()
   const { data: update } = useUpdateStatus()
   const { username, logout } = useAuth()
@@ -116,16 +118,19 @@ function AppSidebarFooter() {
   )
 }
 
-// Lampo di luce quando la sidebar si apre o si chiude.
+// Lampo di luce quando la sidebar si apre o si chiude. Sul telefono il menu è
+// un pannello che si smonta a ogni chiusura (e si chiude a ogni pagina): con
+// l'anello 3D ogni apertura rifaceva contesto WebGL, shader e texture. Lì
+// l'immagine statica, lo stesso anello fotografato.
 function SidebarRing() {
-  const { state } = useSidebar()
+  const { state, isMobile } = useSidebar()
   const ring = useRef<RingHandle>(null)
   const previous = useRef(state)
   useEffect(() => {
     if (previous.current !== state) ring.current?.collapse(state === 'collapsed')
     previous.current = state
   }, [state])
-  return <RingLogo size={32} handleRef={ring} />
+  return <RingLogo size={32} handleRef={ring} still={isMobile} />
 }
 
 export function AppSidebar() {

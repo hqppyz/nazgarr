@@ -14,6 +14,7 @@ import type { Schemas } from '@/api/client'
 import { useDashboard, useDashboardHistory } from '@/api/hooks/dashboard'
 import { useTrackerFilter } from '@/lib/trackerFilter'
 import { ChangesCard } from '@/components/ChangesCard'
+import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { GettingStartedCard } from '@/onboarding/GettingStartedCard'
 import { isRemote } from '@/lib/instance'
 import { HealthGauge } from '@/components/HealthGauge'
@@ -279,9 +280,12 @@ export function DashboardPage() {
 
       <div className="grid gap-6 lg:grid-cols-3">
         <HealthCard data={data} history={history} />
-        <Suspense fallback={<Card className="lg:col-span-2" />}>
-          <HistoryChart history={history} current={data.health_pct} />
-        </Suspense>
+        {/* Il grafico è un chunk a parte: se non si scarica, la dashboard resta. */}
+        <ErrorBoundary fallback={() => <Card className="lg:col-span-2" />}>
+          <Suspense fallback={<Card className="lg:col-span-2" />}>
+            <HistoryChart history={history} current={data.health_pct} />
+          </Suspense>
+        </ErrorBoundary>
       </div>
 
       <MetricCards data={data} />

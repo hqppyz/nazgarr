@@ -1,5 +1,5 @@
 import { SearchIcon } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useState } from 'react'
 
 import { useLibraryItems } from '@/api/hooks/library'
 import type { Schemas } from '@/api/client'
@@ -9,6 +9,7 @@ import { LibraryViewSwitch } from '@/components/LibraryViewSwitch'
 import { Input } from '@/components/ui/input'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useRingLoader } from '@/components/RingLoader'
+import { useIncrementalCount } from '@/hooks/use-incremental'
 import { t } from '@/lib/i18n'
 import { DUPLICATES_STATUS, type StateSummary, type StatusOption } from '@/lib/library-filters'
 import { STATUS_STYLES } from '@/lib/status-styles'
@@ -179,21 +180,10 @@ export function PosterView() {
   }, [allCards, status, search])
   // Solo i primi PAGE_SIZE poster, altri PAGE_SIZE ogni volta che il fondo
   // della griglia si avvicina: renderizzare centinaia di card (e i loro
-  // poster) tutte insieme rallentava l'apertura della pagina.
-  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
-  const sentinelRef = useRef<HTMLDivElement | null>(null)
-  useEffect(() => {
-    const node = sentinelRef.current
-    if (!node || visibleCount >= cards.length) return
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((e) => e.isIntersecting)) setVisibleCount((n) => n + PAGE_SIZE)
-      },
-      { rootMargin: '600px' },
-    )
-    observer.observe(node)
-    return () => observer.disconnect()
-  }, [visibleCount, cards.length])
+  // poster) tutte insieme rallentava l'apertura della pagina. Si riparte da
+  // capo a ogni filtro (tipo, stato, ricerca), non quando i dati si aggiornano.
+  const { visible, hasMore, sentinelRef } = useIncrementalCount<HTMLDivElement>(
+    cards.length, PAGE_SIZE, `${contentType}|${status}|${search}`)
 
   if (loader) return loader
 
@@ -204,10 +194,7 @@ export function PosterView() {
         <LibraryViewSwitch />
         <Tabs
           value={contentType}
-          onValueChange={(v) => {
-            setContentType(v as 'movie' | 'tv')
-            setVisibleCount(PAGE_SIZE)
-          }}
+          onValueChange={(v) => setContentType(v as 'movie' | 'tv')}
         >
           <TabsList>
             <TabsTrigger value="movie">{t('library.movie')}</TabsTrigger>
@@ -219,19 +206,13 @@ export function PosterView() {
         statusOptions={STATUS_OPTIONS}
         summary={summary}
         activeStatus={status}
-        onSelect={(value) => {
-          setStatus(value)
-          setVisibleCount(PAGE_SIZE)
-        }}
+        onSelect={setStatus}
       />
       <div className="flex flex-wrap items-center gap-3">
         {/* Come nella vista a cartelle: sotto sm filtrano le card, le tab scorrono. */}
         <Tabs
           value={status}
-          onValueChange={(v) => {
-            setStatus(v as string)
-            setVisibleCount(PAGE_SIZE)
-          }}
+          onValueChange={(v) => setStatus(v as string)}
           className="hidden max-w-full min-w-0 sm:flex"
         >
           <TabsList className="scroll-strip max-w-full justify-start">
@@ -246,10 +227,7 @@ export function PosterView() {
           <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
             value={search}
-            onChange={(e) => {
-              setSearch(e.target.value)
-              setVisibleCount(PAGE_SIZE)
-            }}
+            onChange={(e) => setSearch(e.target.value)}
             placeholder={t('library.searchTitlePlaceholder')}
             className="pl-8"
           />
@@ -261,14 +239,14 @@ export function PosterView() {
         </p>
       ) : (
         <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 sm:gap-4 md:grid-cols-6 lg:grid-cols-8">
-          {cards.slice(0, visibleCount).map((card) => (
+          {cards.slice(0, visible).map((card) => (
             <GridCard
               key={card.key}
               card={card}
               onOpen={() => setOpenItem({ contentType: card.content_type, tmdbId: card.tmdb_id })}
             />
           ))}
-          {visibleCount < cards.length && <div ref={sentinelRef} className="col-span-full h-px" />}
+          {hasMore && <div ref={sentinelRef} className="col-span-full h-px" />}
         </div>
       )}
       <ItemDetailSheet item={openItem} onClose={() => setOpenItem(null)} />

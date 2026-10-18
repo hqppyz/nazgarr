@@ -1,5 +1,4 @@
 export const interfaceSettings = {
-  'interface.tab': 'Interface',
   'interface.inUse': 'In use',
   'interface.themeTitle': 'Theme',
   'interface.themeDescription': 'Saved in this browser: each device keeps its own.',

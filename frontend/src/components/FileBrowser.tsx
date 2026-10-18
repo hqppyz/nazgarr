@@ -1,4 +1,4 @@
-import { useDeferredValue, useMemo, useState } from 'react'
+import { useCallback, useDeferredValue, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
 import { FileFilterBar } from '@/components/FileFilterBar'
@@ -56,6 +56,11 @@ export function FileBrowser({
   // I video sceglibili fra quelli filtrati: "Scegli tutti i mostrati" del
   // PackBar, l'equivalente touch di SHIFT+clic.
   const shownPackable = useMemo(() => filtered.filter(packable).map(packFile), [filtered])
+  // Stabile: FileTree è memo, e una funzione nuova a ogni render lo
+  // ridisegnerebbe a ogni tasto e all'apertura della scheda.
+  const openFile = useCallback((file: TreeFileEntry) => {
+    if (file.content_type && file.tmdb_id != null) setOpenItem({ contentType: file.content_type, tmdbId: file.tmdb_id })
+  }, [])
 
   return (
     // Una colonna che non supera lo schermo: un figlio largo (le tab) scorre
@@ -85,10 +90,10 @@ export function FileBrowser({
           duplicateKeys={duplicateKeys}
           actions={actions}
           selection={selection}
-          onOpenFile={(file) =>
-            file.content_type && file.tmdb_id != null &&
-            setOpenItem({ contentType: file.content_type, tmdbId: file.tmdb_id })
-          }
+          onOpenFile={openFile}
+          // Un aggiornamento dei dati in background non riporta in cima: solo
+          // un filtro o una ricerca nuovi ripartono dal primo blocco.
+          resetKey={deferredFilters}
         />
       </Card>
       <PackBar selection={selection} shown={shownPackable} />

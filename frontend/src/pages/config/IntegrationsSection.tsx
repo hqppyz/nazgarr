@@ -40,12 +40,13 @@ import { t } from '@/lib/i18n'
 import { autosaveFeedback } from '@/lib/autosave'
 import { arrConnectionBody, arrInstanceBody, emptyArrForm, type ArrInstanceForm } from '@/lib/arrInstanceForm'
 
-// Radarr e Sonarr non sono ancora consumati da nessun adapter (nessun
-// resolver li chiama davvero) — ma la tabella è già multi-istanza da
-// subito, stesso pattern di Tracker/TorrentClient, per evitare una
-// migrazione dolorosa quando arriverà l'adapter vero. Test Connection
-// invece è reale già oggi: Radarr/Sonarr condividono lo stesso endpoint
-// Servarr /api/v3/system/status, non serve un adapter completo per quello.
+// Radarr e Sonarr, sempre opzionali (docs/SPEC.md §6): l'indice costruito a
+// ogni run (nazgarr/integrations/arr.py) dà l'identità dei file al resolver
+// e la history degli import al matching; i loro webhook aggiornano la
+// libreria quando un file arriva, cambia o sparisce
+// (nazgarr/integrations/arr_webhooks.py). La tabella è multi-istanza, stesso
+// pattern di Tracker/TorrentClient.
+// Test Connection usa l'endpoint Servarr /api/v3/system/status, uguale per i due.
 interface ArrInstance {
   id: number
   label: string

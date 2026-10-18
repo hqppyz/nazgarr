@@ -1,22 +1,7 @@
-import { useLayoutEffect, useRef, useSyncExternalStore, type ReactNode } from 'react'
+import { useLayoutEffect, useRef, type ReactNode } from 'react'
 
+import { useMediaQuery } from '@/hooks/use-media-query'
 import { cn } from '@/lib/utils'
-
-// Senza matchMedia (test in jsdom): una colonna.
-const hasMatchMedia = () => typeof window !== 'undefined' && typeof window.matchMedia === 'function'
-
-function useMediaQuery(query: string) {
-  return useSyncExternalStore(
-    (onChange) => {
-      if (!hasMatchMedia()) return () => {}
-      const list = window.matchMedia(query)
-      list.addEventListener('change', onChange)
-      return () => list.removeEventListener('change', onChange)
-    },
-    () => hasMatchMedia() && window.matchMedia(query).matches,
-    () => false,
-  )
-}
 
 const FULL = 'full'
 

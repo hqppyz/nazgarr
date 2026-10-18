@@ -1,23 +1,26 @@
+import { Popover as PopoverPrimitive } from '@base-ui/react/popover'
 import { ArrowRightIcon, CircleCheckIcon, EyeOffIcon, Loader2Icon, RefreshCwIcon, SearchIcon, Trash2Icon, TriangleAlertIcon, UploadIcon } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { memo, useCallback, useDeferredValue, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import type { Schemas } from '@/api/client'
 import { useNotImported, useRefreshNotImported } from '@/api/hooks/library'
 import { LibrarySummaryCards } from '@/components/LibrarySummaryCards'
 import { TorrentViewSwitch } from '@/components/LibraryViewSwitch'
-import { InfoPopover } from '@/components/InfoPopover'
-import { RowContextMenu, RowMenuButton, type RowMenuItem } from '@/components/RowContextMenu'
+import { InfoPopover, InfoPopoverHost } from '@/components/InfoPopover'
+import { RowMenuTrigger, SharedRowContextMenu, SharedRowMenu, type RowMenu, type RowMenuItem } from '@/components/RowContextMenu'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
-import { Popover, PopoverContent, PopoverHeader, PopoverTitle, PopoverTrigger } from '@/components/ui/popover'
+import { PopoverHeader, PopoverTitle } from '@/components/ui/popover'
 import { Toggle } from '@/components/ui/toggle'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { useRingLoader } from '@/components/RingLoader'
+import { useIncrementalCount } from '@/hooks/use-incremental'
 import { t } from '@/lib/i18n'
 import { formatBytes, type StateSummary, type StatusOption } from '@/lib/library-filters'
+import { useInfoPopoverHandle, useRowMenuHandle, type InfoPopoverHandle, type RowMenuHandle } from '@/lib/popupHandles'
 import { NOT_IMPORTED_STYLES } from '@/lib/status-styles'
 import { parseApiDate, relativeFromNow } from '@/lib/time'
 import { newUploadLink } from '@/lib/upload'
@@ -51,44 +54,48 @@ type Warning = Torrent['removal_warnings'][number]
 
 // I problemi oltre a seedtime e ratio (file condivisi con altri torrent,
 // errori del client, download in corso: nazgarr/api/torrents.py), in un
-// popover per non allargare la colonna.
-function WarningsPopover({ warnings }: { warnings: Warning[] }) {
+// popover per non allargare la colonna: quello condiviso della tabella.
+function WarningsPopover({ warnings, popover }: { warnings: Warning[]; popover: InfoPopoverHandle }) {
   if (warnings.length === 0) return null
   const title = t('notImported.removable.warningsTitle', { count: warnings.length })
+  const content = (
+    <>
+      <PopoverHeader>
+        <PopoverTitle>{title}</PopoverTitle>
+      </PopoverHeader>
+      <ul className="grid gap-1.5 text-xs">
+        {warnings.map((warning) => (
+          <li key={warning.code} className="rounded bg-muted/60 px-2 py-1">
+            {t(`notImported.removable.warning.${warning.code}`, warning.params as Record<string, string | number>)}
+          </li>
+        ))}
+      </ul>
+    </>
+  )
   return (
-    <Popover>
-      <PopoverTrigger
-        openOnHover={opensOnHover()}
-        delay={150}
-        aria-label={title}
-        onClick={(e) => e.stopPropagation()}
-        // Su touch un bersaglio più grande del triangolo da 14 px.
-        className="inline-flex cursor-pointer items-center rounded p-0.5 text-amber-600 hover:bg-amber-500/15 pointer-coarse:p-2 dark:text-amber-400"
-      >
-        <TriangleAlertIcon className="size-3.5" />
-      </PopoverTrigger>
-      <PopoverContent align="end" className="w-80 max-w-[calc(100vw-2rem)]" onClick={(e) => e.stopPropagation()}>
-        <PopoverHeader>
-          <PopoverTitle>{title}</PopoverTitle>
-        </PopoverHeader>
-        <ul className="grid gap-1.5 text-xs">
-          {warnings.map((warning) => (
-            <li key={warning.code} className="rounded bg-muted/60 px-2 py-1">
-              {t(`notImported.removable.warning.${warning.code}`, warning.params as Record<string, string | number>)}
-            </li>
-          ))}
-        </ul>
-      </PopoverContent>
-    </Popover>
+    <PopoverPrimitive.Trigger
+      handle={popover}
+      payload={{ content, align: 'end', className: 'w-80 max-w-[calc(100vw-2rem)]' }}
+      openOnHover={opensOnHover()}
+      delay={150}
+      aria-label={title}
+      onClick={(e) => e.stopPropagation()}
+      // Su touch un bersaglio più grande del triangolo da 14 px.
+      className="inline-flex cursor-pointer items-center rounded p-0.5 text-amber-600 hover:bg-amber-500/15 pointer-coarse:p-2 dark:text-amber-400"
+    >
+      <TriangleAlertIcon className="size-3.5" />
+    </PopoverPrimitive.Trigger>
   )
 }
 
 function SeedRequirementCell({
   requirement = NO_REQUIREMENT,
   warnings = [],
+  popover,
 }: {
   requirement?: Torrent['seed_requirement']
   warnings?: Warning[]
+  popover: InfoPopoverHandle
 }) {
   const { status, remaining = {}, tracker_label: tracker } = requirement
   const rule = [
@@ -99,7 +106,7 @@ function SeedRequirementCell({
   if (status === 'met') {
     // "OK" in verde; con un problema in più, in giallo e il popover accanto.
     value = (
-      <InfoPopover content={t('notImported.removable.metHelp', { tracker: tracker ?? '', rule })} align="end">
+      <InfoPopover handle={popover} content={t('notImported.removable.metHelp', { tracker: tracker ?? '', rule })} align="end">
         <span
           className={cn(
             'font-mono text-xs font-semibold',
@@ -116,7 +123,7 @@ function SeedRequirementCell({
       remaining.ratio != null && t('notImported.removable.ratioLeft', { ratio: remaining.ratio.toFixed(2) }),
     ].filter(Boolean).join(' · ')
     value = (
-      <InfoPopover content={t('notImported.removable.pendingHelp', { tracker: tracker ?? '', rule })} align="end">
+      <InfoPopover handle={popover} content={t('notImported.removable.pendingHelp', { tracker: tracker ?? '', rule })} align="end">
         <span className="font-mono text-xs text-amber-600 tabular-nums dark:text-amber-400">
           {t('notImported.removable.left', { left })}
         </span>
@@ -130,7 +137,7 @@ function SeedRequirementCell({
           ? t('notImported.removable.noRulesHelp', { tracker: tracker ?? '' })
           : t('notImported.removable.unknownTrackerHelp')
     value = (
-      <InfoPopover content={help} align="end">
+      <InfoPopover handle={popover} content={help} align="end">
         <span className="text-xs text-muted-foreground">{status === 'unknown' ? '?' : '—'}</span>
       </InfoPopover>
     )
@@ -138,7 +145,7 @@ function SeedRequirementCell({
   return (
     <span className="inline-flex items-center justify-end gap-1">
       {value}
-      <WarningsPopover warnings={warnings} />
+      <WarningsPopover warnings={warnings} popover={popover} />
     </span>
   )
 }
@@ -170,6 +177,124 @@ function CategoryBadge({ category }: { category: string }) {
   )
 }
 
+function ExcludedBadge() {
+  return (
+    <Badge variant="outline" className="h-auto py-0 font-mono text-[length:var(--text-xxs)] leading-4">
+      {t('library.excluded')}
+    </Badge>
+  )
+}
+
+// Una riga del triage. memo con props stabili: lo structural sharing di
+// TanStack tiene lo stesso oggetto per un torrent che non è cambiato, e un
+// tasto nella ricerca o un filtro non ridisegnano le righe che restano. Menu
+// e popover sono quelli condivisi della tabella (trigger staccati), non due o
+// tre root di Base UI per riga.
+const NotImportedRow = memo(function NotImportedRow({
+  tor,
+  withMenu,
+  removable,
+  onOpen,
+  onRemove,
+  menu,
+  popover,
+}: {
+  tor: Torrent
+  withMenu: boolean
+  removable: boolean
+  onOpen: (tor: Torrent) => void
+  onRemove: (tor: Torrent) => void
+  menu: RowMenuHandle
+  popover: InfoPopoverHandle
+}) {
+  const openable = tor.content_type != null && tor.tmdb_id != null && tor.title != null
+  return (
+    <TableRow
+      data-row-menu={String(tor.client_torrent_id)}
+      className={cn(openable && 'cursor-pointer', tor.excluded && 'opacity-60')}
+      onClick={openable ? () => onOpen(tor) : undefined}
+    >
+      <TableCell title={tor.name}>
+        {/* Su touch il nome intero va a capo: il title lì non si vede. */}
+        <span className="block truncate font-mono text-xs pointer-coarse:break-all pointer-coarse:whitespace-normal">{tor.name}</span>
+        <span className="block truncate text-[length:var(--text-xxs)] text-muted-foreground pointer-coarse:whitespace-normal">
+          {[contentLabel(tor), tor.quality, tor.tracker, tor.client, t('notImported.files', { count: tor.file_count })]
+            .filter(Boolean)
+            .join(' · ')}
+        </span>
+        <div className="mt-1 flex flex-wrap items-center gap-1 sm:hidden">
+          <CategoryBadge category={tor.category} />
+          {tor.excluded && <ExcludedBadge />}
+          <span className="font-mono text-[length:var(--text-xxs)] text-muted-foreground tabular-nums">
+            {formatBytes(tor.total_bytes)}
+          </span>
+        </div>
+        {/* Ratio e tempo in seed: sotto lg le loro colonne sono nascoste, ma
+            sono proprio quello che dice se un torrent si può togliere. */}
+        <p className="mt-0.5 font-mono text-[length:var(--text-xxs)] text-muted-foreground tabular-nums lg:hidden">
+          {t('notImported.ratio')} {tor.ratio != null ? tor.ratio.toFixed(2) : '—'}
+          {' · '}
+          {formatSeedTime(tor.seeding_time_seconds)}
+        </p>
+      </TableCell>
+      <TableCell className="hidden sm:table-cell" title={tor.detail ?? undefined}>
+        <div className="flex flex-wrap gap-1">
+          <CategoryBadge category={tor.category} />
+          {tor.excluded && <ExcludedBadge />}
+        </div>
+      </TableCell>
+      <TableCell className="hidden lg:table-cell" title={tor.replaced_by?.relative_path}>
+        {tor.replaced_by ? (
+          <span className="flex min-w-0 items-center gap-1.5">
+            <ArrowRightIcon className="size-3 shrink-0 text-muted-foreground" />
+            <span className="min-w-0">
+              <span className="block truncate font-mono text-xs">{fileName(tor.replaced_by.relative_path)}</span>
+              <span className="block truncate text-[length:var(--text-xxs)] text-muted-foreground">
+                {[tor.replaced_by.quality, formatBytes(tor.replaced_by.size_bytes)].filter(Boolean).join(' · ')}
+              </span>
+            </span>
+          </span>
+        ) : (
+          <span className="text-xs text-muted-foreground">{tor.detail}</span>
+        )}
+      </TableCell>
+      <TableCell className="hidden text-right font-mono text-xs tabular-nums sm:table-cell">{formatBytes(tor.total_bytes)}</TableCell>
+      <TableCell className="hidden text-right font-mono text-xs tabular-nums lg:table-cell">
+        {tor.ratio != null ? tor.ratio.toFixed(2) : '—'}
+      </TableCell>
+      <TableCell className="hidden text-right font-mono text-xs tabular-nums lg:table-cell">
+        {formatSeedTime(tor.seeding_time_seconds)}
+      </TableCell>
+      <TableCell className="text-right">
+        <span className="inline-flex items-center justify-end gap-1">
+          <SeedRequirementCell requirement={tor.seed_requirement} warnings={tor.removal_warnings} popover={popover} />
+          {removable && (
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              title={t('notImported.remove.menu')}
+              aria-label={t('notImported.remove.menu')}
+              className="text-muted-foreground hover:text-red-600"
+              onClick={(event) => {
+                event.stopPropagation()
+                onRemove(tor)
+              }}
+            >
+              <Trash2Icon className="size-3.5" />
+            </Button>
+          )}
+        </span>
+      </TableCell>
+      {/* Le stesse voci del tasto destro, per chi è su touch. */}
+      <TableCell className="px-1 text-right">
+        {withMenu && <RowMenuTrigger handle={menu} id={String(tor.client_torrent_id)} className="text-muted-foreground" />}
+      </TableCell>
+    </TableRow>
+  )
+})
+
+const ROWS_PAGE = 100
+
 // Triage (prima "Non importati"): torrent in seed senza hardlink in libreria,
 // per torrent, con il perché (nazgarr/library/not_imported.py). Sola lettura: niente
 // viene rimosso da qui. In futuro (idea dell'utente, 2026-10-02) un click per
@@ -185,7 +310,12 @@ export function NotImportedView() {
   const [onlyRemovable, setOnlyRemovable] = useState(false)
   const [removing, setRemoving] = useState<Torrent | null>(null)
   const [search, setSearch] = useState('')
+  // La casella di ricerca resta reattiva: la lista segue a ruota, con
+  // priorità bassa, invece di ridisegnarsi dentro ogni tasto premuto.
+  const deferredSearch = useDeferredValue(search)
   const [openItem, setOpenItem] = useState<OpenItem | null>(null)
+  const menuHandle = useRowMenuHandle()
+  const popoverHandle = useInfoPopoverHandle()
 
   const summary = useMemo(() => {
     const result: Record<string, StateSummary> = { all: { count: 0, size: 0 } }
@@ -198,7 +328,7 @@ export function NotImportedView() {
   }, [data])
 
   const shown = useMemo(() => {
-    const query = search.trim().toLowerCase()
+    const query = deferredSearch.trim().toLowerCase()
     return (data?.torrents ?? []).filter(
       (tor) =>
         (showExcluded || !tor.excluded) &&
@@ -206,10 +336,45 @@ export function NotImportedView() {
         (!onlyRemovable || safeToRemove(tor)) &&
         (!query || tor.name.toLowerCase().includes(query) || (contentLabel(tor) ?? '').toLowerCase().includes(query)),
     )
-  }, [data, category, search, showExcluded, onlyRemovable])
-  const removableCount = (data?.torrents ?? []).filter(
-    (tor) => (showExcluded || !tor.excluded) && safeToRemove(tor),
-  ).length
+  }, [data, category, deferredSearch, showExcluded, onlyRemovable])
+  const removableCount = useMemo(
+    () => (data?.torrents ?? []).filter((tor) => (showExcluded || !tor.excluded) && safeToRemove(tor)).length,
+    [data, showExcluded],
+  )
+  // Un blocco di righe alla volta, altre scorrendo: con migliaia di torrent
+  // la tabella intera era secondi di render. Riparte da capo a un filtro nuovo.
+  const { visible, hasMore, sentinelRef } = useIncrementalCount<HTMLTableRowElement>(
+    shown.length, ROWS_PAGE, `${category}|${deferredSearch}|${showExcluded}|${onlyRemovable}`)
+
+  const openTorrent = useCallback(
+    (tor: Torrent) => setOpenItem({ contentType: tor.content_type!, tmdbId: tor.tmdb_id! }), [])
+  const byId = useMemo(() => new Map((data?.torrents ?? []).map((tor) => [String(tor.client_torrent_id), tor])), [data])
+  // Le voci del menu di un torrent, calcolate solo quando il menu si apre.
+  const menuFor = (id: string): RowMenu | null => {
+    const tor = byId.get(id)
+    if (!tor) return null
+    return { title: tor.name, items: torrentMenuItems(tor) }
+  }
+  // Dal menu contestuale: ripubblicare il torrent (es. arrivato da un
+  // tracker pubblico) con un nuovo upload sui suoi file, o toglierlo.
+  function torrentMenuItems(tor: Torrent): RowMenuItem[] {
+    const source = tor.source
+    const items: RowMenuItem[] = source
+      ? [{
+          label: t('itemDetail.uploadOrReseed'),
+          icon: <UploadIcon />,
+          onSelect: () =>
+            navigate(newUploadLink(
+              { diskId: source.disk_id, path: source.relative_path, isDir: source.is_dir },
+              tor.content_type && tor.tmdb_id ? `${tor.content_type}/${tor.tmdb_id}` : undefined,
+            )),
+        }]
+      : []
+    if (canRemove(tor)) {
+      items.push({ label: t('notImported.remove.menu'), icon: <Trash2Icon />, onSelect: () => setRemoving(tor) })
+    }
+    return items
+  }
 
   if (loader) return loader
 
@@ -306,126 +471,33 @@ export function NotImportedView() {
                   <TableHead className="w-8 px-1" />
                 </TableRow>
               </TableHeader>
-              <TableBody>
-                {shown.map((tor) => {
-                  const openable = tor.content_type != null && tor.tmdb_id != null && tor.title != null
-                  // Dal menu contestuale: ripubblicare il torrent (es. arrivato da un
-                  // tracker pubblico) con un nuovo upload sui suoi file.
-                  const source = tor.source
-                  const items: RowMenuItem[] = source
-                    ? [{
-                        label: t('itemDetail.uploadOrReseed'),
-                        icon: <UploadIcon />,
-                        onSelect: () =>
-                          navigate(newUploadLink(
-                            { diskId: source.disk_id, path: source.relative_path, isDir: source.is_dir },
-                            tor.content_type && tor.tmdb_id ? `${tor.content_type}/${tor.tmdb_id}` : undefined,
-                          )),
-                      }]
-                    : []
-                  if (canRemove(tor)) {
-                    items.push({ label: t('notImported.remove.menu'), icon: <Trash2Icon />, onSelect: () => setRemoving(tor) })
-                  }
-                  return (
-                    <RowContextMenu key={tor.client_torrent_id} title={tor.name} items={items}>
-                    <TableRow
-                      className={cn(openable && 'cursor-pointer', tor.excluded && 'opacity-60')}
-                      onClick={openable ? () => setOpenItem({ contentType: tor.content_type!, tmdbId: tor.tmdb_id! }) : undefined}
-                    >
-                      <TableCell title={tor.name}>
-                        {/* Su touch il nome intero va a capo: il title lì non si vede. */}
-                        <span className="block truncate font-mono text-xs pointer-coarse:break-all pointer-coarse:whitespace-normal">{tor.name}</span>
-                        <span className="block truncate text-[length:var(--text-xxs)] text-muted-foreground pointer-coarse:whitespace-normal">
-                          {[contentLabel(tor), tor.quality, tor.tracker, tor.client, t('notImported.files', { count: tor.file_count })]
-                            .filter(Boolean)
-                            .join(' · ')}
-                        </span>
-                        <div className="mt-1 flex flex-wrap items-center gap-1 sm:hidden">
-                          <CategoryBadge category={tor.category} />
-                          {tor.excluded && (
-                            <Badge variant="outline" className="h-auto py-0 font-mono text-[length:var(--text-xxs)] leading-4">
-                              {t('library.excluded')}
-                            </Badge>
-                          )}
-                          <span className="font-mono text-[length:var(--text-xxs)] text-muted-foreground tabular-nums">
-                            {formatBytes(tor.total_bytes)}
-                          </span>
-                        </div>
-                        {/* Ratio e tempo in seed: sotto lg le loro colonne sono nascoste, ma
-                            sono proprio quello che dice se un torrent si può togliere. */}
-                        <p className="mt-0.5 font-mono text-[length:var(--text-xxs)] text-muted-foreground tabular-nums lg:hidden">
-                          {t('notImported.ratio')} {tor.ratio != null ? tor.ratio.toFixed(2) : '—'}
-                          {' · '}
-                          {formatSeedTime(tor.seeding_time_seconds)}
-                        </p>
-                      </TableCell>
-                      <TableCell className="hidden sm:table-cell" title={tor.detail ?? undefined}>
-                        <div className="flex flex-wrap gap-1">
-                          <CategoryBadge category={tor.category} />
-                          {tor.excluded && (
-                            <Badge variant="outline" className="h-auto py-0 font-mono text-[length:var(--text-xxs)] leading-4">
-                              {t('library.excluded')}
-                            </Badge>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell className="hidden lg:table-cell" title={tor.replaced_by?.relative_path}>
-                        {tor.replaced_by ? (
-                          <span className="flex min-w-0 items-center gap-1.5">
-                            <ArrowRightIcon className="size-3 shrink-0 text-muted-foreground" />
-                            <span className="min-w-0">
-                              <span className="block truncate font-mono text-xs">{fileName(tor.replaced_by.relative_path)}</span>
-                              <span className="block truncate text-[length:var(--text-xxs)] text-muted-foreground">
-                                {[tor.replaced_by.quality, formatBytes(tor.replaced_by.size_bytes)].filter(Boolean).join(' · ')}
-                              </span>
-                            </span>
-                          </span>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">{tor.detail}</span>
-                        )}
-                      </TableCell>
-                      <TableCell className="hidden text-right font-mono text-xs tabular-nums sm:table-cell">{formatBytes(tor.total_bytes)}</TableCell>
-                      <TableCell className="hidden text-right font-mono text-xs tabular-nums lg:table-cell">
-                        {tor.ratio != null ? tor.ratio.toFixed(2) : '—'}
-                      </TableCell>
-                      <TableCell className="hidden text-right font-mono text-xs tabular-nums lg:table-cell">
-                        {formatSeedTime(tor.seeding_time_seconds)}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <span className="inline-flex items-center justify-end gap-1">
-                          <SeedRequirementCell requirement={tor.seed_requirement} warnings={tor.removal_warnings} />
-                          {canRemove(tor) && (
-                            <Button
-                              variant="ghost"
-                              size="icon-xs"
-                              title={t('notImported.remove.menu')}
-                              aria-label={t('notImported.remove.menu')}
-                              className="text-muted-foreground hover:text-red-600"
-                              onClick={(event) => {
-                                event.stopPropagation()
-                                setRemoving(tor)
-                              }}
-                            >
-                              <Trash2Icon className="size-3.5" />
-                            </Button>
-                          )}
-                        </span>
-                      </TableCell>
-                      {/* Le stesse voci del tasto destro, per chi è su touch. */}
-                      <TableCell className="px-1 text-right">
-                        <RowMenuButton items={items} title={tor.name} className="text-muted-foreground" />
-                      </TableCell>
-                    </TableRow>
-                    </RowContextMenu>
-                  )
-                })}
-              </TableBody>
+              <SharedRowContextMenu menuFor={menuFor} render={<TableBody />}>
+                {shown.slice(0, visible).map((tor) => (
+                  <NotImportedRow
+                    key={tor.client_torrent_id}
+                    tor={tor}
+                    withMenu={tor.source != null || canRemove(tor)}
+                    removable={canRemove(tor)}
+                    onOpen={openTorrent}
+                    onRemove={setRemoving}
+                    menu={menuHandle}
+                    popover={popoverHandle}
+                  />
+                ))}
+                {hasMore && (
+                  <TableRow ref={sentinelRef} aria-hidden>
+                    <TableCell colSpan={8} className="h-px p-0" />
+                  </TableRow>
+                )}
+              </SharedRowContextMenu>
             </Table>
           )}
         </CardContent>
       </Card>
       </>
       )}
+      <SharedRowMenu handle={menuHandle} menuFor={menuFor} />
+      <InfoPopoverHost handle={popoverHandle} />
       <ItemDetailSheet item={openItem} onClose={() => setOpenItem(null)} />
       <RemoveTorrentDialog torrent={removing} onClose={() => setRemoving(null)} />
     </div>

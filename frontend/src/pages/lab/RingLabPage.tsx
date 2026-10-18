@@ -8,9 +8,10 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
 
-// Pagina di prova del logo (route /lab/ring, fuori dalla navigazione, e
-// /ring-lab.html in sviluppo): l'anello in grande, alle misure della sidebar,
-// in una sidebar finta, e accanto l'immagine statica usata come ripiego.
+// Pagina di prova del logo, solo in sviluppo (/ring-lab.html con `npm run
+// dev`, ring-lab-main.tsx: non entra nella build): l'anello in grande, alle
+// misure della sidebar, in una sidebar finta, e accanto l'immagine statica
+// usata come ripiego.
 // Parametri: ?solo (solo l'anello grande), ?glow (acceso), ?export (usato da
 // scripts/render-ring.mjs per generare public/ring.png).
 

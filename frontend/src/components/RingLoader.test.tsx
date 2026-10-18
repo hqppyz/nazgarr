@@ -1,5 +1,5 @@
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { act, fireEvent, render, screen } from '@testing-library/react'
+import { describe, expect, it, vi } from 'vitest'
 
 import { useRingLoader } from '@/components/RingLoader'
 
@@ -13,8 +13,6 @@ function Page({ query }: { query: Query }) {
 }
 
 describe('useRingLoader', () => {
-  afterEach(cleanup)
-
   it('shows the ring while loading, then the page after the ring has gone', async () => {
     vi.useFakeTimers()
     const { rerender } = render(<Page query={base} />)

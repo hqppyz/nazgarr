@@ -1,5 +1,6 @@
 import { lazy, Suspense, useState, type Ref } from 'react'
 
+import { ErrorBoundary } from '@/components/ErrorBoundary'
 import type { RingHandle } from '@/components/ring/types'
 import { cn } from '@/lib/utils'
 
@@ -19,7 +20,11 @@ function canAnimate(): boolean {
   if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return false
   try {
     const canvas = document.createElement('canvas')
-    return !!(canvas.getContext('webgl2') ?? canvas.getContext('webgl'))
+    const gl = canvas.getContext('webgl2') ?? canvas.getContext('webgl')
+    // Solo una prova: il contesto si libera subito, invece di occupare uno
+    // dei pochi che il browser concede fino alla garbage collection.
+    gl?.getExtension('WEBGL_lose_context')?.loseContext()
+    return gl != null
   } catch {
     return false
   }
@@ -34,6 +39,7 @@ export function RingLogo({
   hoverable = true,
   spinSeconds,
   mode,
+  still: stillOnly = false,
 }: {
   size?: number
   className?: string
@@ -41,6 +47,8 @@ export function RingLogo({
   hoverable?: boolean
   spinSeconds?: number
   mode?: 'logo' | 'loader'
+  // Solo l'immagine statica, anche dove l'anello 3D si potrebbe animare.
+  still?: boolean
 }) {
   animated ??= canAnimate()
   const [ready, setReady] = useState(false)
@@ -51,10 +59,10 @@ export function RingLogo({
       height={size}
       alt=""
       draggable={false}
-      className={cn('pointer-events-none select-none', animated && 'absolute inset-0')}
+      className={cn('pointer-events-none select-none', animated && !stillOnly && 'absolute inset-0')}
     />
   )
-  if (!animated) {
+  if (!animated || stillOnly) {
     return (
       <span className={cn('inline-block shrink-0', className)} style={{ width: size, height: size }} role="img" aria-label="Nazgarr">
         {still}
@@ -64,9 +72,12 @@ export function RingLogo({
   return (
     <span className={cn('relative inline-block shrink-0', className)} style={{ width: size, height: size }}>
       {!ready && still}
-      <Suspense fallback={null}>
-        <WebGLRing size={size} handleRef={handleRef} hoverable={hoverable} spinSeconds={spinSeconds} mode={mode} onReady={() => setReady(true)} />
-      </Suspense>
+      {/* Il chunk di Three.js che non si scarica, o un errore dell'anello: resta l'immagine. */}
+      <ErrorBoundary fallback={() => null}>
+        <Suspense fallback={null}>
+          <WebGLRing size={size} handleRef={handleRef} hoverable={hoverable} spinSeconds={spinSeconds} mode={mode} onReady={() => setReady(true)} />
+        </Suspense>
+      </ErrorBoundary>
     </span>
   )
 }

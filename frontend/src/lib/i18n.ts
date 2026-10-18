@@ -1,5 +1,4 @@
-import { en, type MessageKey } from '@/locales/en'
-import { it } from '@/locales/it'
+import type { MessageKey } from '@/locales/en'
 
 /**
  * Dizionario leggero, niente libreria i18n pesante (react-i18next e simili):
@@ -11,15 +10,15 @@ import { it } from '@/locales/it'
  *
  * I placeholder nel template sono {nome}, sostituiti con params[nome] —
  * un array viene unito con ", ", tutto il resto passa per String(). Una
- * chiave assente ritorna l'inglese, poi la chiave stessa invece di
- * lanciare, così una UI mai perfettamente in sync col backend resta
- * comunque leggibile invece di rompersi.
+ * chiave assente ritorna la chiave stessa invece di lanciare, così una UI
+ * mai perfettamente in sync col backend resta comunque leggibile invece di
+ * rompersi. L'italiano ha per tipo ogni chiave dell'inglese
+ * (locales/it/index.ts): un'inglese di riserva non servirebbe mai.
  */
 export const LOCALES = ['en', 'it'] as const
 export type Locale = (typeof LOCALES)[number]
 export const LOCALE_NAMES: Record<Locale, string> = { en: 'English', it: 'Italiano' }
 const STORAGE_KEY = 'nazgarr-locale'
-const DICTIONARIES: Record<Locale, Record<string, string>> = { en, it }
 
 function detect(): Locale {
   try {
@@ -33,6 +32,13 @@ function detect(): Locale {
 }
 
 let current: Locale = detect()
+
+// Solo il dizionario della lingua scelta: l'altro (circa 150 KB, 45 KB gzip)
+// non si scarica né si analizza più a ogni caricamento (audit 2026-10-18).
+// Top-level await: ogni modulo che importa t() aspetta il dizionario prima
+// di eseguirsi, anche le etichette calcolate al caricamento (lib/nav.ts).
+const DICTIONARY: Record<string, string> =
+  current === 'it' ? (await import('@/locales/it')).it : (await import('@/locales/en')).en
 
 export function currentLocale(): Locale {
   return current
@@ -56,7 +62,7 @@ export function setLocale(locale: Locale): void {
 if (typeof document !== 'undefined') document.documentElement.lang = current
 
 export function t(key: MessageKey | (string & {}), params?: Record<string, unknown>): string {
-  const template = DICTIONARIES[current][key] ?? (en as Record<string, string>)[key] ?? key
+  const template = DICTIONARY[key] ?? key
   if (!params) return template
   return template.replace(/\{(\w+)\}/g, (match, name: string) => {
     if (!(name in params)) return match

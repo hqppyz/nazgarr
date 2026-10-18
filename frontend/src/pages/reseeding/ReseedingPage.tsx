@@ -1,5 +1,5 @@
 import { ChevronRightIcon, Loader2Icon, RotateCcwIcon, TrashIcon } from 'lucide-react'
-import { useState } from 'react'
+import { memo, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 
 import {
@@ -27,6 +27,7 @@ import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle }
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { ToggleGroupItem, ToggleGroupSingle } from '@/components/ui/toggle-group'
+import { useIncrementalCount } from '@/hooks/use-incremental'
 import { t } from '@/lib/i18n'
 import { formatBytes } from '@/lib/library-filters'
 import { episodeRanges, groupBySeason, seasonLabel } from '@/lib/reviewGroups'
@@ -206,7 +207,10 @@ function ReviewClientLabels({ review }: { review: Review }) {
   )
 }
 
-function ReviewRow({ review }: { review: Review }) {
+// memo: lo structural sharing di TanStack tiene lo stesso oggetto per una
+// review che non è cambiata, quindi dopo un'approvazione (la coda si
+// ricarica intera) si ridisegnano solo le righe toccate.
+const ReviewRow = memo(function ReviewRow({ review }: { review: Review }) {
   const [open, setOpen] = useState(false)
   const approve = useApproveReview()
   const reject = useRejectReview()
@@ -268,11 +272,17 @@ function ReviewRow({ review }: { review: Review }) {
       </CollapsibleContent>
     </Collapsible>
   )
+})
+
+// groupBySeason fa array nuovi a ogni render: la stessa stagione se le sue
+// review sono gli stessi oggetti, nello stesso ordine.
+function sameReviews(a: { reviews: Review[] }, b: { reviews: Review[] }): boolean {
+  return a.reviews.length === b.reviews.length && a.reviews.every((review, i) => review === b.reviews[i])
 }
 
 // Gli episodi singoli di una stagione sullo stesso tracker, in una riga: il
 // dettaglio di ognuno si apre sotto, perché non sempre ci sono tutti.
-function SeasonRow({ reviews }: { reviews: Review[] }) {
+const SeasonRow = memo(function SeasonRow({ reviews }: { reviews: Review[] }) {
   const [open, setOpen] = useState(false)
   const decide = useDecideReviews()
   const first = reviews[0]
@@ -349,10 +359,17 @@ function SeasonRow({ reviews }: { reviews: Review[] }) {
       </CollapsibleContent>
     </Collapsible>
   )
-}
+}, sameReviews)
+
+// Righe (stagioni o review) rese alla volta, altre scorrendo: una prima run
+// su una libreria grande può lasciare migliaia di review in coda.
+const REVIEWS_PAGE = 50
 
 function ReviewCard() {
   const { data: reviews, isPending } = useReviews()
+  const groups = useMemo(() => groupBySeason(reviews ?? []), [reviews])
+  // Mai da capo: dopo un'approvazione chi ha scorso resta dov'era.
+  const { visible, hasMore, sentinelRef } = useIncrementalCount<HTMLDivElement>(groups.length, REVIEWS_PAGE, 'queue')
 
   return (
     <Card data-tour="views.review">
@@ -361,13 +378,14 @@ function ReviewCard() {
       </CardHeader>
       <CardContent className="p-0">
         {isPending && <p className="p-3 text-sm text-muted-foreground">{t('common.loading')}</p>}
-        {groupBySeason(reviews ?? []).map((group) =>
+        {groups.slice(0, visible).map((group) =>
           group.length > 1 ? (
             <SeasonRow key={`season-${group[0].id}`} reviews={group} />
           ) : (
             <ReviewRow key={group[0].id} review={group[0]} />
           ),
         )}
+        {hasMore && <div ref={sentinelRef} aria-hidden className="h-px" />}
         {reviews?.length === 0 && <p className="p-3 text-sm text-muted-foreground">{t('reseeding.noPendingReviews')}</p>}
       </CardContent>
     </Card>

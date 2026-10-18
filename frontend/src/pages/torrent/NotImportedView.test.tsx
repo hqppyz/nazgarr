@@ -1,10 +1,15 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { NotImportedView } from '@/pages/torrent/NotImportedView'
 
 const remove = vi.fn()
+const navigate = vi.fn()
+vi.mock('react-router-dom', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('react-router-dom')>()),
+  useNavigate: () => navigate,
+}))
 
 const torrent = (id: number, category: string, name: string, extra = {}) => ({
   client_torrent_id: id, name, info_hash: `h${id}`, client: 'qbit', tracker: 'tracker.example', category,
@@ -26,6 +31,7 @@ vi.mock('@/api/hooks/library', () => ({
       summary: { superseded: { count: 1, total_bytes: 1e9 }, never_imported: { count: 1, total_bytes: 1e9 } },
       torrents: [
         torrent(1, 'superseded', 'Old.Movie.1080p.mkv', {
+          source: { disk_id: 2, relative_path: 'torrents/Old.Movie.1080p.mkv', is_dir: false },
           replaced_by: { relative_path: 'media/movies/Old Movie (2001)/Old.Movie.2160p.mkv', size_bytes: 5e10, quality: '2160p' },
           seed_requirement: { status: 'met', tracker_label: 'T', min_seed_time_seconds: 3 * 86_400, min_ratio: null, rule: 'any', remaining: {} },
         }),
@@ -48,7 +54,6 @@ vi.mock('@/api/hooks/library', () => ({
 }))
 vi.mock('@/pages/library/ItemDetailSheet', () => ({ ItemDetailSheet: () => null }))
 
-afterEach(cleanup)
 
 describe('NotImportedView', () => {
   it('shows each torrent with its reason and what replaced it, filterable by category', () => {
@@ -91,5 +96,27 @@ describe('NotImportedView', () => {
     expect(remove).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('button', { name: 'Remove and delete the files' }))
     expect(remove).toHaveBeenCalledWith(1, expect.anything())
+  })
+})
+
+describe('NotImportedView menus', () => {
+  it('opens the menu of the right torrent from a right click, and acts on it', async () => {
+    render(<MemoryRouter><NotImportedView /></MemoryRouter>)
+    fireEvent.contextMenu(screen.getByText('Old.Movie.1080p.mkv'))
+    const menu = await screen.findByRole('menu')
+    fireEvent.click(within(menu).getByText('Upload / reseed'))
+    expect(navigate).toHaveBeenCalledWith(expect.stringContaining('torrents%2FOld.Movie.1080p.mkv'))
+  })
+
+  it('offers the row button only to torrents with something to do', () => {
+    render(<MemoryRouter><NotImportedView /></MemoryRouter>)
+    // Old.Movie: upload e rimozione; gli altri: né sorgente né rimozione.
+    expect(screen.getAllByRole('button', { name: 'More actions' })).toHaveLength(1)
+  })
+
+  it('explains the seeding requirement in the shared popover', async () => {
+    render(<MemoryRouter><NotImportedView /></MemoryRouter>)
+    fireEvent.click(screen.getByText('4d left'))
+    expect(await screen.findByText(/T asks for/)).toBeTruthy()
   })
 })

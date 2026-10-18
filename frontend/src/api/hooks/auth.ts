@@ -4,6 +4,7 @@ import { api, unwrap } from '@/api/client'
 import type { Schemas } from '@/api/client'
 import { clearPersistedQueries } from '@/lib/queryPersistence'
 import { clearToken, setToken } from '@/lib/authToken'
+import { TOAST_ERRORS } from '@/lib/mutationErrors'
 
 export function useAuthStatus() {
   return useQuery({
@@ -63,6 +64,7 @@ export function useChangePassword() {
 export function useLogoutEverywhere() {
   const queryClient = useQueryClient()
   return useMutation({
+    meta: TOAST_ERRORS,
     mutationFn: () => unwrap(api.POST('/api/auth/logout-everywhere')),
     onSuccess: () => logout(queryClient),
   })

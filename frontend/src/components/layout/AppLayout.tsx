@@ -6,6 +6,8 @@ import { useSetting } from '@/api/hooks/settings'
 import { FloatingSlotContext } from '@/lib/floatingSlot'
 
 import { ActivityStack } from '@/components/ActivityStack'
+import { CrashPanel } from '@/components/CrashPanel'
+import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { AppSidebar } from '@/components/layout/AppSidebar'
 import { RunNowButton } from '@/components/RunNowButton'
 import { RunStatusIndicator } from '@/components/RunStatusIndicator'
@@ -61,6 +63,7 @@ function usePreloadPages() {
 export function AppLayout() {
   useSizeUnitsSync()
   usePreloadPages()
+  const { pathname } = useLocation()
   const [floatingSlot, setFloatingSlot] = useState<HTMLElement | null>(null)
   return (
     <FloatingSlotContext.Provider value={floatingSlot}>
@@ -82,7 +85,11 @@ export function AppLayout() {
               l'ultimo contenuto (es. il pulsante Approva di un upload). */}
           <div className="flex-1 overflow-auto p-4 pb-28 md:p-6 md:pb-28 lg:pb-6">
             <RemoteGate>
-              <Outlet />
+              {/* Una pagina che si rompe resta lì: menu, intestazione e pannelli
+                  restano, e cambiare pagina riprova. */}
+              <ErrorBoundary resetKey={pathname} fallback={({ error, reset }) => <CrashPanel error={error} onRetry={reset} />}>
+                <Outlet />
+              </ErrorBoundary>
             </RemoteGate>
           </div>
         </SidebarInset>

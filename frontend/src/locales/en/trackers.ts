@@ -41,8 +41,6 @@ export const trackers = {
   'trackers.emptyCustomProfile': 'Empty custom profile',
   'trackers.copiedFromBundled':
     'Copied from the bundled profile "{key}" — double-check the ids against your account before the first real upload.',
-  'trackers.descriptionTemplate': 'Description template (Jinja2)',
-  'trackers.namingRules': 'Naming rules',
   'trackers.customProfile': 'custom',
   'trackers.namingUpdateBadge': 'new rules available',
   'trackers.noUploadProfile': 'none: no uploads to this tracker',

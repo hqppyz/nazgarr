@@ -1,5 +1,5 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { fireEvent, render, screen } from '@testing-library/react'
+import { describe, expect, it, vi } from 'vitest'
 
 import type { Schemas } from '@/api/client'
 import { TrackerOverview } from '@/pages/library/TrackerOverview'
@@ -8,7 +8,6 @@ const navigate = vi.fn()
 vi.mock('react-router-dom', () => ({ useNavigate: () => navigate }))
 vi.mock('@/pages/config/ServiceIcons', () => ({ TrackerLogo: () => null }))
 
-afterEach(cleanup)
 
 const entry = { media_file_id: 1, season_number: null, episode_number: null, seed_path: 'torrents/public/M.mkv',
   client: 'qbit public', client_enabled: false, state: 'stalledUP', torrent: 'M' }

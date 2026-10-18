@@ -1,9 +1,10 @@
+import { QueryClient } from '@tanstack/react-query'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { GettingStartedCard } from '@/onboarding/GettingStartedCard'
-import { DEFAULT_STATE, parseState, type OnboardingState } from '@/onboarding/state'
+import { DEFAULT_STATE, ONBOARDING_SETTING, parseState, touringNow, type OnboardingState } from '@/onboarding/state'
 import { isDone, visibleSteps } from '@/onboarding/steps'
 import { WelcomeDialog } from '@/onboarding/WelcomeDialog'
 
@@ -30,7 +31,6 @@ beforeEach(() => {
   current = null
   steps = status([])
 })
-afterEach(cleanup)
 
 describe('onboarding state', () => {
   it('reads what was saved and ignores anything else', () => {
@@ -47,6 +47,21 @@ describe('onboarding state', () => {
     expect(keys).not.toContain('arr')
     const exclusions = visibleSteps(state).find((s) => s.key === 'exclusions')!
     expect(isDone(exclusions, undefined, state)).toBe(true)
+  })
+})
+
+describe('touringNow', () => {
+  it('asks for setup-status after a save only while the tour is open or never seen', () => {
+    const queryClient = new QueryClient()
+    expect(touringNow(queryClient)).toBe(true) // impostazione non ancora letta: come mai visto
+    const set = (state: Partial<OnboardingState>) =>
+      queryClient.setQueryData(['settings', ONBOARDING_SETTING], { value: JSON.stringify({ ...DEFAULT_STATE, ...state }) })
+    set({ status: 'active' })
+    expect(touringNow(queryClient)).toBe(true)
+    set({ status: 'dismissed' })
+    expect(touringNow(queryClient)).toBe(false)
+    set({ status: 'done' })
+    expect(touringNow(queryClient)).toBe(false)
   })
 })
 
