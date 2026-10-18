@@ -29,7 +29,6 @@ from typing import NamedTuple
 from sqlalchemy import exists, func, select
 from sqlalchemy.orm import Session, selectinload
 
-from nazgarr.adapters.torrent_client.base import TorrentClientAdapter
 from nazgarr.core import settings_registry
 from nazgarr.core.errors import CodedError
 from nazgarr.core.logs import safe_error
@@ -66,12 +65,14 @@ from nazgarr.library.seeding import (
 )
 from nazgarr.reseed import full_check
 from nazgarr.reseed.executor import (
+    MISSING_TORRENT_GRACE,
     ExecutionError,
     adopt_for_retry,
     execute_review,
     reconcile_seed_job,
     retry_from_scratch,
     review_of,
+    torrent_missing,
 )
 from nazgarr.torrents import client_labels
 
@@ -1276,30 +1277,15 @@ def reconcile_pending_seed_jobs(session: Session, progress=NULL_PROGRESS) -> dic
     return {"reconciled": reconciled, "errors": errors}
 
 
-# Quanto si aspetta un torrent che il client dice di non avere prima di dare
-# l'esecuzione per fallita: un client appena riavviato può non averlo ancora
-# ricaricato.
-MISSING_TORRENT_GRACE = timedelta(minutes=10)
-
-
 def _client_enabled(session: Session, torrent_client_id: int) -> bool:
     row = session.get(TorrentClient, torrent_client_id)
     return row is not None and bool(row.enabled)
 
 
 def _missing_from_client(adapter, seed_job: SeedJob) -> bool:
-    """Il client risponde, e quel torrent non ce l'ha (get_torrent_info None,
-    il contratto degli adapter). Un client che non risponde non è "mancante",
-    e nemmeno uno il cui adapter non sa cercare un torrent solo: il None di
-    default di TorrentClientAdapter.get_torrent_info non chiede niente al
-    client (un plugin), e un client irraggiungibile diventava "il torrent non
-    c'è più", con l'esecuzione fallita e la notifica."""
-    if getattr(type(adapter), "get_torrent_info", None) is TorrentClientAdapter.get_torrent_info:
-        return False
-    try:
-        return adapter.get_torrent_info(seed_job.info_hash) is None
-    except Exception:
-        return False
+    """Il client risponde, e quel torrent non ce l'ha (executor.torrent_missing,
+    lo stesso controllo del flusso degli upload)."""
+    return torrent_missing(adapter, seed_job.info_hash)
 
 
 def _added_before(seed_job: SeedJob, grace: timedelta) -> bool:

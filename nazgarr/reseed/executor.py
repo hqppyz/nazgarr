@@ -30,7 +30,7 @@ import os
 import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.orm import Session
 
@@ -708,6 +708,35 @@ def stop_torrent(adapter: TorrentClientAdapter, info_hash: str) -> tuple[str, Ex
     except Exception as exc:
         return "failed", exc
     return "stopped", None
+
+
+# Quanto si aspetta un torrent che il client dice di non avere prima di
+# darlo per sparito: un client appena riavviato può non averlo ancora
+# ricaricato. Per i reseed del motore (review.reconcile_pending_seed_jobs)
+# e per quelli del flusso degli upload (nazgarr/upload/execute.py).
+MISSING_TORRENT_GRACE = timedelta(minutes=10)
+
+
+def can_look_up_torrent(adapter: TorrentClientAdapter) -> bool:
+    """L'adapter sa chiedere al client un torrent solo: il None di default di
+    TorrentClientAdapter.get_torrent_info non chiede niente al client (un
+    plugin), e lì None non vuol dire "non c'è"."""
+    method = getattr(type(adapter), "get_torrent_info", None)
+    return method is not None and method is not TorrentClientAdapter.get_torrent_info
+
+
+def torrent_missing(adapter: TorrentClientAdapter, info_hash: str) -> bool:
+    """Il client risponde, e quel torrent non ce l'ha (get_torrent_info None,
+    il contratto degli adapter). Un client che non risponde non è "mancante",
+    e nemmeno uno il cui adapter non sa cercare un torrent solo
+    (can_look_up_torrent): un client irraggiungibile diventava "il torrent
+    non c'è più", con l'esecuzione fallita e la notifica."""
+    if not can_look_up_torrent(adapter):
+        return False
+    try:
+        return adapter.get_torrent_info(info_hash) is None
+    except Exception:
+        return False
 
 
 def _start_after_recheck(adapter: TorrentClientAdapter, seed_job: SeedJob) -> bool:

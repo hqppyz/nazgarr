@@ -2,13 +2,18 @@ import io
 import json
 import os
 import types
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
 import torf
 
-from nazgarr.adapters.torrent_client.base import ClientTorrentFileInfo, ClientTorrentInfo
+from nazgarr.adapters.torrent_client.base import (
+    ClientTorrentFileInfo,
+    ClientTorrentInfo,
+    TorrentAlreadyInClientError,
+    TorrentClientAdapter,
+)
 from nazgarr.adapters.tracker.base import UploadedTorrent, UploadError
 from nazgarr.core.models import Disk, TrackerUploadProfile
 from nazgarr.torrents import create as torrent_create
@@ -396,6 +401,26 @@ def _events(job, code):
     return [json.loads(e.params_json or "{}") for e in job.events if e.code == code]
 
 
+@pytest.fixture(autouse=True)
+def _no_missing_memory():
+    """Da quando manca un torrent è in memoria nel modulo: da zero a ogni test."""
+    upload_execute._missing_since.clear()
+    yield
+    upload_execute._missing_since.clear()
+
+
+def _missing_for(db_session, job, target, minutes, since_hold=True):
+    """Il torrent manca da `minutes` minuti per questo processo; since_hold:
+    anche l'ultima messa in attesa è di allora."""
+    past = datetime.now(UTC) - timedelta(minutes=minutes)
+    upload_execute._missing_since[target.id] = past
+    if since_hold:
+        for event in job.events:
+            if event.target_id == target.id:
+                event.created_at = past.replace(tzinfo=None)
+        db_session.commit()
+
+
 def test_a_reseed_enters_the_client_stopped_and_starts_after_its_recheck(db_session, tmp_path, env):
     """Avviato, con un recheck fallito il client scaricava i piece mancanti
     dentro gli hardlink, cioè nei file della libreria."""
@@ -518,6 +543,11 @@ def test_a_reseed_whose_torrent_left_the_client_is_added_again_on_retry(db_sessi
     target = job.targets[0]
     del client.save_paths[target.info_hash]  # tolto a mano dal client
 
+    # Prima, MISSING_TORRENT_GRACE di fila (audit 2026-10-18): un client
+    # appena riavviato può non averlo ancora ricaricato.
+    upload_execute.reconcile_held_seeds(db_session)
+    assert target.error_message == "seed_recheck_pending"
+    _missing_for(db_session, job, target, minutes=11)
     upload_execute.reconcile_held_seeds(db_session)
     assert target.error_message == "seed_recheck_failed"
     assert "seed_recheck_torrent_gone" in [e.code for e in job.events]
@@ -526,6 +556,103 @@ def test_a_reseed_whose_torrent_left_the_client_is_added_again_on_retry(db_sessi
 
     assert client.added == [(target.torrent_path, str(env["root"] / "torrents"))] * 2
     assert client.stopped_adds == [True, True] and target.error_message == "seed_recheck_pending"
+
+
+def test_a_held_torrent_missing_right_after_a_restart_is_not_given_up(db_session, tmp_path, env):
+    """Audit 2026-10-18: un riavvio di tutto il compose, il reconcile dopo
+    30 secondi e il client che ricarica ancora i suoi torrent. Anche con
+    l'aggiunta di un'ora fa, il torrent manca da poco per questo processo:
+    resta in attesa, e quando il client l'ha ricaricato il recheck conta."""
+    job, _video = _reseed_job(db_session, tmp_path, env)
+    client = env["client"]
+    client.can_add_stopped = True
+    _run(db_session, tmp_path, job)
+    target = job.targets[0]
+    save_path = client.save_paths.pop(target.info_hash)  # il client non l'ha ancora ricaricato
+    _missing_for(db_session, job, target, minutes=60)
+    upload_execute._missing_since.clear()  # Nazgarr riavviato: non l'aveva mai visto mancare
+
+    upload_execute.reconcile_held_seeds(db_session)
+    assert target.error_message == "seed_recheck_pending"
+    assert "seed_recheck_torrent_gone" not in [e.code for e in job.events]
+
+    client.save_paths[target.info_hash] = save_path  # ricaricato
+    upload_execute.reconcile_held_seeds(db_session)
+    assert target.error_message is None and client.started == [target.info_hash]
+    assert target.id not in upload_execute._missing_since
+
+
+class _PluginLikeClient(_Client):
+    """Un plugin che get_torrent_info non ce l'ha: il None di default della
+    classe base non chiede niente al client."""
+
+    get_torrent_info = TorrentClientAdapter.get_torrent_info
+
+
+def test_a_plugin_that_cannot_look_up_one_torrent_never_reads_as_gone(db_session, tmp_path, env):
+    """Audit 2026-10-18: lì ogni errore passeggero di get_torrent_status
+    diventava "il torrent non c'è più", e il nuovo tentativo lo riaggiungeva
+    (upload_already_in_client)."""
+    job, _video = _reseed_job(db_session, tmp_path, env)
+    client = env["client"]
+    client.can_add_stopped, client.held_recheck = True, "failed"
+    _run(db_session, tmp_path, job)
+    target = job.targets[0]
+    client.__class__ = _PluginLikeClient
+    save_path = client.save_paths.pop(target.info_hash)  # get_torrent_status solleva
+    _missing_for(db_session, job, target, minutes=60)
+
+    upload_execute.reconcile_held_seeds(db_session)
+    assert target.error_message == "seed_recheck_pending"
+
+    client.save_paths[target.info_hash] = save_path
+    upload_execute.reconcile_held_seeds(db_session)
+    assert target.error_message == "seed_recheck_failed"
+    # "Riprova il seed": senza poter cercare il torrent, solo il recheck, mai una seconda aggiunta.
+    upload_execute.retry_seed(db_session, job, target)
+    assert client.rechecked == [target.info_hash] and len(client.added) == 1
+    assert target.error_message == "seed_recheck_pending"
+
+
+def test_a_running_torrent_already_in_the_client_is_stopped_before_its_recheck(
+        db_session, tmp_path, env, monkeypatch):
+    """Audit 2026-10-18: con hold, uno già nel client e avviato (aggiunto a
+    mano, o da un tentativo di prima, che li aggiungeva avviati) veniva
+    solo ricontrollato, e con il recheck fallito riprendeva subito a
+    scaricare dentro gli hardlink."""
+    job, _video = _reseed_job(db_session, tmp_path, env)
+    client = env["client"]
+    client.can_add_stopped, client.held_recheck = True, "failed"
+    expected = compute_info_hash(env["trackers"]["a"].torrent_bytes)
+    client.save_paths[expected] = str(env["root"] / "torrents")
+    client.started = [expected]  # gira
+    calls = []
+    real_recheck = client.recheck
+
+    def add(torrent_file, save_path, expected_info_hash=None, **kwargs):
+        raise TorrentAlreadyInClientError("already there")
+
+    def stop(info_hash):
+        calls.append(("stop", info_hash))
+        client.started.remove(info_hash)
+
+    def recheck(info_hash):
+        calls.append(("recheck", info_hash))
+        real_recheck(info_hash)
+
+    def start(info_hash):
+        raise AssertionError("mai avviato in attesa del recheck")
+
+    monkeypatch.setattr(client, "add_torrent", add)
+    client.stop, client.recheck, client.start = stop, recheck, start
+
+    _run(db_session, tmp_path, job)
+
+    target = job.targets[0]
+    assert calls == [("stop", expected), ("recheck", expected)]
+    assert target.error_message == "seed_recheck_pending" and client.started == []
+    upload_execute.reconcile_held_seeds(db_session)
+    assert target.error_message == "seed_recheck_failed" and client.started == []
 
 
 def test_after_a_failed_recheck_the_files_the_client_renamed_get_their_name_back(db_session, tmp_path, env):
@@ -1609,8 +1736,6 @@ def test_the_client_waits_for_this_exact_torrent_and_one_already_there_is_kept(
     """Senza l'info hash atteso qBittorrent prendeva per il nostro un torrent
     qualunque comparso nel frattempo; con, un duplicato è un errore chiaro:
     qui il primo tentativo era arrivato nel client prima di fallire."""
-    from nazgarr.adapters.torrent_client.base import TorrentAlreadyInClientError
-
     video = write_video(env["root"] / "media" / "The.Matrix.1999.mkv", 300 * KB)
     job = _approved(db_session, env, "media/" + video.name, {"a": _upload("A"), "b": {"action": "skip"}})
     client = env["client"]
@@ -1641,8 +1766,6 @@ def test_the_client_waits_for_this_exact_torrent_and_one_already_there_is_kept(
 
 
 def test_a_torrent_already_in_the_client_elsewhere_is_not_taken(db_session, tmp_path, env, monkeypatch):
-    from nazgarr.adapters.torrent_client.base import TorrentAlreadyInClientError
-
     job, _video = _reseed_job(db_session, tmp_path, env)
     client = env["client"]
 

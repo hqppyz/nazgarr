@@ -62,7 +62,15 @@ from nazgarr.integrations import adapter_factory
 from nazgarr.integrations.adapter_factory import ImageHostConfigError
 from nazgarr.library import disk_folders, hardlinks, seed_refresh
 from nazgarr.library import mediainfo as mediainfo_util
-from nazgarr.reseed.executor import client_visible_path, recheck_outcome, start_torrent, stop_torrent
+from nazgarr.reseed.executor import (
+    MISSING_TORRENT_GRACE,
+    can_look_up_torrent,
+    client_visible_path,
+    recheck_outcome,
+    start_torrent,
+    stop_torrent,
+    torrent_missing,
+)
 from nazgarr.torrents import client_labels, partial_files
 from nazgarr.torrents.layout import expected_missing_bytes
 from nazgarr.torrents.metainfo import compute_info_hash, parse_torrent_info
@@ -587,17 +595,39 @@ def _keep_existing(session: Session, job: UploadJob, target: UploadTarget, adapt
     """Il client ha già questo torrent: un tentativo precedente arrivato fin
     lì (un errore dopo l'aggiunta, un riavvio), o aggiunto a mano. Si tiene
     quello, con un recheck, se usa proprio il percorso di seed; altrove no:
-    niente si sposta da solo. Con hold solo il recheck: lo avvia
+    niente si sposta da solo. Con hold solo il recheck, fermo: lo avvia
     reconcile_held_seeds se riesce."""
     info = adapter.get_torrent_info(info_hash)
     seen = os.path.normpath(info.save_path) if info is not None and info.save_path else None
     if seen != os.path.normpath(visible):
         raise UploadJobError("upload_already_in_client", client=client, path=seen or "?")
+    if hold:
+        _stop_before_recheck(adapter, info_hash, job.id, client)
     adapter.recheck(info_hash)
     if not hold:
         adapter.start(info_hash)
         upload_jobs.log_event(session, job, "already_in_client", target=target, client=client)
     return info_hash
+
+
+def _stop_before_recheck(adapter, info_hash: str, job_id: int, client: str) -> None:
+    """Prima del recheck di un torrent in attesa (hold) che il client ha
+    già: uno avviato (aggiunto a mano, da un tentativo di prima del
+    2026-10-19, che lo aggiungeva avviato, o avviato a mano dopo un recheck
+    fallito) con il recheck fallito riprenderebbe subito a scaricare dentro
+    gli hardlink, fino al reconcile dopo (audit 2026-10-18). Se non si
+    ferma lo dice il log; il reconcile riprova a fermarlo se il recheck
+    fallisce."""
+    try:
+        state = adapter.get_torrent_status(info_hash).state
+    except Exception:
+        state = None  # non si sa: fermarlo non costa niente
+    if is_stopped_state(state):
+        return
+    result, error = stop_torrent(adapter, info_hash)
+    if result != "stopped":
+        logger.warning("Upload %s: %s non fermato in %s prima del recheck (%s)", job_id, info_hash, client, result,
+                       exc_info=error)
 
 
 # Un torrent aggiunto fermo dal flusso degli upload (hold), in attesa
@@ -804,11 +834,15 @@ def _recheck_held(session: Session, job: UploadJob, target: UploadTarget) -> boo
     adapter = adapter_factory.build_torrent_client_adapter(row)
     try:
         try:
-            if adapter.get_torrent_info(target.info_hash) is None:
+            # Un adapter che non sa cercare un torrent solo (un plugin col
+            # default di get_torrent_info) direbbe sempre "non c'è": lì solo
+            # il recheck, e un torrent che non c'è più lo rifiuta il client.
+            if can_look_up_torrent(adapter) and adapter.get_torrent_info(target.info_hash) is None:
                 return False
             recheck = getattr(adapter, "recheck", None)
             if not callable(recheck):
                 raise NotImplementedError
+            _stop_before_recheck(adapter, target.info_hash, job.id, row.label)
             recheck(target.info_hash)
         except NotImplementedError as exc:
             raise UploadJobError("upload_seed_retry_failed",
@@ -1065,15 +1099,19 @@ def _reconcile_held(session: Session, job: UploadJob, target: UploadTarget, data
         try:
             status = adapter.get_torrent_status(target.info_hash)
         except Exception:
-            if _gone_from(adapter, target.info_hash):
+            if not torrent_missing(adapter, target.info_hash):
+                logger.warning("Upload %s: stato di %s non letto in %s", job.id, target.info_hash, client,
+                               exc_info=True)
+            elif not _missing_long_enough(job, target):
+                logger.info("Upload %s: %s non (ancora) in %s, riprovo dopo", job.id, target.info_hash, client)
+            else:
+                _missing_since.pop(target.id, None)
                 target.error_message = SEED_RECHECK_FAILED
                 upload_jobs.log_event(session, job, "seed_recheck_torrent_gone", level="error", target=target,
                                       client=client)
                 session.commit()
-            else:
-                logger.warning("Upload %s: stato di %s non letto in %s", job.id, target.info_hash, client,
-                               exc_info=True)
             return
+        _missing_since.pop(target.id, None)
         outcome = recheck_outcome(status, _hold_params(job, target).get("allowed"))
         if outcome == "pending":
             return
@@ -1106,12 +1144,28 @@ def _reconcile_held(session: Session, job: UploadJob, target: UploadTarget, data
         adapter_factory.close_adapter(adapter)
 
 
-def _gone_from(adapter, info_hash: str) -> bool:
-    """Il client risponde, e non ha il torrent (False se non si sa)."""
-    try:
-        return adapter.get_torrent_info(info_hash) is None
-    except Exception:
-        return False
+# Da quando questo processo vede mancare dal client il torrent di un
+# target in attesa (id del target -> momento). Sparito solo dopo
+# MISSING_TORRENT_GRACE di fila, contati anche dall'ultima messa in attesa,
+# come i reseed del motore (audit 2026-10-18): un client appena riavviato
+# (un riavvio di tutto il compose, con il reconcile dopo 30 secondi) può
+# non aver ancora ricaricato i suoi torrent, e il target restava fallito
+# con un recheck che sarebbe riuscito. Solo in memoria: dopo un riavvio di
+# Nazgarr si riparte da capo, e aspettare costa solo l'attesa (il torrent
+# è fermo).
+_missing_since: dict[int, datetime] = {}
+# Gli eventi dopo cui il torrent di un target è (di nuovo) in attesa.
+_HELD_AGAIN_EVENTS = (*_HOLD_EVENTS, "seed_recheck_requested")
+
+
+def _missing_long_enough(job: UploadJob, target: UploadTarget) -> bool:
+    now = datetime.now(UTC)
+    since = _missing_since.setdefault(target.id, now)
+    held = max((e.created_at for e in job.events if e.target_id == target.id and e.code in _HELD_AGAIN_EVENTS
+                and e.created_at is not None), default=None)
+    if held is not None:
+        since = max(since, held if held.tzinfo is not None else held.replace(tzinfo=UTC))
+    return now - since >= MISSING_TORRENT_GRACE
 
 
 def _restore_partial_names(job: UploadJob, target: UploadTarget, adapter, data_dir: str | None) -> list[str]:
