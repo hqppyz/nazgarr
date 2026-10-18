@@ -58,8 +58,30 @@ def test_a_stored_timeout_that_is_not_positive_falls_back_to_the_default():
 
     from nazgarr.integrations.arr import DEFAULT_TIMEOUT_SECONDS, timeout_of
 
-    assert [timeout_of(SimpleNamespace(timeout_seconds=v)) for v in (-5, 0, None, 40)] == [
-        DEFAULT_TIMEOUT_SECONDS, DEFAULT_TIMEOUT_SECONDS, DEFAULT_TIMEOUT_SECONDS, 40]
+    assert [timeout_of(SimpleNamespace(timeout_seconds=v)) for v in (-5, 0, None, 40, 1000)] == [
+        DEFAULT_TIMEOUT_SECONDS, DEFAULT_TIMEOUT_SECONDS, DEFAULT_TIMEOUT_SECONDS, 40, 300]
+
+
+def test_a_stored_timeout_outside_the_bounds_does_not_block_other_edits(client):
+    """L'API mostra il timeout in uso, non quello grezzo: il form lo rimanda a
+    ogni modifica, e un -5 salvato prima dei limiti faceva fallire con 422
+    anche un cambio di nome."""
+    from nazgarr.core.models import RadarrInstance
+
+    for stored, shown in ((-5, 15), (1000, 300)):
+        instance_id = client.post(
+            "/api/radarr-instances", json={"label": f"t{stored}", "base_url": "http://radarr", "api_key": "k"},
+        ).json()["id"]
+        with client.app.state.session_factory() as session:
+            session.get(RadarrInstance, instance_id).timeout_seconds = stored
+            session.commit()
+
+        listed = next(i for i in client.get("/api/radarr-instances").json() if i["id"] == instance_id)
+        assert listed["timeout_seconds"] == shown
+        edit = client.patch(
+            f"/api/radarr-instances/{instance_id}", json={"label": f"renamed{stored}", "timeout_seconds": listed["timeout_seconds"]},
+        )
+        assert edit.status_code == 200, edit.text
 
 
 def test_clearing_basic_auth_username_removes_it(client):

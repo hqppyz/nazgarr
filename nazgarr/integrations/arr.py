@@ -51,6 +51,8 @@ HISTORY_PAGE_SIZE = 1000
 SERIES_WORKERS = 8
 HISTORY_WORKERS = 4
 DEFAULT_TIMEOUT_SECONDS = 15
+# Il timeout più lungo accettato dall'API (5 minuti, audit 2026-10-18).
+TIMEOUT_MAX_SECONDS = 300
 # Una risposta di Radarr/Sonarr letta con un tetto (nazgarr/core/http_limits.py):
 # l'elenco dei film di Radarr è la più grande, qualche KB per film, quindi
 # decine di MB per una libreria molto grande; ben sotto, e lontano da un
@@ -185,10 +187,14 @@ class ArrIndex:
 
 def timeout_of(instance) -> int:
     """Il timeout salvato di un'istanza, o quello di default se manca o non è
-    positivo: una riga di prima dei limiti dell'API (audit 2026-10-18) con un
-    valore negativo faceva fallire ogni chiamata."""
+    positivo, e al massimo TIMEOUT_MAX_SECONDS: una riga di prima dei limiti
+    dell'API (audit 2026-10-18) con un valore negativo faceva fallire ogni
+    chiamata. È anche quello che l'API mostra (ArrInstanceResponse), così il
+    form rimanda un valore che passa la validazione."""
     value = instance.timeout_seconds
-    return value if isinstance(value, int) and value > 0 else DEFAULT_TIMEOUT_SECONDS
+    if not isinstance(value, int) or value <= 0:
+        return DEFAULT_TIMEOUT_SECONDS
+    return min(value, TIMEOUT_MAX_SECONDS)
 
 
 class ArrApi:

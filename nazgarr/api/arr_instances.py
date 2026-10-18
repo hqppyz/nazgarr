@@ -25,11 +25,11 @@ from nazgarr.integrations import arr_webhooks
 from nazgarr.web.deps import get_session
 
 DEFAULT_PRIORITY = 0
-DEFAULT_TIMEOUT_SECONDS = 15
+DEFAULT_TIMEOUT_SECONDS = arr_api.DEFAULT_TIMEOUT_SECONDS
 # Secondi di attesa di una risposta: da 1 a 5 minuti. Un valore negativo
 # arrivava a httpx come timeout non valido, e ogni chiamata a quell'istanza
 # falliva con un errore che non diceva perché (audit 2026-10-18).
-TIMEOUT_MAX_SECONDS = 300
+TIMEOUT_MAX_SECONDS = arr_api.TIMEOUT_MAX_SECONDS
 # /system/status è qualche KB: una risposta più grande non è Radarr/Sonarr.
 MAX_STATUS_BYTES = 1024 * 1024
 
@@ -99,7 +99,10 @@ class ArrInstanceResponse(BaseModel):
             id=row.id, label=row.label, base_url=row.base_url, insecure_public_url=insecure_public_url(row.base_url),
             enabled=row.enabled,
             priority=row.priority if row.priority is not None else DEFAULT_PRIORITY,
-            timeout_seconds=row.timeout_seconds if row.timeout_seconds is not None else DEFAULT_TIMEOUT_SECONDS,
+            # Quello in uso, non il valore grezzo: una riga di prima dei limiti
+            # (negativo, o sopra i 5 minuti) riempiva il form con un numero che,
+            # rimandato, faceva fallire con 422 ogni altra modifica.
+            timeout_seconds=arr_api.timeout_of(row),
             basic_auth_username=row.basic_auth_username,
             webhook_enabled=bool(row.webhook_token),
             webhook_last_event=ArrWebhookEventSummary(
