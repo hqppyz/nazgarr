@@ -612,9 +612,11 @@ def second_format_media_files(
     if not missing:
         return []
     latest = latest_scan_by_disk(session, MediaFile)
+    # Per id solo in una ricerca mirata: nella run gli episodi in seed in un
+    # formato solo possono essere decine di migliaia, troppi per una IN.
     return [
         (mf, frozenset(missing[mf.id]))
-        for mf in _media_files(session, set(missing)).all()
+        for mf in _media_files(session, media_file_ids).all()
         if mf.id in missing
         and is_episode(mf.media_item)
         and is_current(mf, latest)
