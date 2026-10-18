@@ -29,20 +29,24 @@ function useAuthedImage(url: string, enabled: boolean) {
   useEffect(() => {
     if (!visible) return
     let objectUrl: string | null = null
-    let cancelled = false
+    // La card smontata (un filtro, un'altra pagina) prima che il poster
+    // arrivi: la richiesta si interrompe invece di finire per niente.
+    const controller = new AbortController()
     const token = getToken()
     // L'upload di esempio del tour: il suo poster non si chiede mai al server.
     const demo = demoResponse(new Request(new URL(url, window.location.origin)))
-    ;(demo ? Promise.resolve(demo) : fetch(instancePath(url), { headers: token ? { Authorization: `Bearer ${token}` } : {} }))
+    ;(demo
+      ? Promise.resolve(demo)
+      : fetch(instancePath(url), { headers: token ? { Authorization: `Bearer ${token}` } : {}, signal: controller.signal }))
       .then((response) => (response.ok ? response.blob() : Promise.reject(new Error(String(response.status)))))
       .then((blob) => {
-        if (cancelled) return
+        if (controller.signal.aborted) return
         objectUrl = URL.createObjectURL(blob)
         setSrc(objectUrl)
       })
-      .catch(() => !cancelled && setFailed(true))
+      .catch(() => !controller.signal.aborted && setFailed(true))
     return () => {
-      cancelled = true
+      controller.abort()
       if (objectUrl) URL.revokeObjectURL(objectUrl)
     }
   }, [url, visible])
@@ -72,7 +76,9 @@ export function AuthedPoster({
   return (
     <div ref={ref} className={cn('bg-muted', className)}>
       {src && !failed ? (
-        <img src={src} alt="" className="h-full w-full object-cover" />
+        // Decodificata fuori dal thread principale: una griglia di poster non
+        // blocca lo scorrimento mentre arrivano.
+        <img src={src} alt="" decoding="async" className="h-full w-full object-cover" />
       ) : (
         <div className="flex h-full w-full items-center justify-center text-muted-foreground">
           <ImageOffIcon className="size-6" />
@@ -88,7 +94,7 @@ export function AuthedImage({ url, className, fallback }: { url: string; classNa
   const { ref, src, failed } = useAuthedImage(url, true)
   return (
     <div ref={ref} className={cn('flex shrink-0 items-center justify-center overflow-hidden', className)}>
-      {src && !failed ? <img src={src} alt="" className="size-full object-contain" /> : fallback}
+      {src && !failed ? <img src={src} alt="" decoding="async" className="size-full object-contain" /> : fallback}
     </div>
   )
 }
