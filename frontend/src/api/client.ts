@@ -20,9 +20,10 @@ export const api = createClient<paths>({ baseUrl: '' })
 
 // Allega il token a ogni richiesta. Il login è obbligatorio (nazgarr/web/auth.py,
 // mai una modalità aperta): senza token ogni endpoint fuori da /api/auth
-// risponde 401. Un 401 vuol dire sessione scaduta o revocata: il token viene
-// scartato, AuthGate lo rileva al prossimo controllo e rimanda al login,
-// invece di continuare a mandare un token ormai invalido.
+// risponde 401. Un 401 con il codice di una sessione scaduta o revocata
+// scarta il token: AuthGate lo rileva al prossimo controllo e rimanda al
+// login, invece di continuare a mandare un token ormai invalido. Gli altri
+// 401 non toccano la sessione (isSessionFailure).
 api.use({
   onRequest({ request }) {
     // L'upload di esempio del tour: le sue richieste non arrivano mai al server.
@@ -39,22 +40,24 @@ api.use({
     }
     return request
   },
-  async onResponse({ request, response }) {
-    if (response.status === 401 && (await isSessionFailure(request, response))) clearToken()
+  async onResponse({ response }) {
+    if (response.status === 401 && (await isSessionFailure(response))) clearToken()
     return response
   },
 })
 
 // Le due risposte di questa istanza a una sessione che non vale più
-// (nazgarr/web/auth.py::require_auth).
+// (nazgarr/web/auth.py::require_auth, nazgarr/api/auth.py::me).
 const SESSION_CODES = new Set(['auth_required', 'auth_setup_required'])
 
-// Un 401 attraverso il proxy di un'altra istanza può essere di quella: la sua
-// API key cambiata o revocata (api_key_invalid). La sessione qui è ancora
-// buona, e scartare il token butterebbe fuori anche da questa istanza a ogni
-// chiamata. Solo i codici di una sessione scaduta qui scartano il token.
-async function isSessionFailure(request: Request, response: Response): Promise<boolean> {
-  if (!new URL(request.url).pathname.startsWith('/api/remote/')) return true
+// Non ogni 401 è una sessione finita: la password attuale sbagliata nel
+// cambio password (auth_wrong_current_password) o al login
+// (auth_invalid_credentials), o, attraverso il proxy di un'altra istanza, la
+// sua API key cambiata o revocata (api_key_invalid). Scartare il token lì
+// butterebbe fuori da questa istanza per un errore di battitura o per
+// un'istanza remota. Solo i codici di una sessione scaduta scartano il token,
+// locali o remoti che siano (audit 2026-10-18).
+async function isSessionFailure(response: Response): Promise<boolean> {
   try {
     const body = (await response.clone().json()) as { detail?: { code?: unknown } } | null
     const code = body?.detail?.code

@@ -42,6 +42,18 @@ describe('api client middleware', () => {
     expect(getToken()).toBeNull()
   })
 
+  it('keeps the token when this instance refuses only the current password', async () => {
+    setToken('tok')
+    const { fetch } = serve(401, { detail: { code: 'auth_wrong_current_password' } })
+    const { response } = await api.POST('/api/auth/change-password', {
+      baseUrl: BASE,
+      fetch,
+      body: { current_password: 'typo', new_password: 'longenough' },
+    })
+    expect(response.status).toBe(401)
+    expect(getToken()).toBe('tok')
+  })
+
   it('keeps the token when another instance refuses its API key', async () => {
     setToken('tok')
     localStorage.setItem('nazgarr-instance', '3')
