@@ -90,12 +90,41 @@ def test_movie_and_tv_with_the_same_title_are_different_cache_entries(db_session
     assert inner.tv_calls == 1
 
 
-def test_a_miss_is_never_cached_and_is_retried_on_the_next_call(db_session):
+def test_a_miss_is_remembered_for_a_while_but_never_stored(db_session, monkeypatch):
+    """Ogni episodio di una serie che TMDB non trova rifaceva la stessa
+    ricerca, a ogni run (audit 2026-10-18): ora un miss resta in memoria per
+    MISS_TTL_SECONDS, anche fra una run e l'altra (un nuovo
+    CachingTMDBClient), mai nella tabella; scaduto, si cerca di nuovo."""
+    from nazgarr.library import tmdb_cache
+
+    clock = [1000.0]
+    monkeypatch.setattr(tmdb_cache.time, "monotonic", lambda: clock[0])
     inner = _CountingClient(tv_result=None)
-    client = CachingTMDBClient(db_session, inner)
 
-    assert client.search_tv("Nonexistent Show", 2099) is None
-    assert client.search_tv("Nonexistent Show", 2099) is None
-
-    assert inner.tv_calls == 2
+    for _ in range(24):  # una stagione intera di una serie che TMDB non ha
+        assert CachingTMDBClient(db_session, inner).search_tv("Nonexistent Show", 2099) is None
+    assert inner.tv_calls == 1
     assert db_session.query(TmdbSearchCache).count() == 0
+
+    # Un altro titolo (il file rinominato) si cerca subito.
+    CachingTMDBClient(db_session, inner).search_tv("Nonexistent Show Renamed", 2099)
+    assert inner.tv_calls == 2
+
+    clock[0] += tmdb_cache.MISS_TTL_SECONDS + 1
+    inner.tv_result = {"id": 7, "poster_path": None}  # TMDB lo ha aggiunto nel frattempo
+    assert CachingTMDBClient(db_session, inner).search_tv("Nonexistent Show", 2099)["id"] == 7
+    assert inner.tv_calls == 3
+
+
+def test_misses_are_bounded(db_session, monkeypatch):
+    from nazgarr.library import tmdb_cache
+
+    monkeypatch.setattr(tmdb_cache, "MAX_MISSES", 3)
+    inner = _CountingClient(movie_result=None)
+    client = CachingTMDBClient(db_session, inner)
+    for title in ("a", "b", "c", "d", "e"):
+        client.search_movie(title)
+
+    assert len(tmdb_cache._misses) <= 3
+    client.search_movie("e")  # la più recente resta
+    assert inner.movie_calls == 5

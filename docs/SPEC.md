@@ -252,6 +252,8 @@ Silent failures that became signals (same decision):
 
 Default: filename parsing (guessit) → TMDB lookup. Optional Sonarr/Radarr adapter for more reliable mapping, never assumed present.
 
+**Searches TMDB finds nothing for** (audit 2026-10-18): a successful search is kept in `tmdb_search_cache` forever; a miss never is, since a title TMDB doesn't know today can appear tomorrow. A miss is remembered in memory for 24 hours instead, keyed on what was searched (content type, normalized title, year): before, every episode of a series TMDB doesn't return repeated the same search, at every run. A renamed file searches another title and is looked up at once; a restart forgets every miss. Only files still on their disk are resolved (a file that left has nothing to identify).
+
 **Sonarr/Radarr adapter (implemented 2026-09-23, `nazgarr/integrations/arr.py`)**: read-only index built once per run from every enabled instance.
 - **Identity:** it gives the identity of every file Radarr/Sonarr know (`tmdbId`, season/episode), used by `ArrResolver` before guessit + TMDB, which stays the fallback. It also works with no TMDB key for the files the *arr instances know.
 - **Torrent of origin:** from the history, the torrent a file was imported from. The imported event links `importedPath`/`droppedPath` to a `downloadId`, and the grabbed event gives `guid` (for UNIT3D via Prowlarr, the download URL `…/torrent/download/<id>.<passkey>`) plus the info hash. The matching engine turns this into a single `source='history'` candidate: one `.torrent` download instead of a catalog search, with the same explicit confidence rules (size, then piece hash). It falls back to the catalog search when that candidate isn't plausible.
