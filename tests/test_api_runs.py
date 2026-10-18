@@ -66,3 +66,29 @@ def test_a_second_run_is_refused_while_one_is_in_progress(client):
         assert [r.id for r in session.query(RunLog).all()] == [running.id]
     finally:
         session.close()
+
+
+def test_the_list_is_bounded_and_pages_back(client):
+    """Audit 2026-10-18: tutte le run, mai sfoltite, a ogni poll di 3 s."""
+    from datetime import UTC, datetime
+
+    from nazgarr.reseed import pipeline
+
+    session = client.app.state.session_factory()
+    try:
+        ids = []
+        for _ in range(5):
+            run = pipeline.start_run(session, run_type="scheduled")
+            run.finished_at = datetime.now(UTC)
+            session.commit()
+            ids.append(run.id)
+    finally:
+        session.close()
+
+    newest = client.get("/api/runs", params={"limit": 2}).json()
+    older = client.get("/api/runs", params={"limit": 2, "before_id": newest[-1]["id"]}).json()
+
+    assert [r["id"] for r in newest] == ids[::-1][:2]
+    assert [r["id"] for r in older] == ids[::-1][2:4]
+    assert len(client.get("/api/runs").json()) == 5  # il default resta ampio (CLI)
+    assert client.get("/api/runs", params={"limit": 0}).status_code == 422

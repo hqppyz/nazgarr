@@ -10,7 +10,7 @@ bloccata per la durata di una run su una libreria grande.
 import json
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -123,8 +123,18 @@ def cancel_run(run_id: int, session: Session = Depends(get_session)):
 
 
 @router.get("", response_model=list[RunResponse])
-def list_runs(session: Session = Depends(get_session)):
-    return [RunResponse.from_model(r) for r in session.query(RunLog).order_by(RunLog.id.desc()).all()]
+def list_runs(
+    limit: int = Query(100, ge=1, le=1000), before_id: int | None = None, session: Session = Depends(get_session),
+):
+    """Dalla più recente, al massimo `limit`; before_id: le run prima di
+    quella (la pagina dopo). run_log non si sfoltisce mai (lo storico della
+    dashboard e last_scan_id ci contano): senza limite, dopo un anno di run
+    ogni ora erano 11 MB, chiesti ogni 3 s durante una run (audit 2026-10-18).
+    La run in corso, se c'è, è sempre la prima."""
+    query = session.query(RunLog)
+    if before_id is not None:
+        query = query.filter(RunLog.id < before_id)
+    return [RunResponse.from_model(r) for r in query.order_by(RunLog.id.desc()).limit(limit).all()]
 
 
 @router.get("/{run_id}", response_model=RunResponse)
