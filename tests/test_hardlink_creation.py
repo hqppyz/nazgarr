@@ -162,6 +162,24 @@ def test_a_symlink_at_the_destination_is_never_followed(area):
         hardlinks.check_link(source, same_inode, root)
     assert problem.value.code == "target_exists"  # mai "riusato": il client seederebbe da un link simbolico
 
+    # Uno che punta fuori da root (un link alla libreria, come fa cross-seed)
+    # è sempre un target_exists, non un "fuori scope": è la destinazione a
+    # essere occupata, come dice docs/SPEC.md §3.
+    outside = tmp_path / "library-copy.mkv"
+    outside.write_bytes(b"x")
+    to_library = os.path.join(root, "Linked.mkv")
+    os.symlink(outside, to_library)
+    with pytest.raises(hardlinks.LinkProblem) as problem:
+        hardlinks.check_link(source, to_library, root)
+    assert problem.value.code == "target_exists"
+
+
+def test_a_destination_written_outside_the_root_is_out_of_scope(area):
+    tmp_path, source, root = area
+    with pytest.raises(ScopeViolation):
+        hardlinks.check_link(source, os.path.join(root, "..", "Movie.mkv"), root)
+    assert not os.path.lexists(os.path.join(os.path.dirname(root), "Movie.mkv"))
+
 
 def test_a_symlinked_folder_on_the_way_is_out_of_scope_wherever_it_points(area):
     tmp_path, source, root = area

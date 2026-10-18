@@ -115,6 +115,8 @@ def _refuse_symlinks(root: str, target: str) -> None:
     dentro root: il torrent la vedrebbe da un'altra parte."""
     path = root
     parts = [part for part in os.path.relpath(target, root).split(os.sep) if part not in ("", ".")]
+    if parts[:1] == [os.pardir]:
+        raise ScopeViolation(target)  # fuori da root già come è scritto: niente da percorrere
     for i, part in enumerate(parts):
         path = os.path.join(path, part)
         if not os.path.islink(path):
@@ -128,20 +130,25 @@ def _refuse_symlinks(root: str, target: str) -> None:
 
 def check_link(source: str, target: str, root: str) -> str | None:
     """Prima di creare: la sorgente è un file vero (non un link simbolico),
-    sullo stesso filesystem di root; la destinazione resta dentro root anche
-    a percorso risolto (ScopeViolation, nazgarr/core/fs_scope.py), nessun
-    link simbolico la porta altrove (_refuse_symlinks) ed è libera.
-    Restituisce la destinazione risolta, da passare a create_links, o None
-    se c'è già lo stesso file (un cross-seed con lo stesso nome: si riusa).
-    Il percorso va passato così come è scritto, mai già risolto: risolto, un
-    link simbolico al suo posto non si vede più."""
+    sullo stesso filesystem di root; nessun link simbolico sul percorso
+    della destinazione (_refuse_symlinks: al suo posto è target_exists,
+    dovunque punti, una cartella sopra è fuori scope), che resta dentro root
+    anche a percorso risolto (ScopeViolation, nazgarr/core/fs_scope.py) ed è
+    libera. Prima i link simbolici, poi la risoluzione: risolto, un link al
+    posto della destinazione che punta fuori da root era un "fuori scope"
+    invece di un target_exists (_refuse_symlinks guarda soltanto, con
+    lstat, non scrive niente). Restituisce la destinazione risolta, da
+    passare a create_links, o None se c'è già lo stesso file (un cross-seed
+    con lo stesso nome: si riusa). Il percorso va passato così come è
+    scritto, mai già risolto: risolto, un link simbolico al suo posto non
+    si vede più."""
     if os.path.islink(source) or not os.path.isfile(source):
         raise LinkProblem("source_not_a_file", source)
     source_dev, root_dev = os.stat(source).st_dev, os.stat(root).st_dev
     if source_dev != root_dev:
         raise LinkProblem("cross_device", source, f"{source_dev} != {root_dev}")
-    resolved = resolve_scoped(root, os.path.relpath(target, root))
     _refuse_symlinks(root, target)
+    resolved = resolve_scoped(root, os.path.relpath(target, root))
     if os.path.lexists(resolved):
         if not os.path.samefile(source, resolved):
             raise LinkProblem("target_exists", target)
