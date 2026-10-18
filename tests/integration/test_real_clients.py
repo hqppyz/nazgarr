@@ -31,7 +31,7 @@ import httpx
 import pytest
 import torf
 
-from nazgarr.adapters.torrent_client.base import TorrentAlreadyInClientError
+from nazgarr.adapters.torrent_client.base import TorrentAlreadyInClientError, is_stopped_state
 from nazgarr.integrations import adapter_factory
 from nazgarr.torrents import client_paths
 
@@ -213,6 +213,31 @@ def test_recheck_really_reads_the_data(workspace):
         status, seen = _settled(adapter, info_hash)
         assert status.recheck_status == "failed" and status.incomplete, seen
         assert status.progress < 1.0
+    finally:
+        adapter.remove_torrent(info_hash, delete_files=True)
+
+
+@pytest.mark.parametrize("workspace", list(CLIENTS), indirect=True)
+def test_stop_after_a_failed_recheck(workspace):
+    """Il caso di reconcile_seed_job: un recheck fallito si ferma, così il
+    client non scarica i piece mancanti dentro gli hardlink della libreria.
+    Per rTorrent anche attraverso ruTorrent, che rifiuta alcuni comandi di
+    scrittura (docs/SPEC.md §5)."""
+    ws = workspace
+    adapter = _adapter(ws.name)
+    source = _payload_single(ws)
+    torrent_path, torrent = _make_torrent(ws, source)
+    with open(source, "r+b") as f:  # stessa dimensione, contenuto diverso
+        f.write(os.urandom(300_000))
+
+    info_hash = adapter.add_torrent(torrent_path, save_path=CLIENT_ROOT)
+
+    try:
+        status, seen = _settled(adapter, info_hash)
+        assert status.recheck_status == "failed", seen
+        adapter.stop(info_hash)
+        stopped = _wait(lambda: is_stopped_state(adapter.get_torrent_status(info_hash).state), timeout=30)
+        assert stopped, adapter.get_torrent_status(info_hash).state
     finally:
         adapter.remove_torrent(info_hash, delete_files=True)
 

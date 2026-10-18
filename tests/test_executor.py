@@ -587,9 +587,11 @@ class _IncompleteAfterRecheck(FakeAdapter):
         self.stopped.append(info_hash)
 
 
-def test_a_failed_recheck_stops_the_torrent_so_it_never_downloads_into_the_library(db_session, tmp_path):
+def test_a_failed_recheck_is_stopped_when_it_is_reconciled(db_session, tmp_path):
     # Avviato, il client scaricava i piece mancanti negli hardlink: gli stessi
-    # byte dei file in libreria, senza alcuna approvazione.
+    # byte dei file in libreria, senza alcuna approvazione. Lo stop arriva al
+    # reconcile, non alla fine del recheck: fino ad allora il torrent gira
+    # (docs/SPEC.md §5, la finestra è una decisione aperta).
     seed_job = _failed_recheck_job(db_session, tmp_path)
     adapter = _IncompleteAfterRecheck()
 
