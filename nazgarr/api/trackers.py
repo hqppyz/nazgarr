@@ -200,7 +200,9 @@ def update_tracker(
     if body.announce_url is not None:
         tracker.announce_url = body.announce_url
     if body.rate_limit_per_min is not None:
-        tracker.rate_limit_per_min = body.rate_limit_per_min
+        # 0 vale il default anche qui, come alla creazione: un plugin legge
+        # la riga così com'è, e un limitatore a 0 non funziona.
+        tracker.rate_limit_per_min = body.rate_limit_per_min or 30
     if body.enabled is not None:
         tracker.enabled = body.enabled
     if body.rss_key is not None:

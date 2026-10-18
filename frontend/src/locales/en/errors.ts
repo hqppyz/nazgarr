@@ -40,7 +40,7 @@ export const errors = {
   'errors.seed_job_not_found': 'SeedJob {id} not found.',
 
   'errors.tracker_not_found': 'Tracker {id} not found.',
-  'errors.tracker_busy': '{label} has an execution or an upload in progress: wait for it to finish, or cancel the upload, then delete it',
+  'errors.tracker_busy': '{label} has an execution or an upload in progress: wait for it to finish, cancel the upload, or delete the stuck execution in Reseeding, then delete it',
   'errors.tracker_in_use': '{label} is still referenced by other data and cannot be deleted: disable it instead',
   'errors.secret_required_for_new_host':
     'The address points to another host: enter {fields} again, so they are never sent to a new server by mistake',

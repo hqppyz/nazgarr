@@ -93,7 +93,7 @@
  "torrent_client_adapter_type_unsupported": "adapter_type not yet implemented: {adapter_type} (supported: {supported})",
  "torrent_client_not_found": "Torrent client {id} not found.",
  "tracker_adapter_type_unsupported": "Unsupported adapter_type: {adapter_type} (supported: {supported})",
- "tracker_busy": "{label} has an execution or an upload in progress: wait for it to finish, or cancel the upload, then delete it",
+ "tracker_busy": "{label} has an execution or an upload in progress: wait for it to finish, cancel the upload, or delete the stuck execution in Reseeding, then delete it",
  "tracker_icon_not_available": "This tracker has no usable icon.",
  "tracker_in_use": "{label} is still referenced by other data and cannot be deleted: disable it instead",
  "tracker_language_invalid": "Unknown language: {language}",

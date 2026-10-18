@@ -88,3 +88,5 @@ def test_the_rate_limit_must_be_a_usable_number(client):
     assert client.patch(f"/api/trackers/{created['id']}", json={"rate_limit_per_min": -1}).status_code == 422
     assert client.patch(f"/api/trackers/{created['id']}", json={"rate_limit_per_min": 60}).json()[
         "rate_limit_per_min"] == 60
+    assert client.patch(f"/api/trackers/{created['id']}", json={"rate_limit_per_min": 0}).json()[
+        "rate_limit_per_min"] == 30
