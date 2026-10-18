@@ -165,9 +165,10 @@ def scope(configured_root: str | None, own_dirs: list[str] = (), mounts: list[Mo
     data_dir, che ne fa parte) sono le cartelle di Nazgarr: mai un disco
     che le contiene, in ogni modo (Scope.app_folder_in)."""
     container = in_container() if container is None else container
-    detected = data_mounts(read_mounts() if mounts is None else mounts, own_dirs) if container else []
+    every_own = [d for d in (*own_dirs, data_dir) if d]
+    detected = data_mounts(read_mounts() if mounts is None else mounts, every_own) if container else []
     warnings = mount_warnings(detected)
-    own = {"own_dirs": [os.path.realpath(d) for d in (*own_dirs, data_dir) if d],
+    own = {"own_dirs": [os.path.realpath(d) for d in every_own],
            "data_dir": os.path.realpath(data_dir) if data_dir else None}
     if configured_root:
         outside = [m.mount_point for m in detected
