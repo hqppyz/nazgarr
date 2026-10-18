@@ -111,9 +111,9 @@ def update_status(session: Session = Depends(get_session)):
     except (TypeError, ValidationError, AttributeError, KeyError):
         # Un esito salvato che non ha la forma attesa (di una versione di
         # prima, o scritto a mano): nessun avviso, invece di un 500 a ogni
-        # pagina (audit 2026-10-18). "Controlla aggiornamenti" lo riscrive;
-        # quello automatico ancora no, finché check_if_due in
-        # nazgarr/core/updates.py legge checked_at senza difendersi.
+        # pagina (audit 2026-10-18). "Controlla aggiornamenti" lo riscrive,
+        # e anche quello automatico: per check_if_due un esito senza un
+        # checked_at leggibile vale come nessun controllo.
         logger.warning("Esito salvato del controllo degli aggiornamenti illeggibile: ignorato")
         return None
 

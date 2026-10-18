@@ -121,27 +121,44 @@ def check(session: Session, now: datetime | None = None) -> dict:
 
 
 def last_check(session: Session) -> dict | None:
-    """L'ultimo esito salvato, se riguarda ancora questa versione."""
+    """L'ultimo esito salvato, se riguarda ancora questa versione. None anche
+    per un valore che non è un oggetto JSON (es. [1], scritto a mano o da una
+    versione di prima): prima .get() sollevava AttributeError (audit
+    2026-10-18)."""
     raw = settings_repo.get_setting(session, LAST_CHECK_KEY)
     try:
         result = json.loads(raw) if raw else None
     except ValueError:
         return None
-    if not result or result.get("current_version") != __version__:
+    if not isinstance(result, dict) or result.get("current_version") != __version__:
         return None  # aggiornato nel frattempo: quell'esito non vale più
     return result
 
 
+def _checked_at(last: dict | None) -> datetime | None:
+    """Quando è stato fatto l'ultimo controllo, o None se l'esito non lo dice
+    in una forma leggibile (manca, non è una data ISO, è senza fuso)."""
+    value = (last or {}).get("checked_at")
+    try:
+        checked = datetime.fromisoformat(value) if isinstance(value, str) else None
+    except ValueError:
+        return None
+    return checked if checked is not None and checked.tzinfo is not None else None
+
+
 def check_if_due(session: Session, now: datetime | None = None) -> bool:
     """Dallo scheduler: solo con update_check_auto acceso e se l'ultimo
-    controllo ha più di CHECK_INTERVAL."""
+    controllo ha più di CHECK_INTERVAL. Un esito che non dice quando (o lo
+    dice in una forma che non si legge) vale come nessun controllo: prima
+    fromisoformat sollevava a ogni giro e il controllo automatico non si
+    rifaceva più, finché qualcuno non lo lanciava a mano."""
     from nazgarr.core import settings_registry
 
     if not settings_registry.get_bool(session, AUTO_KEY):
         return False
     now = now or datetime.now(UTC)
-    last = last_check(session)
-    if last and now - datetime.fromisoformat(last["checked_at"]) < CHECK_INTERVAL:
+    checked = _checked_at(last_check(session))
+    if checked is not None and now - checked < CHECK_INTERVAL:
         return False
     check(session, now)
     return True
