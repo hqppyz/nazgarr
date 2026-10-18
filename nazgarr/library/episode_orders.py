@@ -394,18 +394,18 @@ def tmdb_orders(client, tmdb_id: int) -> list[EpisodeOrder]:
                 f"tmdb:group:{group['id']}",
                 f"TMDB · {group.get('name') or TMDB_GROUP_TYPES.get(group.get('type'), 'Group')}", "tmdb",
             )
-            parts = sorted(detail.get("groups") or [], key=lambda g: g.get("order", 0))
-            for index, part in enumerate(parts):
-                season = _group_season(part, index, parts)
-                if season in order.seasons:
-                    continue  # due gruppi con lo stesso numero: tiene il primo
+            parts = sorted(detail.get("groups") or [], key=lambda g: _int(g.get("order")) or 0)
+            for part, season in zip(parts, _group_seasons(parts, f"{tmdb_id}/{group['id']}"), strict=True):
                 episodes = [e for e in part.get("episodes") or []
                             if _int(e.get("season_number")) is not None and _int(e.get("episode_number")) is not None]
-                order.seasons[season] = [
-                    OrderEpisode(number=pos + 1, titles=_titles(e.get("name")), air_date=_date(e.get("air_date")),
-                                 refs=[(e["season_number"], e["episode_number"])])
+                # Più gruppi di speciali: tutti nella stagione 0, di seguito.
+                into = order.seasons.setdefault(season, [])
+                start = len(into)
+                into.extend([
+                    OrderEpisode(number=start + pos + 1, titles=_titles(e.get("name")),
+                                 air_date=_date(e.get("air_date")), refs=[(e["season_number"], e["episode_number"])])
                     for pos, e in enumerate(sorted(episodes, key=lambda e: _int(e.get("order")) or 0))
-                ]
+                ])
             if order.seasons:
                 orders.append(order)
         return orders
@@ -417,21 +417,34 @@ _SPECIALS = re.compile(r"\b(specials?|speciali|extras?)\b", re.IGNORECASE)
 _NUMBER = re.compile(r"(\d+)")
 
 
-def _group_season(part: dict, index: int, parts: list[dict]) -> int:
-    """Il numero di stagione di un gruppo di un episode group TMDB: dal nome
-    ("Season 1", "Stagione 2", "Part 3"; gli speciali sono la 0), altrimenti
-    dalla posizione. Le posizioni partono spesso da 0 anche senza un gruppo
-    di speciali: allora la prima è la stagione 1."""
-    name = part.get("name") or ""
-    if _SPECIALS.search(name):
-        return 0
-    number = _NUMBER.search(name)
-    if number:
-        return int(number.group(1))
-    order = part.get("order", index)
-    starts_at_zero = min((p.get("order", i) for i, p in enumerate(parts)), default=0) == 0
-    has_specials = any(_SPECIALS.search(p.get("name") or "") for p in parts)
-    return order + 1 if starts_at_zero and not has_specials else order
+def _group_seasons(parts: list[dict], where: str = "") -> list[int]:
+    """I numeri di stagione dei gruppi di un episode group TMDB, in ordine:
+    gli speciali (dal loro nome) sono la 0; gli altri dal numero nel nome
+    ("Season 1", "Stagione 2", "Part 3"), se i numeri dei nomi sono tutti
+    diversi e nessuno è 0, altrimenti dalla posizione fra i gruppi non
+    speciali, da 1 (audit 2026-10-18: "Season 1 Part 1" e "Season 1 Part 2"
+    diventavano entrambi la stagione 1 e il secondo spariva, e un gruppo
+    senza numero davanti agli speciali in fondo diventava la stagione 0).
+    Un gruppo senza numero nel nome prende la sua posizione, o il primo
+    numero libero dopo."""
+    names = [part.get("name") or "" for part in parts]
+    regular = [i for i, name in enumerate(names) if not _SPECIALS.search(name)]
+    named = {i: int(match.group(1)) for i in regular if (match := _NUMBER.search(names[i]))}
+    seasons = [0] * len(parts)
+    values = list(named.values())
+    if len(set(values)) != len(values) or 0 in values:
+        logger.info("Episode group TMDB %s: numeri delle stagioni dalla posizione (%s)", where, ", ".join(names))
+        named = {}
+    taken = set(named.values())
+    for position, i in enumerate(regular, 1):
+        if i in named:
+            seasons[i] = named[i]
+            continue
+        while position in taken:
+            position += 1
+        taken.add(position)
+        seasons[i] = position
+    return seasons
 
 
 class TmdbApi:

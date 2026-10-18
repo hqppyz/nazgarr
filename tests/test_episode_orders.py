@@ -380,16 +380,38 @@ def test_a_library_in_joined_order_is_not_taken_for_aired_segments(db_session, m
 
 
 def test_episode_group_seasons_come_from_their_names_or_start_at_one():
-    parts = [{"order": 0, "name": "Season 1"}, {"order": 1, "name": "Season 2"}]
-    assert [eo._group_season(p, i, parts) for i, p in enumerate(parts)] == [1, 2]
-    named = [{"order": 0, "name": "Specials"}, {"order": 1, "name": "Stagione 1"}, {"order": 2, "name": "Part 3"}]
-    assert [eo._group_season(p, i, named) for i, p in enumerate(named)] == [0, 1, 3]
-    # Senza numeri nel nome: dalla posizione, da 1 se parte da 0 senza speciali.
-    bare = [{"order": 0, "name": "First"}, {"order": 1, "name": "Second"}]
-    assert [eo._group_season(p, i, bare) for i, p in enumerate(bare)] == [1, 2]
-    with_specials = [{"order": 0, "name": "Specials"}, {"order": 1, "name": "Main"}]
-    assert [eo._group_season(p, i, with_specials) for i, p in enumerate(with_specials)] == [0, 1]
+    def seasons(*names):
+        return eo._group_seasons([{"order": i, "name": name} for i, name in enumerate(names)])
 
+    assert seasons("Season 1", "Season 2") == [1, 2]
+    assert seasons("Specials", "Stagione 1", "Part 3") == [0, 1, 3]
+    # Senza numeri nel nome: dalla posizione, da 1.
+    assert seasons("First", "Second") == [1, 2]
+    assert seasons("Specials", "Main") == [0, 1]
+    # Audit 2026-10-18: due gruppi con lo stesso numero nel nome (il secondo
+    # spariva), e gli speciali in fondo (il primo gruppo diventava la 0).
+    assert seasons("Season 1 Part 1", "Season 1 Part 2", "Season 2") == [1, 2, 3]
+    assert seasons("Season 4 Volume 1", "Season 4 Volume 2") == [1, 2]
+    assert seasons("Volume One", "Volume Two", "Specials") == [1, 2, 0]
+    assert seasons("Season 0", "Season 1") == [1, 2]
+    # Un gruppo senza numero fra quelli numerati: il primo numero libero.
+    assert seasons("Pilot Movie", "Season 1", "Season 2") == [3, 1, 2]
+
+
+def test_parts_of_an_episode_group_with_the_same_number_keep_all_their_episodes():
+    class Tmdb(FakeTmdb):
+        def get(self, path, **params):
+            if path == "/tv/episode_group/g1":
+                def part(order, name, numbers):
+                    return {"order": order, "name": name, "episodes": [
+                        {"season_number": 1, "episode_number": e, "order": i} for i, e in enumerate(numbers)]}
+                return {"groups": [part(0, "Season 1 Part 1", range(1, 6)), part(1, "Season 1 Part 2", range(6, 11)),
+                                   part(2, "Extras", [1]), part(3, "Specials", [2])]}
+            return super().get(path, **params)
+
+    group = eo.tmdb_orders(Tmdb(), 96677)[1]
+    assert {s: len(eps) for s, eps in group.seasons.items()} == {1: 5, 2: 5, 0: 2}
+    assert group.seasons[2][0].refs == [(1, 6)] and [e.number for e in group.seasons[0]] == [1, 2]
 
 
 def test_without_a_tvdb_key_the_tmdb_production_group_fits_a_joined_library(db_session):
