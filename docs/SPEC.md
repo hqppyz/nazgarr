@@ -487,7 +487,7 @@ The `nazgarr` command is also a thin **client of the JSON API**, beside the serv
 Inherits ratio-guardian (CLAUDE.md), with additions for multi-client and posters:
 
 - **Python 3.12**, **FastAPI** (pure JSON API under `/api/*`)
-- **SQLite** via SQLAlchemy — enough for this load
+- **SQLite** via SQLAlchemy — enough for this load. Every connection (`nazgarr/core/db.py::_configure_sqlite`) turns on foreign keys and WAL, with a 30 s busy timeout. Since the audit of 2026-10-18 it also sets `synchronous=NORMAL`, still safe against corruption under WAL: a power cut can lose only the last commits, and the next run reads the state again from disks and clients. That saves an fsync per commit, minutes on a first import from a NAS disk. It also gets a 16 MiB page cache and runs `PRAGMA optimize` when it opens, so the query planner has statistics. The pool reopens connections every 6 hours, and the optimize is skipped when another writer holds the lock.
 - **APScheduler** in-process for scheduling
 - **httpx** for tracker/TMDB calls (async-friendly)
 - **qbittorrent-api**; Deluge, Transmission and rTorrent/ruTorrent through their own APIs with httpx and the standard `xmlrpc.client`, no extra library (section 5)

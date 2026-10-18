@@ -76,11 +76,37 @@ def _configure_sqlite(dbapi_connection, _connection_record):
     # polling dello stato live di una run, a partire dalla Fase 5) non
     # vengono bloccati da uno scrittore concorrente (lo scan in corso).
     cursor.execute("PRAGMA journal_mode=WAL")
+    # Con WAL, NORMAL resta sicuro contro la corruzione: un'interruzione di
+    # corrente può perdere solo gli ultimi commit, non il DB, e la run dopo
+    # rilegge lo stato dai dischi e dai client. In cambio niente fsync a ogni
+    # commit, che su un HDD o un volume di un NAS costa 5-15 ms: minuti al
+    # primo import, che fa un commit per file (audit 2026-10-18).
+    cursor.execute("PRAGMA synchronous=NORMAL")
+    # 16 MiB di cache per connessione invece di 2: libreria e dashboard
+    # rileggono le stesse pagine. Si riempie solo quando serve.
+    cursor.execute("PRAGMA cache_size=-16384")
+    # Statistiche per il query planner (sqlite_stat1), come SQLite consiglia
+    # per le connessioni che restano aperte: all'apertura, e il pool le
+    # riapre ogni qualche ora (make_engine). Analizza solo le tabelle mai
+    # viste o cambiate molto, con un limite di righe per indice: millisecondi.
+    # Senza attesa (Python ne mette 5 secondi di suo): se un altro scrittore
+    # ha il lock, si salta subito (sarà per la prossima apertura).
+    cursor.execute("PRAGMA analysis_limit=1000")
+    cursor.execute("PRAGMA busy_timeout=0")
+    try:
+        cursor.execute("PRAGMA optimize=0x10002")
+    except sqlite3.OperationalError:
+        pass
     # Scheduler, worker degli upload e controlli completi sono thread dello
     # stesso processo: uno scrittore aspetta l'altro fino a 30 secondi
     # invece di fallire subito con "database is locked".
     cursor.execute("PRAGMA busy_timeout=30000")
     cursor.close()
+
+
+# Ogni quante ore il pool riapre una connessione: la riapertura aggiorna le
+# statistiche del planner (PRAGMA optimize in _configure_sqlite).
+POOL_RECYCLE_SECONDS = 6 * 3600
 
 
 def migrate_legacy_db_filename(data_dir: str) -> str | None:
@@ -111,7 +137,8 @@ def migrate_legacy_db_filename(data_dir: str) -> str | None:
 
 def make_engine(db_path: str) -> Engine:
     Path(db_path).parent.mkdir(parents=True, exist_ok=True)
-    return create_engine(f"sqlite:///{db_path}", connect_args={"check_same_thread": False})
+    return create_engine(f"sqlite:///{db_path}", connect_args={"check_same_thread": False},
+                         pool_recycle=POOL_RECYCLE_SECONDS)
 
 
 def _broken_references(cursor) -> set[tuple] | None:
