@@ -374,14 +374,18 @@ def _source_path(disk: Disk, relative_path: str) -> str:
     return path
 
 
-def _check_link(source_path: str, target_path: str, target_root: str) -> bool:
+def _check_link(source_path: str, target_path: str, target_root: str) -> str | None:
     """I controlli comuni (nazgarr/library/hardlinks.py::check_link) prima di creare
-    un hardlink. True se la destinazione è già lo stesso file (stesso inode):
-    un cross-seed della stessa release con lo stesso nome su un altro
-    tracker riusa quell'hardlink. Un altro file al suo posto resta un
-    errore: mai sovrascritto."""
+    un hardlink, sulla destinazione così come è scritta (target_root più il
+    percorso del torrent, mai già risolta): risolta, un link simbolico al
+    suo posto non si vedeva più, e l'hardlink nasceva dove puntava (audit
+    2026-10-18). Restituisce la destinazione risolta da passare a
+    create_links, o None se è già lo stesso file (stesso inode): un
+    cross-seed della stessa release con lo stesso nome su un altro tracker
+    riusa quell'hardlink. Un altro file al suo posto, o un link simbolico,
+    resta un errore: mai sovrascritto né seguito."""
     try:
-        return hardlinks.check_link(source_path, target_path, target_root) is None
+        return hardlinks.check_link(source_path, target_path, target_root)
     except hardlinks.LinkProblem as problem:
         if problem.code == "cross_device":
             raise ExecutionError(
@@ -522,8 +526,9 @@ def _execute_layout_media_to_torrent(
         if f.media_file.disk_id != disk.id:
             raise ExecutionError(f"'{f.media_file.relative_path}' is on another disk: a hardlink cannot cross disks")
         source_path = _source_path(disk, f.media_file.relative_path)
-        target_path = _in_scope(target_root, placement.rel_path(f.torrent_path))
-        if _check_link(source_path, target_path, target_root):
+        target_path = _check_link(source_path, os.path.join(target_root, placement.rel_path(f.torrent_path)),
+                                  target_root)
+        if target_path is None:
             continue  # già lì, stesso inode: niente da creare (e niente da togliere se fallisce)
         links.append((source_path, target_path))
     _require_download_link(candidate)
@@ -592,14 +597,16 @@ def _execute_media_to_torrent(
     # Un torrent a file singolo può comunque avere una cartella contenitore
     # (candidate.folder) — molte release la usano anche per i film.
     placement = _placement(adapter, candidate, expected_filename)
-    target_path = _in_scope(target_root, placement.rel_path(expected_filename))
+    # None: già lì, stesso inode (un cross-seed).
+    target_path = _check_link(source_path, os.path.join(target_root, placement.rel_path(expected_filename)),
+                              target_root)
     save_root = _in_scope(target_root, placement.save_dir) if placement.save_dir else target_root
-    reuse = _check_link(source_path, target_path, target_root)  # già lì, stesso inode: un cross-seed
     _require_download_link(candidate)
 
     seed_job = _new_seed_job(session, candidate, torrent_client_id, source_media_file_id=media_file.id)
     return _seed(session, seed_job, review, adapter, torrent_client_id, disk, save_root, skip_recheck,
-                 fetch_torrent, links=[] if reuse else [(source_path, target_path)], layout=placement.layout)
+                 fetch_torrent, links=[] if target_path is None else [(source_path, target_path)],
+                 layout=placement.layout)
 
 
 def _execute_torrent_to_client(

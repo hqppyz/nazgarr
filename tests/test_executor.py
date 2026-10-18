@@ -458,6 +458,41 @@ def test_another_file_at_the_destination_is_never_overwritten(db_session, tmp_pa
     assert (root / "torrents" / "Movie.2024.mkv").read_bytes() == b"something else"
 
 
+@pytest.mark.parametrize("points_to", ["nowhere", "hardlink"])
+def test_a_symlink_at_the_destination_is_never_followed(db_session, tmp_path, points_to):
+    # Audit 2026-10-18: l'esecutore risolveva la destinazione prima di
+    # check_link. Un link simbolico pendente faceva nascere l'hardlink dove
+    # puntava (il percorso approvato restava un link), uno verso un hardlink
+    # già lì passava per un cross-seed da riusare, e il client seedava
+    # attraverso un link che lo scanner salta.
+    root, disk, tracker, item, run = _base_setup(db_session, tmp_path)
+    media_file_path, match_review = _single_file_review(db_session, root, disk, tracker, item, run)
+    pointed = root / "torrents" / "other" / "elsewhere.mkv"
+    pointed.parent.mkdir()
+    if points_to == "hardlink":
+        os.link(media_file_path, pointed)
+    (root / "torrents" / "Movie.2024.mkv").symlink_to(pointed)
+
+    adapter = FakeAdapter()
+    with pytest.raises(executor.ExecutionError, match="already exists"):
+        executor.execute_review(db_session, match_review, adapter)
+    assert os.path.lexists(pointed) is (points_to == "hardlink")  # niente creato dove punta il link
+    assert adapter.add_torrent_calls == []
+
+
+def test_a_symlinked_folder_inside_the_torrent_is_out_of_scope(db_session, tmp_path):
+    # Anche una cartella del torrent che è un link (qui dentro la cartella
+    # dei torrent): il client vedrebbe i file da un'altra parte.
+    root, review = _movie_review(db_session, tmp_path, folder="Release.Name")
+    (root / "torrents" / "real").mkdir()
+    (root / "torrents" / "Release.Name").symlink_to(root / "torrents" / "real")
+
+    adapter = FakeAdapter()
+    with pytest.raises(executor.ExecutionError, match="outside the allowed scope"):
+        executor.execute_review(db_session, review, adapter)
+    assert os.listdir(root / "torrents" / "real") == [] and adapter.add_torrent_calls == []
+
+
 @pytest.mark.parametrize("target", ["outside", "inside"])
 def test_a_library_file_replaced_by_a_symlink_is_never_linked(db_session, tmp_path, target):
     # Fra la scansione e l'esecuzione il file in libreria è diventato un
