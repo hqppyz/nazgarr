@@ -200,6 +200,16 @@ function texture(canvas: HTMLCanvasElement, srgb = false): THREE.CanvasTexture {
   return tex
 }
 
+// Contesto WebGL rifiutato (troppi contesti, driver, GPU in blacklist): null,
+// e resta l'immagine statica di RingLogo; mai un errore per un logo.
+function createRenderer(exporting: boolean): THREE.WebGLRenderer | null {
+  try {
+    return new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: exporting })
+  } catch {
+    return null
+  }
+}
+
 interface Props {
   size?: number
   className?: string
@@ -235,7 +245,8 @@ export function WebGLRing({ size = 120, className, handleRef, hoverable = true, 
     const mount = mountRef.current
     if (!mount) return
     const exporting = onRendered != null
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: exporting })
+    const renderer = createRenderer(exporting)
+    if (!renderer) return
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
     renderer.setSize(size, size)
     renderer.toneMapping = THREE.ACESFilmicToneMapping

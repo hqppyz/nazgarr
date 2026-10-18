@@ -15,16 +15,20 @@ export function lazyPage<M>(
 ): ComponentType {
   let loaded: ComponentType | null = null
   let pending: Promise<ComponentType> | null = null
+  // lazy() una volta sola, qui: creato a ogni render rimonterebbe la pagina.
+  // Rifatto solo dopo un fallimento: lazy() ricorda l'errore, e senza un
+  // lazy() nuovo "Riprova" dell'ErrorBoundary rilancerebbe sempre quello.
+  const makePage = () => lazy(() => fetchPage().then((component) => ({ default: component })))
   const fetchPage = () =>
     (pending ??= load().then(
       (module) => (loaded = pick(module)),
       (error: unknown) => {
         pending = null // rete caduta: al prossimo tentativo si riscarica
+        Page = makePage()
         throw error
       },
     ))
-  // lazy() una volta sola, qui: creato a ogni render rimonterebbe la pagina.
-  const Page = lazy(() => fetchPage().then((component) => ({ default: component })))
+  let Page = makePage()
   if (preload) preloaders.push(fetchPage)
 
   return function LazyPage() {

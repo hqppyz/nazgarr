@@ -1,5 +1,6 @@
 import { lazy, Suspense, useState, type Ref } from 'react'
 
+import { ErrorBoundary } from '@/components/ErrorBoundary'
 import type { RingHandle } from '@/components/ring/types'
 import { cn } from '@/lib/utils'
 
@@ -64,9 +65,12 @@ export function RingLogo({
   return (
     <span className={cn('relative inline-block shrink-0', className)} style={{ width: size, height: size }}>
       {!ready && still}
-      <Suspense fallback={null}>
-        <WebGLRing size={size} handleRef={handleRef} hoverable={hoverable} spinSeconds={spinSeconds} mode={mode} onReady={() => setReady(true)} />
-      </Suspense>
+      {/* Il chunk di Three.js che non si scarica, o un errore dell'anello: resta l'immagine. */}
+      <ErrorBoundary fallback={() => null}>
+        <Suspense fallback={null}>
+          <WebGLRing size={size} handleRef={handleRef} hoverable={hoverable} spinSeconds={spinSeconds} mode={mode} onReady={() => setReady(true)} />
+        </Suspense>
+      </ErrorBoundary>
     </span>
   )
 }
