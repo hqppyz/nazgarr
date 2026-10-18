@@ -50,11 +50,11 @@ from nazgarr.core.fs_scope import ScopeViolation, resolve_scoped
 from nazgarr.core.logs import safe_error
 from nazgarr.core.models import Candidate, Disk, DiskTorrentClient, MatchReview, SeedJob, TorrentClient
 from nazgarr.integrations import adapter_factory
-from nazgarr.library import hardlinks
+from nazgarr.library import disk_folders, hardlinks
 from nazgarr.library.tmdb_client import TMDBClient
 from nazgarr.reseed import download_links
 from nazgarr.reseed.placement import Placement, placement_for
-from nazgarr.torrents import client_labels, client_paths
+from nazgarr.torrents import client_labels, client_paths, partial_files
 from nazgarr.torrents.layout import expected_missing_bytes
 from nazgarr.torrents.metainfo import TorrentMetainfoError, compute_info_hash, parse_torrent_info
 
@@ -79,17 +79,23 @@ def client_visible_path(session: Session, disk: Disk, torrent_client_id: int | N
     local_rel_path per la coppia (disk, torrent_client_id), nazgarr/torrents/client_paths.py).
     Senza mappatura, client e Nazgarr vedono lo stesso path. Un path che il
     client non vede (fuori dalla sottocartella mappata): ClientPathError."""
+    mapping = _mapping(session, disk, torrent_client_id)
+    return local_path if mapping is None else client_paths.to_client(mapping, local_path)
+
+
+def _mapping(session: Session, disk: Disk, torrent_client_id: int | None) -> client_paths.Mapping | None:
+    """Come questo client vede il disco (disk_torrent_client), None se non
+    c'è una riga per la coppia: stessi percorsi di Nazgarr."""
     if torrent_client_id is None:
-        return local_path
+        return None
     link = (
         session.query(DiskTorrentClient)
         .filter_by(disk_id=disk.id, torrent_client_id=torrent_client_id)
         .one_or_none()
     )
     if link is None:
-        return local_path
-    return client_paths.to_client(
-        client_paths.Mapping(disk.root_path, link.torrent_client_root_path, link.local_rel_path), local_path)
+        return None
+    return client_paths.Mapping(disk.root_path, link.torrent_client_root_path, link.local_rel_path)
 
 
 FetchTorrent = Callable[[Candidate], bytes]
@@ -624,22 +630,29 @@ def reconcile_seed_job(session: Session, seed_job: SeedJob, adapter: TorrentClie
     return _reconcile_with(session, seed_job, adapter, adapter.get_torrent_status(seed_job.info_hash))
 
 
-def _recheck_outcome(seed_job: SeedJob, status: TorrentStatus) -> str:
-    """L'esito del recheck di un seed job: quello del client, salvo un
-    recheck finito a cui mancano solo i file extra che si sapeva di non
-    avere (nfo, sottotitoli, sample, expected_missing_bytes), che è "ok":
-    il client li scarica dopo l'avvio."""
-    allowed = seed_job.expected_missing_bytes or 0
+def recheck_outcome(status: TorrentStatus, allowed: int | None) -> str:
+    """L'esito di un recheck: quello del client, salvo un recheck finito a
+    cui mancano solo i file extra che si sapeva di non avere (nfo,
+    sottotitoli, sample: allowed byte, expected_missing_bytes), che è "ok":
+    il client li scarica dopo l'avvio. Lo stesso per i reseed del motore e
+    per quelli del flusso degli upload (nazgarr/upload/execute.py)."""
+    allowed = allowed or 0
     if (
         status.recheck_status == "failed" and status.incomplete and allowed > 0
         and status.amount_left is not None and status.amount_left <= allowed
     ):
+        return "ok"
+    return status.recheck_status
+
+
+def _recheck_outcome(seed_job: SeedJob, status: TorrentStatus) -> str:
+    outcome = recheck_outcome(status, seed_job.expected_missing_bytes)
+    if outcome == "ok" and status.recheck_status == "failed":
         logger.info(
             "Seed_job %s: recheck ok, il client scarica %d byte di file extra mancanti",
             seed_job.id, status.amount_left,
         )
-        return "ok"
-    return status.recheck_status
+    return outcome
 
 
 def _reconcile_with(session: Session, seed_job: SeedJob, adapter: TorrentClientAdapter,
@@ -656,7 +669,7 @@ def _reconcile_with(session: Session, seed_job: SeedJob, adapter: TorrentClientA
     elif recheck_status == "failed":
         seed_job.final_status = "failed"
         seed_job.error_message = f"Recheck failed, client state: {status.state}" + _stop_after_failed_recheck(
-            adapter, seed_job, status.state)
+            adapter, seed_job, status.state) + _restore_partial_names(session, seed_job, adapter)
         logger.warning("Recheck fallito per seed_job %s: stato client %s", seed_job.id, status.state)
     session.commit()
     return seed_job
@@ -665,6 +678,36 @@ def _reconcile_with(session: Session, seed_job: SeedJob, adapter: TorrentClientA
 STARTED_LATE = ("The recheck passed, but the client did not start the torrent: Nazgarr tries again at the "
                 "next check, or start it in the client")
 CANNOT_START = "The recheck passed, but this client cannot be told to start it: start it in the client"
+
+
+def start_torrent(adapter: TorrentClientAdapter, info_hash: str) -> tuple[str, Exception | None]:
+    """Avvia un torrent: ("started", None), ("unsupported", None) se
+    l'adapter non sa farlo (un plugin senza start(), o che solleva
+    NotImplementedError), ("failed", errore) se il client ha rifiutato."""
+    start = getattr(adapter, "start", None)
+    try:
+        if not callable(start):
+            raise NotImplementedError
+        start(info_hash)
+    except NotImplementedError:
+        return "unsupported", None
+    except Exception as exc:
+        return "failed", exc
+    return "started", None
+
+
+def stop_torrent(adapter: TorrentClientAdapter, info_hash: str) -> tuple[str, Exception | None]:
+    """Ferma un torrent: ("stopped", None), ("unsupported", None) o ("failed", errore)."""
+    stop = getattr(adapter, "stop", None)
+    try:
+        if not callable(stop):
+            raise NotImplementedError
+        stop(info_hash)
+    except NotImplementedError:
+        return "unsupported", None
+    except Exception as exc:
+        return "failed", exc
+    return "stopped", None
 
 
 def _start_after_recheck(adapter: TorrentClientAdapter, seed_job: SeedJob) -> bool:
@@ -676,19 +719,15 @@ def _start_after_recheck(adapter: TorrentClientAdapter, seed_job: SeedJob) -> bo
     Un adapter che start() non ce l'ha (un plugin senza la classe base) o
     non lo implementa non lo farà mai: "seeding", col messaggio di avviarlo
     nel client, invece di riprovare per sempre a ogni reconcile."""
-    start = getattr(adapter, "start", None)
-    try:
-        if not callable(start):
-            raise NotImplementedError
-        start(seed_job.info_hash)
-    except NotImplementedError:
+    result, error = start_torrent(adapter, seed_job.info_hash)
+    if result == "unsupported":
         logger.warning("Seed_job %s: recheck riuscito, il client non sa avviare %s", seed_job.id,
                        seed_job.info_hash)
         seed_job.error_message = CANNOT_START
         return True
-    except Exception as exc:
-        logger.warning("Seed_job %s: recheck riuscito, avvio fallito", seed_job.id, exc_info=True)
-        seed_job.error_message = f"{STARTED_LATE} ({safe_error(exc)})"
+    if result == "failed":
+        logger.warning("Seed_job %s: recheck riuscito, avvio fallito", seed_job.id, exc_info=error)
+        seed_job.error_message = f"{STARTED_LATE} ({safe_error(error)})"
         return False
     logger.info("Seed_job %s: recheck riuscito, torrent avviato", seed_job.id)
     return True
@@ -707,16 +746,67 @@ def _stop_after_failed_recheck(adapter: TorrentClientAdapter, seed_job: SeedJob,
     if is_stopped_state(state):
         return ("; left stopped in the client, so it downloads nothing into the linked files: recheck it in the "
                 "client, or Retry once the files are right")
-    try:
-        adapter.stop(seed_job.info_hash)
-    except NotImplementedError:
+    result, error = stop_torrent(adapter, seed_job.info_hash)
+    if result == "unsupported":
         logger.warning("Seed_job %s: il client non sa fermare il torrent %s", seed_job.id, seed_job.info_hash)
         return "; this client cannot be told to stop it: stop it by hand, or it downloads into the linked files"
-    except Exception:
-        logger.warning("Seed_job %s: torrent %s non fermato", seed_job.id, seed_job.info_hash, exc_info=True)
+    if result == "failed":
+        logger.warning("Seed_job %s: torrent %s non fermato", seed_job.id, seed_job.info_hash, exc_info=error)
         return "; it could not be stopped in the client: stop it by hand, or it downloads into the linked files"
     logger.info("Seed_job %s: torrent %s fermato dopo il recheck fallito", seed_job.id, seed_job.info_hash)
     return "; stopped in the client so it does not download into the linked files"
+
+
+def _restore_partial_names(session: Session, seed_job: SeedJob, adapter: TorrentClientAdapter) -> str:
+    """Dopo un recheck fallito, il nome ai file che il client ha rinominato
+    perché incompleti (Transmission, rename-partial-files: "<nome>.part";
+    decisione dell'utente, 2026-10-19). Solo i file del torrent che
+    Nazgarr segue: stesso dispositivo e inode di un file in libreria o
+    nella cartella di seeding abbinato al candidato (gli hardlink creati da
+    qui hanno quello del file in libreria), dentro le cartelle di seeding
+    del disco (nazgarr/torrents/partial_files.py). Dove il client li cerca
+    lo dice il client stesso (save path e file del torrent), tradotto nei
+    percorsi di Nazgarr: la disposizione scelta all'esecuzione non si
+    ricalcola. Ritorna la coda del messaggio del seed job ("" se niente):
+    un errore qui si scrive nel log e non cambia l'esito del recheck."""
+    suffix = partial_files.suffix_of(adapter)
+    if suffix is None:
+        return ""
+    try:
+        restored = _restore_partial_names_of(session, seed_job, adapter, suffix)
+    except Exception:
+        logger.warning("Seed_job %s: file rinominati dal client non controllati", seed_job.id, exc_info=True)
+        return ""
+    if not restored:
+        return ""
+    logger.warning("Seed_job %s: %d file rinominati %s dal client riportati al loro nome", seed_job.id,
+                   len(restored), suffix)
+    return f"; {len(restored)} file(s) the client had renamed to *{suffix} got their name back"
+
+
+def _restore_partial_names_of(session: Session, seed_job: SeedJob, adapter: TorrentClientAdapter,
+                              suffix: str) -> list[str]:
+    review = review_of(session, seed_job)
+    info = adapter.get_torrent_info(seed_job.info_hash)
+    anchor = review.media_file or review.seed_file
+    if info is None or anchor is None or anchor.disk is None:
+        return []
+    disk = anchor.disk
+    tracked = [review.media_file, review.seed_file]
+    tracked += [f for row in review.candidate.files for f in (row.media_file, row.seed_file)]
+    identities = {(f.st_dev, f.inode) for f in tracked if f is not None and f.disk_id == disk.id}
+    mapping = _mapping(session, disk, seed_job.torrent_client_id) or client_paths.Mapping(disk.root_path)
+    base = os.path.realpath(disk.root_path)
+    paths = []
+    for file in info.files:
+        name = file.path_in_torrent[:-len(suffix)] if file.path_in_torrent.endswith(suffix) else file.path_in_torrent
+        client_path = os.path.join(info.save_path, name)
+        relative = client_paths.to_disk_relative(mapping, client_path)
+        if relative is None and not mapping.mapped:  # il client ha il percorso reale, il disco uno con link
+            relative = client_paths.to_disk_relative(client_paths.Mapping(base), client_path)
+        if relative is not None:
+            paths.append(os.path.join(base, relative))
+    return partial_files.restore_names(paths, identities, suffix, disk_folders.absolute(disk, "seeding"))
 
 
 def adopt_for_retry(session: Session, seed_job: SeedJob, adapter: TorrentClientAdapter) -> SeedJob | None:

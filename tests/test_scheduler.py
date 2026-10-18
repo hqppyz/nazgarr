@@ -256,3 +256,18 @@ def test_removing_the_cron_drops_a_pending_catch_up(db_session):
 def test_the_catch_up_key_is_not_writable_from_the_generic_api(client):
     response = client.put("/api/settings/schedule_last_slot", json={"value": "2020-01-01T00:00:00+00:00"})
     assert response.status_code == 403
+
+
+def test_the_held_seeds_of_the_upload_flow_are_reconciled_on_their_own(db_session, monkeypatch):
+    """Decisione dell'utente, 2026-10-19: un reseed del flusso degli upload
+    entra fermo e parte quando il suo recheck è riuscito."""
+    from sqlalchemy.orm import sessionmaker
+
+    from nazgarr.upload import execute as upload_execute
+
+    sched = scheduler.build_scheduler(_factory_returning(db_session), "/tmp/data")
+    assert sched.get_job(scheduler.HELD_SEEDS_JOB_ID) is not None
+    seen = []
+    monkeypatch.setattr(upload_execute, "reconcile_held_seeds", lambda session, data_dir: seen.append(data_dir))
+    scheduler._reconcile_held_seeds(sessionmaker(bind=db_session.get_bind()), "/tmp/data")
+    assert seen == ["/tmp/data"]

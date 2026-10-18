@@ -223,6 +223,27 @@ def _apply_arr_webhook_events(session_factory: sessionmaker, data_dir: str) -> N
         session.close()
 
 
+HELD_SEEDS_JOB_ID = "upload_held_seeds"
+HELD_SEEDS_INTERVAL_SECONDS = 30
+
+
+def _reconcile_held_seeds(session_factory: sessionmaker, data_dir: str) -> None:
+    """I torrent aggiunti fermi dal flusso degli upload (i reseed, "Riprova il
+    seed"): partono quando il loro recheck è riuscito (decisione dell'utente,
+    2026-10-19; nazgarr/upload/execute.py::reconcile_held_seeds). Una query
+    se non c'è niente in attesa; anche durante una run, che non tocca gli
+    upload."""
+    from nazgarr.upload import execute as upload_execute
+
+    session = session_factory()
+    try:
+        upload_execute.reconcile_held_seeds(session, data_dir)
+    except Exception:
+        logger.exception("Esito dei recheck degli upload non letto")
+    finally:
+        session.close()
+
+
 UPDATE_JOB_ID = "update_check"
 UPDATE_INTERVAL_SECONDS = 3600
 
@@ -330,6 +351,11 @@ def build_scheduler(session_factory: sessionmaker, data_dir: str) -> BackgroundS
     scheduler.add_job(
         _apply_arr_webhook_events, IntervalTrigger(seconds=ARR_HOOKS_INTERVAL_SECONDS),
         args=[session_factory, data_dir], id=ARR_HOOKS_JOB_ID, replace_existing=True, max_instances=1, coalesce=True,
+    )
+    scheduler.add_job(
+        _reconcile_held_seeds, IntervalTrigger(seconds=HELD_SEEDS_INTERVAL_SECONDS),
+        args=[session_factory, data_dir], id=HELD_SEEDS_JOB_ID, replace_existing=True, max_instances=1,
+        coalesce=True,
     )
     scheduler.add_job(
         _check_updates, IntervalTrigger(seconds=UPDATE_INTERVAL_SECONDS),
