@@ -28,15 +28,23 @@ export function retryableTargets<T extends TargetLike>(job: { status: string; ta
   )
 }
 
-// Un invio fermato da un riavvio: non si sa se il tracker l'ha ricevuto
-// (needs_confirmation), si riprova solo dopo averlo controllato sul tracker.
+// Non si sa se il tracker l'ha ricevuto (UNSURE_ERRORS, needs_confirmation):
+// un invio fermato da un riavvio, o fallito dopo che la richiesta era
+// partita. Si riprova solo dopo averlo controllato sul tracker.
+const UNSURE_ERRORS = ['interrupted', 'upload_outcome_unknown']
+
 export function needsConfirmation(target: TargetLike) {
-  return target.action === 'upload' && target.error_message === 'interrupted'
+  return target.action === 'upload' && UNSURE_ERRORS.includes(target.error_message ?? '')
 }
+
+// Dove comincia un'esecuzione: dopo "Riprova", una ripresa o un riavvio il
+// job torna in coda, e finché il worker non lo prende gli step sono da fare.
+const RUN_STARTS = ['execution_started', 'job_retried', 'job_resumed_by_user', 'job_resumed']
 
 // Gli eventi dell'ultima esecuzione: dopo un nuovo tentativo ce n'è più
 // d'una, e gli step (hash, screenshot) si leggono solo da quella in corso.
 export function currentRunEvents<E extends { code: string }>(events: E[]): E[] {
-  const start = events.map((event) => event.code).lastIndexOf('execution_started')
+  const codes = events.map((event) => event.code)
+  const start = Math.max(...RUN_STARTS.map((code) => codes.lastIndexOf(code)))
   return start < 0 ? events : events.slice(start)
 }

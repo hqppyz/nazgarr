@@ -31,6 +31,7 @@ import stat
 import time
 from datetime import UTC, datetime
 
+import httpx
 import torf
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
@@ -645,6 +646,9 @@ def run_upload(session: Session, job: UploadJob, target: UploadTarget, ctx: dict
     session.commit()
     with adapter_factory.tracker(tracker) as adapter:
         fields = upload_fields(job, target, description, resolution_key)
+        # Da qui la richiesta parte: un errore non dice più se il tracker
+        # l'ha ricevuto (_run_target, upload_outcome_unknown).
+        ctx.setdefault("sent", set()).add(target.id)
         uploaded = adapter.upload_torrent(fields, torrent_path)
         # Da qui il torrent è pubblicato: qualunque cosa succeda dopo, mai
         # più un target 'failed' né un secondo invio (handle, reset_interrupted).
@@ -1112,6 +1116,15 @@ def _run_target(session: Session, job: UploadJob, target: UploadTarget, ctx: dic
             upload_jobs.set_target_status(target, upload_jobs.TargetStatus.DONE)
             target.error_message = "seed_failed"
             upload_jobs.log_event(session, job, "seed_failed", level="error", target=target, error=code)
+        elif target.action == "upload" and target.id in (ctx.get("sent") or ()) and _maybe_received(exc):
+            # La richiesta era partita: il tracker può averlo salvato anche
+            # senza una risposta buona. Si riprova solo dopo averlo
+            # controllato sul tracker (upload_jobs.needs_confirmation), come
+            # un invio fermato da un riavvio (audit 2026-10-18).
+            upload_jobs.set_target_status(target, upload_jobs.TargetStatus.FAILED)
+            target.error_message = "upload_outcome_unknown"
+            upload_jobs.log_event(session, job, "upload_outcome_unknown", level="error", target=target,
+                                  error=code, **{k: v for k, v in params.items() if k != "error"})
         else:
             upload_jobs.set_target_status(target, upload_jobs.TargetStatus.FAILED)
             target.error_message = code
@@ -1119,6 +1132,26 @@ def _run_target(session: Session, job: UploadJob, target: UploadTarget, ctx: dic
                                   error=code, **{k: v for k, v in params.items() if k != "error"})
     target.finished_at = datetime.now(UTC)
     session.commit()
+
+
+def _maybe_received(exc: BaseException) -> bool:
+    """Un errore dopo che la richiesta di upload era partita: un timeout
+    sulla risposta, un 5xx dopo il salvataggio, una risposta che non si
+    legge ("nessun id riconoscibile" arriva con success: true) possono
+    venire da un torrent che il tracker ha salvato. Dicono di no con
+    certezza solo una connessione mai aperta e un 4xx (il tracker l'ha
+    rifiutata), quando l'adapter li lascia vedere (raise ... from exc,
+    come UNIT3D); un plugin che non lo fa resta fra gli incerti."""
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout)):
+            return False
+        if isinstance(current, httpx.HTTPStatusError) and 400 <= current.response.status_code < 500:
+            return False
+        current = current.__cause__ or current.__context__
+    return True
 
 
 def _housekeeping(session: Session, job: UploadJob, ctx: dict, overrides: dict, cancelled: bool = False) -> None:

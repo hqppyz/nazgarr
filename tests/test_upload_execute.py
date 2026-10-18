@@ -4,6 +4,7 @@ import os
 import types
 from datetime import UTC, datetime
 
+import httpx
 import pytest
 import torf
 
@@ -19,6 +20,22 @@ from nazgarr.upload.worker import UploadWorker
 from tests.upload_helpers import InlineExecutor, make_client, make_tracker, write_video
 
 KB = 1024
+
+
+def _rejected(message="rejected: validation", status=422):
+    """Come UNIT3D: il tracker risponde con un 4xx, l'errore di httpx come causa."""
+    request = httpx.Request("POST", "https://tracker/api/torrents/upload")
+    error = UploadError(message)
+    error.__cause__ = httpx.HTTPStatusError(f"Client error '{status}'", request=request,
+                                            response=httpx.Response(status, request=request))
+    return error
+
+
+def _unreachable(message="connection refused"):
+    """Il tracker non risponde: la richiesta non è mai partita."""
+    error = UploadError(message)
+    error.__cause__ = httpx.ConnectError(message)
+    return error
 
 
 class _Tracker:
@@ -282,7 +299,7 @@ def test_an_upload_seen_elsewhere_by_the_client_is_rechecked(db_session, tmp_pat
 
 def test_one_tracker_failing_leaves_the_others_going(db_session, tmp_path, env):
     video = write_video(env["root"] / "media" / "Movie.2024.mkv", 100 * KB)
-    env["trackers"]["a"].error = UploadError("rejected: dupe")
+    env["trackers"]["a"].error = _rejected("rejected: dupe")
     job = _approved(db_session, env, "media/" + video.name, {"a": _upload("A"), "b": _upload("B")})
 
     _run(db_session, tmp_path, job)
@@ -602,7 +619,7 @@ def test_a_failed_upload_never_removes_the_links_a_reseed_of_the_same_job_seeds(
     link e poi la cartella osservata toglieva l'originale: nessuna copia
     della release restava, e il client di "b" seedava un torrent senza dati."""
     if failure == "tracker":
-        env["trackers"]["a"].error = UploadError("rejected: validation")
+        env["trackers"]["a"].error = _rejected("rejected: validation")
     else:
         monkeypatch.setattr(upload_execute.screenshots, "generate_screenshots",
                             lambda *a, **k: (_ for _ in ()).throw(upload_execute.screenshots.ScreenshotError("ffmpeg")))
@@ -1321,7 +1338,7 @@ def _shots(monkeypatch):
 def test_a_failed_tracker_is_retried_with_its_decision_and_no_new_match(db_session, tmp_path, env, monkeypatch):
     shots = _shots(monkeypatch)
     video = write_video(env["root"] / "media" / "The.Matrix.1999.1080p.WEB-DL.H.264-GRP.mkv", 300 * KB)
-    env["trackers"]["a"].error = UploadError("502 Bad Gateway")
+    env["trackers"]["a"].error = _unreachable("All connection attempts failed")
     job = _approved(db_session, env, "media/" + video.name, {"a": _upload("Matrix A"), "b": _upload("Matrix B")})
     _run(db_session, tmp_path, job)
     a, b = job.targets
@@ -1348,7 +1365,7 @@ def test_a_retry_checks_the_dupes_again_before_sending(db_session, tmp_path, env
     from nazgarr.adapters.tracker.base import TorrentCandidate
 
     video = write_video(env["root"] / "media" / "The.Matrix.1999.1080p.WEB-DL.H.264-GRP.mkv", 300 * KB)
-    env["trackers"]["a"].error = UploadError("timeout")
+    env["trackers"]["a"].error = _unreachable("connect timeout")
     job = _approved(db_session, env, "media/" + video.name, {"a": _upload("Matrix A"), "b": {"action": "skip"}})
     _run(db_session, tmp_path, job)
     assert job.status == "failed"
@@ -1418,7 +1435,7 @@ def test_what_cannot_be_retried(db_session, tmp_path, env, monkeypatch):
 def test_a_watched_release_that_failed_everywhere_stays_and_leaves_after_a_retry(db_session, tmp_path, env):
     video = _watched_job(db_session, env, "My.Movie.2024.mkv", {"a": _upload("Movie A"), "b": {"action": "skip"}})
     job = db_session.query(upload_jobs.UploadJob).one()
-    env["trackers"]["a"].error = UploadError("down")
+    env["trackers"]["a"].error = _unreachable("down")
     _run(db_session, tmp_path, job)
     assert job.status == "failed" and video.is_file()
 
@@ -1428,3 +1445,76 @@ def test_a_watched_release_that_failed_everywhere_stays_and_leaves_after_a_retry
 
     assert job.status == "done" and not video.exists()
     assert (env["root"] / "torrents" / "My.Movie.2024.mkv").is_file()
+
+
+def test_a_watched_release_gone_after_one_tracker_cannot_be_retried(db_session, tmp_path, env):
+    """Uscita dalla cartella osservata dopo il primo tracker riuscito, la
+    cartella resta con il sample: prima un nuovo tentativo partiva lo stesso,
+    senza file, e il torrent nasceva dalla copia in seed dell'altro tracker."""
+    env["disk"].watch_rel_path = "releases"
+    db_session.commit()
+    folder = env["root"] / "releases" / "My Movie 2024"
+    video = write_video(folder / "My.Movie.2024.1080p.WEB-DL-NZG.mkv", 300 * KB)
+    write_video(folder / "Sample" / "sample.mkv", 10 * KB)
+    job = _approved(db_session, env, "releases/My Movie 2024", {"a": _upload("Movie A"), "b": _upload("Movie B")})
+    job.origin = "watch"
+    db_session.commit()
+    env["trackers"]["b"].error = _unreachable()
+
+    _run(db_session, tmp_path, job)
+
+    assert (job.status, [t.status for t in job.targets]) == ("partial", ["done", "failed"])
+    assert not video.exists() and (folder / "Sample" / "sample.mkv").is_file()
+    with pytest.raises(UploadJobError) as exc:
+        upload_jobs.retry_failed(db_session, job)
+    assert exc.value.code == "upload_source_missing"
+    assert job.status == "partial"
+
+
+@pytest.mark.parametrize("cause, unsure", [
+    (httpx.ReadTimeout("timed out"), True),  # la risposta non è arrivata: il tracker può averlo salvato
+    (None, True),  # "nessun id riconoscibile", con success: true
+    (httpx.ConnectError("refused"), False),  # mai partita
+    (httpx.HTTPStatusError("422", request=httpx.Request("POST", "https://t"),
+                           response=httpx.Response(422, request=httpx.Request("POST", "https://t"))), False),
+])
+def test_an_upload_failed_after_sending_is_retried_only_once_confirmed(db_session, tmp_path, env, cause, unsure):
+    """Audit 2026-10-18: un timeout, un 5xx o una risposta illeggibile dopo
+    l'invio non dicono se il tracker l'ha salvato; "Riprova" lo rimandava con
+    un clic, e la ricerca di UNIT3D non elenca i torrent in moderazione."""
+    video = write_video(env["root"] / "media" / "The.Matrix.1999.1080p.WEB-DL.H.264-GRP.mkv", 300 * KB)
+    error = UploadError(f"UNIT3D upload failed: {cause!r}")
+    error.__cause__ = cause
+    env["trackers"]["a"].error = error
+    job = _approved(db_session, env, "media/" + video.name, {"a": _upload("Matrix A"), "b": {"action": "skip"}})
+
+    _run(db_session, tmp_path, job)
+
+    a = job.targets[0]
+    assert job.status == "failed"
+    if not unsure:
+        assert a.error_message == str(error)
+        upload_jobs.retry_failed(db_session, job)
+        assert a.status == "approved"
+        return
+    assert a.error_message == "upload_outcome_unknown"
+    event = next(e for e in job.events if e.code == "upload_outcome_unknown")
+    assert json.loads(event.params_json)["error"] == str(error)
+    with pytest.raises(UploadJobError) as exc:
+        upload_jobs.retry_failed(db_session, job)
+    assert (exc.value.code, exc.value.params) == ("upload_retry_needs_confirm", {"trackers": "a"})
+    upload_jobs.retry_failed(db_session, job, confirm_interrupted=True)
+    assert a.status == "approved"
+
+
+def test_a_failure_before_sending_never_asks_for_a_confirmation(db_session, tmp_path, env):
+    video = write_video(env["root"] / "media" / "Movie.2024.mkv", 100 * KB)
+    job = _approved(db_session, env, "media/" + video.name, {"a": _upload("A"), "b": {"action": "skip"}})
+    job.targets[0].tracker.announce_url = None
+    db_session.commit()
+
+    _run(db_session, tmp_path, job)
+
+    assert job.targets[0].error_message == "tracker_missing_announce_url"
+    upload_jobs.retry_failed(db_session, job)
+    assert job.status == "queued"

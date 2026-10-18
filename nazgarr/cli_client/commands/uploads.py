@@ -409,6 +409,10 @@ def _retryable(job: dict) -> list[dict]:
             and not t.get("torrent_id_remote")]
 
 
+# Come upload_jobs.UNSURE_ERRORS: non si sa se il tracker l'ha ricevuto.
+_UNSURE = ("interrupted", "upload_outcome_unknown")
+
+
 @app.command("retry")
 def retry_upload(
     ctx: typer.Context,
@@ -416,7 +420,8 @@ def retry_upload(
     yes: bool = typer.Option(False, "--yes", "-y", help="Do not ask for confirmation."),
     confirm_interrupted: bool = typer.Option(
         False, "--confirm-interrupted",
-        help="Also retry trackers whose sending was interrupted (check on the tracker that it is not there)."),
+        help="Also retry trackers whose sending was interrupted or failed after the request went out "
+             "(check on the tracker that it is not there)."),
     wait: bool = typer.Option(False, "--wait/--no-wait", help="Follow it until it is done."),
 ):
     """Retry the trackers that failed, with the choices already made: back in the queue, no new match.
@@ -426,16 +431,17 @@ def retry_upload(
     client = api(ctx)
     job = client.get(f"/api/uploads/{job_id}")
     targets = _retryable(job)
-    unsure = [t for t in targets if t.get("action") == "upload" and t.get("error_message") == "interrupted"]
+    unsure = [t for t in targets if t.get("action") == "upload" and t.get("error_message") in _UNSURE]
     for target in unsure:
-        err_console.print(f"[yellow]{target['tracker_label']}: the upload was interrupted while sending, Nazgarr "
-                          "does not know whether the tracker received it. Check on the tracker that the torrent is "
-                          "not there before retrying.[/yellow]")
+        err_console.print(f"[yellow]{target['tracker_label']}: the sending was interrupted, or failed after the "
+                          "request went out, and Nazgarr does not know whether the tracker received it. Check on the "
+                          "tracker that the torrent is not there before retrying.[/yellow]")
     question = f"Retry upload #{job_id} on {', '.join(t['tracker_label'] for t in targets)}?"
     if unsure and not confirm_interrupted:
         if yes or not sys.stdin.isatty():
-            raise fail("Interrupted trackers are retried only with --confirm-interrupted.", EXIT_DECLINED)
-        if not typer.confirm(f"{question} Including the interrupted ones?", default=False):
+            raise fail("Trackers whose sending may have reached the tracker are retried only with "
+                       "--confirm-interrupted.", EXIT_DECLINED)
+        if not typer.confirm(f"{question} Including the ones above?", default=False):
             err_console.print("Nothing done.")
             raise typer.Exit(EXIT_DECLINED)
     elif targets:

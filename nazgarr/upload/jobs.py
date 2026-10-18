@@ -23,7 +23,8 @@ from sqlalchemy import or_, update
 from sqlalchemy.orm import Session
 
 from nazgarr.core.errors import CodedError
-from nazgarr.core.fs_scope import resolve_scoped
+from nazgarr.core.file_types import is_video
+from nazgarr.core.fs_scope import ScopeViolation, resolve_scoped
 from nazgarr.core.logs import safe_error
 from nazgarr.core.models import (
     UPLOAD_TARGET_STATUSES,
@@ -36,6 +37,7 @@ from nazgarr.core.models import (
     UploadTarget,
 )
 from nazgarr.torrents import client_labels
+from nazgarr.upload import inventory as upload_inventory
 
 logger = logging.getLogger(__name__)
 
@@ -368,6 +370,21 @@ def _cancelled_from(job: UploadJob) -> str:
     return "analyzing" if job.tmdb_id else "identifying"
 
 
+def require_source(job: UploadJob) -> None:
+    """La sorgente ha ancora quello che va nel torrent, non solo la sua
+    cartella (audit 2026-10-18): una release della cartella osservata, uscita
+    da lì dopo il primo tracker riuscito, lascia la cartella con un sample o
+    un nfo, e un nuovo tentativo partiva senza file da caricare (o con il
+    torrent fatto dalla copia in seed di un altro tracker). Un file solo
+    basta che ci sia; una cartella o un pack devono avere ancora un video."""
+    try:
+        files = upload_inventory.job_files(job)
+    except (OSError, ScopeViolation):
+        files = []  # un file del pack sparito, o spostato fuori dal disco
+    if not files or (job.is_dir and not any(is_video(f.relative) for f in files)):
+        raise UploadJobError("upload_source_missing", path=job.relative_path)
+
+
 def resume_job(session: Session, job: UploadJob, active: bool = False) -> str:
     """Riprende un job annullato da dove si era fermato: a un punto di
     approvazione ci torna con le scelte fatte, un passo del worker riparte,
@@ -380,8 +397,7 @@ def resume_job(session: Session, job: UploadJob, active: bool = False) -> str:
         raise UploadJobError("upload_job_split")  # continua negli upload degli episodi
     if any(event.code == "job_split_seasons" for event in job.events):
         raise UploadJobError("upload_job_split_seasons")  # continua negli upload delle stagioni
-    if not os.path.exists(job.source_path):
-        raise UploadJobError("upload_source_missing", path=job.relative_path)
+    require_source(job)
     previous = _cancelled_from(job)
     if previous == "running":
         previous = "queued"
@@ -408,10 +424,17 @@ def retryable_targets(job: UploadJob) -> list[UploadTarget]:
             and not t.torrent_id_remote]
 
 
+# Gli esiti di un invio di cui non si sa se il tracker l'ha ricevuto: fermato
+# da un riavvio, o fallito dopo che la richiesta era partita (un timeout, un
+# 5xx, una risposta illeggibile: execute._run_target).
+UNSURE_ERRORS = ("interrupted", "upload_outcome_unknown")
+
+
 def needs_confirmation(target: UploadTarget) -> bool:
-    """Un invio fermato da un riavvio: non si sa se il tracker l'ha
-    ricevuto, e un nuovo tentativo potrebbe pubblicarlo due volte."""
-    return target.action == "upload" and target.error_message == "interrupted"
+    """Non si sa se il tracker l'ha ricevuto, e un nuovo tentativo potrebbe
+    pubblicarlo due volte: la ricerca di UNIT3D non elenca i torrent ancora
+    in moderazione, quindi nemmeno il dupe check rifatto lo vedrebbe."""
+    return target.action == "upload" and target.error_message in UNSURE_ERRORS
 
 
 def retry_failed(session: Session, job: UploadJob, confirm_interrupted: bool = False,
@@ -430,8 +453,7 @@ def retry_failed(session: Session, job: UploadJob, confirm_interrupted: bool = F
     if any(event.code in ("job_split", "job_split_seasons") for event in job.events):
         raise UploadJobError("upload_job_split")
     _refuse_if_busy(job, active)
-    if not os.path.exists(job.source_path):
-        raise UploadJobError("upload_source_missing", path=job.relative_path)
+    require_source(job)
     targets = retryable_targets(job)
     if not targets:
         raise UploadJobError("upload_retry_nothing")

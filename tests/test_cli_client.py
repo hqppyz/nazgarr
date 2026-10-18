@@ -300,7 +300,7 @@ def test_a_failed_upload_is_retried_from_the_command_line(cli_env, client, capsy
     session.close()
 
     code, _out, err = run(capsys, "upload", "retry", str(job_id), "--yes")
-    assert code == 3 and "--confirm-interrupted" in err and "interrupted while sending" in err
+    assert code == 3 and "--confirm-interrupted" in err and "does not know whether the tracker received it" in err
     code, out, err = run(capsys, "upload", "retry", str(job_id), "--yes", "--confirm-interrupted")
     assert code == 0 and f"Upload #{job_id}: queued." in out, err
     assert kicked == [job_id]

@@ -48,6 +48,22 @@ describe('RetryUploadButton', () => {
     await vi.waitFor(() => expect(retry).toHaveBeenCalledWith(true))
   })
 
+  it('asks the same when the sending failed after the request went out', async () => {
+    render(<RetryUploadButton job={job([
+      target(1, 'ITT', { error_message: 'upload_outcome_unknown' }),
+      target(2, 'Other', { error_message: 'upload_screenshots_failed' }),
+    ], 'failed')} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    const dialog = screen.getByRole('dialog')
+    const alert = within(dialog).getByRole('alert').textContent ?? ''
+    expect(alert).toContain('ITT:')
+    expect(alert).not.toContain('Other')
+    fireEvent.click(within(dialog).getByRole('button', { name: 'I checked: retry' }))
+
+    await vi.waitFor(() => expect(retry).toHaveBeenCalledWith(true))
+  })
+
   it('is not offered when nothing can be retried', () => {
     render(<RetryUploadButton job={job([target(1, 'ITT')], 'cancelled')} />)
     expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull()
