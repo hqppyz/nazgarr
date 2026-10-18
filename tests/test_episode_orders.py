@@ -46,6 +46,94 @@ def test_align_one_to_one_in_pairs_and_by_date():
     assert [e.refs for e in odd.seasons[1]] == [[(1, 1), (1, 2)], [(1, 3)], [], []]
 
 
+def _weekly(start: str, count: int, shift_days: int = 0) -> list[str]:
+    from datetime import date, timedelta
+
+    first = date.fromisoformat(start)
+    return [(first + timedelta(days=7 * i + shift_days)).isoformat() for i in range(count)]
+
+
+def _pilot_and_split_finale(shift_days: int = 0):
+    """TMDB: il pilot fra gli speciali, 10 + 10 episodi, il finale diviso in
+    due (E09 ed E10 lo stesso giorno). Sonarr: il pilot in S01 (11), il
+    finale intero (9). I totali tornano (20 e 20), le posizioni no: dal
+    pilot in poi tutto sfasato di uno. Titoli generici: non aiutano."""
+    s1, s2 = _weekly("2020-01-08", 10), _weekly("2020-09-02", 9)
+    tmdb_dates = {**{(1, n): d for n, d in enumerate(s1, 1)}, **{(2, n): d for n, d in enumerate(s2, 1)},
+                  (2, 10): s2[-1]}
+    tmdb = _order("tmdb:default", {1: 10, 2: 10}, dates=tmdb_dates)
+    shifted = _weekly("2020-01-01", 11, shift_days)  # il pilot una settimana prima
+    sonarr_dates = {**{(1, n): d for n, d in enumerate(shifted, 1)},
+                    **{(2, n): d for n, d in enumerate(_weekly("2020-09-02", 9, shift_days), 1)}}
+    sonarr = _order("sonarr:aired", {1: 11, 2: 9}, "sonarr", refs=False, dates=sonarr_dates)
+    return tmdb, sonarr
+
+
+def test_counts_that_match_by_coincidence_fall_back_to_the_air_dates():
+    """Decisione dell'utente, 2026-10-18 (audit 2026-10-18): per posizione 19
+    coppie su 20 avevano le date a una settimana l'una dall'altra, e ogni
+    traduzione della serie era sbagliata di uno."""
+    tmdb, sonarr = _pilot_and_split_finale()
+    eo.align_to(sonarr, tmdb)
+    s1, s2 = sonarr.seasons[1], sonarr.seasons[2]
+    assert s1[0].refs == []  # il pilot: per TMDB è uno speciale
+    assert [e.refs for e in s1[1:4]] == [[(1, 1)], [(1, 2)], [(1, 3)]]
+    assert s2[0].refs == [(2, 1)] and s2[8].refs == [(2, 9), (2, 10)]  # il finale intero vale le due parti
+    assert eo.translate(sonarr, tmdb, 1, 11) == [(1, 10)]
+    # Le date di Sonarr un giorno dopo (il fuso orario di una fonte): uguale.
+    tmdb, sonarr = _pilot_and_split_finale(shift_days=1)
+    eo.align_to(sonarr, tmdb)
+    assert sonarr.seasons[1][0].refs == [] and sonarr.seasons[1][1].refs == [(1, 1)]
+    assert sonarr.seasons[2][8].refs == [(2, 9), (2, 10)]
+
+
+def test_positions_stay_when_the_dates_agree_within_a_few_days():
+    """Stessi episodi, date a uno-tre giorni (fusi orari, la prima in un
+    altro paese): resta l'allineamento per posizione."""
+    tmdb = _order("tmdb:default", {1: 10}, dates={(1, n): d for n, d in enumerate(_weekly("2021-03-01", 10), 1)})
+    for shift in (1, 3, -2):
+        tvdb = _order("tvdb:official", {1: 10}, "tvdb", refs=False,
+                      dates={(1, n): d for n, d in enumerate(_weekly("2021-03-01", 10, shift), 1)})
+        eo.clear_cache()
+        eo.align_to(tvdb, tmdb)
+        assert [e.refs for e in tvdb.seasons[1]] == [[(1, n)] for n in range(1, 11)], shift
+    # Una sola coppia lontana su dieci, o date quasi tutte assenti: posizione.
+    one_off = _order("tvdb:official", {1: 10}, "tvdb", refs=False,
+                     dates={(1, n): d for n, d in enumerate(_weekly("2021-03-01", 10), 1)} | {(1, 4): "2022-01-01"})
+    sparse = _order("tvdb:dvd", {1: 10}, "tvdb", refs=False, dates={(1, 2): "2030-01-01"})
+    for order in (one_off, sparse):
+        eo.align_to(order, tmdb)
+        assert [e.refs for e in order.seasons[1]] == [[(1, n)] for n in range(1, 11)]
+    # Uscita tutta in un giorno: le date non distinguono, la posizione resta.
+    drop = {(1, n): "2021-03-01" for n in range(1, 11)}
+    netflix = _order("tvdb:official", {1: 10}, "tvdb", refs=False, dates=drop)
+    eo.align_to(netflix, _order("tmdb:default", {1: 10}, dates=drop))
+    assert netflix.seasons[1][6].refs == [(1, 7)]
+
+
+def test_titles_still_win_after_the_fall_back_to_dates():
+    tmdb, sonarr = _pilot_and_split_finale()
+    tmdb.seasons[1][4].titles = ["The Long Night"]
+    sonarr.seasons[1][2].titles = ["The Long Night"]  # il titolo dice E05, la data E02
+    eo.align_to(sonarr, tmdb)
+    assert sonarr.seasons[1][2].refs == [(1, 5)] and sonarr.seasons[1][3].refs == [(1, 3)]
+
+
+def test_pairs_of_episodes_fall_back_to_dates_too():
+    """Il doppio e la metà passano dallo stesso controllo."""
+    days = _weekly("2022-01-05", 10)
+    tmdb = _order("tmdb:default", {1: 10}, dates={(1, n): d for n, d in enumerate(days, 1)})
+    # Cinque episodi doppi, trasmessi con le date delle parti dispari: per coppie, giusti.
+    doubled = _order("tvdb:regional", {1: 5}, "tvdb", refs=False,
+                     dates={(1, n): days[2 * (n - 1)] for n in range(1, 6)})
+    eo.align_to(doubled, tmdb)
+    assert doubled.seasons[1][1].refs == [(1, 3), (1, 4)]
+    # Cinque episodi con le date delle ultime cinque parti: per coppie sarebbero sbagliati.
+    late = _order("tvdb:regional", {1: 5}, "tvdb", refs=False, dates={(1, n): days[4 + n] for n in range(1, 6)})
+    eo.align_to(late, tmdb)
+    assert [e.refs for e in late.seasons[1]] == [[(1, 6)], [(1, 7)], [(1, 8)], [(1, 9)], [(1, 10)]]
+
+
 def test_a_dvd_order_of_two_segment_episodes_is_aligned_by_title():
     # Iron Man and His Awesome Friends: su TMDB a segmenti, nell'ordine DVD di
     # TVDB due per episodio ("A / B") e quasi tutti con la stessa data. Per
