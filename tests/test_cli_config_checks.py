@@ -64,3 +64,30 @@ def test_status_reads_only_the_uploads_still_in_progress(cli_env, client, capsys
 
     assert code == 0, err
     assert ("/api/uploads", {"scope": "active"}) in calls
+
+
+def test_plain_http_to_a_public_host_is_saved_with_a_warning(cli_env, client, capsys, monkeypatch):
+    """Decisione dell'utente, 2026-10-18: si salva, con un avviso; la LAN no."""
+    import json
+    import socket
+
+    from nazgarr.api import types
+
+    real = socket.getaddrinfo
+    addresses = {"tracker.public.example": "93.184.216.34", "qbit.lan": "192.168.1.20"}
+    monkeypatch.setattr(socket, "getaddrinfo", lambda host, port, *a, **k: (
+        [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (addresses[host], 0))] if host in addresses
+        else real(host, port, *a, **k)))
+    types.forget_public_hosts()
+    _login(capsys)
+
+    code, out, err = run(capsys, "--json", "tracker", "add", "pub", "--url", "http://tracker.public.example",
+                         "--token-stdin", "--no-profile", stdin="tok\n")
+    assert code == 0, err
+    assert json.loads(out)["insecure_public_url"] is True  # --json resta pulito, l'avviso va sullo stderr
+    assert "Warning:" in err and "travel in clear" in err
+
+    code, _out, err = run(capsys, "client", "add", "lan", "--url", "http://qbit.lan:8080", "--no-test")
+    assert code == 0, err
+    assert "Warning:" not in err
+    types.forget_public_hosts()

@@ -16,7 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session, object_session
 
-from nazgarr.api.types import HttpUrlStr, check_destinations, require_secrets_for_new_host
+from nazgarr.api.types import HttpUrlStr, check_destinations, insecure_public_url, require_secrets_for_new_host
 from nazgarr.core import http_limits
 from nazgarr.core.errors import coded_detail
 from nazgarr.core.logs import safe_error
@@ -81,6 +81,9 @@ class ArrInstanceResponse(BaseModel):
     id: int
     label: str
     base_url: str
+    # http:// verso un host pubblico: l'API key viaggia in chiaro. Salvato lo
+    # stesso, con un avviso (decisione dell'utente, 2026-10-18).
+    insecure_public_url: bool = False
     enabled: bool
     priority: int
     timeout_seconds: int
@@ -93,7 +96,8 @@ class ArrInstanceResponse(BaseModel):
         session = object_session(row)
         last = arr_webhooks.last_event(session, kind, row.id) if session is not None and kind else None
         return cls(
-            id=row.id, label=row.label, base_url=row.base_url, enabled=row.enabled,
+            id=row.id, label=row.label, base_url=row.base_url, insecure_public_url=insecure_public_url(row.base_url),
+            enabled=row.enabled,
             priority=row.priority if row.priority is not None else DEFAULT_PRIORITY,
             timeout_seconds=row.timeout_seconds if row.timeout_seconds is not None else DEFAULT_TIMEOUT_SECONDS,
             basic_auth_username=row.basic_auth_username,

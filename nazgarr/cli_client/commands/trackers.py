@@ -7,7 +7,7 @@ from pathlib import Path
 import typer
 
 from nazgarr.cli_client.context import api, state
-from nazgarr.cli_client.helpers import duration, find, human_duration, secret
+from nazgarr.cli_client.helpers import duration, find, human_duration, secret, warn_insecure_url
 from nazgarr.cli_client.output import EXIT_USAGE, confirm, console, emit, fail, table
 
 app = typer.Typer(help="Trackers and their upload profiles.", no_args_is_help=True)
@@ -106,6 +106,7 @@ def add_tracker(
     emit(state(ctx), created, lambda t: console.print(
         f"Tracker [bold]{t['label']}[/bold] (#{t['id']}) added"
         + (f", with the {with_profile} upload profile." if with_profile else ".")))
+    warn_insecure_url(created, "its API token and keys")
 
 
 @app.command("edit")
@@ -144,6 +145,7 @@ def edit_tracker(
         raise fail("Nothing to change (see --help).", EXIT_USAGE)
     updated = client.patch(f"/api/trackers/{found['id']}", body)
     emit(state(ctx), updated, lambda t: console.print(f"Tracker {t['label']} updated."))
+    warn_insecure_url(updated, "its API token and keys")
 
 
 @app.command("rm")

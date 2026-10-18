@@ -49,6 +49,8 @@ import { autosaveFeedback } from '@/lib/autosave'
 import { PASSWORD_ONLY, torrentClientPayload, type TorrentClientForm } from '@/lib/torrentClientForm'
 import { CLIENT_NAMES } from '@/lib/services'
 import { ClientLogo } from '@/pages/config/ServiceIcons'
+import { InsecureUrlWarning } from '@/pages/config/InsecureUrlWarning'
+import { insecureUrlWarning } from '@/pages/config/insecureUrl'
 import { PathCheckButton } from '@/pages/config/ClientPathCheck'
 import { QuiInstanceField } from '@/pages/config/QuiInstanceField'
 import { DiskBrowserDialog } from '@/pages/config/DiskBrowserDialog'
@@ -216,6 +218,7 @@ function TorrentClientDialog({ tc }: { tc?: TorrentClient }) {
               onChange={(e) => set('baseUrl')(e.target.value)}
               placeholder={editing ? undefined : (URL_PLACEHOLDERS[form.adapterType] ?? 'http://client:8080')}
             />
+            {insecureUrlWarning(form.baseUrl, tc) && <InsecureUrlWarning kind="client" />}
           </div>
           {pluginSpec ? (
             <AdapterConfigFields
@@ -564,6 +567,7 @@ export function TorrentClientsSection() {
               <p className="truncate font-mono text-xs text-muted-foreground" title={tc.base_url}>
                 {tc.base_url}
               </p>
+              {tc.insecure_public_url && <InsecureUrlWarning kind="client" />}
               <div className="grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-1.5 text-xs">
                 <span className="text-muted-foreground">{t('torrentClients.disks')}</span>
                 <span className="flex flex-wrap gap-1">

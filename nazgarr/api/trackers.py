@@ -11,7 +11,13 @@ from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, object_session
 
-from nazgarr.api.types import HttpUrlStr, check_destinations, host_changed, require_secrets_for_new_host
+from nazgarr.api.types import (
+    HttpUrlStr,
+    check_destinations,
+    host_changed,
+    insecure_public_url,
+    require_secrets_for_new_host,
+)
 from nazgarr.core.errors import coded_detail, from_coded_error
 from nazgarr.core.models import Candidate, SeedJob, Tracker, TrackerUploadProfile, UploadJob, UploadTarget
 from nazgarr.plugins import REGISTRY
@@ -84,6 +90,9 @@ class TrackerResponse(BaseModel):
     label: str
     adapter_type: str
     base_url: str
+    # http:// verso un host pubblico: il token viaggia in chiaro. Salvato lo
+    # stesso, con un avviso (decisione dell'utente, 2026-10-18).
+    insecure_public_url: bool = False
     # Contiene la passkey: come la chiave RSS, l'API dice solo se c'è.
     has_announce_url: bool = False
     rate_limit_per_min: int | None
@@ -110,7 +119,8 @@ class TrackerResponse(BaseModel):
             )
         return cls(
             id=t.id, label=t.label, adapter_type=t.adapter_type, base_url=t.base_url,
-            has_announce_url=bool(t.announce_url), rate_limit_per_min=t.rate_limit_per_min, enabled=t.enabled,
+            insecure_public_url=insecure_public_url(t.base_url), has_announce_url=bool(t.announce_url),
+            rate_limit_per_min=t.rate_limit_per_min, enabled=t.enabled,
             has_rss_key=bool(t.rss_key), torrent_client_id=t.torrent_client_id, language=t.language,
             min_seed_time_seconds=t.min_seed_time_seconds, min_ratio=t.min_ratio, seed_rule=t.seed_rule or "any",
             config=plugin_config.public_for_row(t, "tracker"),

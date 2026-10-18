@@ -1489,7 +1489,9 @@ export interface paths {
          *     giorni (finestra 7d/30d/90d della dashboard), fino a 1000; senza, le
          *     ultime `limit`. `tracker`: lo storico di quel filtro, che parte dalla
          *     prima scansione dopo la sua introduzione; uno che non c'è, quello globale
-         *     come i numeri della dashboard.
+         *     come i numeri della dashboard. Limiti espliciti (audit 2026-10-18): un
+         *     limit negativo restituiva tutte le run, e un days enorme un 500
+         *     (OverflowError di timedelta).
          */
         get: operations["get_history_api_dashboard_history_get"];
         put?: never;
@@ -2581,23 +2583,6 @@ export interface paths {
          *     di una risposta, e senza credenziali non legge nemmeno il DB.
          */
         get: operations["health_api_health_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/{full_path}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Serve Spa */
-        get: operations["serve_spa__full_path__get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -4309,6 +4294,11 @@ export interface components {
             label: string;
             /** Base Url */
             base_url: string;
+            /**
+             * Insecure Public Url
+             * @default false
+             */
+            insecure_public_url: boolean;
             /** Enabled */
             enabled: boolean;
             /** Priority */
@@ -4611,6 +4601,8 @@ export interface components {
             cron: string | null;
             /** Enabled */
             enabled: boolean;
+            /** Error */
+            error?: string | null;
         };
         /** ScheduleUpdateRequest */
         ScheduleUpdateRequest: {
@@ -4815,6 +4807,11 @@ export interface components {
             label: string;
             /** Base Url */
             base_url: string;
+            /**
+             * Insecure Public Url
+             * @default false
+             */
+            insecure_public_url: boolean;
             /** Enabled */
             enabled: boolean;
             /** Priority */
@@ -4933,6 +4930,11 @@ export interface components {
             adapter_type: string;
             /** Base Url */
             base_url: string;
+            /**
+             * Insecure Public Url
+             * @default false
+             */
+            insecure_public_url: boolean;
             /** Username */
             username: string | null;
             /** Qui Instance Id */
@@ -5069,6 +5071,11 @@ export interface components {
             adapter_type: string;
             /** Base Url */
             base_url: string;
+            /**
+             * Insecure Public Url
+             * @default false
+             */
+            insecure_public_url: boolean;
             /**
              * Has Announce Url
              * @default false
@@ -10512,37 +10519,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HealthResponse"];
-                };
-            };
-        };
-    };
-    serve_spa__full_path__get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                full_path: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

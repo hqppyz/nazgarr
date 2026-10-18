@@ -33,6 +33,8 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { t, uiLocale } from '@/lib/i18n'
+import { InsecureUrlWarning } from '@/pages/config/InsecureUrlWarning'
+import { insecureUrlWarning } from '@/pages/config/insecureUrl'
 import { TrackerLogo } from '@/pages/config/ServiceIcons'
 import { safeHref } from '@/lib/safeUrl'
 import { cn, selectLabel } from '@/lib/utils'
@@ -290,6 +292,7 @@ function AddTrackerDialog() {
               onChange={(e) => setBaseUrl(e.target.value)}
               placeholder="https://mytracker.example"
             />
+            {insecureUrlWarning(baseUrl) && <InsecureUrlWarning kind="tracker" />}
           </div>
           <div className="grid gap-1.5" data-tour="trackers.dialog.token">
             <Label htmlFor="t-api-token">{t('trackers.apiToken')}</Label>
@@ -397,6 +400,7 @@ function EditTrackerDialog({ tracker }: { tracker: Tracker }) {
           <div className="grid gap-1.5">
             <Label htmlFor="t-edit-base-url">{t('trackers.apiUrl')}</Label>
             <Input id="t-edit-base-url" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} />
+            {insecureUrlWarning(baseUrl, tracker) && <InsecureUrlWarning kind="tracker" />}
           </div>
           <div className="grid gap-1.5">
             <Label htmlFor="t-edit-api-token">{t('trackers.apiToken')}</Label>
@@ -503,6 +507,7 @@ export function TrackersSection() {
                   <span className="truncate font-mono text-xs text-muted-foreground" title={tracker.base_url}>
                     {tracker.base_url}
                   </span>
+                  {tracker.insecure_public_url && <InsecureUrlWarning kind="tracker" />}
                 </div>
                 <Switch
                   checked={tracker.enabled}

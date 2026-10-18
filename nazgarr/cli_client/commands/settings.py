@@ -8,7 +8,7 @@ import typer
 
 from nazgarr.cli_client import settings_catalog as catalog
 from nazgarr.cli_client.context import api, state
-from nazgarr.cli_client.helpers import find, login_api, secret
+from nazgarr.cli_client.helpers import find, login_api, secret, warn_insecure_url
 from nazgarr.cli_client.http import ApiError
 from nazgarr.cli_client.output import EXIT_USAGE, confirm, console, emit, err_console, fail, table
 
@@ -169,6 +169,7 @@ def add_arr(
     client = api(ctx)
     created = client.post(f"/api/{kind}-instances", body)
     emit(state(ctx), created, lambda i: console.print(f"{kind.capitalize()} {i['label']} (#{i['id']}) added."))
+    warn_insecure_url(created, "its API key")
     if not state(ctx).json:
         _print_test(client.post(f"/api/{kind}-instances/{created['id']}/test"))
 

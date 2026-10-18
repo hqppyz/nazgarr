@@ -4,7 +4,7 @@ token si chiedono a schermo, o da stdin con --password-stdin."""
 import typer
 
 from nazgarr.cli_client.context import api, state
-from nazgarr.cli_client.helpers import find, secret
+from nazgarr.cli_client.helpers import find, secret, warn_insecure_url
 from nazgarr.cli_client.output import EXIT_USAGE, confirm, console, emit, err_console, fail, table
 
 app = typer.Typer(help="Torrent clients: add, test, link to disks, default labels.", no_args_is_help=True)
@@ -63,6 +63,7 @@ def add_client(
     client = api(ctx)
     created = client.post("/api/torrent-clients", body)
     emit(state(ctx), created, lambda c: console.print(f"Client [bold]{c['label']}[/bold] (#{c['id']}) added."))
+    warn_insecure_url(created, "its user and password")
     if test and not state(ctx).json:
         _print_test(client.post(f"/api/torrent-clients/{created['id']}/test"))
 
@@ -97,6 +98,7 @@ def edit_client(
         raise fail("Nothing to change (see --help).", EXIT_USAGE)
     updated = client.patch(f"/api/torrent-clients/{found['id']}", body)
     emit(state(ctx), updated, lambda c: console.print(f"Client {c['label']} updated."))
+    warn_insecure_url(updated, "its user and password")
 
 
 @app.command("rm")
