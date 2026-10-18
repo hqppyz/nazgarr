@@ -8,6 +8,7 @@ risposta già verificata contro un'istanza reale, ITT) — nessun dettaglio
 API riscoperto qui."""
 
 import hashlib
+import json
 import logging
 import re
 import threading
@@ -21,6 +22,8 @@ from typing import Literal
 from urllib.parse import urljoin, urlsplit
 
 import httpx
+
+from nazgarr.core import http_limits
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +51,11 @@ class TrackerRateLimitedError(UploadError):
     (continuare servirebbe solo a peggiorare il blocco), mai un errore del
     singolo file. Sottoclasse di UploadError così il flusso di upload, che
     già intercetta UploadError come un 502 pulito, resta invariato."""
+
+
+class _BodyTooLarge(UploadError):
+    """Una risposta oltre il tetto (o la scadenza) di Unit3dTrackerAdapter._get:
+    i chiamanti la riscrivono col loro messaggio."""
 
 
 @dataclass
@@ -308,16 +316,21 @@ class Unit3dTrackerAdapter(TrackerAdapter):
         if cached is not None and (time.monotonic() - cached[0]) < self._cache_ttl_seconds:
             return cached[1]
 
-        response = self._get("/api/torrents/filter", params={"tmdbId": tmdb_id})
-        candidates = [self._to_candidate(item) for item in response.json().get("data", [])]
+        body = self._get_json("/api/torrents/filter", params={"tmdbId": tmdb_id})
+        data = body.get("data", []) if isinstance(body, dict) else None
+        if not isinstance(data, list):
+            raise UploadError("Unexpected answer from the UNIT3D tracker search")
+        candidates = [self._to_candidate(item) for item in data]
         self._search_cache[tmdb_id] = (time.monotonic(), candidates)
         return candidates
 
     def get_torrent_detail(self, torrent_id_remote: str) -> TorrentCandidate:
         """Dettaglio singolo torrent — utile per rileggere lo stato
         aggiornato di un candidate specifico senza rifare una ricerca completa."""
-        response = self._get(f"/api/torrents/{torrent_id_remote}")
-        return self._to_candidate(response.json())
+        body = self._get_json(f"/api/torrents/{torrent_id_remote}")
+        if not isinstance(body, dict):
+            raise UploadError("Unexpected answer from the UNIT3D tracker")
+        return self._to_candidate(body)
 
     def get_own_history(self) -> list[TorrentRecord]:
         raise NotSupportedError(
@@ -371,17 +384,20 @@ class Unit3dTrackerAdapter(TrackerAdapter):
 
         self._rate_limiter.wait(self._sleep)
         try:
-            response = self._client.post(
+            with self._client.stream(
+                "POST",
                 "/api/torrents/upload",
                 data=data,
                 files=files,
                 headers={"Authorization": f"Bearer {self.api_token}", "Accept": "application/json"},
-            )
-            response.raise_for_status()
-            response_data = response.json()
-        except (httpx.HTTPError, ValueError) as exc:
+            ) as response:
+                response.raise_for_status()
+                response_data = json.loads(http_limits.read_limited(response, self.MAX_JSON_BYTES, self._deadline()))
+        except (httpx.HTTPError, ValueError, http_limits.ResponseLimitExceeded) as exc:
             raise UploadError(f"UNIT3D upload failed: {exc}") from exc
 
+        if not isinstance(response_data, dict):
+            raise UploadError(f"UNIT3D upload response is not an object: {response_data!r}")
         if not response_data.get("success"):
             raise UploadError(f"UNIT3D upload rejected by the tracker: {response_data.get('message', response_data)}")
 
@@ -412,6 +428,12 @@ class Unit3dTrackerAdapter(TrackerAdapter):
         return parts._replace(path=self._DOWNLOAD_KEY_RE.sub(rf"\g<1>{self.rss_key}", parts.path)).geturl()
 
     MAX_TORRENT_BYTES = 20 * 1024 * 1024
+    # Una pagina di risultati JSON (con il media_info di ogni torrent) e la
+    # risposta di un upload: ben sotto, anche per un pack con molti episodi.
+    MAX_JSON_BYTES = 32 * 1024 * 1024
+    # Tempo massimo per leggere una risposta intera: il timeout di httpx vale
+    # per ogni lettura, e un byte ogni 14 secondi lo rispettava per sempre.
+    RESPONSE_DEADLINE_SECONDS = 120.0
 
     def download_torrent(self, url: str) -> bytes:
         # Il download_link di UNIT3D è già autenticato (passkey nell'URL):
@@ -425,10 +447,10 @@ class Unit3dTrackerAdapter(TrackerAdapter):
             link_host == tracker_host or link_host.endswith("." + tracker_host)
         ):
             raise UploadError(f"Download link outside the tracker ({link_host}): not followed")
-        content = self._get(url, authenticated=False).content
-        if len(content) > self.MAX_TORRENT_BYTES:
-            raise UploadError("The tracker sent a .torrent bigger than 20 MB: not used")
-        return content
+        try:
+            return self._get(url, authenticated=False, limit=self.MAX_TORRENT_BYTES)
+        except _BodyTooLarge as exc:
+            raise UploadError(f"The tracker sent a .torrent {exc}: not used") from exc
 
     def _retry_wait_seconds(self, response: httpx.Response, attempt: int) -> float:
         header = response.headers.get("Retry-After")
@@ -445,27 +467,47 @@ class Unit3dTrackerAdapter(TrackerAdapter):
             wait = self._BASE_BACKOFF_SECONDS * (2**attempt)
         return min(max(wait, 1.0), self._MAX_RETRY_WAIT_SECONDS)
 
-    def _get(self, path: str, params: dict | None = None, authenticated: bool = True) -> httpx.Response:
+    def _deadline(self) -> float:
+        return time.monotonic() + self.RESPONSE_DEADLINE_SECONDS
+
+    def _get_json(self, path: str, params: dict | None = None):
+        try:
+            return json.loads(self._get(path, params=params))
+        except _BodyTooLarge as exc:
+            raise UploadError(f"The UNIT3D tracker sent an answer {exc}: not used") from exc
+        except ValueError as exc:
+            raise UploadError("The UNIT3D tracker sent an answer that is not valid JSON") from exc
+
+    def _get(self, path: str, params: dict | None = None, authenticated: bool = True,
+             limit: int | None = None) -> bytes:
+        """Il corpo della risposta, letto in streaming fino a `limit` byte
+        decompressi (default MAX_JSON_BYTES) entro RESPONSE_DEADLINE_SECONDS:
+        nazgarr/core/http_limits.py. Oltre il tetto _BodyTooLarge, che il
+        chiamante traduce in un UploadError col suo messaggio."""
         headers = {"Authorization": f"Bearer {self.api_token}"} if authenticated else None
+        limit = self.MAX_JSON_BYTES if limit is None else limit
         for attempt in range(self._MAX_429_RETRIES + 1):
             self._rate_limiter.wait(self._sleep)
             try:
-                response = self._client.get(path, params=params, headers=headers)
+                with self._client.stream("GET", path, params=params, headers=headers) as response:
+                    if response.status_code != 429:
+                        return self._read_body(response, limit)
+                    wait = self._retry_wait_seconds(response, attempt)
             except httpx.HTTPError as exc:
                 raise UploadError(f"Request to the UNIT3D tracker failed: {exc}") from exc
-            if response.status_code != 429:
-                break
             if attempt == self._MAX_429_RETRIES:
                 raise TrackerRateLimitedError(
                     f"UNIT3D tracker still rate limiting (429) after {self._MAX_429_RETRIES} retries"
                 )
-            wait = self._retry_wait_seconds(response, attempt)
             logger.warning("Tracker %s ha risposto 429, nuovo tentativo tra %.0fs", self.base_url, wait)
             if self.on_rate_limit_wait is not None:
                 self.on_rate_limit_wait(wait)
             self._sleep(wait)
             if self.on_rate_limit_wait is not None:
                 self.on_rate_limit_wait(None)
+        raise AssertionError("unreachable")  # pragma: no cover — l'ultimo tentativo ritorna o solleva
+
+    def _read_body(self, response: httpx.Response, limit: int) -> bytes:
         if response.is_redirect and "/login" in response.headers.get("location", ""):
             # UNIT3D rimanda al login un link di download con una chiave non
             # più valida (rsskey rigenerata, o link salvato altrove, es. nella
@@ -475,7 +517,10 @@ class Unit3dTrackerAdapter(TrackerAdapter):
             response.raise_for_status()
         except httpx.HTTPError as exc:
             raise UploadError(f"Request to the UNIT3D tracker failed: {exc}") from exc
-        return response
+        try:
+            return http_limits.read_limited(response, limit, self._deadline())
+        except http_limits.ResponseLimitExceeded as exc:
+            raise _BodyTooLarge(str(exc)) from exc
 
     def _to_candidate(self, item: dict) -> TorrentCandidate:
         attrs = item["attributes"]

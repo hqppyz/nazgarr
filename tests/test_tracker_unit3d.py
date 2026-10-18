@@ -262,3 +262,78 @@ def test_the_rate_limiter_never_lets_threads_exceed_the_limit_together():
     for th in threads:
         th.join()
     assert len(waits) == 3  # le prime 5 subito, le altre 3 aspettano la finestra
+
+
+def _gzip_bomb_chunks(decoded_bytes: int, chunk: int = 1024):
+    """Un corpo gzip di soli zeri che si espande a decoded_bytes, mandato a
+    pezzi da `chunk` byte compressi, e quanti pezzi sono stati letti."""
+    import zlib
+
+    packer = zlib.compressobj(9, zlib.DEFLATED, 31)  # 31: formato gzip
+    block = b"\0" * (1024 * 1024)
+    raw = b"".join(packer.compress(block) for _ in range(decoded_bytes // len(block))) + packer.flush()
+    sent = []
+
+    def stream():
+        for i in range(0, len(raw), chunk):
+            sent.append(i)
+            yield raw[i:i + chunk]
+
+    return stream, sent, -(-len(raw) // chunk)
+
+
+def test_a_gzip_bomb_torrent_is_refused_before_it_is_all_in_memory():
+    # ~60 KB sul filo, 60 MB decompressi: prima il limite di 20 MB scattava
+    # solo con tutto il corpo già decompresso in memoria.
+    stream, sent, total_chunks = _gzip_bomb_chunks(60 * 1024 * 1024)
+    adapter = _adapter(lambda r: httpx.Response(200, headers={"Content-Encoding": "gzip"}, content=stream()))
+
+    with pytest.raises(UploadError, match="bigger than 20 MB"):
+        adapter.download_torrent("https://tracker.example/torrent/download/1.abc")
+    assert len(sent) < total_chunks / 2  # fermato poco oltre il limite, non a fine corpo
+
+
+def test_a_declared_length_over_the_limit_is_refused_without_reading():
+    read = []
+
+    def body():
+        read.append(1)
+        yield b"d4:infod4:name1:xee"
+
+    adapter = _adapter(lambda r: httpx.Response(
+        200, headers={"Content-Length": str(Unit3dTrackerAdapter.MAX_TORRENT_BYTES + 1)}, content=body()))
+
+    with pytest.raises(UploadError, match="bigger than 20 MB"):
+        adapter.download_torrent("https://tracker.example/torrent/download/1.abc")
+    assert read == []
+
+
+def test_a_search_answer_over_the_limit_or_not_json_is_an_upload_error(monkeypatch):
+    monkeypatch.setattr(Unit3dTrackerAdapter, "MAX_JSON_BYTES", 1000)
+    big = _adapter(lambda r: httpx.Response(200, json={"data": [], "pad": "x" * 2000}))
+    with pytest.raises(UploadError, match="bigger than 1000 bytes"):
+        big.search_by_tmdb(1)
+
+    html = _adapter(lambda r: httpx.Response(200, text="<html>maintenance</html>"))
+    with pytest.raises(UploadError, match="not valid JSON"):
+        html.search_by_tmdb(1)
+
+    odd = _adapter(lambda r: httpx.Response(200, json=[1, 2]))
+    with pytest.raises(UploadError, match="Unexpected answer"):
+        odd.search_by_tmdb(1)
+
+
+def test_a_body_that_trickles_past_the_deadline_is_dropped(monkeypatch):
+    # Il timeout di httpx vale per ogni lettura: un byte alla volta lo
+    # rispettava per sempre. Qui la scadenza totale è già passata.
+    import time
+
+    monkeypatch.setattr(Unit3dTrackerAdapter, "_deadline", lambda self: time.monotonic() - 1)
+
+    def trickle():
+        for _ in range(100):
+            yield b"x"
+
+    adapter = _adapter(lambda r: httpx.Response(200, content=trickle()))
+    with pytest.raises(UploadError, match="too slow"):
+        adapter.download_torrent("https://tracker.example/torrent/download/1.abc")
