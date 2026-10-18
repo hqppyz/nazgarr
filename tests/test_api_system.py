@@ -73,9 +73,10 @@ def test_the_automatic_check_runs_only_when_turned_on_and_due(db_session, monkey
 
 
 def test_a_stored_result_that_does_not_say_when_makes_the_automatic_check_due(db_session, monkeypatch):
-    """Un esito senza un checked_at leggibile (o che non è un oggetto) vale
-    come nessun controllo: prima fromisoformat (o .get) sollevava a ogni giro
-    e il controllo automatico non si rifaceva più (audit 2026-10-18)."""
+    """Un esito senza un checked_at leggibile (o che non è un oggetto, o con
+    una data nel futuro) vale come nessun controllo: prima fromisoformat (o
+    .get) sollevava a ogni giro e il controllo automatico non si rifaceva
+    più (audit 2026-10-18)."""
     import json
     from datetime import UTC, datetime
 
@@ -89,6 +90,8 @@ def test_a_stored_result_that_does_not_say_when_makes_the_automatic_check_due(db
                    json.dumps({"current_version": __version__}),
                    json.dumps({"current_version": __version__, "checked_at": "2026-10-05T11:00:00"}),  # senza fuso
                    json.dumps({"current_version": __version__, "checked_at": 5}),
+                   # nel futuro: l'orologio era avanti, poi è stato corretto
+                   json.dumps({"current_version": __version__, "checked_at": "2026-12-01T00:00:00+00:00"}),
                    "[1]", '"x"'):
         settings_repo.set_setting(db_session, updates.LAST_CHECK_KEY, stored)
         assert updates.last_check(db_session) is None or isinstance(updates.last_check(db_session), dict)

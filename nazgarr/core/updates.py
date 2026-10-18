@@ -151,14 +151,17 @@ def check_if_due(session: Session, now: datetime | None = None) -> bool:
     controllo ha più di CHECK_INTERVAL. Un esito che non dice quando (o lo
     dice in una forma che non si legge) vale come nessun controllo: prima
     fromisoformat sollevava a ogni giro e il controllo automatico non si
-    rifaceva più, finché qualcuno non lo lanciava a mano."""
+    rifaceva più, finché qualcuno non lo lanciava a mano. Lo stesso per un
+    checked_at nel futuro (scritto a mano, o con l'orologio avanti poi
+    corretto): la differenza negativa sarebbe sempre sotto l'intervallo, e
+    il controllo si fermerebbe fino a quella data."""
     from nazgarr.core import settings_registry
 
     if not settings_registry.get_bool(session, AUTO_KEY):
         return False
     now = now or datetime.now(UTC)
     checked = _checked_at(last_check(session))
-    if checked is not None and now - checked < CHECK_INTERVAL:
+    if checked is not None and timedelta(0) <= now - checked < CHECK_INTERVAL:
         return False
     check(session, now)
     return True
