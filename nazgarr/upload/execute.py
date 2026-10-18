@@ -59,7 +59,7 @@ from nazgarr.core.models import (
 from nazgarr.core.version import CREATED_BY
 from nazgarr.integrations import adapter_factory
 from nazgarr.integrations.adapter_factory import ImageHostConfigError
-from nazgarr.library import disk_folders, hardlinks
+from nazgarr.library import disk_folders, hardlinks, seed_refresh
 from nazgarr.library import mediainfo as mediainfo_util
 from nazgarr.reseed.executor import client_visible_path
 from nazgarr.torrents import client_labels
@@ -498,7 +498,10 @@ def _add_to_client(
                 skip_check_verified=skip, **client_labels.add_kwargs(target.client_category, target.client_tags),
             )
         except TorrentAlreadyInClientError:
-            return _keep_existing(session, job, target, adapter, expected, visible, client)
+            info_hash = _keep_existing(session, job, target, adapter, expected, visible, client)
+            _register_seed(session, job, target, adapter, info_hash)
+            return info_hash
+        info = None
         if skip:
             info = adapter.get_torrent_info(info_hash)
             seen = os.path.normpath(info.save_path) if info is not None and info.save_path else None
@@ -513,9 +516,31 @@ def _add_to_client(
         # Due codici, due messaggi: con il recheck del client o senza.
         upload_jobs.log_event(session, job, "added_to_client_verified" if skip else "added_to_client", target=target,
                               client=client)
+        _register_seed(session, job, target, adapter, info_hash, info)
         return info_hash
     finally:
         adapter_factory.close_adapter(adapter)
+
+
+def _register_seed(session: Session, job: UploadJob, target: UploadTarget, adapter, info_hash: str,
+                   info=None) -> None:
+    """Il torrent appena aggiunto, e i suoi file nelle cartelle di seeding,
+    subito fra quelli indicizzati (nazgarr/library/seed_refresh.py), come
+    fanno l'esecutore dopo un reseed e il webhook di Radarr/Sonarr (audit
+    2026-10-18). Prima restavano fuori fino alla run dopo: il file
+    dell'upload risultava non in seed in libreria, e "Cerca ora" poteva
+    trovare sul tracker l'upload stesso e proporlo come reseed. Un errore
+    qui si scrive solo nel log: il torrent è nel client, lo vedrà la
+    prossima indicizzazione."""
+    session.commit()  # quello che l'aggiunta ha già scritto resta, qualunque cosa succeda qui
+    try:
+        info = info if getattr(info, "files", None) else adapter.get_torrent_info(info_hash)
+        if info is not None:
+            seed_refresh.register_client_torrent(session, target.torrent_client, info)
+    except Exception:
+        session.rollback()
+        logger.warning("Upload %s: torrent %s nel client ma non registrato subito", job.id, info_hash,
+                       exc_info=True)
 
 
 def _info_hash_of(torrent_file: str) -> str:

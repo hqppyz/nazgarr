@@ -8,6 +8,7 @@ import httpx
 import pytest
 import torf
 
+from nazgarr.adapters.torrent_client.base import ClientTorrentFileInfo, ClientTorrentInfo
 from nazgarr.adapters.tracker.base import UploadedTorrent, UploadError
 from nazgarr.core.models import Disk, TrackerUploadProfile
 from nazgarr.torrents import create as torrent_create
@@ -74,18 +75,25 @@ class _Client:
         self.save_paths = {}
         self.reported_path = None  # il percorso che il client dice di usare, se diverso
         self.labels = []  # (categoria, tag) di ogni aggiunta
+        self.files = {}  # info hash -> (nome, file del torrent)
 
     def add_torrent(self, torrent_file, save_path, force_recheck=True, skip_check_verified=False, **kwargs):
         assert force_recheck is True
         self.added.append((torrent_file, save_path))
         self.labels.append((kwargs.get("category"), kwargs.get("tags")))
         self.skipped.append(skip_check_verified)
-        info_hash = torf.Torrent.read(torrent_file).infohash
+        torrent = torf.Torrent.read(torrent_file)
+        info_hash = torrent.infohash
         self.save_paths[info_hash] = save_path
+        self.files[info_hash] = (torrent.name,
+                                 [ClientTorrentFileInfo("/".join(f.parts), f.size) for f in torrent.files])
         return info_hash
 
     def get_torrent_info(self, info_hash):
-        return types.SimpleNamespace(save_path=self.reported_path or self.save_paths[info_hash])
+        name, files = self.files.get(info_hash, ("?", []))
+        save_path = self.reported_path or self.save_paths[info_hash]
+        return ClientTorrentInfo(info_hash=info_hash, name=name, save_path=save_path, state="uploading",
+                                 tracker_url="https://tracker/announce", files=files)
 
     def recheck(self, info_hash):
         self.rechecked.append(info_hash)
@@ -192,6 +200,52 @@ def test_uploads_to_every_tracker_and_seeds_from_hardlinks(db_session, tmp_path,
     assert seeded.source == "Tracker100" and a.info_hash == seeded.infohash
     assert seeded.infohash != torf.Torrent.read(env["trackers"]["a"].uploads[0][1]).infohash
     assert json.loads(job.screenshot_urls_json) == [f"https://img.example/{i}.png" for i in range(4)]
+
+
+def test_the_uploaded_torrent_and_its_files_are_registered_right_away(db_session, tmp_path, env):
+    """Audit 2026-10-18 (finding 171): il flusso degli upload aggiungeva il
+    torrent al client senza registrarlo. Fino alla run dopo il file
+    risultava non in seed, e "Cerca ora" poteva proporre l'upload stesso
+    come reseed."""
+    from nazgarr.core.models import ClientTorrent, ClientTorrentFile, MediaFile, RunLog, SeedFile
+    from nazgarr.library import hardlinks
+
+    video = write_video(env["root"] / "media" / "The.Matrix.1999.1080p.WEB-DL.H.264-GRP.mkv", 300 * KB)
+    run = RunLog(run_type="manual", started_at=datetime.now(UTC), finished_at=datetime.now(UTC))
+    db_session.add(run)
+    db_session.commit()
+    st = video.stat()
+    media = MediaFile(disk_id=env["disk"].id, relative_path="media/" + video.name, size_bytes=st.st_size,
+                      st_dev=st.st_dev, inode=st.st_ino, last_scan_id=run.id, last_seen_at=datetime.now(UTC))
+    env["disk"].media_scan_id = env["disk"].seed_scan_id = run.id
+    db_session.add(media)
+    db_session.commit()
+    job = _approved(db_session, env, "media/" + video.name, {"a": _upload("Matrix A"), "b": {"action": "skip"}})
+
+    _run(db_session, tmp_path, job)
+
+    assert job.status == "done", [e.code for e in job.events]
+    target = job.targets[0]
+    torrent = db_session.query(ClientTorrent).filter_by(info_hash=target.info_hash).one()
+    seed = db_session.query(SeedFile).filter_by(relative_path="torrents/" + video.name).one()
+    assert seed.media_file_id == media.id
+    assert db_session.query(ClientTorrentFile).filter_by(client_torrent_id=torrent.id).one().seed_file_id == seed.id
+    assert hardlinks.media_links(db_session, [media.id]) == {media.id: [(seed.id, seed.relative_path)]}
+
+
+def test_a_failed_registration_never_fails_the_upload(db_session, tmp_path, env, monkeypatch):
+    def broken(*args, **kwargs):
+        raise RuntimeError("database is locked")
+
+    monkeypatch.setattr(upload_execute.seed_refresh, "register_client_torrent", broken)
+    video = write_video(env["root"] / "media" / "The.Matrix.1999.1080p.WEB-DL.H.264-GRP.mkv", 300 * KB)
+    job = _approved(db_session, env, "media/" + video.name, {"a": _upload("Matrix A"), "b": {"action": "skip"}})
+
+    _run(db_session, tmp_path, job)
+
+    assert job.status == "done"
+    assert (job.targets[0].status, job.targets[0].error_message) == ("done", None)
+    assert "added_to_client_verified" in [e.code for e in job.events]
 
 
 def test_a_source_inside_the_seeding_folder_seeds_in_place(db_session, tmp_path, env):
