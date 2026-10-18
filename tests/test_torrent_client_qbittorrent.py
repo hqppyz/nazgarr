@@ -9,6 +9,7 @@ import pytest
 
 from nazgarr.adapters.torrent_client.base import TorrentAddTimeoutError
 from nazgarr.adapters.torrent_client.qbittorrent import QBittorrentAdapter
+from nazgarr.torrents.metainfo import compute_info_hash
 
 
 @dataclass
@@ -50,7 +51,9 @@ class FakeQbtClient:
                                  "is_skip_checking": is_skip_checking, "layout": content_layout,
                                  "stopped": is_stopped, "stop_condition": stop_condition,
                                  "category": category, "tags": tags, "auto": use_auto_torrent_management})
-        self._torrents.append(FakeTorrent(hash="new-hash", save_path=save_path))
+        # Come qBittorrent: l'hash di un .torrent mandato per contenuto è quello del suo info.
+        self._torrents.append(FakeTorrent(hash=compute_info_hash(torrent_files) if torrent_files else "new-hash",
+                                          save_path=save_path))
 
     def torrents_categories(self):
         return {"tv": {"savePath": ""}, "Movie": {"savePath": ""}, "anime": {"savePath": ""}}
@@ -277,3 +280,57 @@ def test_stop_stops_the_torrent():
     client = StoppingClient()
     _adapter(client).stop("h1")
     assert client.stopped == ["h1"]
+
+
+def test_a_torrent_added_meanwhile_by_another_tool_is_never_taken_for_ours(tmp_path):
+    """Senza un hash atteso l'adapter prendeva "il primo torrent nuovo": uno
+    aggiunto nello stesso momento da Sonarr o cross-seed passava per il
+    nostro, e recheck e avvio finivano su quello (audit 2026-10-18). Con un
+    .torrent locale l'hash si ricava dai byte mandati."""
+    torrent = tmp_path / "upload.torrent"
+    torrent.write_bytes(b"d4:infod4:name1:xee")
+    ours = compute_info_hash(torrent.read_bytes())
+
+    class BusyClient(FakeQbtClient):
+        def torrents_add(self, **kwargs):
+            self._torrents.append(FakeTorrent(hash="other-tool"))  # arriva prima del nostro
+            super().torrents_add(**kwargs)
+
+    client = BusyClient()
+    info_hash = _adapter(client).add_torrent(str(torrent), save_path="/downloads/movie")
+
+    assert info_hash == ours
+    assert client.rechecked == [ours] and client.started == [ours]
+
+
+def test_a_local_torrent_already_in_the_client_is_a_duplicate_not_a_timeout(tmp_path):
+    from nazgarr.adapters.torrent_client.base import TorrentAlreadyInClientError
+
+    torrent = tmp_path / "upload.torrent"
+    torrent.write_bytes(b"d4:infod4:name1:xee")
+    client = FakeQbtClient(torrents=[FakeTorrent(hash=compute_info_hash(torrent.read_bytes()).upper())])
+
+    with pytest.raises(TorrentAlreadyInClientError):
+        _adapter(client).add_torrent(str(torrent), save_path="/downloads/movie")
+    assert client.added_calls == []
+
+
+def test_the_index_keeps_the_client_order_and_reports_progress():
+    torrents = [FakeTorrent(hash=f"h{i}", name=f"M{i}.mkv") for i in range(10)]
+    client = FakeQbtClient(torrents=torrents,
+                           files_by_hash={t.hash: [FakeFile(name=t.name, size=i)] for i, t in enumerate(torrents)})
+    progress = []
+
+    listed = _adapter(client).list_torrents(on_progress=lambda done, total: progress.append((done, total)))
+
+    assert [t.info_hash for t in listed] == [t.hash for t in torrents]
+    assert [t.files[0].size_bytes for t in listed] == list(range(10))
+    assert progress == [(i, 10) for i in range(1, 11)]
+
+
+def test_the_credentials_test_counts_torrents_without_their_files():
+    class NoFiles(FakeQbtClient):
+        def torrents_files(self, torrent_hash):
+            raise AssertionError("file non richiesti per contare")
+
+    assert _adapter(NoFiles(torrents=[FakeTorrent(hash="a"), FakeTorrent(hash="b")])).count_torrents() == 2

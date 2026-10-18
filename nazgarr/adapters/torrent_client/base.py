@@ -21,6 +21,8 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Literal
 
+from nazgarr.torrents.metainfo import TorrentMetainfoError, compute_info_hash
+
 logger = logging.getLogger(__name__)
 
 RecheckStatus = Literal["pending", "ok", "failed"]
@@ -77,6 +79,16 @@ def seeders(value) -> int | None:
     except (TypeError, ValueError):
         return None
     return count if count >= 1 else None
+
+
+def number(value, kind):
+    """Un numero del client (ratio, secondi, epoch) convertito con kind
+    (int, float), None se manca o non è un numero: un campo strano di un
+    torrent non ferma l'indicizzazione."""
+    try:
+        return kind(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
 
 
 # Come qBittorrent: "Original" segue il .torrent, "Subfolder" mette un
@@ -209,6 +221,15 @@ class TorrentClientAdapter(ABC):
         client restituisce l'elenco, i file arrivano poi uno a uno."""
         raise NotImplementedError
 
+    def count_torrents(self) -> int:
+        """Quanti torrent ha il client, per la prova delle credenziali (Test
+        nella configurazione dei client). Gli adapter inclusi lo chiedono
+        con una sola richiesta, senza i file di ogni torrent (audit
+        2026-10-18: la prova scaricava l'elenco dei file di migliaia di
+        torrent solo per contarli). Default: list_torrents(), per un plugin
+        che non lo implementa."""
+        return len(self.list_torrents())
+
 
 def is_stopped_state(state: str | None) -> bool:
     """Torrent fermato nel client (qBittorrent 4 "paused*", 5 "stopped*";
@@ -269,6 +290,25 @@ def local_torrent_bytes(torrent_file_or_url: str) -> bytes | None:
         with open(torrent_file_or_url, "rb") as f:
             return f.read()
     return None
+
+
+def expected_hash(expected_info_hash: str | None, content: bytes | None) -> str | None:
+    """L'info hash da aspettare dopo l'aggiunta, in minuscolo: quello dato
+    dal chiamante, se no quello dei byte del .torrent locale che si stanno
+    mandando (lo span grezzo di info, nazgarr/torrents/metainfo.py). Senza
+    un hash atteso l'adapter prende "il primo torrent nuovo" del client: un
+    torrent aggiunto nello stesso momento da un altro programma (Sonarr,
+    autobrr, cross-seed) passava per il nostro, e recheck e avvio finivano
+    su quello (audit 2026-10-18). None solo per un URL, o per byte che non
+    sono un .torrent (il client lo rifiuterà)."""
+    if expected_info_hash:
+        return expected_info_hash.lower()
+    if content is None:
+        return None
+    try:
+        return compute_info_hash(content)
+    except TorrentMetainfoError:
+        return None
 
 
 def wait_for_hash(

@@ -238,7 +238,9 @@ def test_add_torrent_waits_for_the_expected_hash():
     mock.next_hash = "ABCDEF"
     adapter = _adapter(mock)
 
-    assert adapter.add_torrent("magnet:?xt=...", save_path="/t", expected_info_hash="abcdef") == "ABCDEF"
+    # In minuscolo come ogni adapter (base.wait_for_hash): gli altri metodi lo
+    # cercano senza badare a maiuscole e minuscole.
+    assert adapter.add_torrent("magnet:?xt=...", save_path="/t", expected_info_hash="abcdef") == "abcdef"
 
 
 def test_add_torrent_already_in_the_client_is_a_clear_error():
@@ -319,3 +321,39 @@ def test_stop_uses_the_bulk_pause():
     _adapter(mock).stop("h1")
 
     assert mock.bulk_actions == [{"hashes": ["h1"], "action": "pause"}]
+
+
+def test_a_torrent_added_meanwhile_by_another_tool_is_never_taken_for_ours(tmp_path):
+    """Come per qBittorrent (audit 2026-10-18): l'hash si ricava dai byte del
+    .torrent mandato, e un torrent arrivato nello stesso momento resta suo."""
+    from nazgarr.torrents.metainfo import compute_info_hash
+
+    torrent_path = tmp_path / "upload.torrent"
+    torrent_path.write_bytes(b"d4:infod4:name1:xee")
+    ours = compute_info_hash(torrent_path.read_bytes())
+    mock = _QuiMock()
+    mock.next_hash = ours.upper()
+    mock.pages[0] = [{"hash": "other-tool", "name": "o", "save_path": "/o", "state": "downloading", "progress": 0}]
+
+    real = mock.handler
+
+    def handler(request):
+        response = real(request)
+        if request.method == "POST" and request.url.path.endswith("/torrents"):
+            mock.pages[0].insert(0, {"hash": "second-tool", "name": "s", "save_path": "/s", "state": "metaDL"})
+        return response
+
+    mock.handler = handler
+    info_hash = _adapter(mock).add_torrent(str(torrent_path), save_path="/torrents/movie")
+
+    assert info_hash == ours
+    assert [a["hashes"] for a in mock.bulk_actions] == [[ours], [ours]]
+
+
+def test_status_and_count_ignore_the_case_of_the_hash():
+    mock = _QuiMock(pages=[[{"hash": "ABCDEF", "name": "x", "save_path": "/x", "state": "uploading",
+                             "progress": 1.0}]])
+    adapter = _adapter(mock)
+
+    assert adapter.get_torrent_status("abcdef").recheck_status == "ok"
+    assert adapter.count_torrents() == 1

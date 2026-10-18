@@ -130,6 +130,9 @@ class TransmissionAdapter(TorrentClientAdapter):
     def _hashes(self) -> set[str]:
         return {t["hashString"] for t in self._torrents(["hashString"]) if t.get("hashString")}
 
+    def count_torrents(self) -> int:
+        return len(self._hashes())  # solo gli hash, senza i file
+
     def add_torrent(
         self, torrent_file_or_url: str, save_path: str, force_recheck: bool = True,
         expected_info_hash: str | None = None, skip_check_verified: bool = False,

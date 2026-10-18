@@ -10,7 +10,7 @@ prima di un uso reale, in particolare:
   tracker validi configurati — trattato quindi come best-effort, mai come
   fonte affidabile al 100% (qui usato solo per popolare
   client_torrent.tracker_url a scopo informativo, non per logica di match)
-- il timing del polling in _wait_for_new_hash
+- il timing del polling in base.wait_for_hash
 
 torrents_add() non garantisce di ritornare l'info_hash su ogni versione
 dell'API qBittorrent: per essere version-agnostic, l'hash viene ricavato
@@ -26,9 +26,8 @@ suo swagger/OpenAPI reale, non solo dedotto. Vedi nazgarr/adapters/torrent_clien
 """
 
 import logging
-import os
-import time
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from nazgarr.adapters.torrent_client.base import (
     CHECKING_STATES,
@@ -36,21 +35,26 @@ from nazgarr.adapters.torrent_client.base import (
     ERROR_STATES,
     ClientTorrentFileInfo,
     ClientTorrentInfo,
-    TorrentAddTimeoutError,
     TorrentAlreadyInClientError,
     TorrentClientAdapter,
     TorrentStatus,
+    expected_hash,
+    local_torrent_bytes,
+    number,
+    require_recheck,
     seeders,
+    wait_for_hash,
 )
 
 logger = logging.getLogger(__name__)
 
-
-def _number(value, kind):
-    try:
-        return kind(value) if value is not None else None
-    except (TypeError, ValueError):
-        return None
+# Richieste dei file in parallelo durante l'indicizzazione: qBittorrent non
+# ha un endpoint per i file di più torrent (torrents/files vuole un hash),
+# e una dopo l'altra costavano un giro di rete ciascuna. qBittorrent
+# risponde alla WebUI da un solo thread, quindi in rete locale si guadagna
+# poco; si guadagna con un client remoto o dietro un proxy (audit
+# 2026-10-18). Pochi, per non caricare il client.
+FILE_WORKERS = 4
 
 
 class QBittorrentAdapter(TorrentClientAdapter):
@@ -92,27 +96,23 @@ class QBittorrentAdapter(TorrentClientAdapter):
         expected_info_hash: str | None = None, skip_check_verified: bool = False,
         category: str | None = None, tags: list[str] | None = None, content_layout: str = "Original",
     ) -> str:
-        if not force_recheck:
-            raise ValueError(
-                "force_recheck=False non è permesso: il recheck reale è "
-                "un requisito funzionale, vedi docs/SPEC.md sezione 8."
-            )
+        require_recheck(force_recheck)
 
-        before_hashes = {t.hash for t in self._client.torrents_info()}
-        expected = expected_info_hash.lower() if expected_info_hash else None
-        if expected and expected in {h.lower() for h in before_hashes}:
+        before_hashes = self._hashes()
+        # Un .torrent locale (un upload, o quello che l'esecutore ha appena
+        # scaricato e controllato) si manda col suo contenuto: il client non
+        # vede quel percorso, e con "urls" lo cercherebbe nel suo filesystem
+        # (No such file or directory). Un URL resta un URL.
+        content = local_torrent_bytes(torrent_file_or_url)
+        source = {"torrent_files": content} if content is not None else {"urls": torrent_file_or_url}
+        # torrents_add non dice l'hash su ogni versione dell'API, e ignora in
+        # silenzio un duplicato: lo si aspetta per hash (quello del chiamante
+        # o dei byte mandati), e il diff prima/dopo resta solo per un URL.
+        expected = expected_hash(expected_info_hash, content)
+        if expected and expected in before_hashes:
             raise TorrentAlreadyInClientError(
                 f"Torrent {expected} is already in the client (possibly with another save path): nothing added"
             )
-        # Un .torrent locale (un upload: sta nella cartella dati di Nazgarr)
-        # si manda col suo contenuto: il client non vede quel percorso, e
-        # con "urls" lo cercherebbe nel suo filesystem (No such file or
-        # directory). Un URL (il link del tracker di un reseed) resta un URL.
-        if os.path.isfile(torrent_file_or_url):
-            with open(torrent_file_or_url, "rb") as f:
-                source = {"torrent_files": f.read()}
-        else:
-            source = {"urls": torrent_file_or_url}
         self._client.torrents_add(
             **source,
             save_path=save_path,
@@ -127,7 +127,8 @@ class QBittorrentAdapter(TorrentClientAdapter):
             **({"category": category} if category else {}),
             **({"tags": ",".join(tags)} if tags else {}),
         )
-        info_hash = self._wait_for_new_hash(before_hashes, expected)
+        info_hash = wait_for_hash(self._hashes, before_hashes, expected, self.poll_interval,
+                                  self.poll_timeout, "qBittorrent")
         if not skip_check_verified:
             self._client.torrents_recheck(torrent_hashes=info_hash)
         self.start(info_hash)  # una versione che ignora "stopped" all'aggiunta
@@ -151,25 +152,8 @@ class QBittorrentAdapter(TorrentClientAdapter):
             return "Original"
         return "Original" if subfolder else "NoSubfolder"
 
-    def _wait_for_new_hash(self, before_hashes: set[str], expected: str | None = None) -> str:
-        deadline = time.monotonic() + self.poll_timeout
-        while time.monotonic() < deadline:
-            current_hashes = {t.hash for t in self._client.torrents_info()}
-            if expected is not None:
-                found = next((h for h in current_hashes if h.lower() == expected), None)
-                if found is not None:
-                    return found
-                time.sleep(self.poll_interval)
-                continue
-            new_hashes = current_hashes - before_hashes
-            if new_hashes:
-                if len(new_hashes) > 1:
-                    logger.warning("Più torrent nuovi rilevati dopo add_torrent: %s", new_hashes)
-                return next(iter(new_hashes))
-            time.sleep(self.poll_interval)
-        raise TorrentAddTimeoutError(
-            f"Nessun nuovo torrent rilevato in qBittorrent entro {self.poll_timeout}s dall'aggiunta"
-        )
+    def _hashes(self) -> set[str]:
+        return {t.hash.lower() for t in self._client.torrents_info()}
 
     def list_categories(self) -> list[str]:
         return sorted(self._client.torrents_categories().keys(), key=str.lower)
@@ -208,7 +192,36 @@ class QBittorrentAdapter(TorrentClientAdapter):
         results = self._client.torrents_info(torrent_hashes=info_hash)
         if not results:
             return None
-        torrent = results[0]
+        return self._info(results[0], self._files(results[0].hash))
+
+    def count_torrents(self) -> int:
+        return len(self._client.torrents_info())
+
+    def list_torrents(self, on_progress: Callable[[int, int], None] | None = None) -> list[ClientTorrentInfo]:
+        # L'elenco nel thread chiamante (anche il login, se serve), poi i
+        # file FILE_WORKERS alla volta; ordine e avanzamento restano qui.
+        torrents = list(self._client.torrents_info())
+        files: list[list[ClientTorrentFileInfo] | None] = [None] * len(torrents)
+        pool = ThreadPoolExecutor(max_workers=FILE_WORKERS)
+        try:
+            futures = {pool.submit(self._files, t.hash): i for i, t in enumerate(torrents)}
+            for done, future in enumerate(as_completed(futures), start=1):
+                files[futures[future]] = future.result()
+                if on_progress is not None:
+                    on_progress(done, len(torrents))
+        finally:
+            pool.shutdown(wait=True, cancel_futures=True)  # stop o errore: niente richieste rimaste in coda
+        return [self._info(torrent, torrent_files or [])
+                for torrent, torrent_files in zip(torrents, files, strict=True)]
+
+    def _files(self, info_hash: str) -> list[ClientTorrentFileInfo]:
+        return [
+            ClientTorrentFileInfo(path_in_torrent=f.name, size_bytes=f.size)
+            for f in self._client.torrents_files(torrent_hash=info_hash)
+        ]
+
+    @staticmethod
+    def _info(torrent, files: list[ClientTorrentFileInfo]) -> ClientTorrentInfo:
         return ClientTorrentInfo(
             info_hash=torrent.hash,
             name=torrent.name,
@@ -216,35 +229,9 @@ class QBittorrentAdapter(TorrentClientAdapter):
             state=torrent.state,
             category=getattr(torrent, "category", "") or None,
             tracker_url=getattr(torrent, "tracker", "") or None,
-            files=[
-                ClientTorrentFileInfo(path_in_torrent=f.name, size_bytes=f.size)
-                for f in self._client.torrents_files(torrent_hash=torrent.hash)
-            ],
+            files=files,
+            ratio=number(getattr(torrent, "ratio", None), float),
+            seeding_time_seconds=number(getattr(torrent, "seeding_time", None), int),
+            added_on=number(getattr(torrent, "added_on", None), int),
+            swarm_seeders=seeders(getattr(torrent, "num_complete", None)),
         )
-
-    def list_torrents(self, on_progress: Callable[[int, int], None] | None = None) -> list[ClientTorrentInfo]:
-        result = []
-        torrents = list(self._client.torrents_info())
-        for i, torrent in enumerate(torrents):
-            files = [
-                ClientTorrentFileInfo(path_in_torrent=f.name, size_bytes=f.size)
-                for f in self._client.torrents_files(torrent_hash=torrent.hash)
-            ]
-            result.append(
-                ClientTorrentInfo(
-                    info_hash=torrent.hash,
-                    name=torrent.name,
-                    save_path=torrent.save_path,
-                    state=torrent.state,
-                    category=getattr(torrent, "category", "") or None,
-                    tracker_url=getattr(torrent, "tracker", "") or None,
-                    files=files,
-                    ratio=_number(getattr(torrent, "ratio", None), float),
-                    seeding_time_seconds=_number(getattr(torrent, "seeding_time", None), int),
-                    added_on=_number(getattr(torrent, "added_on", None), int),
-                    swarm_seeders=seeders(getattr(torrent, "num_complete", None)),
-                )
-            )
-            if on_progress is not None:
-                on_progress(i + 1, len(torrents))
-        return result
