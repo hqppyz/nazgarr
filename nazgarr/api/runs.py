@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from nazgarr.core.errors import coded_detail
 from nazgarr.core.models import RunLog
+from nazgarr.library import tmdb_cache
 from nazgarr.reseed import exclusive, pipeline
 from nazgarr.web.deps import get_session
 
@@ -102,6 +103,11 @@ def trigger_bulk_import(
         raise HTTPException(status_code=409, detail=coded_detail("run_in_progress")) from exc
     except exclusive.Busy as exc:  # nessuna run, ma il lavoro a lato non è finito in tempo
         raise HTTPException(status_code=409, detail=coded_detail(exc.code)) from exc
+    # Una scansione lanciata a mano riprova anche le ricerche TMDB che non
+    # avevano trovato niente (audit 2026-10-18): chi la lancia di solito ha
+    # appena corretto un nome, o sa che TMDB ha aggiunto il titolo, e non
+    # deve aspettare che il miss scada. Le run pianificate li ricordano.
+    tmdb_cache.forget_misses()
     background_tasks.add_task(
         _run_bulk_import_bg, request.app.state.session_factory, run.id, request.app.state.settings.data_dir
     )

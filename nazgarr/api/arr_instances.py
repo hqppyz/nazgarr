@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session, object_session
 
 from nazgarr.api.types import HttpUrlStr, check_destinations, insecure_public_url, require_secrets_for_new_host
-from nazgarr.core import http_limits
+from nazgarr.core import http_limits, net_guard
 from nazgarr.core.errors import coded_detail
 from nazgarr.core.logs import safe_error
 from nazgarr.integrations import arr as arr_api
@@ -35,8 +35,10 @@ MAX_STATUS_BYTES = 1024 * 1024
 
 
 def status_client(auth, timeout_seconds: int) -> httpx.Client:
-    """Il client HTTP della prova di connessione (sostituibile nei test)."""
-    return httpx.Client(auth=auth, timeout=timeout_seconds)
+    """Il client HTTP della prova di connessione (sostituibile nei test):
+    connesso solo a indirizzi controllati nel momento della connessione
+    (nazgarr/core/net_guard.py)."""
+    return net_guard.http_client(auth=auth, timeout=timeout_seconds)
 
 
 class ArrInstanceCreateRequest(BaseModel):

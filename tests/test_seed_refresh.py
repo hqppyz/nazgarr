@@ -12,7 +12,7 @@ from nazgarr.library import seed_refresh
 from nazgarr.reseed import executor
 from nazgarr.torrents.metainfo import compute_info_hash
 from tests.test_executor import (  # noqa: F401 (fixture autouse)
-    LayoutAdapter,
+    ReseedClient,
     _movie_review,
     _movie_torrent,
     _tracker_torrent,
@@ -32,7 +32,7 @@ def test_a_new_seed_is_registered_where_the_executor_put_its_hardlink(db_session
     ricostruiva sempre la cartella del torrent: nessun hardlink trovato, e
     l'elemento restava orfano fino alla scansione dopo (audit 2026-10-18)."""
     root, review = _movie_review(db_session, tmp_path, folder=folder)
-    adapter = LayoutAdapter(layout)
+    adapter = ReseedClient(layout=layout)
     seed_job = executor.execute_review(db_session, review, adapter)
     assert (root / expected).is_file()
 
@@ -45,7 +45,7 @@ def test_a_new_seed_is_registered_where_the_executor_put_its_hardlink(db_session
 
 def test_another_file_at_the_hardlink_path_is_not_linked_to_the_library_file(db_session, tmp_path):
     root, review = _movie_review(db_session, tmp_path)
-    adapter = LayoutAdapter("Original")
+    adapter = ReseedClient(layout="Original")
     seed_job = executor.execute_review(db_session, review, adapter)
     link = root / "torrents" / "Movie.2024.mkv"
     os.unlink(link)
@@ -63,7 +63,7 @@ def test_a_symlink_to_the_library_file_is_never_taken_for_its_hardlink(db_sessio
     aveva l'inode, sceglieva quella posizione ed era registrato come
     hardlink in seed, da un percorso che lo scanner salta."""
     root, review = _movie_review(db_session, tmp_path, folder="Release.Name")
-    adapter = LayoutAdapter("NoSubfolder")
+    adapter = ReseedClient(layout="NoSubfolder")
     seed_job = executor.execute_review(db_session, review, adapter)
     assert (root / "torrents" / "Movie.2024.mkv").is_file()  # l'hardlink vero, senza la cartella
     os.makedirs(root / "torrents" / "Release.Name")
@@ -77,7 +77,7 @@ def test_a_symlink_to_the_library_file_is_never_taken_for_its_hardlink(db_sessio
 
 def test_a_symlink_in_place_of_the_hardlink_or_of_its_folder_is_not_registered(db_session, tmp_path):
     root, review = _movie_review(db_session, tmp_path, folder="Release.Name")
-    adapter = LayoutAdapter("Original")
+    adapter = ReseedClient(layout="Original")
     seed_job = executor.execute_review(db_session, review, adapter)
     link = root / "torrents" / "Release.Name" / "Movie.2024.mkv"
     os.unlink(link)
@@ -101,7 +101,7 @@ def test_a_library_folder_that_is_itself_a_link_inside_the_disk_still_counts(db_
     """Come per lo scanner, la cartella configurata può essere un link dentro
     il disco: si rifiutano solo i link sotto di lei."""
     root, review = _movie_review(db_session, tmp_path)
-    adapter = LayoutAdapter("Original")
+    adapter = ReseedClient(layout="Original")
     seed_job = executor.execute_review(db_session, review, adapter)
     assert review.media_file.disk.media_folders == ["media/movies"]
     os.rename(root / "media" / "movies", root / "real-movies")
@@ -129,7 +129,7 @@ def test_the_full_check_of_an_execution_reads_the_hardlinks_where_the_executor_p
     if folder:  # la cartella del candidato è quella del .torrent (full_check._sync_folder)
         torrent = _bencode({"info": {"name": folder, "piece length": 16, "pieces": hashlib.sha1(b"content").digest(),
                                      "files": [{"length": 7, "path": ["Movie.2024.mkv"]}]}})
-    adapter = LayoutAdapter(layout)
+    adapter = ReseedClient(layout=layout)
     adapter.info_hash = compute_info_hash(torrent)
     seed_job = executor.execute_review(db_session, review, adapter)
 

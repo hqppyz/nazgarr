@@ -12,6 +12,11 @@ from nazgarr.core import migrations
 _real_getaddrinfo = socket.getaddrinfo
 
 
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers", "background: il test usa lo scheduler e il worker di upload veri, avviati (client, anon_client)")
+
+
 def _offline_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
     """Indirizzi IP (anche nelle forme decimali/esadecimali) e localhost si
     risolvono come sempre, ogni altro nome come un nome che non esiste."""
@@ -55,7 +60,39 @@ def db_session(tmp_path, monkeypatch):
 
 
 @pytest.fixture
-def client(tmp_path, monkeypatch):
+def _quiet_background(request, monkeypatch):
+    """L'app dei test (client, anon_client, e ogni test che entra nella
+    lifespan con un suo TestClient e chiede questo fixture) non fa lavoro in background
+    (audit 2026-10-18): lo scheduler parte in pausa (i job ci sono, get_job
+    e reschedule funzionano, nessuno gira) e il worker di upload non riprende
+    i job interrotti. Prima ogni test delle API girava con i thread veri: un
+    test lento, una pausa nel debugger o un cron al minuto facevano girare
+    job veri sul DB del test, insieme al test. Un test che li vuole avviati
+    si segna con @pytest.mark.background; chi vuole un job lo chiama
+    direttamente (come test_season_pack con _reconcile_between_runs)."""
+    if request.node.get_closest_marker("background"):
+        return
+    from nazgarr import main, scheduler
+    from nazgarr.upload.worker import UploadWorker
+
+    build = scheduler.build_scheduler
+
+    def paused_scheduler(*args, **kwargs):
+        built = build(*args, **kwargs)
+        start = built.start
+        built.start = lambda *a, **kw: start(paused=True)
+        return built
+
+    class QuietUploadWorker(UploadWorker):
+        def resume(self) -> None:
+            pass
+
+    monkeypatch.setattr(scheduler, "build_scheduler", paused_scheduler)
+    monkeypatch.setattr(main, "UploadWorker", QuietUploadWorker)
+
+
+@pytest.fixture
+def client(tmp_path, monkeypatch, _quiet_background):
     data_dir = tmp_path / "data"
     scan_root = tmp_path / "mnt"
     scan_root.mkdir()
@@ -87,7 +124,7 @@ def client(tmp_path, monkeypatch):
 
 
 @pytest.fixture
-def anon_client(tmp_path, monkeypatch):
+def anon_client(tmp_path, monkeypatch, _quiet_background):
     """Un'istanza appena installata: nessun account, nessun token."""
     data_dir = tmp_path / "data"
     scan_root = tmp_path / "mnt"

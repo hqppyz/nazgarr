@@ -23,6 +23,7 @@ import yaml
 from nazgarr.cli_client import settings_catalog as catalog
 from nazgarr.cli_client.context import api
 from nazgarr.cli_client.helpers import duration, env_secret, human_duration, login_api, warn_insecure_url
+from nazgarr.cli_client.http import ApiError
 from nazgarr.cli_client.output import EXIT_USAGE, confirm, console, err_console, fail
 
 app = typer.Typer(help="The whole configuration as a YAML file: export, then import (adds and updates).",
@@ -320,6 +321,8 @@ def _plan_profile(plan: Planner, label: str, spec: dict, ref: Callable[[], int],
             "type_id_map": spec.get("type_ids"), "resolution_id_map": spec.get("resolution_ids"),
             "naming_rules": spec.get("naming_rules"), "description_template": spec.get("description_template")}
     body = {k: v for k, v in body.items() if v is not None}
+    if "naming_rules" in body and not isinstance(body["naming_rules"], dict):
+        raise fail(f"Tracker {label}: upload_profile.naming_rules must be a mapping.", EXIT_USAGE)
     if not exists:
         plan.add(f"+ upload profile {label}" + (f" (preset {spec['preset']})" if spec.get("preset") else ""),
                  lambda ref=ref: client.post(f"/api/trackers/{ref()}/upload-profile",
@@ -332,6 +335,26 @@ def _plan_profile(plan: Planner, label: str, spec: dict, ref: Callable[[], int],
     changes = _changed(current, body)
     if "naming_rules" in changes and not current.get("naming_customized") and spec.get("naming_rules") is None:
         changes.pop("naming_rules")
+    if "naming_rules" in changes:
+        # Le regole nuove passano dall'anteprima del server mentre si prepara
+        # il piano (audit 2026-10-18): una di un tipo sbagliato ferma il
+        # file prima di ogni modifica, invece di far fallire dopo ogni upload
+        # verso quel tracker. Un profilo che il file crea non ha ancora
+        # un'anteprima: lì le controlla il server al salvataggio.
+        try:
+            client.post(f"/api/trackers/{ref()}/upload-profile/naming/preview",
+                        {"naming_rules": changes["naming_rules"]})
+        except ApiError as exc:
+            if exc.status in (400, 422) or exc.code == "upload_invalid_naming_rules":
+                raise fail(f"Tracker {label}: {exc}", EXIT_USAGE) from exc
+            if exc.status not in (401, 403):
+                raise
+            # L'anteprima è un POST: una chiave di sola lettura non la può
+            # chiedere, e --dry-run deve comunque mostrare il piano. Il
+            # salvataggio le controlla di nuovo; ogni altro errore resta
+            # quello che è, col suo codice d'uscita.
+            err_console.print(f"Tracker {label}: naming rules not checked in advance ({exc}); "
+                              "the server checks them when they are saved.")
     if changes:
         plan.add(f"~ upload profile {label}: {', '.join(changes)}",
                  lambda ref=ref, changes=changes: client.patch(f"/api/trackers/{ref()}/upload-profile", changes))

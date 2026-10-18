@@ -113,7 +113,9 @@ def fetch_icon(data_dir: str, tracker_id: int, base_url: str, client: httpx.Clie
     if os.path.isfile(marker) and time.time() - os.path.getmtime(marker) < RETRY_SECONDS:
         return None
     owns = client is None
-    client = client or httpx.Client(timeout=TIMEOUT_SECONDS, follow_redirects=False)
+    # Gli URL delle icone vengono dalla pagina del tracker: connesso solo a
+    # indirizzi controllati nel momento della connessione (net_guard).
+    client = client or net_guard.http_client(timeout=TIMEOUT_SECONDS, follow_redirects=False)
     try:
         for url in _candidates(client, base_url):
             found = _download(client, url)

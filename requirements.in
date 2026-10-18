@@ -6,7 +6,11 @@ fastapi
 uvicorn[standard]
 sqlalchemy
 apscheduler
-httpx
+# nazgarr/core/net_guard.py connette i client all'indirizzo controllato
+# attraverso il trasporto di httpx 0.x e il pool di httpcore 1.x: una
+# versione che li cambia va provata prima (pin() fallisce senza quel pool).
+httpx<1
+httpcore<2
 qbittorrent-api
 pymediainfo
 guessit

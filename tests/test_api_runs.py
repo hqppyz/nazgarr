@@ -92,3 +92,26 @@ def test_the_list_is_bounded_and_pages_back(client):
     assert [r["id"] for r in older] == ids[::-1][2:4]
     assert len(client.get("/api/runs").json()) == 5  # il default resta ampio (CLI)
     assert client.get("/api/runs", params={"limit": 0}).status_code == 422
+
+
+def test_a_run_started_by_hand_forgets_the_tmdb_misses(client, monkeypatch):
+    """Audit 2026-10-18: un miss TMDB si ricorda per un giorno, ma chi lancia
+    una scansione a mano (di solito dopo aver corretto un nome o aspettato
+    che TMDB aggiungesse un titolo) vuole che si riprovi subito. Una run
+    rifiutata (un'altra in corso) non dimentica niente."""
+    from nazgarr.library import tmdb_cache
+    from nazgarr.reseed import pipeline
+
+    monkeypatch.setattr(tmdb_cache, "_misses", {("x", "tv", "unknown show", 2099): 1e18})
+    session = client.app.state.session_factory()
+    try:
+        running = pipeline.start_run(session, run_type="scheduled")
+        assert client.post("/api/runs").status_code == 409
+        assert tmdb_cache._misses
+        running.finished_at = running.started_at
+        session.commit()
+    finally:
+        session.close()
+
+    assert client.post("/api/runs").status_code == 202
+    assert tmdb_cache._misses == {}

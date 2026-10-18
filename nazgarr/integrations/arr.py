@@ -210,7 +210,8 @@ class ArrApi:
         self.instance_id = instance.id
         self.base_url = instance.base_url.rstrip("/")
         self._checked = False
-        self._client = client or httpx.Client(
+        # Mai un indirizzo vietato nemmeno se il DNS cambia dopo il controllo (net_guard).
+        self._client = client or net_guard.http_client(
             base_url=self.base_url,
             headers={"X-Api-Key": instance.api_key},
             timeout=timeout_of(instance),

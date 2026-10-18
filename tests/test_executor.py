@@ -18,6 +18,7 @@ from nazgarr.core.models import (
 )
 from nazgarr.reseed import executor, pipeline
 from nazgarr.torrents.metainfo import compute_info_hash
+from tests.fakes import RecordingClient
 from tests.test_season_pack import _bencode
 
 
@@ -44,28 +45,34 @@ def _tracker_torrent(monkeypatch):
     return served
 
 
-def _sent(path):
-    with open(path, "rb") as fh:
-        return fh.read()
+class ReseedClient(RecordingClient):
+    """Il client di questi test: RecordingClient (tests/fakes.py), il
+    contratto come lo seguono gli adapter inclusi (aggiunge fermo, sa
+    saltare il recheck, ha content_layout), con l'info hash "deadbeef".
+    Prima era un finto suo, fuori dal contratto e senza content_layout né
+    stopped: l'esecutore prendeva la strada dei plugin vecchi, che un
+    adapter incluso non prende mai (audit 2026-10-18, finding 151).
 
+    Le aggiunte sono in added (AddedTorrent). Lo stato, se status non è
+    dato, è quello di un torrent aggiunto fermo: fermo dopo il recheck
+    (recheck_status, progress) finché start(), che start_error fa fallire."""
 
-class FakeAdapter:
-    def __init__(self, info_hash="deadbeef", recheck_status="ok"):
-        self.info_hash = info_hash
-        self.recheck_status = recheck_status
-        self.add_torrent_calls = []
-
-    def add_torrent(self, torrent_file_or_url, save_path, force_recheck=True, expected_info_hash=None):
-        assert force_recheck is True
-        self.add_torrent_calls.append({"url": torrent_file_or_url, "save_path": save_path,
-                                       "content": _sent(torrent_file_or_url), "expected": expected_info_hash})
-        return self.info_hash
+    def __init__(self, info_hash="deadbeef", recheck_status="ok", progress=1.0, start_error=None, **kwargs):
+        super().__init__(info_hash=info_hash, **kwargs)
+        self.recheck_status, self.progress, self.start_error = recheck_status, progress, start_error
 
     def get_torrent_status(self, info_hash):
-        return TorrentStatus(info_hash=info_hash, state="uploading", recheck_status=self.recheck_status, progress=1.0)
+        if self.status is not None:
+            return self.status
+        done = self.progress >= 1.0
+        state = ("uploading" if done else "downloading") if self.started else ("stoppedUP" if done else "stoppedDL")
+        return TorrentStatus(info_hash=info_hash, state=state, recheck_status=self.recheck_status,
+                             progress=self.progress, incomplete=not done, amount_left=0)
 
-    def list_torrents(self):
-        return []
+    def start(self, info_hash):
+        if self.start_error is not None:
+            raise self.start_error
+        super().start(info_hash)
 
 
 def _make_disk_media_path(tmp_path):
@@ -113,7 +120,7 @@ def test_execute_media_to_torrent_creates_hardlink_and_adds_torrent(db_session, 
     db_session.add(match_review)
     db_session.commit()
 
-    adapter = FakeAdapter()
+    adapter = ReseedClient()
     seed_job = executor.execute_review(db_session, match_review, adapter)
 
     expected_link = root / "torrents" / "Movie.2024.mkv"
@@ -122,23 +129,7 @@ def test_execute_media_to_torrent_creates_hardlink_and_adds_torrent(db_session, 
     assert seed_job.hardlink_created_at is not None
     assert seed_job.info_hash == "deadbeef"
     assert seed_job.recheck_status == "pending"
-    assert len(adapter.add_torrent_calls) == 1
-
-
-class LayoutAdapter(FakeAdapter):
-    """Un client con "Layout del contenuto" impostato dall'utente."""
-
-    def __init__(self, layout):
-        super().__init__()
-        self.layout = layout
-
-    def content_layout(self):
-        return self.layout
-
-    def add_torrent(self, torrent_file_or_url, save_path, force_recheck=True, expected_info_hash=None,
-                    content_layout="Original"):
-        self.add_torrent_calls.append({"url": torrent_file_or_url, "save_path": save_path, "layout": content_layout})
-        return self.info_hash
+    assert len(adapter.added) == 1 and adapter.added[0].options["stopped"] is True  # fermo fino al recheck
 
 
 def _movie_review(db_session, tmp_path, folder=None):
@@ -167,36 +158,36 @@ def test_a_client_that_creates_subfolders_gets_the_file_inside_its_folder(db_ses
     # Il caso segnalato: qBittorrent con "Crea sottocartella" cercava il file
     # in torrents/Movie.2024/, l'hardlink era in torrents/ e partiva il download.
     root, review = _movie_review(db_session, tmp_path)
-    adapter = LayoutAdapter("Subfolder")
+    adapter = ReseedClient(layout="Subfolder")  # "Layout del contenuto" scelto dall'utente
 
     executor.execute_review(db_session, review, adapter)
 
     assert (root / "torrents" / "Movie.2024" / "Movie.2024.mkv").is_file()
     assert not (root / "torrents" / "Movie.2024.mkv").exists()
-    assert adapter.add_torrent_calls[0]["save_path"] == str(root / "torrents" / "Movie.2024")
-    assert adapter.add_torrent_calls[0]["layout"] == "Original"
+    assert adapter.added[0].save_path == str(root / "torrents" / "Movie.2024")
+    assert adapter.added[0].options["content_layout"] == "Original"
 
 
 def test_without_subfolders_the_root_folder_of_the_torrent_is_left_out(db_session, tmp_path):
     root, review = _movie_review(db_session, tmp_path, folder="Release.Name")
-    adapter = LayoutAdapter("NoSubfolder")
+    adapter = ReseedClient(layout="NoSubfolder")
 
     executor.execute_review(db_session, review, adapter)
 
     assert (root / "torrents" / "Movie.2024.mkv").is_file()
-    call = adapter.add_torrent_calls[0]
-    assert (call["save_path"], call["layout"]) == (str(root / "torrents"), "NoSubfolder")
+    call = adapter.added[0]
+    assert (call.save_path, call.options["content_layout"]) == (str(root / "torrents"), "NoSubfolder")
 
 
 def test_a_torrent_with_its_own_folder_ignores_the_subfolder_preference(db_session, tmp_path):
     root, review = _movie_review(db_session, tmp_path, folder="Release.Name")
-    adapter = LayoutAdapter("Subfolder")
+    adapter = ReseedClient(layout="Subfolder")
 
     executor.execute_review(db_session, review, adapter)
 
     assert (root / "torrents" / "Release.Name" / "Movie.2024.mkv").is_file()
-    assert adapter.add_torrent_calls[0]["save_path"] == str(root / "torrents")
-    assert adapter.add_torrent_calls[0]["layout"] == "Original"
+    assert adapter.added[0].save_path == str(root / "torrents")
+    assert adapter.added[0].options["content_layout"] == "Original"
 
 
 def test_execute_media_to_torrent_respects_candidate_folder(db_session, tmp_path):
@@ -220,7 +211,7 @@ def test_execute_media_to_torrent_respects_candidate_folder(db_session, tmp_path
     db_session.add(match_review)
     db_session.commit()
 
-    executor.execute_review(db_session, match_review, FakeAdapter())
+    executor.execute_review(db_session, match_review, ReseedClient())
 
     assert (root / "torrents" / "Release.Name" / "Movie.2024.mkv").is_file()
 
@@ -262,7 +253,7 @@ def test_execute_media_to_torrent_fails_on_cross_device(db_session, tmp_path, mo
     monkeypatch.setattr(executor.os, "stat", fake_stat)
 
     with pytest.raises(executor.ExecutionError, match="different devices"):
-        executor.execute_review(db_session, match_review, FakeAdapter())
+        executor.execute_review(db_session, match_review, ReseedClient())
 
 
 def test_execute_torrent_to_client_adds_existing_file_without_new_hardlink(db_session, tmp_path):
@@ -292,12 +283,12 @@ def test_execute_torrent_to_client_adds_existing_file_without_new_hardlink(db_se
     db_session.add(match_review)
     db_session.commit()
 
-    adapter = FakeAdapter()
+    adapter = ReseedClient()
     seed_job = executor.execute_review(db_session, match_review, adapter)
 
     assert seed_job.hardlink_created_at is None  # nessun nuovo hardlink, il file c'era già
     assert seed_job.info_hash == "deadbeef"
-    assert adapter.add_torrent_calls[0]["save_path"] == str(root / "torrents")
+    assert adapter.added[0].save_path == str(root / "torrents")
 
 
 def test_execute_without_download_link_fails_explicitly(db_session, tmp_path):
@@ -328,7 +319,7 @@ def test_execute_without_download_link_fails_explicitly(db_session, tmp_path):
     db_session.commit()
 
     with pytest.raises(executor.ExecutionError, match="download_link"):
-        executor.execute_review(db_session, match_review, FakeAdapter())
+        executor.execute_review(db_session, match_review, ReseedClient())
 
 
 def test_reconcile_seed_job_updates_status_to_seeding(db_session, tmp_path):
@@ -347,9 +338,10 @@ def test_reconcile_seed_job_updates_status_to_seeding(db_session, tmp_path):
     db_session.add(seed_job)
     db_session.commit()
 
-    executor.reconcile_seed_job(db_session, seed_job, FakeAdapter(recheck_status="ok"))
+    adapter = ReseedClient(recheck_status="ok")
+    executor.reconcile_seed_job(db_session, seed_job, adapter)
 
-    assert seed_job.final_status == "seeding"
+    assert seed_job.final_status == "seeding" and adapter.started == ["deadbeef"]
 
 
 def test_add_torrent_uses_per_client_root_path_override(db_session, tmp_path):
@@ -386,9 +378,9 @@ def test_add_torrent_uses_per_client_root_path_override(db_session, tmp_path):
     match_review_a = MatchReview(candidate_id=candidate.id, media_file_id=media_file.id, status="approved")
     db_session.add(match_review_a)
     db_session.commit()
-    adapter_a = FakeAdapter()
+    adapter_a = ReseedClient()
     executor.execute_review(db_session, match_review_a, adapter_a, tc_with_override.id)
-    assert adapter_a.add_torrent_calls[0]["save_path"] == "/downloads/torrents"
+    assert adapter_a.added[0].save_path == "/downloads/torrents"
 
     candidate_b = Candidate(
         media_item_id=item.id, tracker_id=tracker.id, torrent_id_remote="2", name="Movie.2024.mkv",
@@ -406,9 +398,9 @@ def test_add_torrent_uses_per_client_root_path_override(db_session, tmp_path):
     match_review_b = MatchReview(candidate_id=candidate_b.id, seed_file_id=seed_file.id, status="approved")
     db_session.add(match_review_b)
     db_session.commit()
-    adapter_b = FakeAdapter()
+    adapter_b = ReseedClient()
     executor.execute_review(db_session, match_review_b, adapter_b, tc_without_override.id)
-    assert adapter_b.add_torrent_calls[0]["save_path"] == str(root / "torrents")
+    assert adapter_b.added[0].save_path == str(root / "torrents")
 
 
 def _single_file_review(db_session, root, disk, tracker, item, run):
@@ -441,11 +433,11 @@ def test_a_cross_seed_reuses_the_hardlink_already_there(db_session, tmp_path):
     existing = root / "torrents" / "Movie.2024.mkv"
     os.link(media_file_path, existing)
 
-    adapter = FakeAdapter()
+    adapter = ReseedClient()
     seed_job = executor.execute_review(db_session, match_review, adapter)
 
     assert os.path.samefile(media_file_path, existing)
-    assert seed_job.info_hash == "deadbeef" and len(adapter.add_torrent_calls) == 1
+    assert seed_job.info_hash == "deadbeef" and len(adapter.added) == 1
 
 
 def test_another_file_at_the_destination_is_never_overwritten(db_session, tmp_path):
@@ -454,7 +446,7 @@ def test_another_file_at_the_destination_is_never_overwritten(db_session, tmp_pa
     (root / "torrents" / "Movie.2024.mkv").write_bytes(b"something else")
 
     with pytest.raises(executor.ExecutionError, match="already exists"):
-        executor.execute_review(db_session, match_review, FakeAdapter())
+        executor.execute_review(db_session, match_review, ReseedClient())
     assert (root / "torrents" / "Movie.2024.mkv").read_bytes() == b"something else"
 
 
@@ -473,11 +465,11 @@ def test_a_symlink_at_the_destination_is_never_followed(db_session, tmp_path, po
         os.link(media_file_path, pointed)
     (root / "torrents" / "Movie.2024.mkv").symlink_to(pointed)
 
-    adapter = FakeAdapter()
+    adapter = ReseedClient()
     with pytest.raises(executor.ExecutionError, match="already exists"):
         executor.execute_review(db_session, match_review, adapter)
     assert os.path.lexists(pointed) is (points_to == "hardlink")  # niente creato dove punta il link
-    assert adapter.add_torrent_calls == []
+    assert adapter.added == []
 
 
 def test_a_symlinked_folder_inside_the_torrent_is_out_of_scope(db_session, tmp_path):
@@ -487,10 +479,10 @@ def test_a_symlinked_folder_inside_the_torrent_is_out_of_scope(db_session, tmp_p
     (root / "torrents" / "real").mkdir()
     (root / "torrents" / "Release.Name").symlink_to(root / "torrents" / "real")
 
-    adapter = FakeAdapter()
+    adapter = ReseedClient()
     with pytest.raises(executor.ExecutionError, match="outside the allowed scope"):
         executor.execute_review(db_session, review, adapter)
-    assert os.listdir(root / "torrents" / "real") == [] and adapter.add_torrent_calls == []
+    assert os.listdir(root / "torrents" / "real") == [] and adapter.added == []
 
 
 @pytest.mark.parametrize("target", ["outside", "inside"])
@@ -505,31 +497,27 @@ def test_a_library_file_replaced_by_a_symlink_is_never_linked(db_session, tmp_pa
     media_file_path.unlink()
     media_file_path.symlink_to(elsewhere)
 
-    adapter = FakeAdapter()
+    adapter = ReseedClient()
     with pytest.raises(executor.ExecutionError, match="scope|symbolic link"):
         executor.execute_review(db_session, match_review, adapter)
     assert not os.path.lexists(root / "torrents" / "Movie.2024.mkv")
-    assert adapter.add_torrent_calls == []
+    assert adapter.added == []
 
 
 @pytest.mark.parametrize("can_skip", [True, False])
 def test_the_recheck_is_skipped_only_by_a_client_that_can(can_skip):
     from types import SimpleNamespace
 
-    class Adapter:
-        can_skip_recheck = can_skip
-
-        def add_torrent(self, url, save_path, force_recheck=True, expected_info_hash=None, **kwargs):
-            self.kwargs = kwargs
-            return "h1"
-
-    adapter, seed_job = Adapter(), SimpleNamespace(recheck_skipped=None)
+    adapter, seed_job = ReseedClient(), SimpleNamespace(recheck_skipped=None)
+    adapter.can_skip_recheck = can_skip
     torrent = executor._CheckedTorrent(content=_movie_torrent(), info_hash="h1")
 
     executor._add_to_client(adapter, torrent, "/torrents", seed_job, skip_recheck=True)
 
-    # Transmission e rTorrent ricontrollano comunque: il seed job non lo registra come saltato.
-    assert adapter.kwargs == ({"skip_check_verified": True} if can_skip else {})
+    # Transmission e rTorrent ricontrollano comunque: il seed job non lo
+    # registra come saltato, e il torrent entra fermo come ogni recheck.
+    options = adapter.added[0].options
+    assert (options["skip_check_verified"], options["stopped"]) == (can_skip, not can_skip)
     assert seed_job.recheck_skipped is (True if can_skip else None)
 
 
@@ -537,19 +525,8 @@ def test_a_torrent_stopped_after_a_good_recheck_is_started(db_session, tmp_path)
     # qBittorrent con la condizione di arresto "file controllati" (qui non la
     # lascia cambiare all'aggiunta): il recheck riesce e il torrent resta fermo.
     _root, review = _movie_review(db_session, tmp_path)
-
-    class StopsAfterCheck(FakeAdapter):
-        def __init__(self):
-            super().__init__()
-            self.started = []
-
-        def get_torrent_status(self, info_hash):
-            return TorrentStatus(info_hash=info_hash, state="stoppedUP", recheck_status="ok", progress=1.0)
-
-        def start(self, info_hash):
-            self.started.append(info_hash)
-
-    adapter = StopsAfterCheck()
+    adapter = ReseedClient(status=TorrentStatus(info_hash="deadbeef", state="stoppedUP", recheck_status="ok",
+                                               progress=1.0))
     seed_job = executor.execute_review(db_session, review, adapter)
     executor.reconcile_seed_job(db_session, seed_job, adapter)
 
@@ -566,17 +543,12 @@ def test_a_reseed_uses_the_client_labels_chosen_on_its_review(db_session, tmp_pa
     db_session.add(client)
     db_session.commit()
 
-    class LabelAdapter(FakeAdapter):
-        def add_torrent(self, torrent_file_or_url, save_path, force_recheck=True, expected_info_hash=None,
-                        category=None, tags=None):
-            self.add_torrent_calls.append({"category": category, "tags": tags})
-            return self.info_hash
-
     # Scelti a mano come per un upload: vincono sui default del client.
     review_module.set_client_labels(db_session, review, "4k-movies", " cross , mine ")
-    adapter = LabelAdapter()
+    adapter = ReseedClient()
     executor.execute_review(db_session, review, adapter, client.id)
-    assert adapter.add_torrent_calls[0] == {"category": "4k-movies", "tags": ["cross", "mine"]}
+    options = adapter.added[0].options
+    assert (options["category"], options["tags"]) == ("4k-movies", ["cross", "mine"])
 
 
 def test_without_a_choice_a_reseed_takes_the_client_defaults_and_empty_means_none(db_session, tmp_path):
@@ -611,19 +583,18 @@ def _failed_recheck_job(db_session, tmp_path):
     return seed_job
 
 
-class _IncompleteAfterRecheck(FakeAdapter):
-    def __init__(self, state="stalledDL", stop_error=None):
-        super().__init__()
-        self.state, self.stop_error, self.stopped = state, stop_error, []
+class _IncompleteAfterRecheck(ReseedClient):
+    """Un recheck fallito di un torrent che gira (state), o fermo."""
 
-    def get_torrent_status(self, info_hash):
-        return TorrentStatus(info_hash=info_hash, state=self.state, recheck_status="failed", progress=0.97,
-                             incomplete=True, amount_left=1000)
+    def __init__(self, state="stalledDL", stop_error=None):
+        super().__init__(status=TorrentStatus(info_hash="deadbeef", state=state, recheck_status="failed",
+                                              progress=0.97, incomplete=True, amount_left=1000))
+        self.stop_error = stop_error
 
     def stop(self, info_hash):
         if self.stop_error is not None:
             raise self.stop_error
-        self.stopped.append(info_hash)
+        super().stop(info_hash)
 
 
 def test_a_failed_recheck_is_stopped_when_it_is_reconciled(db_session, tmp_path):
@@ -683,16 +654,16 @@ def test_the_client_gets_the_bytes_nazgarr_downloaded_never_the_tracker_link(db_
     # Con il link il client scaricava la sua copia: un tracker ostile poteva
     # servire a Nazgarr il torrent giusto e al client un altro.
     _root, review = _movie_review(db_session, tmp_path)
-    adapter = FakeAdapter()
+    adapter = ReseedClient()
 
     executor.execute_review(db_session, review, adapter)
 
-    call = adapter.add_torrent_calls[0]
-    assert call["url"] != "https://t.example/dl/1" and call["content"] == _movie_torrent()
-    assert call["expected"] == compute_info_hash(_movie_torrent())
+    call = adapter.added[0]
+    assert call.source != "https://t.example/dl/1" and call.content == _movie_torrent()
+    assert call.options["expected_info_hash"] == compute_info_hash(_movie_torrent())
     assert _tracker_torrent["links"] == ["https://t.example/dl/1"]
     assert review.candidate.info_hash == compute_info_hash(_movie_torrent())  # per l'attesa e i retry
-    assert not os.path.exists(call["url"])  # il file temporaneo non resta
+    assert not os.path.exists(call.source)  # il file temporaneo non resta
 
 
 def test_a_tracker_serving_another_torrent_than_the_matched_one_gets_nothing(db_session, tmp_path, _tracker_torrent):
@@ -700,12 +671,12 @@ def test_a_tracker_serving_another_torrent_than_the_matched_one_gets_nothing(db_
     review.candidate.info_hash = compute_info_hash(_movie_torrent())  # letto dal matching o dal controllo
     db_session.commit()
     _tracker_torrent["content"] = _movie_torrent(b"CONTENT")  # stessi nomi, altri piece
-    adapter = FakeAdapter()
+    adapter = ReseedClient()
 
     with pytest.raises(executor.ExecutionError, match="different .torrent"):
         executor.execute_review(db_session, review, adapter)
 
-    assert adapter.add_torrent_calls == []
+    assert adapter.added == []
     assert not (root / "torrents" / "Movie.2024.mkv").exists()  # nessun hardlink prima del controllo
     from nazgarr.core.models import SeedJob
     job = db_session.query(SeedJob).one()
@@ -719,7 +690,7 @@ def test_a_torrent_that_cannot_be_downloaded_is_a_failed_job_to_retry(db_session
         raise executor.ExecutionError("Could not download the .torrent from t: tracker down")
 
     monkeypatch.setattr(executor, "_download_torrent", down)
-    adapter = FakeAdapter()
+    adapter = ReseedClient()
 
     with pytest.raises(executor.ExecutionError, match="tracker down"):
         executor.execute_review(db_session, review, adapter)
@@ -727,7 +698,7 @@ def test_a_torrent_that_cannot_be_downloaded_is_a_failed_job_to_retry(db_session
     from nazgarr.core.models import SeedJob
     job = db_session.query(SeedJob).one()
     assert (job.final_status, job.info_hash) == ("failed", None)  # visibile fra le esecuzioni fallite
-    assert adapter.add_torrent_calls == [] and not (root / "torrents" / "Movie.2024.mkv").exists()
+    assert adapter.added == [] and not (root / "torrents" / "Movie.2024.mkv").exists()
 
 
 def test_a_download_link_that_is_a_local_path_is_never_read_or_sent(db_session, tmp_path, _tracker_torrent):
@@ -738,20 +709,17 @@ def test_a_download_link_that_is_a_local_path_is_never_read_or_sent(db_session, 
     secret.write_bytes(b"APP_SECRET_KEY=hunter2")
     review.candidate.download_link = str(secret)
     db_session.commit()
-    adapter = FakeAdapter()
+    adapter = ReseedClient()
 
     executor.execute_review(db_session, review, adapter)
 
-    assert adapter.add_torrent_calls[0]["content"] == _movie_torrent()
+    assert adapter.added[0].content == _movie_torrent()
     assert _tracker_torrent["links"] == [str(secret)]  # chiesto al tracker, mai aperto qui
 
 
-class _ClientDown(FakeAdapter):
-    def add_torrent(self, *a, **kw):
-        raise RuntimeError("client down")
-
-    def get_torrent_info(self, info_hash):
-        return None  # risponde: quel torrent non ce l'ha
+def _client_down() -> ReseedClient:
+    """add_torrent fallisce, e il client risponde che quel torrent non ce l'ha."""
+    return ReseedClient(add_error=RuntimeError("client down"))
 
 
 def test_a_single_file_add_that_fails_removes_only_the_hardlink_it_created(db_session, tmp_path):
@@ -761,7 +729,7 @@ def test_a_single_file_add_that_fails_removes_only_the_hardlink_it_created(db_se
     media_file_path, review = _single_file_review(db_session, root, disk, tracker, item, run)
 
     with pytest.raises(executor.ExecutionError, match="client down"):
-        executor.execute_review(db_session, review, _ClientDown())
+        executor.execute_review(db_session, review, _client_down())
 
     assert not (root / "torrents" / "Movie.2024.mkv").exists()
     assert media_file_path.read_bytes() == b"content"  # il file in libreria non si tocca mai
@@ -773,7 +741,7 @@ def test_a_reused_hardlink_stays_when_the_add_fails(db_session, tmp_path):
     os.link(media_file_path, root / "torrents" / "Movie.2024.mkv")  # un cross-seed già in seed
 
     with pytest.raises(executor.ExecutionError):
-        executor.execute_review(db_session, review, _ClientDown())
+        executor.execute_review(db_session, review, _client_down())
 
     assert os.path.samefile(media_file_path, root / "torrents" / "Movie.2024.mkv")
 
@@ -799,11 +767,11 @@ def test_a_seed_file_linked_outside_the_disk_is_refused_before_the_client(db_ses
     review = MatchReview(candidate_id=candidate.id, seed_file_id=seed_file.id, status="approved")
     db_session.add(review)
     db_session.commit()
-    adapter = FakeAdapter()
+    adapter = ReseedClient()
 
     with pytest.raises(executor.ExecutionError, match="scope"):
         executor.execute_review(db_session, review, adapter)
-    assert adapter.add_torrent_calls == []
+    assert adapter.added == []
 
 
 class _DownloadingTracker:
@@ -892,7 +860,7 @@ def test_a_catalogue_only_structure_takes_the_folder_from_the_torrent_before_any
     # hardlink (audit 2026-10-18, finding 146).
     root, review = _catalog_only_review(db_session, tmp_path)
     _tracker_torrent["content"] = _folder_torrent("Movie.2024.mkv")
-    adapter = FakeAdapter(info_hash=compute_info_hash(_tracker_torrent["content"]))
+    adapter = ReseedClient(info_hash=compute_info_hash(_tracker_torrent["content"]))
 
     executor.execute_review(db_session, review, adapter)
 
@@ -904,13 +872,13 @@ def test_a_catalogue_only_structure_takes_the_folder_from_the_torrent_before_any
 def test_a_catalogue_name_the_torrent_does_not_have_creates_nothing(db_session, tmp_path, _tracker_torrent):
     root, review = _catalog_only_review(db_session, tmp_path)
     _tracker_torrent["content"] = _folder_torrent("Something.Else.mkv")
-    adapter = FakeAdapter()
+    adapter = ReseedClient()
 
     with pytest.raises(executor.ExecutionError, match="not the ones the tracker's catalogue listed"):
         executor.execute_review(db_session, review, adapter)
 
     assert not any((root / "torrents").rglob("*.mkv"))
-    assert adapter.add_torrent_calls == []
+    assert adapter.added == []
 
 
 def test_a_known_info_hash_does_not_skip_the_structure_check(db_session, tmp_path, _tracker_torrent):
@@ -921,13 +889,13 @@ def test_a_known_info_hash_does_not_skip_the_structure_check(db_session, tmp_pat
     _tracker_torrent["content"] = _folder_torrent("Something.Else.mkv")
     review.candidate.info_hash = compute_info_hash(_tracker_torrent["content"])
     db_session.commit()
-    adapter = FakeAdapter(info_hash=review.candidate.info_hash)
+    adapter = ReseedClient(info_hash=review.candidate.info_hash)
 
     with pytest.raises(executor.ExecutionError, match="not the ones the tracker's catalogue listed"):
         executor.execute_review(db_session, review, adapter)
 
     assert not any((root / "torrents").rglob("*.mkv"))
-    assert adapter.add_torrent_calls == []
+    assert adapter.added == []
 
 
 def test_an_execution_error_carries_the_english_text_never_the_bare_code(db_session, tmp_path, monkeypatch):
@@ -944,44 +912,17 @@ def test_an_execution_error_carries_the_english_text_never_the_bare_code(db_sess
 
     monkeypatch.setattr(executor, "client_visible_path", cannot_see)
     with pytest.raises(executor.ExecutionError) as info:
-        executor.execute_review(db_session, review, FakeAdapter())
+        executor.execute_review(db_session, review, ReseedClient())
 
     assert str(info.value).startswith("The client cannot see /data/torrents")
     assert str(info.value) == db_session.query(SeedJob).one().error_message
 
 
-class _StoppedAdds(FakeAdapter):
+class _StoppedAdds(ReseedClient):
     """Un client che aggiunge fermo (come ogni adapter incluso, decisione
-    dell'utente del 2026-10-18): resta fermo dopo il recheck, finché start()."""
-
-    can_add_stopped = True
-
-    def __init__(self, recheck_status="ok", progress=1.0, start_error=None):
-        super().__init__(recheck_status=recheck_status)
-        self.progress, self.start_error = progress, start_error
-        self.started, self.stopped, self.rechecked, self.kwargs = [], [], [], []
-
-    def add_torrent(self, torrent_file_or_url, save_path, force_recheck=True, expected_info_hash=None, **kwargs):
-        self.kwargs.append(kwargs)
-        return super().add_torrent(torrent_file_or_url, save_path, force_recheck, expected_info_hash)
-
-    def get_torrent_status(self, info_hash):
-        running = bool(self.started)
-        state = ("uploading" if self.progress >= 1.0 else "downloading") if running else (
-            "stoppedUP" if self.progress >= 1.0 else "stoppedDL")
-        return TorrentStatus(info_hash=info_hash, state=state, recheck_status=self.recheck_status,
-                             progress=self.progress, incomplete=self.progress < 1.0, amount_left=0)
-
-    def start(self, info_hash):
-        if self.start_error is not None:
-            raise self.start_error
-        self.started.append(info_hash)
-
-    def stop(self, info_hash):
-        self.stopped.append(info_hash)
-
-    def recheck(self, info_hash):
-        self.rechecked.append(info_hash)
+    dell'utente del 2026-10-18): resta fermo dopo il recheck, finché start().
+    È ReseedClient, che ora lo fa già; il nome dice cosa contano i test qui
+    sotto."""
 
 
 def test_a_reseed_enters_the_client_stopped_and_starts_only_after_a_good_recheck(db_session, tmp_path):
@@ -990,7 +931,7 @@ def test_a_reseed_enters_the_client_stopped_and_starts_only_after_a_good_recheck
 
     seed_job = executor.execute_review(db_session, review, adapter)
 
-    assert adapter.kwargs == [{"stopped": True}] and adapter.started == []
+    assert [a.options["stopped"] for a in adapter.added] == [True] and adapter.started == []
     executor.reconcile_seed_job(db_session, seed_job, adapter)
     assert seed_job.final_status == "seeding" and adapter.started == ["deadbeef"]
 
@@ -1123,7 +1064,8 @@ def test_a_reseed_verified_at_100_percent_starts_right_away():
 
     executor._add_to_client(adapter, torrent, "/torrents", SimpleNamespace(recheck_skipped=None), skip_recheck=True)
 
-    assert adapter.kwargs == [{"skip_check_verified": True}]
+    options = adapter.added[0].options
+    assert (options["skip_check_verified"], options["stopped"]) == (True, False)
 
 
 def test_a_client_that_cannot_add_stopped_gets_the_add_of_before():
@@ -1133,15 +1075,17 @@ def test_a_client_that_cannot_add_stopped_gets_the_add_of_before():
 
     from nazgarr.adapters.torrent_client.base import stopped_kwargs
 
-    class OldPlugin(FakeAdapter):
+    class OldPlugin(ReseedClient):
         can_add_stopped = True  # ereditato da un adapter incluso
 
         def add_torrent(self, torrent_file_or_url, save_path, force_recheck=True, expected_info_hash=None):
             return super().add_torrent(torrent_file_or_url, save_path, force_recheck, expected_info_hash)
 
     torrent = executor._CheckedTorrent(content=_movie_torrent(), info_hash="h1")
-    for adapter in (FakeAdapter(), OldPlugin()):
+    plain = ReseedClient()
+    plain.can_add_stopped = False  # un plugin scritto prima di can_add_stopped
+    for adapter in (plain, OldPlugin()):
         assert stopped_kwargs(adapter) == {}
         executor._add_to_client(adapter, torrent, "/torrents", SimpleNamespace(recheck_skipped=None),
                                 skip_recheck=False)
-        assert len(adapter.add_torrent_calls) == 1
+        assert [a.options["stopped"] for a in adapter.added] == [False]

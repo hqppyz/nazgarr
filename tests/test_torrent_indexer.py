@@ -249,3 +249,43 @@ def test_a_client_mounted_on_a_subfolder_of_the_disk(db_session):
     torrent_indexer.index_torrent_client(db_session, tc, adapter, run)
 
     assert db_session.query(ClientTorrentFile).one().seed_file_id == seed_file.id
+
+
+def test_a_torrent_registered_while_the_client_is_listed_survives_the_prune(db_session):
+    """Audit 2026-10-18: un upload (o un reseed, o l'import di Radarr/Sonarr)
+    registra subito il suo torrent (nazgarr/library/seed_refresh.py). Se
+    l'indicizzazione di una run aveva già chiesto l'elenco al client prima
+    dell'aggiunta, il torrent mancava da quell'elenco e la potatura lo
+    toglieva, coi suoi file: il file tornava "orphan" fino alla run dopo.
+    Resta; la run dopo, se il client non lo ha più, lo toglie."""
+    from nazgarr.core.models import ClientTorrent
+
+    disk, tc = _make_disk_and_client(db_session, root_path="/mnt/disk1")
+    earlier = pipeline.start_run(db_session, run_type="manual")
+    run = pipeline.start_run(db_session, run_type="manual")
+    old = _make_seed_file(db_session, disk, "torrents/Old.mkv", run)
+    uploaded = _make_seed_file(db_session, disk, "torrents/Upload.mkv", run)
+
+    def torrent(info_hash, name):
+        return ClientTorrentInfo(info_hash=info_hash, name=name, save_path="/mnt/disk1/torrents", state="uploading",
+                                 files=[ClientTorrentFileInfo(path_in_torrent=name, size_bytes=123)])
+
+    class ListedBeforeTheUpload(FakeAdapter):
+        def list_torrents(self):
+            snapshot = list(self._torrents)  # l'elenco è già partito
+            # Registrato con il numero di un'altra scansione: i suoi file restano lo stesso.
+            torrent_indexer.store_client_torrents(db_session, tc, [torrent("up", "Upload.mkv")], earlier.id)
+            return snapshot
+
+    counts = torrent_indexer.index_torrent_client(db_session, tc, ListedBeforeTheUpload([torrent("h1", "Old.mkv")]),
+                                                  run)
+
+    assert counts["torrents_removed"] == 0
+    assert sorted(ct.info_hash for ct in db_session.query(ClientTorrent).all()) == ["h1", "up"]
+    assert sorted(f.seed_file_id for f in db_session.query(ClientTorrentFile).all()) == [old.id, uploaded.id]
+
+    later = pipeline.start_run(db_session, run_type="manual")
+    counts = torrent_indexer.index_torrent_client(db_session, tc, FakeAdapter([torrent("h1", "Old.mkv")]), later)
+
+    assert counts["torrents_removed"] == 1
+    assert [ct.info_hash for ct in db_session.query(ClientTorrent).all()] == ["h1"]

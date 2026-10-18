@@ -316,17 +316,38 @@ def naming(
     if set_from is not None:
         import sys
 
-        rules = json.loads(sys.stdin.read() if str(set_from) == "-" else set_from.read_text())
+        rules = _rules_from_json(sys.stdin.read() if str(set_from) == "-" else set_from.read_text())
+        # Prima l'anteprima del server, che controlla la forma delle regole
+        # (audit 2026-10-18): un file scritto a mano con un tipo sbagliato si
+        # ferma qui, con il campo che non va, prima di salvare niente.
+        result = client.post(f"{path}/naming/preview", {"naming_rules": rules})
         client.patch(path, {"naming_rules": rules})
-        console.print("Naming rules saved (marked as customized).")
+
+        def saved(preview: dict) -> None:
+            _examples(preview)
+            console.print("Naming rules saved (marked as customized).")
+        emit(state(ctx), result, saved)  # con --json: i nomi che danno le regole salvate
         return
     rules = client.get(path).get("naming_rules") or {}
     if preview:
         result = client.post(f"{path}/naming/preview", {"naming_rules": rules})
-        emit(state(ctx), result, lambda r: table(
-            ["Example", "Name"], [(e.get("label"), e.get("name")) for e in r.get("examples") or []]))
+        emit(state(ctx), result, _examples)
         return
     typer.echo(json.dumps(rules, indent=2, ensure_ascii=False))
+
+
+def _rules_from_json(text: str) -> dict:
+    try:
+        rules = json.loads(text)
+    except ValueError as exc:
+        raise fail(f"The naming rules are not valid JSON: {exc}.", EXIT_USAGE) from exc
+    if not isinstance(rules, dict):
+        raise fail("The naming rules must be a JSON object.", EXIT_USAGE)
+    return rules
+
+
+def _examples(preview: dict) -> None:
+    table(["Example", "Name"], [(e.get("label"), e.get("name")) for e in preview.get("examples") or []])
 
 
 @profile_app.command("rm")

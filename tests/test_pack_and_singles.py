@@ -4,6 +4,7 @@ entrambi e un episodio in seed in un formato si cerca nell'altro. Stessa
 stagione di tests/test_season_pack.py, con i torrent dei singoli accanto."""
 
 import hashlib
+import itertools
 from datetime import UTC, datetime
 
 from nazgarr.adapters.tracker.base import TorrentCandidate
@@ -65,6 +66,11 @@ def _active(db_session) -> dict[tuple[int, str], str]:
     }
 
 
+# Inode dei seed_file finti: uno nuovo per ognuno, mai da hash() (cambia con
+# PYTHONHASHSEED, e due file potevano finire sullo stesso inode).
+_SEED_INODES = itertools.count(10_000)
+
+
 def _seeding(db_session, disk, files, name, info_hash):
     """Un torrent di questo tracker nel client con questi media_file in seed
     (un seed_file collegato per ognuno)."""
@@ -79,7 +85,7 @@ def _seeding(db_session, disk, files, name, info_hash):
     for mf in files:
         path = f"{name}/{mf.relative_path.rsplit('/', 1)[1]}" if len(files) > 1 else mf.relative_path.rsplit("/", 1)[1]
         sf = SeedFile(disk_id=disk.id, relative_path=f"torrents/{path}", size_bytes=mf.size_bytes, st_dev=2,
-                      inode=hash((name, mf.id)) % 100_000, media_file_id=mf.id, last_scan_id=mf.last_scan_id,
+                      inode=next(_SEED_INODES), media_file_id=mf.id, last_scan_id=mf.last_scan_id,
                       last_seen_at=datetime.now(UTC))
         db_session.add(sf)
         db_session.commit()

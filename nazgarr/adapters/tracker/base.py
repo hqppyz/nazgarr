@@ -335,7 +335,9 @@ class Unit3dTrackerAdapter(TrackerAdapter):
         nazgarr/plugins/builtin.py); senza, propri di questo adapter (test)."""
         self.base_url = base_url.rstrip("/")
         self.api_token = api_token
-        self._client = http_client or httpx.Client(base_url=self.base_url, timeout=15.0)
+        # Connesso solo a indirizzi controllati nel momento della connessione
+        # (nazgarr/core/net_guard.py): l'URL e i link di download vengono dal tracker.
+        self._client = http_client or net_guard.http_client(base_url=self.base_url, timeout=15.0)
         self._rate_limiter = (
             _shared_limiter(self.base_url, rate_limit_per_min) if shared else _RateLimiter(rate_limit_per_min))
         self._cache_ttl_seconds = cache_ttl_seconds

@@ -61,3 +61,24 @@ jobs:
       - name: Build (type-check + vite build)
         working-directory: frontend
         run: npm run build
+
+      # I tipi del frontend (src/api/schema.ts) vengono dallo schema OpenAPI
+      # del backend: si rigenerano qui, senza un backend in esecuzione, e
+      # devono essere quelli nel repository (audit 2026-10-18: prima lo si
+      # scopriva solo ricordandosi di lanciare gen-types). Dopo la build:
+      # con frontend/dist lo schema ha anche la route della SPA, come quando
+      # li si rigenera a mano.
+      - name: Set up Python (OpenAPI types)
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install backend dependencies (OpenAPI types)
+        run: pip install --require-hashes -r requirements.txt
+
+      - name: OpenAPI types up to date (schema.ts)
+        run: |
+          python -c "import json; from nazgarr.main import app; json.dump(app.openapi(), open('/tmp/openapi.json', 'w'))"
+          (cd frontend && npx openapi-typescript /tmp/openapi.json -o src/api/schema.ts)
+          git diff --exit-code -- frontend/src/api/schema.ts \
+            || { echo "::error::frontend/src/api/schema.ts is stale: regenerate it (npm run gen-types)"; exit 1; }
