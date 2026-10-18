@@ -145,7 +145,7 @@ pipx install "nazgarr==$VERSION" --pip-args="--constraint https://github.com/lkt
 | Tag | What it is |
 | --- | --- |
 | `:stable` (also `:latest`) | Releases promoted by hand after testing. Use this one. The Python package follows it. |
-| `:nightly` | A test build for every push to `main`. It moves fast and may break. |
+| `:nightly` | A test build for every push to `main` that passes CI (ruff, tests, frontend build). It moves fast and may break. |
 | `:X.Y.Z` | Every published version, pinned. |
 
 Configuration › Application › Check for updates follows the channel you're on. It can also check on its own every 12 hours (off by default: it contacts GitHub), and then the sidebar says when a new version is out. Before you update, it shows what changes and anything you need to do; after the update, Nazgarr shows what's new once. The detailed notes of each stable release are in [CHANGELOG.md](CHANGELOG.md).
