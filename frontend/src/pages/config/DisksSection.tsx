@@ -97,7 +97,7 @@ function AddDiskDialog({ preset, onClose }: { preset?: DiskPreset | null; onClos
           {mounts?.mounts.length ? (
             <div className="grid gap-1.5">
               <Label>{t('disks.chooseSubfolder')}</Label>
-              <Select value={rootPath} onValueChange={setRootPath}>
+              <Select value={rootPath} onValueChange={(v) => v != null && setRootPath(v)}>
                 <SelectTrigger>
                   <SelectValue placeholder={t('disks.subfolderPlaceholder')} />
                 </SelectTrigger>

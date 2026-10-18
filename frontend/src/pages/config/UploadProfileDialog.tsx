@@ -131,7 +131,7 @@ export function UploadProfileDialog({
           <div className="grid gap-3">
             <p className="text-sm text-muted-foreground">{t('trackers.noProfileYet')}</p>
             <div className="flex items-center gap-2">
-              <Select value={bundledKey} onValueChange={setBundledKey}>
+              <Select value={bundledKey} onValueChange={(v) => v != null && setBundledKey(v)}>
                 <SelectTrigger className="flex-1">
                   <SelectValue placeholder={t('trackers.bundledProfilePlaceholder')}>
                     {(v: string | null) =>

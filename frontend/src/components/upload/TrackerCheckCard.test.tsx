@@ -45,6 +45,13 @@ describe('TrackerCheckCard', () => {
     expect(screen.queryByRole('button', { name: 'Full hash check' })).toBeNull()
   })
 
+  it('leaves the size out when the tracker did not give one', () => {
+    const sizeless = { ...target, dupes: [dupe('1', 'different', { size_bytes: null })] } as unknown as UploadTarget
+    render(<TrackerCheckCard job={job} target={sizeless} />)
+    expect(screen.getByText('Release.1')).toBeTruthy()
+    expect(screen.queryByText(/null/)).toBeNull()
+  })
+
   it('says when the tracker had more results than were read', () => {
     const truncated = { ...job, analysis: { dupes_truncated: { '3': 1000 } } } as unknown as UploadJob
     render(<TrackerCheckCard job={truncated} target={target} />)

@@ -239,7 +239,7 @@ function AddTrackerDialog() {
         <div className="grid gap-3">
           <div className="grid gap-1.5" data-tour="trackers.dialog.preset">
             <Label>{t('trackers.preset')}</Label>
-            <Select value={presetKey} onValueChange={applyPreset}>
+            <Select value={presetKey} onValueChange={(v) => v != null && applyPreset(v)}>
               <SelectTrigger>
                 <SelectValue placeholder={t('trackers.presetPlaceholder')}>
                   {(v: string | null) =>

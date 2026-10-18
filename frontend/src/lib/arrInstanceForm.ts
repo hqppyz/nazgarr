@@ -1,6 +1,14 @@
 // Il modulo di un'istanza Radarr/Sonarr (Configurazione › Integrazioni),
 // aggiunta o modificata: i campi e i corpi delle richieste.
 
+import type { Schemas } from '@/api/client'
+
+// Radarr e Sonarr hanno lo stesso router (nazgarr/api/arr_instances.py) e
+// quindi gli stessi modelli: i tipi di Radarr valgono per entrambi.
+export type ArrCreateBody = Schemas['RadarrInstanceCreateRequest']
+export type ArrUpdateBody = Schemas['RadarrInstanceUpdateRequest']
+export type ArrConnectionBody = Schemas['RadarrConnectionTestRequest']
+
 export type ArrInstanceForm = {
   label: string
   baseUrl: string
@@ -34,7 +42,9 @@ export function emptyArrForm(instance?: {
 // Creando, la basic auth si manda solo se accesa. Modificando: una API key o
 // una password vuota restano quelle salvate; la basic auth spenta si cancella
 // (username vuoto, nazgarr/api/arr_instances.py).
-export function arrInstanceBody(form: ArrInstanceForm, editing: boolean) {
+export function arrInstanceBody(form: ArrInstanceForm, editing: false): ArrCreateBody
+export function arrInstanceBody(form: ArrInstanceForm, editing: true): ArrUpdateBody
+export function arrInstanceBody(form: ArrInstanceForm, editing: boolean): ArrCreateBody | ArrUpdateBody {
   const common = {
     label: form.label,
     base_url: form.baseUrl,
@@ -58,7 +68,7 @@ export function arrInstanceBody(form: ArrInstanceForm, editing: boolean) {
 }
 
 // La prova con i valori del modulo (prima di salvare, o con una nuova API key).
-export function arrConnectionBody(form: ArrInstanceForm) {
+export function arrConnectionBody(form: ArrInstanceForm): ArrConnectionBody {
   return {
     base_url: form.baseUrl,
     api_key: form.apiKey,

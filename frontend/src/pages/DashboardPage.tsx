@@ -199,7 +199,7 @@ function MetricCards({ data }: { data: Dashboard }) {
           seeding: formatBytes(num(data.seeding_media_size)),
           total: formatBytes(num(data.total_media_size)),
         })}
-        trend={data.total_media_size ? trendOf(num(data.health_pct), previous?.health_snapshot, false) : undefined}
+        trend={data.total_media_size ? trendOf(num(data.health_pct), previous?.health_snapshot, false) : null}
         description={t('dashboard.hardlinkedDescription')}
         action={{ label: t('dashboard.viewOrphanedMedia'), to: '/library/folder?status=orphan_media', icon: Link2Icon }}
       />
