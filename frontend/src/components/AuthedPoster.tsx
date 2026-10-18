@@ -6,28 +6,66 @@ import { instancePath } from '@/lib/instance'
 import { cn } from '@/lib/utils'
 import { demoResponse } from '@/lib/uploadDemo'
 
+// Un IntersectionObserver per margine, condiviso da tutte le immagini: una
+// griglia di migliaia di poster ne usa due, non uno o due per card.
+const observers = new Map<string, { observer: IntersectionObserver; callbacks: Map<Element, (intersecting: boolean) => void> }>()
+
+function watch(node: Element, rootMargin: string, callback: (intersecting: boolean) => void): () => void {
+  let shared = observers.get(rootMargin)
+  if (!shared) {
+    const callbacks = new Map<Element, (intersecting: boolean) => void>()
+    const observer = new IntersectionObserver((entries) => {
+      for (const entry of entries) callbacks.get(entry.target)?.(entry.isIntersecting)
+    }, { rootMargin })
+    shared = { observer, callbacks }
+    observers.set(rootMargin, shared)
+  }
+  const { observer, callbacks } = shared
+  callbacks.set(node, callback)
+  observer.observe(node)
+  return () => {
+    observer.unobserve(node)
+    callbacks.delete(node)
+    if (callbacks.size === 0) {
+      observer.disconnect()
+      observers.delete(rootMargin)
+    }
+  }
+}
+
+// Si scarica a LOAD_MARGIN dallo schermo; con `release` il blob si libera
+// quando l'immagine ne è più lontana di KEEP_MARGIN, e tornando vicino si
+// richiede (dalla cache HTTP del browser: Cache-Control private, un giorno).
+// Senza, una griglia di migliaia di titoli scorsa fino in fondo teneva vivo
+// il blob di ogni card montata (audit 2026-10-18).
+const LOAD_MARGIN = '300px'
+const KEEP_MARGIN = '1500px'
+
 // Il poster è protetto dal login come ogni altra API, e un <img src> non
 // manda l'header Authorization: lo si scarica con fetch + token e lo si
 // mostra da un object URL — solo quando la card entra nella parte visibile
 // della pagina, mai centinaia di richieste al caricamento.
-function useAuthedImage(url: string, enabled: boolean) {
+function useAuthedImage(url: string, enabled: boolean, release = false) {
   const ref = useRef<HTMLDivElement | null>(null)
-  const [visible, setVisible] = useState(false)
+  const [near, setNear] = useState(false)
   const [src, setSrc] = useState<string | null>(null)
   const [failed, setFailed] = useState(false)
+  // Senza `release`, una volta vicina l'immagine resta: niente più da guardare.
+  const settled = near && !release
 
   useEffect(() => {
     const node = ref.current
-    if (!enabled || !node || visible) return
-    const observer = new IntersectionObserver((entries) => {
-      if (entries.some((e) => e.isIntersecting)) setVisible(true)
-    }, { rootMargin: '300px' })
-    observer.observe(node)
-    return () => observer.disconnect()
-  }, [enabled, visible])
+    if (!enabled || !node || settled) return
+    const stopLoad = watch(node, LOAD_MARGIN, (intersecting) => intersecting && setNear(true))
+    const stopKeep = release ? watch(node, KEEP_MARGIN, (intersecting) => !intersecting && setNear(false)) : null
+    return () => {
+      stopLoad()
+      stopKeep?.()
+    }
+  }, [enabled, release, settled])
 
   useEffect(() => {
-    if (!visible) return
+    if (!near || failed) return
     let objectUrl: string | null = null
     // La card smontata (un filtro, un'altra pagina) prima che il poster
     // arrivi: la richiesta si interrompe invece di finire per niente.
@@ -47,9 +85,12 @@ function useAuthedImage(url: string, enabled: boolean) {
       .catch(() => !controller.signal.aborted && setFailed(true))
     return () => {
       controller.abort()
-      if (objectUrl) URL.revokeObjectURL(objectUrl)
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl)
+        setSrc(null)
+      }
     }
-  }, [url, visible])
+  }, [url, near, failed])
 
   return { ref, src, failed }
 }
@@ -72,6 +113,7 @@ export function AuthedPoster({
   const { ref, src, failed } = useAuthedImage(
     url ?? `/api/library/posters/${contentType === 'tv' ? 'tv' : 'movie'}/${tmdbId}.jpg`,
     hasPoster,
+    true,
   )
   return (
     <div ref={ref} className={cn('bg-muted', className)}>
