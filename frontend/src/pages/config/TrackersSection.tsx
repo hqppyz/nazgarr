@@ -427,6 +427,8 @@ function EditTrackerDialog({ tracker }: { tracker: Tracker }) {
             <Input
               id="t-edit-rate-limit"
               type="number"
+              min={0}
+              max={600}
               value={rateLimit}
               onChange={(e) => setRateLimit(e.target.value)}
             />

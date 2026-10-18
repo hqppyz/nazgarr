@@ -6,7 +6,7 @@ scansione (nazgarr/library/file_changes.py).
 
 from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
@@ -193,20 +193,29 @@ def _dashboard(session: Session, disk_id: int | None, scope: str) -> DashboardRe
     )
 
 
+# Quanti punti dello storico al massimo (la finestra "Tutto" ne chiede 1000) e
+# quanti giorni indietro, dieci anni.
+HISTORY_MAX = 1000
+HISTORY_MAX_DAYS = 3650
+
+
 @router.get("/history", response_model=list[HistoryPoint])
 def get_history(
-    limit: int = 30, days: int | None = None, tracker: str | None = None, session: Session = Depends(get_session)
+    limit: int = Query(30, ge=1, le=HISTORY_MAX), days: int | None = Query(None, ge=1, le=HISTORY_MAX_DAYS),
+    tracker: str | None = None, session: Session = Depends(get_session),
 ):
     """Dalla più recente. `days`: solo le scansioni finite negli ultimi N
     giorni (finestra 7d/30d/90d della dashboard), fino a 1000; senza, le
     ultime `limit`. `tracker`: lo storico di quel filtro, che parte dalla
     prima scansione dopo la sua introduzione; uno che non c'è, quello globale
-    come i numeri della dashboard."""
+    come i numeri della dashboard. Limiti espliciti (audit 2026-10-18): un
+    limit negativo restituiva tutte le run, e un days enorme un 500
+    (OverflowError di timedelta)."""
     scope = tracker_scope.resolve(session, tracker)
     query = _scoped_history(session, scope)
     if days is not None:
         query = query.filter(RunLog.finished_at >= datetime.now(UTC) - timedelta(days=days))
-        limit = 1000
+        limit = HISTORY_MAX
     rows = query.limit(limit).all()
     points = []
     for row in rows:

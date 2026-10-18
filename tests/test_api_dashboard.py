@@ -102,6 +102,15 @@ def test_schedule_put_empty_disables(client):
     assert client.app.state.scheduler.get_job("scheduled_run") is None
 
 
+def test_history_query_parameters_are_bounded(client):
+    """Un limit negativo restituiva tutte le run e un days enorme un 500
+    (OverflowError di timedelta): ora un 422 (audit 2026-10-18)."""
+    for params in ({"limit": -1}, {"limit": 0}, {"limit": 1001}, {"days": 0}, {"days": 10**7}):
+        assert client.get("/api/dashboard/history", params=params).status_code == 422, params
+    for params in ({"limit": 1000}, {"days": 90}):
+        assert client.get("/api/dashboard/history", params=params).status_code == 200, params
+
+
 def test_dashboard_trend_uses_the_scan_before_the_last_and_history_by_days(client):
     from datetime import UTC, datetime, timedelta
 

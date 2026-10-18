@@ -40,6 +40,28 @@ def test_create_with_priority_timeout_and_basic_auth(client):
     assert "basic_auth_password" not in body
 
 
+def test_timeout_outside_its_bounds_is_refused(client):
+    """Un timeout negativo arrivava a httpx come valore non valido, e ogni
+    chiamata all'istanza falliva senza dire perché (audit 2026-10-18)."""
+    base = {"label": "x", "base_url": "http://radarr", "api_key": "k"}
+    for value in (-5, 0, 301):
+        assert client.post("/api/radarr-instances", json={**base, "timeout_seconds": value}).status_code == 422
+        assert client.post("/api/radarr-instances/test", json={**base, "timeout_seconds": value}).status_code == 422
+    instance_id = client.post("/api/radarr-instances", json=base).json()["id"]
+    assert client.patch(f"/api/radarr-instances/{instance_id}", json={"timeout_seconds": -1}).status_code == 422
+    assert client.patch(f"/api/radarr-instances/{instance_id}", json={"timeout_seconds": 300}).status_code == 200
+
+
+def test_a_stored_timeout_that_is_not_positive_falls_back_to_the_default():
+    """Una riga salvata prima dei limiti dell'API con un timeout negativo."""
+    from types import SimpleNamespace
+
+    from nazgarr.integrations.arr import DEFAULT_TIMEOUT_SECONDS, timeout_of
+
+    assert [timeout_of(SimpleNamespace(timeout_seconds=v)) for v in (-5, 0, None, 40)] == [
+        DEFAULT_TIMEOUT_SECONDS, DEFAULT_TIMEOUT_SECONDS, DEFAULT_TIMEOUT_SECONDS, 40]
+
+
 def test_clearing_basic_auth_username_removes_it(client):
     create = client.post(
         "/api/radarr-instances",

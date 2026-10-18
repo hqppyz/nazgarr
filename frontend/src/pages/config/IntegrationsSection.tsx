@@ -269,6 +269,8 @@ function ArrInstanceDialog({
               <Input
                 id={`${idPrefix}-timeout`}
                 type="number"
+                min={1}
+                max={300}
                 value={form.timeoutSeconds}
                 onChange={(e) => set('timeoutSeconds')(e.target.value)}
               />

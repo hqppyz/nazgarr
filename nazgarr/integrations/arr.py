@@ -183,6 +183,14 @@ class ArrIndex:
         return {"identities": len(self._identities), "grabs": len(self._grabs), "imports": len(self._imports)}
 
 
+def timeout_of(instance) -> int:
+    """Il timeout salvato di un'istanza, o quello di default se manca o non è
+    positivo: una riga di prima dei limiti dell'API (audit 2026-10-18) con un
+    valore negativo faceva fallire ogni chiamata."""
+    value = instance.timeout_seconds
+    return value if isinstance(value, int) and value > 0 else DEFAULT_TIMEOUT_SECONDS
+
+
 class ArrApi:
     """Client minimale v3, solo GET. `client` iniettabile per i test."""
 
@@ -199,7 +207,7 @@ class ArrApi:
         self._client = client or httpx.Client(
             base_url=self.base_url,
             headers={"X-Api-Key": instance.api_key},
-            timeout=instance.timeout_seconds or DEFAULT_TIMEOUT_SECONDS,
+            timeout=timeout_of(instance),
             auth=auth,
         )
 
