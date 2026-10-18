@@ -198,6 +198,18 @@ class TorrentClientAdapter(ABC):
         fermarlo a mano."""
         raise NotImplementedError
 
+    def partial_file_suffix(self) -> str | None:
+        """Il suffisso che il client aggiunge al nome di un file incompleto,
+        se lo fa: Transmission con rename-partial-files (il suo default)
+        rinomina "<nome>" in "<nome>.part" già durante il recheck, anche di
+        un torrent fermo. Dopo il recheck fallito di un reseed l'hardlink
+        nella cartella dei torrent (o il file dell'utente, per un torrent
+        già su disco) restava con quel nome. Nazgarr lo rimette ai soli file
+        che ha messo o che segue (nazgarr/torrents/partial_files.py), e la
+        pagina dei client avvisa (decisione dell'utente, 2026-10-19).
+        Default: None, il client non rinomina niente."""
+        return None
+
     def content_layout(self) -> str:
         """La preferenza dell'utente per la struttura dei torrent aggiunti
         (qBittorrent: Opzioni › Download › Layout del contenuto), per

@@ -33,7 +33,7 @@ import torf
 
 from nazgarr.adapters.torrent_client.base import TorrentAlreadyInClientError, is_stopped_state
 from nazgarr.integrations import adapter_factory
-from nazgarr.torrents import client_paths
+from nazgarr.torrents import client_paths, partial_files
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("NAZGARR_IT_CLIENTS") != "1", reason="real clients only with NAZGARR_IT_CLIENTS=1"
@@ -294,6 +294,40 @@ def test_the_retry_of_a_stopped_failed_reseed_rechecks_it_and_it_stays_stopped(w
         assert status.recheck_status == "ok" and status.progress == pytest.approx(1.0), seen
         time.sleep(3)  # nessun avvio dopo il controllo
         assert is_stopped_state(adapter.get_torrent_status(info_hash).state), seen
+    finally:
+        adapter.remove_torrent(info_hash, delete_files=True)
+
+
+@pytest.mark.parametrize("workspace", list(CLIENTS), indirect=True)
+def test_a_file_renamed_partial_during_a_failed_recheck_gets_its_name_back(workspace):
+    """Decisione dell'utente, 2026-10-19: Transmission con rename-partial-files
+    (acceso di default nell'immagine) rinomina il file incompleto in .part già
+    durante il recheck di un torrent fermo; partial_file_suffix() lo dice, e
+    il nome si rimette al file che ha l'inode registrato. Gli altri client
+    non rinominano niente."""
+    ws = workspace
+    adapter = _adapter(ws.name)
+    source = _payload_single(ws)
+    torrent_path, torrent = _make_torrent(ws, source)
+    with open(source, "r+b") as f:  # stessa dimensione, contenuto diverso
+        f.write(os.urandom(300_000))
+    st = os.stat(source)
+    suffix = adapter.partial_file_suffix()
+    assert suffix == (".part" if ws.name == "transmission" else None)
+
+    info_hash = adapter.add_torrent(torrent_path, save_path=CLIENT_ROOT, stopped=True)
+
+    try:
+        status, seen = _settled(adapter, info_hash)
+        assert status.recheck_status == "failed", seen
+        if suffix is None:
+            assert os.path.exists(source)
+            return
+        assert _wait(lambda: os.path.exists(source + suffix), timeout=30), os.listdir(ws.seed)
+        restored = partial_files.restore_names([os.path.realpath(source)], {(st.st_dev, st.st_ino)}, suffix,
+                                               [ws.seed])
+        assert restored == [os.path.realpath(source)] and os.path.exists(source)
+        assert not os.path.exists(source + suffix)
     finally:
         adapter.remove_torrent(info_hash, delete_files=True)
 

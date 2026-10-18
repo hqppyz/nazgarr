@@ -64,6 +64,31 @@ class TorrentClientTestResponse(BaseModel):
     status: str  # "ok" | "error"
     torrents_found: int | None = None
     error: str | None = None
+    # Preferenze del client che contano per Nazgarr (CLIENT_WARNINGS), lette dal vivo.
+    warnings: list[str] = []
+
+
+class TorrentClientWarningsResponse(BaseModel):
+    status: str  # "ok" | "error" (il client non risponde: nessun avviso, e il perché)
+    warnings: list[str] = []
+    error: str | None = None
+
+
+# Gli avvisi su una preferenza del client, per codice (i testi sono nella UI):
+# - rename_partial_files: Transmission rinomina un file incompleto in
+#   "<nome>.part" già durante il recheck (rename-partial-files, il suo
+#   default); dopo il recheck fallito di un reseed l'hardlink restava con
+#   quel nome. Nazgarr lo rimette ai file che segue, ma conviene spegnerlo
+#   (decisione dell'utente, 2026-10-19).
+CLIENT_WARNINGS = ("rename_partial_files",)
+
+
+def _client_warnings(adapter) -> list[str]:
+    """Gli avvisi del client; un errore del client esce (il chiamante dice
+    "error"). Un adapter senza partial_file_suffix (un plugin senza la
+    classe base) non ne ha."""
+    ask = getattr(adapter, "partial_file_suffix", None)
+    return ["rename_partial_files"] if callable(ask) and ask() else []
 
 
 class DiskAssociationResponse(BaseModel):
@@ -235,9 +260,27 @@ def test_torrent_client(torrent_client_id: int, session: Session = Depends(get_s
         with adapter_factory.torrent_client(tc) as adapter:
             count = getattr(adapter, "count_torrents", None)  # un plugin senza la classe base
             torrents_found = count() if callable(count) else len(adapter.list_torrents())
+            try:
+                warnings = _client_warnings(adapter)
+            except Exception:
+                warnings = []  # la connessione funziona: la prova riesce, senza avvisi
     except Exception as exc:
         return TorrentClientTestResponse(status="error", error=safe_error(exc))
-    return TorrentClientTestResponse(status="ok", torrents_found=torrents_found)
+    return TorrentClientTestResponse(status="ok", torrents_found=torrents_found, warnings=warnings)
+
+
+@router.get("/{torrent_client_id}/warnings", response_model=TorrentClientWarningsResponse)
+def torrent_client_warnings(torrent_client_id: int, session: Session = Depends(get_session)):
+    """Sola lettura: le preferenze del client che contano per Nazgarr
+    (CLIENT_WARNINGS), chieste al client adesso, per l'avviso nella sua
+    scheda. Un adapter che non le ha non fa nessuna richiesta."""
+    tc = _get_torrent_client_or_404(session, torrent_client_id)
+    try:
+        with adapter_factory.torrent_client(tc) as adapter:
+            warnings = _client_warnings(adapter)
+    except Exception as exc:
+        return TorrentClientWarningsResponse(status="error", error=safe_error(exc))
+    return TorrentClientWarningsResponse(status="ok", warnings=warnings)
 
 
 class PathCheckExample(BaseModel):

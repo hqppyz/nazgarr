@@ -629,6 +629,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/torrent-clients/{torrent_client_id}/warnings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Torrent Client Warnings
+         * @description Sola lettura: le preferenze del client che contano per Nazgarr
+         *     (CLIENT_WARNINGS), chieste al client adesso, per l'avviso nella sua
+         *     scheda. Un adapter che non le ha non fa nessuna richiesta.
+         */
+        get: operations["torrent_client_warnings_api_torrent_clients__torrent_client_id__warnings_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/torrent-clients/{torrent_client_id}/path-check": {
         parameters: {
             query?: never;
@@ -5078,6 +5100,11 @@ export interface components {
             torrents_found?: number | null;
             /** Error */
             error?: string | null;
+            /**
+             * Warnings
+             * @default []
+             */
+            warnings: string[];
         };
         /** TorrentClientUpdateRequest */
         TorrentClientUpdateRequest: {
@@ -5109,6 +5136,18 @@ export interface components {
             config?: {
                 [key: string]: unknown;
             } | null;
+        };
+        /** TorrentClientWarningsResponse */
+        TorrentClientWarningsResponse: {
+            /** Status */
+            status: string;
+            /**
+             * Warnings
+             * @default []
+             */
+            warnings: string[];
+            /** Error */
+            error?: string | null;
         };
         /**
          * TorrentSource
@@ -7269,6 +7308,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TorrentClientTestResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    torrent_client_warnings_api_torrent_clients__torrent_client_id__warnings_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                torrent_client_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TorrentClientWarningsResponse"];
                 };
             };
             /** @description Validation Error */

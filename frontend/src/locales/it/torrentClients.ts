@@ -109,4 +109,6 @@ export const torrentClients = {
   'torrentClients.quiNoInstances': 'Questo qui non ha istanze.',
   'torrentClients.deleteTitle': 'Eliminare il client {label}?',
   'torrentClients.deleteDescription': 'Nazgarr dimentica questo client e i torrent che ne ha letto. Nel client non cambia niente.',
+  'torrentClients.warning.rename_partial_files':
+    'Transmission rinomina i file incompleti in “<nome>.part” (“Aggiungi .part ai nomi dei file incompleti”, rename-partial-files): durante il recheck di un reseed che fallisce, il file collegato nella cartella di seeding prende quel nome. Nazgarr rimette il nome ai file che ha messo lui, ma conviene spegnere l’opzione in Transmission.',
 } as const
