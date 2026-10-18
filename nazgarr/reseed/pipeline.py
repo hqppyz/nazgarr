@@ -542,14 +542,32 @@ class _BulkRun:
     def finish(self) -> RunLog:
         """La fine della run. finished_at e i totali si scrivono insieme alla
         fotografia della salute (l'evento run.finished la riporta), ma un
-        errore nella fotografia o nel commit finale non deve mai lasciare la
-        run senza fine: il rollback di _fail buttava via anche finished_at, e
-        la run restava "in corso" fino al riavvio, fermando ogni run
-        pianificata, il controllo dei recheck e i webhook di Radarr/Sonarr
-        (audit 2026-10-18)."""
+        errore nella fotografia, nel salvataggio dell'avanzamento, nella
+        registrazione di quell'errore o nel commit finale non deve mai
+        lasciare la run senza fine: il rollback di _fail buttava via anche
+        finished_at, e la run restava "in corso" fino al riavvio, fermando
+        ogni run pianificata, il controllo dei recheck e i webhook di
+        Radarr/Sonarr (audit 2026-10-18)."""
+        session, run = self.session, self.run_log
+        finished_at = datetime.now(UTC)
+        try:
+            self._save_end(finished_at)
+        except Exception:
+            logger.exception("Run #%s: salvataggio finale fallito, chiudo la run con il minimo", self.run_id)
+            session.rollback()
+            self._close_anyway(finished_at)
+        self._refresh_statistics()
+        totals = self.totals
+        logger.info(
+            "Run #%s completata: %d item scansionati, %d match, %d auto-eseguiti, %d errori",
+            self.run_id, totals["media_files_scanned"] + totals["seed_files_scanned"], totals["candidates_found"],
+            totals["auto_executed"], self.errors,
+        )
+        return run
+
+    def _save_end(self, finished_at: datetime) -> None:
         session, run = self.session, self.run_log
         self.progress.finish()
-        finished_at = datetime.now(UTC)
         self._closing_totals(finished_at)
         try:
             data = library.LibraryData(session)
@@ -575,20 +593,7 @@ class _BulkRun:
                 session.rollback()
                 self._closing_totals(finished_at)
         run.errors = self.errors
-        try:
-            session.commit()
-        except Exception:
-            logger.exception("Run #%s: salvataggio finale fallito, chiudo la run con il minimo", self.run_id)
-            session.rollback()
-            self._close_anyway(finished_at)
-        self._refresh_statistics()
-        totals = self.totals
-        logger.info(
-            "Run #%s completata: %d item scansionati, %d match, %d auto-eseguiti, %d errori",
-            self.run_id, totals["media_files_scanned"] + totals["seed_files_scanned"], totals["candidates_found"],
-            totals["auto_executed"], self.errors,
-        )
-        return run
+        session.commit()
 
     def _refresh_statistics(self) -> None:
         """Le statistiche del planner dopo le scritture della run (candidati,

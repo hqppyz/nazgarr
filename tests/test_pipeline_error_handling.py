@@ -92,3 +92,34 @@ def test_a_failing_final_commit_still_closes_the_run(db_session, monkeypatch, tm
     db_session.expire_all()
     assert pipeline.run_in_progress(db_session) is False
     assert "could not be saved" in db_session.get(type(run), run.id).last_error
+
+
+def test_a_failure_while_recording_the_snapshot_error_still_closes_the_run(db_session, monkeypatch, tmp_path):
+    # La fotografia fallisce e fallisce anche il commit che registra quel
+    # fallimento (es. "database is locked" mentre scrive il worker degli
+    # upload): l'eccezione usciva da finish() prima della chiusura minima.
+    from nazgarr.library import health
+    from nazgarr.reseed import pipeline
+
+    real_commit = db_session.commit
+    calls = {"n": 0}
+
+    def failing_once():
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("database is locked")
+        return real_commit()
+
+    def broken(*args, **kwargs):
+        monkeypatch.setattr(db_session, "commit", failing_once)
+        raise RuntimeError("snapshot bug")
+
+    monkeypatch.setattr(health, "compute_snapshot", broken)
+    run = pipeline.start_run(db_session, "manual")
+    pipeline.run_bulk_import(db_session, run, str(tmp_path))
+    monkeypatch.setattr(db_session, "commit", real_commit)
+
+    db_session.expire_all()
+    assert calls["n"] >= 2
+    assert db_session.get(type(run), run.id).finished_at is not None
+    assert pipeline.run_in_progress(db_session) is False
