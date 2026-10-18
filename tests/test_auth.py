@@ -148,3 +148,71 @@ def test_a_setup_code_with_accents_is_just_wrong(anon_client):
 def test_a_non_ascii_setup_code_from_the_environment_still_works(anon_client):
     anon_client.app.state.setup_code = "codice-città"
     assert _setup(anon_client, setup_code="codice-città").status_code == 201
+
+
+def test_attempts_arriving_together_are_counted_before_the_password_check():
+    # Prima controllo e registrazione stavano ai due lati del PBKDF2: 38 tentativi
+    # su 60 partiti insieme passavano, invece di 5 (audit 2026-10-18).
+    import threading
+
+    from nazgarr.web import login_limiter
+
+    login_limiter.reset()
+    barrier = threading.Barrier(40)
+    passed = []
+
+    def attempt():
+        barrier.wait()
+        try:
+            login_limiter.reserve("172.18.0.5")
+            passed.append(True)
+        except login_limiter.TooManyAttempts:
+            pass
+
+    threads = [threading.Thread(target=attempt) for _ in range(40)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert len(passed) == login_limiter.MAX_FAILURES
+    login_limiter.reset()
+
+
+def test_a_released_attempt_does_not_count_and_old_addresses_are_forgotten(monkeypatch):
+    from nazgarr.web import login_limiter
+
+    login_limiter.reset()
+    stamp = login_limiter.reserve("1.2.3.4", now=100.0)
+    login_limiter.release("1.2.3.4", stamp)
+    assert "1.2.3.4" not in login_limiter._failures  # vuota: sparisce
+
+    login_limiter.failed("5.6.7.8", now=100.0)
+    assert login_limiter.retry_after("5.6.7.8", now=100.0 + login_limiter.WINDOW_SECONDS + 1) is None
+    assert "5.6.7.8" not in login_limiter._failures
+
+    monkeypatch.setattr(login_limiter, "MAX_KEYS", 3)
+    for i in range(10):
+        login_limiter.failed(f"10.0.0.{i}", now=200.0 + i)
+    assert list(login_limiter._failures) == ["10.0.0.7", "10.0.0.8", "10.0.0.9"]
+    login_limiter.reset()
+
+
+def test_wrong_current_passwords_do_not_lock_the_login(anon_client):
+    from nazgarr.web import login_limiter
+
+    headers = _bearer(_setup(anon_client).json()["access_token"])
+    wrong = {"current_password": "nope-nope", "new_password": "newsecret123"}
+    for _ in range(login_limiter.MAX_FAILURES):
+        assert anon_client.post("/api/auth/change-password", json=wrong, headers=headers).status_code == 401
+    assert anon_client.post("/api/auth/change-password", json=wrong, headers=headers).status_code == 429
+    login = {"username": "admin", "password": "supersecret1"}
+    assert anon_client.post("/api/auth/login", json=login).status_code == 200
+
+
+def test_a_too_short_new_password_is_not_a_wrong_attempt(anon_client):
+    from nazgarr.web import login_limiter
+
+    headers = _bearer(_setup(anon_client).json()["access_token"])
+    short = {"current_password": "supersecret1", "new_password": "short"}
+    for _ in range(login_limiter.MAX_FAILURES + 1):
+        assert anon_client.post("/api/auth/change-password", json=short, headers=headers).status_code == 400

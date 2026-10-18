@@ -54,19 +54,27 @@ def auth_status(session: Session = Depends(get_session)):
     return AuthStatusResponse(configured=auth.is_auth_configured(session))
 
 
-def _client_key(request: Request) -> str:
-    return request.client.host if request.client else "unknown"
+def _client_key(request: Request, scope: str = "") -> str:
+    """L'indirizzo del client (quello vero dietro un reverse proxy solo con
+    FORWARDED_ALLOW_IPS, README), con il prefisso di un conto separato."""
+    host = request.client.host if request.client else "unknown"
+    return f"{scope}:{host}" if scope else host
 
 
-def _check_limit(request: Request) -> None:
-    wait = login_limiter.retry_after(_client_key(request))
-    if wait is not None:
-        raise HTTPException(status_code=429, detail=coded_detail("auth_too_many_attempts", seconds=wait),
-                            headers={"Retry-After": str(wait)})
+def _reserve(request: Request, scope: str = "") -> tuple[str, float]:
+    """Prenota il tentativo prima di verificare (nazgarr/web/login_limiter.py),
+    o 429 se il limite è raggiunto. Conta come errore finché non arriva
+    succeeded() o release()."""
+    key = _client_key(request, scope)
+    try:
+        return key, login_limiter.reserve(key)
+    except login_limiter.TooManyAttempts as exc:
+        raise HTTPException(status_code=429, detail=coded_detail("auth_too_many_attempts", seconds=exc.wait),
+                            headers={"Retry-After": str(exc.wait)}) from exc
 
 
-def _failed(request: Request, status_code: int, code: str) -> HTTPException:
-    login_limiter.failed(_client_key(request))
+def _not_a_failure(attempt: tuple[str, float], status_code: int, code: str) -> HTTPException:
+    login_limiter.release(*attempt)
     return HTTPException(status_code=status_code, detail=coded_detail(code))
 
 
@@ -81,29 +89,30 @@ def setup(body: SetupRequest, request: Request, session: Session = Depends(get_s
     esiste già uno, e solo con il codice monouso scritto nel log del
     container all'avvio (app.state.setup_code). Cambiare le credenziali dopo
     passa sempre da /change-password, protetto dalla password attuale."""
-    _check_limit(request)
+    attempt = _reserve(request)
     with _setup_lock:  # due setup insieme: uno solo vince
         if auth.is_auth_configured(session):
-            raise HTTPException(status_code=409, detail=coded_detail("auth_already_configured"))
+            raise _not_a_failure(attempt, 409, "auth_already_configured")
         expected = getattr(request.app.state, "setup_code", None)
         # In byte: compare_digest su due str con caratteri non ASCII solleva
         # TypeError (un 500 a chiunque mandasse una "é").
         if not expected or not hmac.compare_digest(body.setup_code.strip().encode(), expected.encode()):
-            raise _failed(request, 403, "auth_setup_code_invalid")
+            raise HTTPException(status_code=403, detail=coded_detail("auth_setup_code_invalid"))
         if not body.username.strip():
-            raise HTTPException(status_code=400, detail=coded_detail("auth_username_required"))
+            raise _not_a_failure(attempt, 400, "auth_username_required")
         if len(body.password) < 8:
-            raise HTTPException(status_code=400, detail=coded_detail("auth_password_too_short"))
+            raise _not_a_failure(attempt, 400, "auth_password_too_short")
         settings_repo.set_setting(session, "auth_username", body.username.strip())
         settings_repo.set_setting(session, "auth_password_hash", auth.hash_password(body.password))
         request.app.state.setup_code = None
+    login_limiter.succeeded(attempt[0])
     token = auth.create_access_token(body.username.strip(), auth.token_version(session))
     return TokenResponse(access_token=token, username=body.username.strip())
 
 
 @router.post("/login", response_model=TokenResponse)
 def login(body: LoginRequest, request: Request, session: Session = Depends(get_session)):
-    _check_limit(request)
+    attempt = _reserve(request)
     stored_username = settings_repo.get_setting(session, "auth_username")
     stored_hash = settings_repo.get_setting(session, "auth_password_hash")
     # La password si verifica sempre, anche con un nome sbagliato: lo stesso
@@ -111,8 +120,8 @@ def login(body: LoginRequest, request: Request, session: Session = Depends(get_s
     password_ok = auth.verify_password(body.password, stored_hash or _DUMMY_HASH)
     username_ok = bool(stored_username) and hmac.compare_digest(body.username.encode(), stored_username.encode())
     if not (stored_hash and username_ok and password_ok):
-        raise _failed(request, 401, "auth_invalid_credentials")
-    login_limiter.succeeded(_client_key(request))
+        raise HTTPException(status_code=401, detail=coded_detail("auth_invalid_credentials"))
+    login_limiter.succeeded(attempt[0])
     token = auth.create_access_token(stored_username, auth.token_version(session))
     return TokenResponse(access_token=token, username=stored_username)
 
@@ -130,12 +139,14 @@ def change_password(
     body: ChangePasswordRequest, request: Request, session: Session = Depends(get_session),
     _: str | None = Depends(auth.require_login),
 ):
-    _check_limit(request)
+    # Un conto suo: gli errori qui non bloccano il login dallo stesso indirizzo.
+    attempt = _reserve(request, "pw")
     stored_hash = settings_repo.get_setting(session, "auth_password_hash")
     if not stored_hash or not auth.verify_password(body.current_password, stored_hash):
-        raise _failed(request, 401, "auth_wrong_current_password")
+        raise HTTPException(status_code=401, detail=coded_detail("auth_wrong_current_password"))
     if len(body.new_password) < 8:
-        raise HTTPException(status_code=400, detail=coded_detail("auth_password_too_short"))
+        raise _not_a_failure(attempt, 400, "auth_password_too_short")
+    login_limiter.succeeded(attempt[0])
     settings_repo.set_setting(session, "auth_password_hash", auth.hash_password(body.new_password))
     # Ogni sessione aperta con la password vecchia smette di valere: chi
     # l'aveva rubata resta fuori. Il frontend rifà il login.
