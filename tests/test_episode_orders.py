@@ -749,9 +749,16 @@ def test_a_single_file_of_a_merged_episode_is_named_with_both_episodes(db_sessio
 
     assert "S01E03E04" in plan.content_name and plan.content_name.endswith(".mkv")
     assert job.episode == 3  # il campo episodio del tracker resta uno
+    # Il titolo proposto per il tracker dice gli stessi episodi del file.
+    from nazgarr.upload import decision as upload_decision
+
+    upload_decision.propose(db_session, job)
+    assert job.targets and all("S01E03E04" in t.proposed_name for t in job.targets)
     # Un episodio corretto a mano al match resta il suo.
     job.episode = 7
     assert "S01E07" in upload_file_names.plan(db_session, job, "generated").content_name
+    upload_decision.propose(db_session, job)
+    assert all("S01E07" in t.proposed_name and "E08" not in t.proposed_name for t in job.targets)
 
 
 def test_a_pack_file_the_chosen_ordering_lacks_keeps_its_name_and_the_match_says_so(db_session, tmp_path):

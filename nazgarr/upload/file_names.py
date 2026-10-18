@@ -216,7 +216,7 @@ def _generated(session: Session, job: UploadJob, files: list[tuple[str, str]], m
     title_mode, local_title = _tracker_title(session, job, analysis or {})
     if title_mode is not None:
         rules_ = {**rules_, "title": title_mode}
-    base_values = release_values(_single_episode(job) or job, detected, mediainfo, overrides, rules_, local_title)
+    base_values = release_values(job, detected, mediainfo, overrides, rules_, local_title)
     base = sanitize(build_name(rules_, base_values))
     if not job.title or not base:
         # Senza un titolo (nessun match TMDB) non c'è un nome da costruire:
@@ -302,17 +302,19 @@ class _EpisodeJob:
         return getattr(self._job, name)
 
 
-def _single_episode(job: UploadJob) -> _EpisodeJob | None:
+def episode_view(job) -> _EpisodeJob | None:
     """Un upload di un episodio solo il cui video ne ha più d'uno, tradotti
     nell'ordinamento scelto: un episodio accorpato (E03E04) o un file
     S01E01E02. Il nome li dice tutti, come per lo stesso file in un pack
-    (audit 2026-10-18: diceva solo il primo, job.episode). Solo se
-    cominciano dalla stagione e dall'episodio confermati al match: un
-    episodio corretto a mano resta il suo. Il campo episodio del tracker
+    (audit 2026-10-18: diceva solo il primo, job.episode): quello dei file
+    e il titolo per il tracker (nazgarr/upload/naming.py release_values).
+    Solo se cominciano dalla stagione e dall'episodio confermati al match:
+    un episodio corretto a mano resta il suo. Il campo episodio del tracker
     resta job.episode."""
-    if job.content_type != "tv" or job.kind != "episode" or job.episode is None:
+    if isinstance(job, _EpisodeJob) or getattr(job, "content_type", None) != "tv" \
+            or getattr(job, "kind", None) != "episode" or getattr(job, "episode", None) is None:
         return None
-    videos = json.loads(job.layout_json or "{}").get("videos") or []
+    videos = json.loads(getattr(job, "layout_json", None) or "{}").get("videos") or []
     if len(videos) != 1 or videos[0].get("season") is None or not videos[0].get("episodes"):
         return None
     one = _EpisodeJob(job, videos[0]["season"], videos[0]["episodes"])
