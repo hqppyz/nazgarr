@@ -24,7 +24,7 @@ import socket
 from collections.abc import Iterable
 from urllib.parse import urlsplit
 
-import httpcore  # di httpx, che lo richiede: il suo trasporto di rete
+import httpcore  # il trasporto di rete di httpx, dipendenza diretta (requirements.in)
 import httpx
 
 _METADATA = {ipaddress.ip_address("fd00:ec2::254"), ipaddress.ip_address("100.100.100.200")}
