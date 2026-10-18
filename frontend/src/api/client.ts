@@ -18,11 +18,11 @@ export type Schemas = components['schemas']
 // senza bisogno di CORS.
 export const api = createClient<paths>({ baseUrl: '' })
 
-// Allega il token a ogni richiesta se presente — un'istanza senza login
-// mai configurato (nazgarr/web/auth.py) non ne ha uno, e ogni endpoint resta
-// raggiungibile esattamente come prima di questa fase. Su 401 il token
-// viene scartato: AuthGate lo rileva al prossimo controllo e rimanda al
-// login, invece di continuare a rimandare un token ormai invalido/scaduto.
+// Allega il token a ogni richiesta. Il login è obbligatorio (nazgarr/web/auth.py,
+// mai una modalità aperta): senza token ogni endpoint fuori da /api/auth
+// risponde 401. Un 401 vuol dire sessione scaduta o revocata: il token viene
+// scartato, AuthGate lo rileva al prossimo controllo e rimanda al login,
+// invece di continuare a mandare un token ormai invalido.
 api.use({
   onRequest({ request }) {
     // L'upload di esempio del tour: le sue richieste non arrivano mai al server.
