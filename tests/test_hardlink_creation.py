@@ -273,3 +273,61 @@ def test_a_folder_that_can_only_be_traversed_does_not_stop_the_link(area):
     finally:
         os.chmod(os.path.join(root, "pool"), 0o755)
     assert not os.path.exists(target)
+
+
+def test_a_file_put_in_place_of_a_created_link_is_never_removed(area):
+    """Audit 2026-10-18: la pulizia toglieva per nome, e un altro file messo
+    con lo stesso nome dopo la creazione dell'hardlink se ne andava al suo
+    posto. create_links ricorda dispositivo e inode di ogni link creato, e
+    remove_links li confronta nella cartella aperta, subito prima di
+    togliere."""
+    tmp_path, source, root = area
+    target = hardlinks.check_link(source, os.path.join(root, "Release", "Movie.mkv"), root)
+    created = hardlinks.create_links([(source, target)])
+    os.unlink(target)
+    with open(target, "wb") as f:
+        f.write(b"not ours")
+
+    assert hardlinks.remove_links(created) == []
+
+    with open(target, "rb") as f:
+        assert f.read() == b"not ours"
+
+
+def test_the_identity_is_checked_in_the_folder_the_unlink_goes_through(area, monkeypatch):
+    """Il controllo e l'unlink guardano la stessa voce della stessa cartella
+    aperta: un file scambiato dopo il controllo del chiamante (per percorso)
+    ma prima dell'unlink resta. expected dà l'identità a percorsi salvati
+    come semplici stringhe."""
+    tmp_path, source, root = area
+    target = hardlinks.check_link(source, os.path.join(root, "Release", "Movie.mkv"), root)
+    created = hardlinks.create_links([(source, target)])
+    st = os.lstat(target)
+    expected = {str(created[0]): (st.st_dev, st.st_ino)}
+    real_open_parent = hardlinks._open_parent
+
+    def swap_after_opening(path, create):
+        fd = real_open_parent(path, create)
+        os.unlink(target)
+        with open(target, "wb") as f:
+            f.write(b"swapped in")
+        return fd
+
+    monkeypatch.setattr(hardlinks, "_open_parent", swap_after_opening)
+    assert hardlinks.remove_links([str(target)], expected=expected) == []
+    monkeypatch.undo()
+
+    with open(target, "rb") as f:
+        assert f.read() == b"swapped in"
+
+
+def test_a_plain_path_is_removed_only_if_it_is_still_a_regular_file(area):
+    tmp_path, source, root = area
+    target = hardlinks.check_link(source, os.path.join(root, "Release", "Movie.mkv"), root)
+    hardlinks.create_links([(source, target)])
+    os.unlink(target)
+    os.symlink(source, target)
+
+    assert hardlinks.remove_links([str(target)]) == []
+
+    assert os.path.islink(target) and os.path.isfile(source)

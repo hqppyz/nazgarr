@@ -25,6 +25,7 @@ import logging
 import os
 import stat
 from collections import defaultdict
+from collections.abc import Mapping
 
 from sqlalchemy import or_, tuple_
 from sqlalchemy.orm import Session
@@ -223,7 +224,27 @@ _NOFOLLOW_DIR = getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
 _DIR_FLAGS = (getattr(os, "O_PATH", 0) or getattr(os, "O_SEARCH", 0) or os.O_RDONLY) | _NOFOLLOW_DIR
 _NEW_DIR_FLAGS = os.O_RDONLY | _NOFOLLOW_DIR
 _FD_OPS = (hasattr(os, "O_DIRECTORY") and hasattr(os, "O_NOFOLLOW")
-           and all(f in os.supports_dir_fd for f in (os.open, os.mkdir, os.link, os.unlink, os.rmdir)))
+           and all(f in os.supports_dir_fd for f in (os.open, os.mkdir, os.link, os.unlink, os.rmdir, os.stat))
+           and os.stat in os.supports_follow_symlinks)
+
+
+class CreatedLink(str):
+    """Il percorso di un hardlink creato da create_links, con dispositivo e
+    inode (identity) del file che è nato lì, letti nella cartella aperta
+    subito dopo il link. Resta una stringa per chi lo usa come percorso;
+    remove_links toglie solo un file che ha ancora quell'identità."""
+
+    identity: tuple[int, int] | None
+
+    def __new__(cls, path: str, identity: tuple[int, int] | None = None):
+        made = super().__new__(cls, path)
+        made.identity = identity
+        return made
+
+
+class LinkChanged(OSError):
+    """Al posto dell'hardlink da togliere c'è altro: un altro file con lo
+    stesso nome, un link simbolico, una cartella. Non si tocca."""
 
 
 def _open_parent(path: str, create: bool) -> int:
@@ -256,26 +277,51 @@ def _open_parent(path: str, create: bool) -> int:
         raise
 
 
-def _link(source: str, target: str) -> None:
+def _identity(st: os.stat_result) -> tuple[int, int] | None:
+    return (st.st_dev, st.st_ino) if stat.S_ISREG(st.st_mode) else None
+
+
+def _link(source: str, target: str) -> CreatedLink:
     if not _FD_OPS:  # una piattaforma senza linkat/openat: per percorso, come prima
         make_dirs(os.path.dirname(target))
         os.link(source, target, follow_symlinks=False)
-        return
+        return CreatedLink(target, _identity(os.lstat(target)))
     fd = _open_parent(target, create=True)
     try:
-        os.link(source, os.path.basename(target), dst_dir_fd=fd, follow_symlinks=False)
+        name = os.path.basename(target)
+        os.link(source, name, dst_dir_fd=fd, follow_symlinks=False)
+        return CreatedLink(target, _identity(os.stat(name, dir_fd=fd, follow_symlinks=False)))
     finally:
         os.close(fd)
 
 
-def _unlink(path: str, directory: bool = False) -> None:
+def _check_ours(path: str, st: os.stat_result, expected: tuple[int, int] | None) -> None:
+    """Un hardlink creato da noi è sempre un file vero; con l'identità di
+    quando è nato, deve essere ancora quel file (stesso dispositivo e inode)."""
+    found = _identity(st)
+    if found is None or (expected is not None and found != expected):
+        raise LinkChanged(path)
+
+
+def _unlink(path: str, directory: bool = False, expected: tuple[int, int] | None = None) -> None:
+    """Toglie un file (o una cartella vuota) senza seguire link simbolici
+    nelle cartelle sopra. Un file si guarda prima, nella stessa cartella
+    aperta da cui poi si toglie (fstatat e unlinkat sullo stesso
+    descrittore): così controllo e unlink parlano della stessa voce, anche
+    se nel frattempo una cartella del percorso è stata scambiata. Fra i due
+    resta solo la voce stessa, che POSIX non permette di togliere per inode."""
     remove = os.rmdir if directory else os.unlink
     if not _FD_OPS:
+        if not directory:
+            _check_ours(path, os.lstat(path), expected)
         remove(path)
         return
     fd = _open_parent(path, create=False)
     try:
-        remove(os.path.basename(path), dir_fd=fd)
+        name = os.path.basename(path)
+        if not directory:
+            _check_ours(path, os.stat(name, dir_fd=fd, follow_symlinks=False), expected)
+        remove(name, dir_fd=fd)
     finally:
         os.close(fd)
 
@@ -285,30 +331,45 @@ def create_links(pairs: list[tuple[str, str]]) -> list[str]:
     check_link (la destinazione che ha restituito), senza mai seguire link
     simbolici, nemmeno nelle cartelle sopra. Se uno fallisce, toglie quelli
     appena creati e rilancia: mai un torrent ricreato a metà. Restituisce le
-    destinazioni create."""
+    destinazioni create, come CreatedLink: con l'identità del file nato lì,
+    che remove_links ricontrolla."""
     created: list[str] = []
     try:
         for source, target in pairs:
-            _link(source, target)
-            created.append(target)
+            created.append(_link(source, target))
     except OSError:
         remove_links(created)
         raise
     return created
 
 
-def remove_links(paths: list[str], prune_up_to: str | None = None) -> None:
+def remove_links(
+    paths: list[str], prune_up_to: str | None = None, expected: Mapping[str, tuple[int, int]] | None = None,
+) -> list[str]:
     """Toglie hardlink creati da questa esecuzione (mai i file di partenza),
     senza seguire link simbolici nelle cartelle sopra: una cartella diventata
     un link simbolico dopo la creazione non porta a togliere un file con lo
-    stesso nome altrove. prune_up_to: toglie anche le cartelle rimaste vuote
-    fra il file e quella cartella (esclusa)."""
+    stesso nome altrove. Solo un file che è ancora quello creato (audit
+    2026-10-18): l'identità (dispositivo, inode) di expected per quel
+    percorso, o quella che create_links ha dato al CreatedLink; per un
+    percorso senza identità, almeno un file vero. Un altro file messo con lo
+    stesso nome resta, con un avviso nel log. prune_up_to: toglie anche le
+    cartelle rimaste vuote fra il file e quella cartella (esclusa).
+    Restituisce i percorsi tolti."""
+    removed: list[str] = []
     for path in paths:
+        identity = (expected or {}).get(path) or getattr(path, "identity", None)
         try:
-            _unlink(path)
+            _unlink(path, expected=identity)
+        except FileNotFoundError:
+            continue  # già tolto: niente da fare
+        except LinkChanged:
+            logger.warning("Hardlink %s non rimosso: al suo posto ora c'è un altro file", path)
+            continue
         except OSError:
             logger.warning("Impossibile rimuovere l'hardlink %s", path)
             continue
+        removed.append(path)
         if prune_up_to is None:
             continue
         stop = os.path.abspath(prune_up_to)
@@ -319,3 +380,4 @@ def remove_links(paths: list[str], prune_up_to: str | None = None) -> None:
             except OSError:
                 break
             parent = os.path.dirname(parent)
+    return removed
