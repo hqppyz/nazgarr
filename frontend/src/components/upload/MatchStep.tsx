@@ -40,13 +40,6 @@ import { fromForcedIds, missingEpisodes, toForcedIds, type UploadKind } from '@/
 import { cn } from '@/lib/utils'
 import { opensOnHover } from '@/lib/pointer'
 
-interface Layout {
-  kind: UploadKind
-  videos: { relative_path: string; size_bytes: number; season: number | null; episodes: number[] }[]
-  episodes_by_season: Record<string, number[]>
-  seasons: number[]
-}
-
 const keyOf = (c: Pick<MetadataCandidate, 'content_type' | 'tmdb_id'>) => `${c.content_type}:${c.tmdb_id}`
 
 function sourceLabel(source: string | undefined) {
@@ -509,7 +502,7 @@ function EpisodeOrderPicker({ data, active, onChange }: {
 
 export function MatchStep({ job }: { job: UploadJob }) {
   const candidates = job.candidates as unknown as MetadataCandidate[]
-  const layout = job.layout as unknown as Layout | null
+  const layout = job.layout
   const [selected, setSelected] = useState<MetadataCandidate | null>(candidates[0] ?? null)
   const [searchType, setSearchType] = useState<'movie' | 'tv'>((job.content_type as 'movie' | 'tv') ?? 'movie')
   const [searchDraft, setSearchDraft] = useState(job.title ?? '')

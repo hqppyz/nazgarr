@@ -89,7 +89,7 @@ export function DecisionStep({ job }: { job: UploadJob }) {
       <Masonry>
         <MatchSummaryCard job={job} />
         <MediaInfoPreview
-          summary={((job.analysis as Record<string, unknown> | null)?.mediainfo ?? null) as MediaInfoSummary | null}
+          summary={(job.analysis?.mediainfo ?? null) as MediaInfoSummary | null}
           fullText={plannedMediaInfo(job)}
         />
         <OverridesPanel key={JSON.stringify(job.overrides)} job={job} open={overridesOpen} onOpenChange={setOverridesOpen} />

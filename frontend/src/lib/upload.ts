@@ -1,5 +1,6 @@
 // Pezzi condivisi dalle pagine del flusso di upload v2 (docs/SPEC.md §9).
 
+import type { UploadDupe } from '@/api/hooks/uploads'
 import { t } from '@/lib/i18n'
 
 export const EMPTY_IDS = { tmdb: '', imdb: '', tvdb: '', mal: '' }
@@ -69,11 +70,8 @@ export interface TargetDraft {
   touched: (keyof Omit<TargetDraft, 'touched' | 'reseed_verified'>)[]
 }
 
-function verified(dupes: unknown[], torrentId: string | null) {
-  const dupe = (dupes as { torrent_id_remote: string; verification?: { status?: string } | null }[]).find(
-    (d) => d.torrent_id_remote === torrentId,
-  )
-  return dupe?.verification?.status === 'passed'
+function verified(dupes: Pick<UploadDupe, 'torrent_id_remote' | 'verification'>[], torrentId: string | null) {
+  return dupes.find((d) => d.torrent_id_remote === torrentId)?.verification?.status === 'passed'
 }
 
 interface ClientDefaults {
@@ -97,16 +95,14 @@ interface DraftSource {
   resolution_id: number | null
   flags: Record<string, unknown>
   reseed_torrent_id: string | null
-  dupes: unknown[]
+  dupes: Pick<UploadDupe, 'torrent_id_remote' | 'verdict' | 'verification'>[]
   client_category?: string | null
   client_tags?: string | null
   client_defaults?: ClientDefaults
 }
 
 export function initialDraft(target: DraftSource): TargetDraft {
-  const identical = (target.dupes as { torrent_id_remote: string; verdict: string }[]).filter(
-    (d) => d.verdict === 'identical',
-  )
+  const identical = target.dupes.filter((d) => d.verdict === 'identical')
   const suggested = target.suggested_action
   const action = suggested === 'reseed' || suggested === 'skip' ? suggested : 'upload'
   return {

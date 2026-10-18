@@ -2,7 +2,7 @@ import { LoaderCircleIcon, ScanSearchIcon, TriangleAlertIcon } from 'lucide-reac
 import type { ReactNode } from 'react'
 import { toast } from 'sonner'
 
-import { useVerifyTarget, type UploadJob, type UploadTarget } from '@/api/hooks/uploads'
+import { useVerifyTarget, type UploadDupe as Dupe, type UploadJob, type UploadTarget } from '@/api/hooks/uploads'
 import { UploadStatusBadge } from '@/components/upload/UploadStatusBadge'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -12,20 +12,6 @@ import { formatBytes } from '@/lib/library-filters'
 import { dupeUrl } from '@/lib/upload'
 import { cn } from '@/lib/utils'
 import { safeHref } from '@/lib/safeUrl'
-
-interface Dupe {
-  torrent_id_remote: string
-  name: string
-  size_bytes: number
-  verdict: 'identical' | 'same_slot' | 'different'
-  reasons: string[]
-  verification: {
-    status: 'passed' | 'failed' | 'error'
-    reason: string | null
-    ok?: number
-    pieces?: number
-  } | null
-}
 
 const VERDICT_STYLE: Record<Dupe['verdict'], string> = {
   identical: 'border-emerald-500/40 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300',
@@ -95,21 +81,15 @@ export function TrackerCheckCard({
   children?: ReactNode
 }) {
   const verify = useVerifyTarget(job.id)
-  const dupes = target.dupes as unknown as Dupe[]
+  const dupes = target.dupes
   const verifying = target.status === 'verifying'
   const canVerify = job.status === 'awaiting_decision' && target.status === 'awaiting_decision'
-  const seeding = ((job.analysis as Record<string, unknown> | null)?.seeding_here as
-    | Record<string, { name: string; client: string }>
-    | undefined)?.[String(target.id)]
+  const seeding = job.analysis?.seeding_here?.[String(target.id)]
   // Il tracker aveva più risultati di quelli letti (nazgarr/upload/analysis.py):
   // un dupe oltre il limite non si vede.
-  const truncated = ((job.analysis as Record<string, unknown> | null)?.dupes_truncated as
-    | Record<string, number>
-    | undefined)?.[String(target.id)]
+  const truncated = job.analysis?.dupes_truncated?.[String(target.id)]
   // La lingua del tracker nell'audio del file (nazgarr/upload/naming.py audio_language_check).
-  const language = ((job.analysis as Record<string, unknown> | null)?.languages as
-    | Record<string, { language: string; status: 'present' | 'missing' | 'unknown' }>
-    | undefined)?.[String(target.tracker_id)]
+  const language = job.analysis?.languages?.[String(target.tracker_id)]
 
   return (
     <Card className="min-w-0">

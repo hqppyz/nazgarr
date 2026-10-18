@@ -32,14 +32,8 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
   )
 }
 
-interface Dupe {
-  torrent_id_remote: string
-  name: string
-  verdict: string
-}
-
 function Facts({ job }: { job: UploadJob }) {
-  const analysis = job.analysis as { total_size_bytes?: number; file_count?: number } | null
+  const analysis = job.analysis
   const rows: [string, ReactNode][] = []
   if (job.seasons.length > 0) rows.push([t('upload.history.seasons'), `${job.seasons.join(', ')}${job.episode != null ? ` · E${job.episode}` : ''}`])
   if (analysis?.total_size_bytes != null) rows.push([t('upload.history.size'), `${formatBytes(analysis.total_size_bytes)} · ${t('upload.history.files', { count: analysis.file_count })}`])
@@ -63,7 +57,7 @@ function Facts({ job }: { job: UploadJob }) {
 export function UploadDetailSheet({ uploadId, onClose }: { uploadId: number | null; onClose: () => void }) {
   const { data: job } = useUpload(uploadId)
   const details = useMetadataDetails(job?.tmdb_id ? job.content_type : null, job?.tmdb_id ?? null)
-  const mediainfo = ((job?.analysis as Record<string, unknown> | null)?.mediainfo ?? null) as MediaInfoSummary | null
+  const mediainfo = (job?.analysis?.mediainfo ?? null) as MediaInfoSummary | null
 
   return (
     <Sheet open={uploadId !== null} onOpenChange={(open) => !open && onClose()}>
@@ -108,7 +102,7 @@ export function UploadDetailSheet({ uploadId, onClose }: { uploadId: number | nu
 
               <div className="grid min-w-0 gap-2">
                 {job.targets.map((target) => {
-                  const matches = (target.dupes as unknown as Dupe[]).filter((d) => d.verdict !== 'different')
+                  const matches = target.dupes.filter((d) => d.verdict !== 'different')
                   return (
                     <div key={target.id} className="grid min-w-0 gap-1.5 rounded-md border p-3 text-xs">
                       <div className="flex flex-wrap items-center gap-2 text-sm">

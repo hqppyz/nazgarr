@@ -48,7 +48,7 @@ describe('eventMessage', () => {
 
 const source = {
   suggested_action: 'upload', proposed_name: 'Movie (2024) 1080p-GRP', category_id: 1, type_id: 4, resolution_id: 3,
-  flags: { anonymous: false }, reseed_torrent_id: null, dupes: [{ torrent_id_remote: '9', verdict: 'identical' }],
+  flags: { anonymous: false }, reseed_torrent_id: null, dupes: [{ torrent_id_remote: '9', verdict: 'identical' as const }],
 }
 
 describe('decision drafts', () => {
@@ -128,7 +128,7 @@ describe('executionSteps', () => {
 describe('client labels in the draft', () => {
   const target = {
     suggested_action: 'upload', proposed_name: 'X', category_id: 1, type_id: 1, resolution_id: 1, flags: {},
-    reseed_torrent_id: null, dupes: [{ torrent_id_remote: '7', verdict: 'identical' }],
+    reseed_torrent_id: null, dupes: [{ torrent_id_remote: '7', verdict: 'identical' as const }],
     client_defaults: { category: 'movie', tags_upload: 'release', tags_reseed: 'reseed' },
   }
 

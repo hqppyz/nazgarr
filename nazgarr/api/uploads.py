@@ -7,11 +7,11 @@ mostra e registra le decisioni dell'utente ai due punti di approvazione."""
 import json
 import logging
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func
 from sqlalchemy.orm import Session, defer, joinedload, object_session, selectinload
 
@@ -160,6 +160,143 @@ class UploadRetryRequest(BaseModel):
     confirm_interrupted: bool = False
 
 
+# I campi a forma fissa del flusso di upload, tipizzati (audit 2026-10-18):
+# erano dict liberi, e il frontend ne riscriveva a mano la forma in più
+# posti; un nome cambiato qui non lo vedeva nessun controllo. Tolleranti con
+# le righe salvate da versioni precedenti (default per le chiavi aggiunte
+# dopo): una risposta che non si valida sarebbe un 500 per tutta la pagina.
+
+
+class UploadDupeVerification(BaseModel):
+    """Il full hash check di un dupe (nazgarr/upload/verify.py run_check)."""
+
+    status: Literal["passed", "failed", "error"]
+    reason: str | None = None
+    pieces: int | None = None
+    ok: int | None = None
+    mismatched: int | None = None
+    unreadable: int | None = None
+
+
+class UploadDupeResponse(BaseModel):
+    """Un torrent del tracker trovato dal dupe check, col suo verdetto
+    (nazgarr/upload/dupes.py classify). Mai il link di download."""
+
+    model_config = ConfigDict(coerce_numbers_to_str=True)
+
+    torrent_id_remote: str
+    name: str = ""
+    size_bytes: int | None = None
+    verdict: Literal["identical", "same_slot", "different"]
+    reasons: list[str] = []
+    verification: UploadDupeVerification | None = None
+
+
+class UploadLayoutVideo(BaseModel):
+    relative_path: str
+    size_bytes: int = 0
+    season: int | None = None
+    episodes: list[int] = []
+
+
+class UploadLayoutResponse(BaseModel):
+    """La sorgente come l'ha letta l'identificazione (nazgarr/upload/source.py
+    SourceLayout, o quella di un pack in nazgarr/upload/pack.py)."""
+
+    kind: Literal["movie", "episode", "season_pack", "complete_pack"]
+    content_type: Literal["movie", "tv"]
+    videos: list[UploadLayoutVideo] = []
+    other_files: int = 0
+    total_size_bytes: int = 0
+    main_video: str | None = None
+    title: str | None = None
+    year: int | None = None
+    seasons: list[int] = []
+    episodes_by_season: dict[int, list[int]] = {}  # stagione -> episodi trovati nei nomi
+    release_group: str | None = None
+
+
+class UploadClientMatch(BaseModel):
+    """Un torrent dei client con gli stessi video (nazgarr/upload/analysis.py _client_matches)."""
+
+    model_config = ConfigDict(coerce_numbers_to_str=True)
+
+    client_id: int | None = None
+    client: str | None = None
+    name: str
+    info_hash: str
+    tracker_host: str | None = None
+    category: str | None = None
+    state: str | None = None
+    match: Literal["hardlink", "same_size"]
+    videos_matched: int = 0
+    videos_hardlinked: int | None = None
+    videos_total: int = 0
+
+
+class UploadArrGrab(BaseModel):
+    """Un grab di Radarr/Sonarr dei file della sorgente (analysis.py _arr_grabs)."""
+
+    model_config = ConfigDict(coerce_numbers_to_str=True)
+
+    tracker_host: str | None = None
+    torrent_id_remote: str | None = None
+    info_hash: str | None = None
+    indexer: str | None = None
+
+
+class UploadNameSource(BaseModel):
+    """Da dove si leggono i valori del nome (analysis.py name_source)."""
+
+    name: str
+    origin: str
+    fallback: str | None = None
+
+
+class UploadSeedingHere(BaseModel):
+    name: str
+    client: str | None = None
+
+
+class UploadLanguageCheck(BaseModel):
+    """La lingua del tracker nell'audio del file (naming.py audio_language_check)."""
+
+    language: str
+    status: Literal["present", "missing", "unknown"]
+
+
+class UploadTypeBasis(BaseModel):
+    """Perché tipo e sorgente sono quelli rilevati (naming.py release_values)."""
+
+    type: str
+    source: str | None = None
+    evidence: list[str] = []
+    encoder: str | None = None
+
+
+class UploadAnalysisResponse(BaseModel):
+    """Quello che l'analisi ha trovato (nazgarr/upload/analysis.py) e la
+    decisione vi ha aggiunto (nazgarr/upload/decision.py propose). Le chiavi
+    lette dal frontend sono tipizzate; le altre passano com'erano."""
+
+    model_config = ConfigDict(extra="allow")
+
+    total_size_bytes: int | None = None
+    file_count: int | None = None
+    client_matches: list[UploadClientMatch] = []
+    arr_grabs: list[UploadArrGrab] = []
+    # nazgarr/library/mediainfo.py extract_summary; la sua forma la descrive
+    # frontend/src/lib/mediainfo.ts (MediaInfoSummary).
+    mediainfo: Any = None
+    name_source: UploadNameSource | None = None
+    seeding_here: dict[str, UploadSeedingHere] = {}  # id del target -> il torrent che già seeda quei byte
+    dupes_truncated: dict[str, int] = {}  # id del target -> risultati letti da un catalogo tagliato
+    languages: dict[str, UploadLanguageCheck] = {}  # id del tracker -> la sua lingua nell'audio
+    detected: dict[str, Any] = {}  # i valori rilevati per il nome, senza override
+    type_basis: UploadTypeBasis | None = None
+    field_options: dict[str, list[str]] = {}  # i valori che i tracker del job accettano
+
+
 class UploadTargetResponse(BaseModel):
     id: int
     tracker_id: int
@@ -170,7 +307,7 @@ class UploadTargetResponse(BaseModel):
     status: str
     suggested_action: str | None
     action: str | None
-    dupes: list[dict]
+    dupes: list[UploadDupeResponse]
     reseed_torrent_id: str | None
     proposed_name: str | None
     approved_name: str | None
@@ -207,9 +344,10 @@ class UploadTargetResponse(BaseModel):
             torrent_client_id=t.torrent_client_id,
             torrent_client_label=t.torrent_client.label if t.torrent_client else None,
             status=t.status, suggested_action=t.suggested_action, action=t.action,
-            # Mai il link di download: nessuno lo usa da qui, e quelli salvati
-            # prima avevano la chiave personale del tracker (audit 2026-10-18).
-            dupes=[{k: v for k, v in d.items() if k != "download_link"} for d in _loads(t.dupes_json, [])],
+            # Mai il link di download (UploadDupeResponse non l'ha): nessuno lo
+            # usa da qui, e quelli salvati prima avevano la chiave personale
+            # del tracker (audit 2026-10-18).
+            dupes=[UploadDupeResponse.model_validate(d) for d in _loads(t.dupes_json, [])],
             reseed_torrent_id=t.reseed_torrent_id,
             proposed_name=t.proposed_name, approved_name=t.approved_name,
             flags=_loads(t.flags_json, {}), freeleech_options=upload_profiles.freeleech_options(profile),
@@ -293,9 +431,9 @@ class UploadJobDetail(UploadJobSummary):
     mal_id: int | None
     forced_ids: dict
     overrides: dict
-    layout: dict | None
+    layout: UploadLayoutResponse | None
     candidates: list[dict]
-    analysis: dict | None
+    analysis: UploadAnalysisResponse | None
     mediainfo_text: str | None
     screenshot_urls: list[str]
     descriptions: dict[int, str]  # target_id -> descrizione inviata, solo nel dettaglio (è lunga)

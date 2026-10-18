@@ -45,9 +45,7 @@ export function DecisionSummary({
 }) {
   const problems = drafts.filter(({ draft }) => draftProblem(draft) !== null)
   const reseedName = (target: UploadTarget, torrentId: string | null) =>
-    (target.dupes as unknown as { torrent_id_remote: string; name: string }[]).find(
-      (d) => d.torrent_id_remote === torrentId,
-    )?.name ?? torrentId
+    target.dupes.find((d) => d.torrent_id_remote === torrentId)?.name ?? torrentId
   return (
     <Card className="min-w-0">
       <CardHeader>

@@ -652,3 +652,36 @@ def test_active_jobs_and_the_history_in_pages(client):
     # Il riordino della coda risponde con la stessa lista della coda.
     reordered = client.put("/api/uploads/queue", json={"job_ids": [active[0]]}).json()
     assert [j["id"] for j in reordered] == active[::-1]
+
+
+def test_the_fixed_shapes_of_an_upload_are_typed_and_tolerate_older_rows():
+    """Audit 2026-10-18 (finding 61): dupe, layout e analisi erano dict
+    liberi, e il frontend ne riscriveva la forma a mano. Ora modelli, che
+    accettano le righe salvate prima (chiavi aggiunte dopo, un id numerico)
+    e lasciano passare le chiavi dell'analisi che non descrivono."""
+    from nazgarr.api.uploads import UploadAnalysisResponse, UploadDupeResponse, UploadLayoutResponse
+
+    dupe = UploadDupeResponse.model_validate({
+        "torrent_id_remote": 77, "verdict": "identical", "download_link": "https://t/torrent/download/77.k",
+        "verification": {"status": "passed", "info_hash": "ab", "pieces": 3, "ok": 3},
+    })
+    assert dupe.model_dump() == {
+        "torrent_id_remote": "77", "name": "", "size_bytes": None, "verdict": "identical", "reasons": [],
+        "verification": {"status": "passed", "reason": None, "pieces": 3, "ok": 3, "mismatched": None,
+                         "unreadable": None},
+    }  # mai il link di download
+    layout = UploadLayoutResponse.model_validate({
+        "kind": "season_pack", "content_type": "tv", "videos": [{"relative_path": "a.mkv", "size_bytes": 1,
+                                                                   "season": 1, "episodes": [1]}],
+        "episodes_by_season": {"1": [1]}, "seasons": [1], "main_video": "/d/a.mkv", "title": "Show", "year": None,
+        "other_files": 0, "total_size_bytes": 1,
+    })
+    assert layout.episodes_by_season == {1: [1]} and layout.release_group is None
+    analysis = UploadAnalysisResponse.model_validate({
+        "total_size_bytes": 1, "file_count": 1, "client_matches": [{
+            "client": "qbit", "name": "x", "info_hash": "aa", "tracker_host": None, "state": "uploading",
+            "match": "hardlink", "videos_matched": 1, "videos_total": 1}],
+        "pack_mixed": {"resolution": ["1080p", "720p"]}, "file_names": {"available": []},
+    }).model_dump()
+    assert analysis["pack_mixed"] == {"resolution": ["1080p", "720p"]}
+    assert analysis["client_matches"][0]["videos_hardlinked"] is None and analysis["seeding_here"] == {}
