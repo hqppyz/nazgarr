@@ -28,6 +28,7 @@ import logging
 import os
 import re
 import shutil
+import stat
 from datetime import UTC, datetime
 
 import torf
@@ -504,7 +505,7 @@ def run_upload(session: Session, job: UploadJob, target: UploadTarget, ctx: dict
                 pairs = _upload_pairs(job, torrent, root)
                 link_files(pairs, root)
                 save_path = root if pairs else os.path.dirname(job.source_path.rstrip(os.sep))
-            _remember_seeded(ctx, [os.path.join(save_path, *file.parts) for file in torrent.files])
+            _remember_seeded(ctx, target, [os.path.join(save_path, *file.parts) for file in torrent.files])
             seed_path, same_content = _tracker_copy(adapter, uploaded, torrent, ctx["dir"], tracker.id)
             target.torrent_path = seed_path
             target.info_hash = torf.Torrent.read(seed_path).infohash
@@ -571,20 +572,36 @@ def run_reseed(session: Session, job: UploadJob, target: UploadTarget, ctx: dict
     else:
         save_path = ctx["seed_root"]()
         link_files(destinations(save_path), save_path)
-    _remember_seeded(ctx, [dst for _src, dst in destinations(save_path)])
+    _remember_seeded(ctx, target, [dst for _src, dst in destinations(save_path)])
     target.info_hash = _add_to_client(session, job, target, torrent_path, save_path)
     upload_jobs.log_event(session, job, "reseeded", target=target, torrent=target.reseed_torrent_id)
 
 
-def _remember_seeded(ctx: dict, paths: list[str]) -> None:
-    """I file che questo job ha messo in seed (dispositivo, inode, percorso):
-    dalla cartella osservata si toglie solo un file la cui copia è fra questi
-    (_clear_watch_source)."""
-    seeded = ctx.setdefault("seeded", {})
+def _remember_seeded(ctx: dict, target: UploadTarget, paths: list[str]) -> None:
+    """I file che un tracker di questo job mette in seed (dispositivo, inode,
+    percorso), per target: contano solo quelli dei tracker andati a buon
+    fine (_seeded_by_done). Dalla cartella osservata si toglie solo un file
+    la cui copia è fra questi (_clear_watch_source), e la pulizia degli
+    hardlink non tocca mai un file che seedano (_cleanup_unused_links)."""
+    seeded = ctx.setdefault("seeded", {}).setdefault(target.id, {})
     for path in paths:
         with contextlib.suppress(OSError):
             st = os.stat(path)
             seeded[(st.st_dev, st.st_ino)] = os.path.realpath(path)
+
+
+def _seeded_by_done(job: UploadJob, ctx: dict) -> dict[tuple[int, int], set[str]]:
+    """(dispositivo, inode) -> i percorsi da cui seedano i tracker di questo
+    job finiti 'done' in questa esecuzione. Un reseed fallito dopo aver
+    registrato i suoi file non conta."""
+    seeded = ctx.get("seeded") or {}
+    out: dict[tuple[int, int], set[str]] = {}
+    for target in job.targets:
+        if target.status != "done":
+            continue
+        for key, path in (seeded.get(target.id) or {}).items():
+            out.setdefault(key, set()).add(path)
+    return out
 
 
 class _Cancelled(Exception):
@@ -595,13 +612,22 @@ def _cleanup_unused_links(session: Session, job: UploadJob, ctx: dict, overrides
     """Gli hardlink creati per dare al torrent i suoi nomi (prepare_content)
     si tolgono se non seedano niente: "non mettere in seed", o nessun
     upload riuscito. Solo quelli creati da questo job, e le cartelle che
-    restano vuote."""
+    restano vuote.
+
+    Mai uno da cui seeda un altro tracker del job (audit 2026-10-18): un
+    reseed con lo stesso nome e lo stesso layout riusa proprio quel link
+    (hardlinks.check_link), e toglierlo lasciava il suo torrent senza dati;
+    dalla cartella osservata poi se ne andava anche l'originale."""
     created = ctx.get("created_links") or []
     uploaded = any(t.action == "upload" and t.status == "done" for t in job.targets)
     if not created or (uploaded and not overrides.get("no_seed")):
         return
+    keep = {path for paths in _seeded_by_done(job, ctx).values() for path in paths}
+    unused = [path for path in created if os.path.realpath(path) not in keep]
+    if not unused:
+        return
     root = os.path.realpath(ctx["seed_root"]())
-    for path in created:
+    for path in unused:
         with contextlib.suppress(OSError):
             os.unlink(path)
         parent = os.path.dirname(path)
@@ -611,7 +637,7 @@ def _cleanup_unused_links(session: Session, job: UploadJob, ctx: dict, overrides
             except OSError:
                 break
             parent = os.path.dirname(parent)
-    upload_jobs.log_event(session, job, "file_links_removed", count=len(created))
+    upload_jobs.log_event(session, job, "file_links_removed", count=len(unused))
     session.commit()
 
 
@@ -629,6 +655,25 @@ def _is_system_junk(name: str) -> bool:
     return name in _SYSTEM_JUNK or name.startswith("._")
 
 
+def _has_seeding_copy(path: str, st: os.stat_result, copies: set[str] | None) -> bool:
+    """Una delle copie registrate esiste ancora adesso: file regolare, stesso
+    dispositivo e inode, percorso diverso; e il file ha davvero un secondo
+    link. Mai fidarsi del solo registro: un link tolto nel frattempo (la
+    pulizia, l'utente) lascerebbe l'originale come unica copia."""
+    if st.st_nlink < 2:
+        return False
+    real = os.path.realpath(path)
+    for copy in copies or ():
+        try:
+            cst = os.stat(copy, follow_symlinks=False)
+        except OSError:
+            continue
+        if stat.S_ISREG(cst.st_mode) and (cst.st_dev, cst.st_ino) == (st.st_dev, st.st_ino) \
+                and os.path.realpath(copy) != real:
+            return True
+    return False
+
+
 def _clear_watch_source(session: Session, job: UploadJob, overrides: dict, ctx: dict | None = None) -> None:
     """La cartella osservata è solo di passaggio (decisione dell'utente,
     2026-10-02): a upload fatto la release resta solo nella cartella delle
@@ -643,7 +688,12 @@ def _clear_watch_source(session: Session, job: UploadJob, overrides: dict, ctx: 
     cancellava anche se a seedare era proprio lui. Quello che il torrent non
     ha preso (es. un sample) resta, elencato nel registro del job, e le
     cartelle vuote spariscono. Solo se almeno un tracker è andato, se si
-    mette in seed e se la sorgente è davvero dentro la cartella osservata."""
+    mette in seed e se la sorgente è davvero dentro la cartella osservata.
+
+    La copia si ricontrolla subito prima di togliere l'originale (audit
+    2026-10-18): deve esistere ancora, essere un file vero con lo stesso
+    inode in un altro percorso, e seedare per un tracker andato a buon fine;
+    se no l'originale resta."""
     if job.origin != "watch" or overrides.get("no_seed") or job.disk is None:
         return
     if not any(t.status == "done" and t.action != "skip" for t in job.targets):
@@ -652,15 +702,14 @@ def _clear_watch_source(session: Session, job: UploadJob, overrides: dict, ctx: 
     source = os.path.realpath(job.source_path)
     if watch is None or not source.startswith(os.path.realpath(watch) + os.sep):
         return
-    seeded = (ctx or {}).get("seeded") or {}
+    seeded = _seeded_by_done(job, ctx or {})
     moved, kept = [], []
     for path in _source_files(source):
         try:
             st = os.stat(path, follow_symlinks=False)
         except OSError:
             continue
-        copy = seeded.get((st.st_dev, st.st_ino))
-        linked = not os.path.islink(path) and copy is not None and copy != os.path.realpath(path)
+        linked = not os.path.islink(path) and _has_seeding_copy(path, st, seeded.get((st.st_dev, st.st_ino)))
         if linked or _is_system_junk(os.path.basename(path)):
             with contextlib.suppress(OSError):
                 os.unlink(path)

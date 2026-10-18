@@ -555,9 +555,95 @@ def test_a_watched_file_linked_elsewhere_is_kept_unless_this_upload_seeds_its_co
 
     execute._clear_watch_source(db_session, job, {}, {"seeded": {}})
     assert video.is_file()
+    copy = env["root"] / "torrents" / "Linked.2024.mkv"
+    os.link(video, copy)
     st = video.stat()
-    execute._clear_watch_source(db_session, job, {}, {"seeded": {(st.st_dev, st.st_ino): str(env["root"] / "x")}})
-    assert not video.exists()
+    seeded = {job.targets[0].id: {(st.st_dev, st.st_ino): str(copy)}}
+    execute._clear_watch_source(db_session, job, {}, {"seeded": seeded})
+    assert not video.exists() and copy.is_file()
+
+
+def _watch_upload_and_reseed(db_session, tmp_path, env, name="My.Movie.2024.1080p.WEB-DL-NZG.mkv", **overrides):
+    """Dalla cartella osservata: upload su "a", reseed su "b" del torrent
+    identico (stesso nome, quindi lo stesso hardlink nella cartella di seed
+    di quello creato per l'upload), già verificato."""
+    env["disk"].watch_rel_path = "releases"
+    db_session.commit()
+    video = write_video(env["root"] / "releases" / name, 300 * KB)
+    torrent_path, _ = torrent_create.create_torrent(str(video), "https://b/announce", str(tmp_path / "b.torrent"))
+    with open(torrent_path, "rb") as f:
+        env["trackers"]["b"].torrent_bytes = f.read()
+    info_hash = compute_info_hash(env["trackers"]["b"].torrent_bytes)
+    job = upload_jobs.create_job(db_session, env["disk"], "releases/" + name)
+    job.origin = "watch"
+    job.overrides_json = json.dumps({"file_naming": "original", **overrides})
+    b = next(t for t in job.targets if t.tracker.label == "b")
+    b.dupes_json = json.dumps([{"torrent_id_remote": "9", "verdict": "identical", "download_link": "https://b/dl/9",
+                                "verification": {"status": "passed", "info_hash": info_hash}}])
+    db_session.commit()
+    upload_jobs.transition(db_session, job, "identifying", "awaiting_decision", tmdb_id=603, title="My Movie",
+                           year=2024, content_type="movie", kind="movie", mediainfo_text="MI")
+    for target in job.targets:
+        target.status = "awaiting_decision"
+    db_session.commit()
+    decisions = {"a": _upload("Movie A"), "b": {"action": "reseed", "reseed_torrent_id": "9"}}
+    upload_decision.approve(db_session, job, [{"target_id": t.id, **decisions[t.tracker.label]} for t in job.targets])
+    return job, video
+
+
+@pytest.mark.parametrize("failure", ["tracker", "screenshots"])
+def test_a_failed_upload_never_removes_the_links_a_reseed_of_the_same_job_seeds(
+        db_session, tmp_path, env, monkeypatch, failure):
+    """Audit 2026-10-18 (finding 1): l'upload su "a" fallisce, il reseed su
+    "b" riusa l'hardlink creato per l'upload. Prima la pulizia toglieva quel
+    link e poi la cartella osservata toglieva l'originale: nessuna copia
+    della release restava, e il client di "b" seedava un torrent senza dati."""
+    if failure == "tracker":
+        env["trackers"]["a"].error = UploadError("rejected: validation")
+    else:
+        monkeypatch.setattr(upload_execute.screenshots, "generate_screenshots",
+                            lambda *a, **k: (_ for _ in ()).throw(upload_execute.screenshots.ScreenshotError("ffmpeg")))
+    job, video = _watch_upload_and_reseed(db_session, tmp_path, env)
+
+    _run(db_session, tmp_path, job)
+
+    assert job.status == "partial", [e.code for e in job.events]
+    seeding = env["root"] / "torrents" / video.name
+    assert env["client"].added == [(job.targets[1].torrent_path, str(env["root"] / "torrents"))]
+    assert seeding.is_file()  # il reseed su "b" ha i suoi dati
+    assert "file_links_removed" not in [e.code for e in job.events]
+    if video.exists():
+        assert os.path.samefile(video, seeding)
+
+
+def test_with_no_seed_the_links_a_reseed_seeds_are_kept(db_session, tmp_path, env):
+    job, video = _watch_upload_and_reseed(db_session, tmp_path, env, no_seed=True)
+
+    _run(db_session, tmp_path, job)
+
+    assert job.status == "done", [e.code for e in job.events]
+    assert (env["root"] / "torrents" / video.name).is_file()  # quello che "b" seeda
+    assert video.is_file()  # "non mettere in seed": la cartella osservata non si svuota
+
+
+def test_the_watched_file_is_kept_when_its_recorded_copy_is_gone(db_session, tmp_path, env):
+    """La copia in seed si ricontrolla subito prima di togliere l'originale:
+    stesso inode, un file vero, in un altro percorso."""
+    from nazgarr.upload import execute
+
+    video = _watched_job(db_session, env, "Gone.2024.mkv", {"a": _upload("Movie A"), "b": {"action": "skip"}})
+    job = db_session.query(upload_jobs.UploadJob).one()
+    job.targets[0].status = "done"
+    db_session.commit()
+    copy = env["root"] / "torrents" / "Gone.2024.mkv"
+    os.link(video, copy)
+    st = video.stat()
+    ctx = {"seeded": {job.targets[0].id: {(st.st_dev, st.st_ino): str(copy)}}}
+    os.unlink(copy)  # tolto dopo che il job l'ha registrato
+
+    execute._clear_watch_source(db_session, job, {}, ctx)
+
+    assert video.is_file()
 
 
 def test_a_release_stays_in_the_watched_folder_when_nothing_seeds(db_session, tmp_path, env):

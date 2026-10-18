@@ -211,7 +211,7 @@ def test_the_watched_folder_keeps_the_other_seasons(db_session, tmp_path, at_mat
         target.status, target.action = "done", "upload"
     db_session.commit()
 
-    upload_execute._clear_watch_source(db_session, job, {}, {"seeded": seeded})
+    upload_execute._clear_watch_source(db_session, job, {}, {"seeded": {job.targets[0].id: seeded}})
 
     left = sorted(os.listdir(tmp_path / "watch" / FOLDER))
     assert [n for n in left if n.endswith(".mkv")] == [
