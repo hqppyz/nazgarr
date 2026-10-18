@@ -26,6 +26,10 @@ def _movie_torrent(content: bytes = b"content", name: str = "Movie.2024.mkv") ->
                               "pieces": hashlib.sha1(content).digest()}})
 
 
+# La funzione vera, prima che il fixture qui sotto la sostituisca in ogni test.
+_REAL_DOWNLOAD_TORRENT = executor._download_torrent
+
+
 @pytest.fixture(autouse=True)
 def _tracker_torrent(monkeypatch):
     """Il .torrent che l'esecutore scarica dal tracker (mai il link al
@@ -764,3 +768,66 @@ def test_a_seed_file_linked_outside_the_disk_is_refused_before_the_client(db_ses
     with pytest.raises(executor.ExecutionError, match="scope"):
         executor.execute_review(db_session, review, adapter)
     assert adapter.add_torrent_calls == []
+
+
+class _DownloadingTracker:
+    def __init__(self, result):
+        self.result = result
+        self.links = []
+
+    def download_torrent(self, url):
+        self.links.append(url)
+        if isinstance(self.result, Exception):
+            raise self.result
+        return self.result
+
+
+def _with_tracker_adapter(monkeypatch, fake):
+    from contextlib import contextmanager
+
+    from nazgarr.integrations import adapter_factory
+
+    @contextmanager
+    def tracker(row):
+        yield fake
+
+    monkeypatch.setattr(adapter_factory, "tracker", tracker)
+
+
+def test_the_real_download_goes_through_the_candidates_tracker_adapter(monkeypatch):
+    # Il fixture autouse sostituisce _download_torrent in ogni altro test.
+    fake = _DownloadingTracker(b"d4:infod4:name1:xee")
+    _with_tracker_adapter(monkeypatch, fake)
+    link = "https://t.example/torrent/download/1.abcdef"
+    candidate = Candidate(tracker=Tracker(label="t", adapter_type="unit3d", base_url="https://t.example"),
+                          download_link=link)
+
+    assert _REAL_DOWNLOAD_TORRENT(candidate) == b"d4:infod4:name1:xee"
+    assert fake.links == [link]
+
+
+def test_a_tracker_without_download_torrent_or_a_failed_download_is_an_execution_error(monkeypatch):
+    from nazgarr.sdk import NotSupportedError
+
+    # Un plugin senza download_torrent (ora serve ai reseed, docs/SDK.md), e
+    # un errore che porta il link con la chiave: mai salvata in chiaro.
+    tracker = Tracker(label="Plugin tracker", adapter_type="plugin", base_url="https://t.example")
+    for error, expected in (
+        (NotSupportedError("MyTracker non supporta download_torrent()"), "non supporta download_torrent"),
+        (RuntimeError("GET https://t.example/torrent/download/7.secretkey123 failed"), "7.<redacted> failed"),
+    ):
+        _with_tracker_adapter(monkeypatch, _DownloadingTracker(error))
+        candidate = Candidate(tracker=tracker, download_link="https://t.example/torrent/download/7.secretkey123")
+        with pytest.raises(executor.ExecutionError) as info:
+            _REAL_DOWNLOAD_TORRENT(candidate)
+        assert str(info.value).startswith("Could not download the .torrent from Plugin tracker: ")
+        assert expected in str(info.value) and "secretkey123" not in str(info.value)
+
+
+def test_a_candidate_whose_tracker_is_gone_cannot_be_downloaded(monkeypatch):
+    fake = _DownloadingTracker(b"never")
+    _with_tracker_adapter(monkeypatch, fake)
+
+    with pytest.raises(executor.ExecutionError, match="tracker no longer exists"):
+        _REAL_DOWNLOAD_TORRENT(Candidate(tracker=None, download_link="https://t.example/torrent/download/1.k"))
+    assert fake.links == []
