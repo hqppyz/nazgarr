@@ -200,3 +200,51 @@ def test_reseed_and_upload_folders_never_go_inside_the_watched_folder(db_session
         assert (exc.value.code, exc.value.params["kind"]) == ("folder_overlaps", "watch")
     assert disk_folders.validate_target(disk, "torrents") == "torrents"  # contenerla va bene
 
+
+def test_the_disk_test_never_removes_a_file_it_did_not_create(db_session, disk, monkeypatch):
+    """Un link fallito con EEXIST toglieva il file che c'era già (audit
+    2026-10-18): si toglie solo quello che la prova ha creato."""
+    disk_folders.add(db_session, disk, "seeding", "torrents")
+    disk_folders.add(db_session, disk, "media", "movies")
+    monkeypatch.setattr(disk_folders.secrets, "token_hex", lambda n: "deadbeef")
+    planted = os.path.join(disk.root_path, "movies", disk_folders.TEST_PREFIX + "deadbeef")
+    with open(planted, "w") as f:
+        f.write("not nazgarr's")
+
+    result = disk_folders.test_disk(db_session, disk)
+
+    assert ("hardlink_failed", "error") in _codes(result)
+    with open(planted) as f:
+        assert f.read() == "not nazgarr's"
+    leftovers = [n for n in os.listdir(os.path.join(disk.root_path, "torrents")) if n.startswith(".nazgarr")]
+    assert leftovers == []
+
+
+def test_the_same_folder_saved_twice_is_tested_without_an_error(db_session, disk):
+    """Due righe vecchie per la stessa cartella ("torrents" e "torrents/",
+    copiate dalla migrazione senza validate): la prova toglieva il proprio
+    file prima del tempo e finiva in un 500."""
+    from nazgarr.core.models import DiskFolder
+
+    disk.folders.extend([DiskFolder(kind="seeding", relative_path="torrents"),
+                         DiskFolder(kind="seeding", relative_path="torrents/")])
+    db_session.commit()
+
+    result = disk_folders.test_disk(db_session, disk)
+
+    assert _codes(result) == [("hardlink_ok", "ok")]
+    assert not [n for n in os.listdir(os.path.join(disk.root_path, "torrents")) if n.startswith(".nazgarr")]
+
+
+def test_a_stored_folder_outside_the_disk_is_reported_not_written(db_session, disk, tmp_path):
+    from nazgarr.core.models import DiskFolder
+
+    (tmp_path / "elsewhere").mkdir()
+    disk.folders.extend([DiskFolder(kind="seeding", relative_path="torrents"),
+                         DiskFolder(kind="media", relative_path="../elsewhere")])
+    db_session.commit()
+
+    result = disk_folders.test_disk(db_session, disk)
+
+    assert ("folder_missing", "error") in _codes(result)
+    assert os.listdir(tmp_path / "elsewhere") == []

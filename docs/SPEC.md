@@ -108,6 +108,7 @@ A disk has **any number of media folders and seeding folders** (`disk_folder`, `
 - **Disk test** (user report, 2026-10-03): "Test disk" on the card (`POST /api/disks/{id}/verify`, `nazgarr/library/disk_folders.py::test_disk`) runs these checks:
   - every folder exists and is on the disk's filesystem;
   - a test hardlink goes from the first seeding folder to every other folder. The test file is empty, hidden and removed right away. If the disk has a single folder, the link stays inside that folder.
+  - only the files the test created are removed (audit 2026-10-18): a link that fails because the name is taken leaves that file alone, two stored spellings of the same folder (`torrents` and `torrents/`, from an old migration) are recognised as one folder instead of ending in a 500, every folder goes through `resolve_scoped` (one stored outside the disk is reported missing, never written), and the link goes through `nazgarr/library/hardlinks.py` like every other.
 
   A changed `st_dev` alone is only a warning: on FUSE (Unraid `/mnt/user`) it changes at every remount, and it never proved hardlinks work. The stored value is updated when the link test passes.
 - **API:** `GET /api/disks` lists `folders`, `media_folders` and `seeding_folders`. `POST /api/disks/{id}/folders` and `DELETE /api/disks/{id}/folders/{folder_id}` manage them. `media_rel_path`/`torrents_rel_path` remain as deprecated fields: the first folder in responses, and a single-folder replacement in a PATCH.
