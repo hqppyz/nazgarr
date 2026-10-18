@@ -245,7 +245,7 @@ nazgarr config import nazgarr.yaml
 This is useful to rebuild an installation, to copy the setup to another machine, or to keep it under version control.
 
 - **Import adds and updates, and never removes.** A disk, a folder, a client or a tracker that the file does not mention stays as it is.
-- **Import shows its plan first**, then asks to apply it. `--dry-run` only shows the plan, and `--yes` applies it without asking. New naming rules for an existing upload profile are checked by the server while the plan is built: rules of the wrong shape stop the whole file before anything changes.
+- **Import shows its plan first**, then asks to apply it. `--dry-run` only shows the plan, and `--yes` applies it without asking. New naming rules for an existing upload profile are checked by the server while the plan is built: rules of the wrong shape stop the whole file before anything changes. A read-only key cannot ask for that check (it is a POST): `--dry-run` still shows the plan and says the rules were not checked in advance, and the server checks them when they are saved.
 - **Secrets never go in the file.** Export writes placeholders in their place, such as `${NAZGARR_CLIENT_QBIT_PASSWORD}`.
 - **On import, placeholders come from the environment.** A placeholder without a variable is asked on screen when it is needed to create something. When it would only update something, it is skipped, and the value on the server stays.
 

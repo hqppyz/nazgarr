@@ -345,7 +345,16 @@ def _plan_profile(plan: Planner, label: str, spec: dict, ref: Callable[[], int],
             client.post(f"/api/trackers/{ref()}/upload-profile/naming/preview",
                         {"naming_rules": changes["naming_rules"]})
         except ApiError as exc:
-            raise fail(f"Tracker {label}: {exc}", EXIT_USAGE) from exc
+            if exc.status in (400, 422) or exc.code == "upload_invalid_naming_rules":
+                raise fail(f"Tracker {label}: {exc}", EXIT_USAGE) from exc
+            if exc.status not in (401, 403):
+                raise
+            # L'anteprima è un POST: una chiave di sola lettura non la può
+            # chiedere, e --dry-run deve comunque mostrare il piano. Il
+            # salvataggio le controlla di nuovo; ogni altro errore resta
+            # quello che è, col suo codice d'uscita.
+            err_console.print(f"Tracker {label}: naming rules not checked in advance ({exc}); "
+                              "the server checks them when they are saved.")
     if changes:
         plan.add(f"~ upload profile {label}: {', '.join(changes)}",
                  lambda ref=ref, changes=changes: client.patch(f"/api/trackers/{ref()}/upload-profile", changes))

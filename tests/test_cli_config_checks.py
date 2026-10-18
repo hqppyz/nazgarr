@@ -205,3 +205,57 @@ def test_config_import_checks_naming_rules_before_changing_anything(cli_env, cli
     file.write_text(yaml.safe_dump(exported))
     code, _out, err = run(capsys, "config", "import", str(file), "--yes")
     assert code == 2 and "mapping" in err
+
+
+def test_config_import_dry_run_with_a_read_only_key_still_shows_the_plan(cli_env, client, capsys):
+    """L'anteprima delle regole è un POST: una chiave di sola lettura non la
+    può chiedere, e --dry-run deve mostrare il piano lo stesso (exit 0),
+    dicendo che le regole non sono state controllate prima."""
+    import yaml
+
+    from tests.test_cli_client import URL
+
+    _itt_profile(cli_env, client, capsys)
+    exported = yaml.safe_load(run(capsys, "config", "export")[1])
+    profile = exported["trackers"][0].setdefault("upload_profile", {})
+    current = json.loads(run(capsys, "--json", "tracker", "profile", "show", "itt")[1])["naming_rules"]
+    profile["naming_rules"] = dict(current, separator=".")
+    file = cli_env / "nazgarr.yaml"
+    file.write_text(yaml.safe_dump(exported))
+    code, _out, err = run(capsys, "login", "--url", URL, "-u", "admin", "--read-only", "--password-stdin",
+                          stdin="supersecret1\n")
+    assert code == 0, err
+
+    code, out, err = run(capsys, "config", "import", str(file), "--dry-run")
+
+    assert code == 0, err
+    assert "upload profile ITT" in out and "naming_rules" in out
+    assert "not checked in advance" in err
+
+
+def test_config_import_keeps_the_exit_code_of_other_preview_errors(cli_env, client, capsys, monkeypatch):
+    """Solo una regola rifiutata è un errore d'uso (2): un server che
+    risponde 500 all'anteprima resta un errore comune (1)."""
+    import yaml
+
+    from nazgarr.cli_client import http
+
+    _itt_profile(cli_env, client, capsys)
+    exported = yaml.safe_load(run(capsys, "config", "export")[1])
+    profile = exported["trackers"][0].setdefault("upload_profile", {})
+    current = json.loads(run(capsys, "--json", "tracker", "profile", "show", "itt")[1])["naming_rules"]
+    profile["naming_rules"] = dict(current, separator=".")
+    file = cli_env / "nazgarr.yaml"
+    file.write_text(yaml.safe_dump(exported))
+    real_request = http.Api.request
+
+    def request(self, method, path, **kw):
+        if path.endswith("/naming/preview"):
+            raise http.ApiError(500, "http_500", text="HTTP 500")
+        return real_request(self, method, path, **kw)
+
+    monkeypatch.setattr(http.Api, "request", request)
+
+    code, _out, err = run(capsys, "config", "import", str(file), "--dry-run")
+
+    assert code == 1 and "500" in err
