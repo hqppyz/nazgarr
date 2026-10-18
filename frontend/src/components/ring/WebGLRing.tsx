@@ -13,8 +13,17 @@ import { cn } from '@/lib/utils'
 // bagliore si accende e l'anello si inclina appena verso il cursore; di fondo
 // una rotazione lentissima. Si ridisegna solo quando qualcosa si muove.
 
-const TEX_W = 4096
-const TEX_H = 1024
+// Le tele dell'iscrizione: 4096x1024 per gli anelli grandi (il laboratorio,
+// l'esportazione dell'immagine statica), un sedicesimo per logo e loader,
+// che a 32-96 px non ne vedono la differenza. Tre texture a piena
+// risoluzione erano circa 67 MB di memoria della GPU per ogni anello.
+const TEX_FULL = 4096
+const TEX_SMALL = 1024
+const SMALL_RING_MAX = 96
+
+function textureWidth(size: number): number {
+  return size <= SMALL_RING_MAX ? TEX_SMALL : TEX_FULL
+}
 const BASE_GLOW = 0.04
 const HOVER_GLOW = 5
 // Glifi più stretti che alti, come la scrittura dell'anello: a parità di giro
@@ -110,6 +119,8 @@ function strokeNib(ctx: CanvasRenderingContext2D, path: Path2D, nib: number, lin
 function drawBand(
   ctx: CanvasRenderingContext2D, profile: Profile, face: [number, number], radius: number, flip: boolean,
 ) {
+  const TEX_W = ctx.canvas.width
+  const TEX_H = ctx.canvas.height
   const last = profile.points.length - 1
   const [from, to] = face
   const top = Math.min((1 - to / last) * TEX_H, (1 - from / last) * TEX_H)
@@ -138,13 +149,13 @@ function drawBand(
   ctx.restore()
 }
 
-function inscriptionCanvas(profile: Profile, color: string, background: string): HTMLCanvasElement {
+function inscriptionCanvas(profile: Profile, width: number, color: string, background: string): HTMLCanvasElement {
   const canvas = document.createElement('canvas')
-  canvas.width = TEX_W
-  canvas.height = TEX_H
+  canvas.width = width
+  canvas.height = width / 4
   const ctx = canvas.getContext('2d')!
   ctx.fillStyle = background
-  ctx.fillRect(0, 0, TEX_W, TEX_H)
+  ctx.fillRect(0, 0, canvas.width, canvas.height)
   ctx.strokeStyle = color
   ctx.lineCap = 'round'
   ctx.lineJoin = 'round'
@@ -157,11 +168,14 @@ function inscriptionCanvas(profile: Profile, color: string, background: string):
 // La sfumatura si fa su una tela ridotta a 1/4 e poi ingrandita: stesso
 // effetto morbido a una frazione del costo.
 function glowCanvas(sharp: HTMLCanvasElement): HTMLCanvasElement {
+  const TEX_W = sharp.width
+  const TEX_H = sharp.height
   const small = document.createElement('canvas')
   small.width = TEX_W / 4
   small.height = TEX_H / 4
   const sctx = small.getContext('2d')!
-  sctx.filter = 'blur(3px)'
+  // Lo stesso alone a ogni risoluzione: 3 px sulla tela piena.
+  sctx.filter = `blur(${(3 * TEX_W) / TEX_FULL}px)`
   sctx.drawImage(sharp, 0, 0, small.width, small.height)
   const canvas = document.createElement('canvas')
   canvas.width = TEX_W
@@ -175,21 +189,24 @@ function glowCanvas(sharp: HTMLCanvasElement): HTMLCanvasElement {
   return canvas
 }
 
-// Le tre tele (luce, rilievo, colore) si disegnano una volta sola e le
-// condividono tutti gli anelli della pagina: ogni anello le carica solo come
-// texture nel proprio contesto WebGL.
-let canvases: { glow: HTMLCanvasElement; bump: HTMLCanvasElement; color: HTMLCanvasElement } | null = null
+// Le tre tele (luce, rilievo, colore) si disegnano una volta sola per
+// risoluzione e le condividono tutti gli anelli della pagina: ogni anello le
+// carica solo come texture nel proprio contesto WebGL.
+interface RingCanvases { glow: HTMLCanvasElement; bump: HTMLCanvasElement; color: HTMLCanvasElement }
+const canvases = new Map<number, RingCanvases>()
 
-function sharedCanvases(profile: Profile) {
-  if (!canvases) {
-    const light = inscriptionCanvas(profile, '#ffffff', '#000000')
-    canvases = {
+function sharedCanvases(profile: Profile, width: number): RingCanvases {
+  let shared = canvases.get(width)
+  if (!shared) {
+    const light = inscriptionCanvas(profile, width, '#ffffff', '#000000')
+    shared = {
       glow: glowCanvas(light),
-      bump: inscriptionCanvas(profile, '#000000', '#ffffff'),
-      color: inscriptionCanvas(profile, '#3b1d07', '#ffffff'), // incisione scura, quasi bruciata
+      bump: inscriptionCanvas(profile, width, '#000000', '#ffffff'),
+      color: inscriptionCanvas(profile, width, '#3b1d07', '#ffffff'), // incisione scura, quasi bruciata
     }
+    canvases.set(width, shared)
   }
-  return canvases
+  return shared
 }
 
 function texture(canvas: HTMLCanvasElement, srgb = false): THREE.CanvasTexture {
@@ -263,7 +280,7 @@ export function WebGLRing({ size = 120, className, handleRef, hoverable = true, 
     const profile = bandProfile()
     // Luce della scritta (con alone), rilievo dell'incisione, e colore: oro
     // ovunque, bronzo scuro dentro le lettere (si leggono anche da spente).
-    const shared = sharedCanvases(profile)
+    const shared = sharedCanvases(profile, textureWidth(size))
     const glowMap = texture(shared.glow, true)
     const bumpMap = texture(shared.bump)
     const colorMap = texture(shared.color, true)
@@ -307,6 +324,14 @@ export function WebGLRing({ size = 120, className, handleRef, hoverable = true, 
     // senza fermarsi. amp = inclinazione, speed = giri al secondo del bordo.
     const roll = { amp: 0, speed: 1.6, on: false }
     let rollPhase = 0
+    // Il giro lento del logo, di fondo e senza fine: a 32 px l'iscrizione si
+    // sposta di un quarantesimo di pixel per fotogramma, e ridisegnarla a
+    // ogni frame teneva la GPU sveglia su ogni pagina. Si ridisegna quando si
+    // è mossa di mezzo pixel (il raggio esterno è circa 0,44 della misura):
+    // pochi fotogrammi al secondo. A pieno ritmo con ogni altra animazione.
+    let idle: gsap.core.Tween | null = null
+    const spinStep = 0.5 / (0.44 * size)
+    let renderedSpin = state.spin
     const tick = (_time: number, deltaMs: number) => {
       if (document.hidden) return
       if (roll.on) {
@@ -315,8 +340,10 @@ export function WebGLRing({ size = 120, className, handleRef, hoverable = true, 
         state.wobbleZ = roll.amp * Math.cos(rollPhase)
         dirty = true
       }
-      if (dirty || gsap.isTweening(state)) {
+      const animating = dirty || gsap.getTweensOf(state, true).some((tween) => tween !== idle)
+      if (animating || Math.abs(state.spin - renderedSpin) >= spinStep) {
         render()
+        renderedSpin = state.spin
         dirty = false
       }
     }
@@ -357,7 +384,7 @@ export function WebGLRing({ size = 120, className, handleRef, hoverable = true, 
     }
 
     const loader = mode === 'loader' && !exporting
-    const idle = exporting || loader
+    idle = exporting || loader
       ? null
       : gsap.to(state, { spin: `-=${Math.PI * 2}`, duration: spinSeconds, ease: 'none', repeat: -1 })
     let breathe: gsap.core.Tween | null = null
@@ -452,6 +479,9 @@ export function WebGLRing({ size = 120, className, handleRef, hoverable = true, 
       colorMap.dispose()
       pmrem.dispose()
       renderer.dispose()
+      // dispose() non libera il contesto WebGL: resterebbe fino alla garbage
+      // collection della tela, e il browser ne tiene pochi (circa 16).
+      renderer.forceContextLoss()
       mount.removeChild(renderer.domElement)
     }
     // onRendered/onReady servono solo al primo fotogramma
