@@ -386,7 +386,9 @@ def handle(session: Session, job: UploadJob, worker) -> None:
     if checked is None or not _still_mine(session, job, run.id):
         logger.info("Upload %s: analisi interrotta (annullato, o ripresa da un'altra analisi)", job.id)
         return
-    analysis["seeding_here"], analysis["dupes_truncated"] = checked
+    analysis["seeding_here"], truncated = checked
+    if truncated:
+        analysis["dupes_truncated"] = truncated
     job.analysis_json = json.dumps(analysis)
     session.commit()
     upload_decision.propose(session, job)
