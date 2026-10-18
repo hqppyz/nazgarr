@@ -213,10 +213,12 @@ _NUMERALS = {
 
 
 def _numbers(key: str) -> tuple[int, ...]:
-    """I numeri di un titolo (già _title_key), in cifre, romani o in lettere."""
+    """I numeri di un titolo (già _title_key), in cifre, romani o in lettere.
+    Romani e lettere solo dopo la prima parola ("Part II", "Chapter Four"):
+    in testa sono più spesso un articolo o un pronome ("I Simpson")."""
     out: list[int] = []
-    for token in key.split():
-        if token in _NUMERALS:
+    for position, token in enumerate(key.split()):
+        if position and token in _NUMERALS:
             out.append(_NUMERALS[token])
         else:
             out.extend(int(d) for d in re.findall(r"\d+", token))

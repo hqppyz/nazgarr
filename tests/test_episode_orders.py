@@ -639,6 +639,14 @@ def test_a_title_override_needs_the_same_numbers_and_a_title_unique_on_both_side
     assert [e.refs for s in (1, 2) for e in sonarr.seasons[s]] == [[(1, 1)], [(1, 2)], [(2, 1)], [(2, 2)]]
 
 
+def test_roman_numerals_and_number_words_count_only_after_the_first_word():
+    assert eo._numbers(eo._title_key("The Best of Both Worlds, Part I")) == (1,)
+    assert eo._numbers(eo._title_key("Chapter Four")) == (4,)
+    # In testa sono un articolo o un pronome: "I Misteri" e "Misteri" si somigliano ancora.
+    assert eo._numbers(eo._title_key("I misteri della notte")) == ()
+    assert eo._numbers(eo._title_key("S01 2gether")) == (1, 2)
+
+
 def test_a_near_title_never_takes_an_episode_an_identical_title_already_owns():
     tmdb = _titled("tmdb:default", ["Into the Woods", "Bushwhacked", "Restless"], "tmdb", refs=True)
     # "Into the Wood" somiglia a "Into the Woods", che però è già di un altro episodio.
