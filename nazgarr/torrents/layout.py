@@ -25,6 +25,7 @@ locale vengono usati, se mancano li scarica il client dopo il recheck
 (nazgarr/reseed/executor.py, tolleranza expected_missing_bytes).
 """
 
+import hashlib
 import os
 from collections import defaultdict
 from collections.abc import Callable
@@ -603,12 +604,24 @@ def _torrent_entry(lf: LayoutFile, parsed: TorrentInfo):
     return entry
 
 
+def _pieces_key(path: str, parsed: TorrentInfo, entry) -> tuple:
+    """La chiave di un campione di piece: il file locale e gli hash dei
+    piece che la voce del .torrent tocca, con la geometria che li colloca.
+    Dipende solo dal contenuto, non dall'oggetto del .torrent: prima era
+    id(parsed), che un altro .torrent può riprendere quando il primo esce
+    dalla cache del matching (audit 2026-10-18), e lo stesso torrent su due
+    tracker si rileggeva per ognuno."""
+    first = entry.offset // parsed.piece_length
+    last = max(entry.offset + entry.length - 1, entry.offset) // parsed.piece_length
+    digest = hashlib.sha1(b"".join(parsed.pieces[first:last + 1])).digest()
+    return (path, entry.offset, entry.length, parsed.piece_length, parsed.total_length, digest)
+
+
 def _check_pieces(path: str, parsed: TorrentInfo, entry, piece_checks: dict | None):
     """Il campione di piece di un file locale contro una voce del .torrent,
     letto una volta per run: lo stesso torrent si valuta dal catalogo e poi
-    dal .torrent vero. La chiave usa l'oggetto del .torrent, che il
-    contesto del matching tiene per tutta la run."""
-    key = (id(parsed), path, entry.offset, entry.length)
+    dal .torrent vero, e si ritrova su più tracker."""
+    key = _pieces_key(path, parsed, entry)
     if piece_checks is not None and key in piece_checks:
         return piece_checks[key]
     result = verify_file_pieces(

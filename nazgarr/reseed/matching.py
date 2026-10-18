@@ -19,6 +19,7 @@ singoli" acceso, solo in quello che gli manca.
 
 import json
 import logging
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
@@ -110,11 +111,19 @@ class SharedLocalFiles:
         self.session = session
         self.disk_ids = disk_ids
         self._local: LocalFiles | None = None
+        # E i piece già verificati (layout._check_pieces), per tutti i tracker:
+        # lo stesso torrent su due tracker non si rilegge dal disco.
+        self.piece_checks: dict = {}
 
     def get(self) -> LocalFiles:
         if self._local is None:
             self._local = LocalFiles.load(self.session, self.disk_ids)
         return self._local
+
+
+# .torrent letti tenuti in memoria in un passaggio: quanto serve perché gli
+# episodi vicini (orfani in ordine di serie) ritrovino i loro.
+MAX_PARSED_TORRENTS = 256
 
 
 @dataclass
@@ -136,7 +145,8 @@ class MatchContext:
     both_formats: bool = False  # "pack e singoli dello stesso tracker" acceso
     # Piece già verificati in questa run (nazgarr/torrents/layout.py::_check_pieces).
     piece_checks: dict = field(default_factory=dict)
-    _torrents: dict[str, TorrentInfo | None] = field(default_factory=dict)
+    _torrents: OrderedDict[str, TorrentInfo] = field(default_factory=OrderedDict)
+    _failed_torrents: set[str] = field(default_factory=set)
     _info_hashes: dict[str, str] = field(default_factory=dict)
     _episode_mappings: dict = field(default_factory=dict)
     # media_item_id -> {torrent_id_remote: candidato da aggiornare} (_reusable_candidate).
@@ -192,20 +202,32 @@ class MatchContext:
         2026-10-18). TrackerRateLimitedError risale."""
         if not url:
             return None
-        if url not in self._torrents:
-            try:
-                content = self.tracker_adapter.download_torrent(url)
-                self._torrents[url] = parse_torrent_info(content)
-                self._info_hashes[url] = compute_info_hash(content)
-            except TrackerRateLimitedError:
-                raise
-            except (UploadError, NotSupportedError, TorrentMetainfoError):
-                logger.warning("Download/parsing del .torrent fallito: %s", safe_error(url), exc_info=True)
-                self._torrents[url] = None
-            except Exception:
-                logger.exception("Errore inatteso col .torrent %s: ignorato per questa run", safe_error(url))
-                self._torrents[url] = None
-        return self._torrents[url]
+        if url in self._failed_torrents:
+            return None
+        if url in self._torrents:
+            self._torrents.move_to_end(url)
+            return self._torrents[url]
+        try:
+            content = self.tracker_adapter.download_torrent(url)
+            parsed = parse_torrent_info(content)
+            self._info_hashes[url] = compute_info_hash(content)
+        except TrackerRateLimitedError:
+            raise
+        except (UploadError, NotSupportedError, TorrentMetainfoError):
+            logger.warning("Download/parsing del .torrent fallito: %s", safe_error(url), exc_info=True)
+            self._failed_torrents.add(url)
+            return None
+        except Exception:
+            logger.exception("Errore inatteso col .torrent %s: ignorato per questa run", safe_error(url))
+            self._failed_torrents.add(url)
+            return None
+        # Gli ultimi letti: ogni .torrent tiene gli hash di tutti i suoi piece,
+        # e in un primo passaggio lungo su un tracker nuovo erano centinaia di
+        # MB tenuti fino alla fine (audit 2026-10-18).
+        self._torrents[url] = parsed
+        while len(self._torrents) > MAX_PARSED_TORRENTS:
+            self._torrents.popitem(last=False)
+        return parsed
 
     def info_hash(self, url: str | None) -> str | None:
         return self._info_hashes.get(url) if url else None
@@ -241,7 +263,7 @@ def _evaluate(ctx: MatchContext, layout: Layout, anchor, *, download_link: str |
         # lambda, non il riferimento diretto: i test sostituiscono matching.compute_unique_id
         compute_unique_id=lambda path: compute_unique_id(path),
         fetch_torrent=lambda: ctx.fetch_torrent(download_link),
-        piece_checks=ctx.piece_checks,
+        piece_checks=ctx.shared_local.piece_checks if ctx.shared_local is not None else ctx.piece_checks,
     )
 
 

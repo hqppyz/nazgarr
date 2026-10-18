@@ -234,3 +234,51 @@ def test_orphans_are_searched_by_series_season_and_episode():
                orphan(5, 30, None, None)]
     ordered = sorted(orphans, key=lambda o: matching._series_order(o, "media"))
     assert [o.id for o in ordered] == [4, 2, 3, 1, 5]
+
+
+def test_the_same_torrent_on_two_trackers_reads_the_pieces_once_per_run(db_session, tmp_path, monkeypatch):
+    # I piece verificati si tenevano per contesto, con id() dell'oggetto
+    # .torrent come chiave: si rileggevano per ogni tracker (audit
+    # 2026-10-18, finding 104 e 130).
+    from nazgarr.core.models import Tracker
+    from nazgarr.torrents import layout as torrent_layout
+
+    _no_mediainfo(monkeypatch)
+    _disk, first, _files = _library(db_session, tmp_path)
+    second = Tracker(label="t2", adapter_type="unit3d", base_url="https://t2.example", api_token="x")
+    db_session.add(second)
+    db_session.commit()
+    reads = []
+    original = torrent_layout.verify_file_pieces
+    monkeypatch.setattr(torrent_layout, "verify_file_pieces", lambda *a, **k: reads.append(a[0]) or original(*a, **k))
+    shared = matching.SharedLocalFiles(db_session)
+
+    for tracker in (first, second):
+        matching.run_media_to_torrent_matching(db_session, tracker, PackTracker([_pack_candidate()]), local=shared)
+
+    assert db_session.query(Candidate).count() == 2  # una valutazione per tracker
+    assert len(reads) == len(set(reads)) == 2  # ogni episodio del pack letto una volta
+
+
+def test_the_parsed_torrents_kept_in_a_pass_are_bounded(db_session, monkeypatch):
+    from nazgarr.core.models import Tracker
+
+    monkeypatch.setattr(matching, "MAX_PARSED_TORRENTS", 2)
+
+    class Many:
+        def __init__(self):
+            self.downloads = []
+
+        def download_torrent(self, url):
+            self.downloads.append(url)
+            if url.endswith("bad"):
+                raise AttributeError("plugin bug")
+            return _pack_torrent()
+
+    adapter = Many()
+    ctx = matching.MatchContext(db_session, Tracker(id=1, label="t"), adapter, "media_to_torrent")
+    for url in ("a", "b", "c", "a", "bad", "bad"):
+        ctx.fetch_torrent(url)
+
+    assert list(ctx._torrents) == ["c", "a"]
+    assert adapter.downloads == ["a", "b", "c", "a", "bad"]  # un link che non va si prova una volta sola
