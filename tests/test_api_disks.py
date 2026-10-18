@@ -172,3 +172,56 @@ def test_a_folder_made_from_the_ui_copies_the_permissions_of_the_one_above(clien
         os.umask(previous)
     for folder in (disk_dir / "torrents", disk_dir / "torrents" / "uploads"):
         assert os.stat(folder).st_mode & 0o777 == 0o775
+
+
+def _disk(client, *folders):
+    root = client.scan_root / "disk1"
+    for folder in folders:
+        (root / folder).mkdir(parents=True, exist_ok=True)
+    return client.post("/api/disks", json={"label": "Disk 1", "root_path": str(root)}).json()
+
+
+def test_the_folder_for_new_reseed_hardlinks_is_never_watched(client):
+    """Anche vuota (audit 2026-10-18): ogni reseed lì diventava una release,
+    e approvarla toglieva i file da cui il torrent del reseed seeda. E al
+    contrario, le cartelle dei reseed e degli upload non finiscono dopo
+    dentro quella osservata."""
+    created = _disk(client, "media", "torrents/new", "torrents/watch/x")
+    url = f"/api/disks/{created['id']}"
+    client.patch(url, json={"media_rel_path": "media", "torrents_rel_path": "torrents",
+                            "new_torrent_rel_path": "torrents/new"})
+    for bad in ("torrents/new", "torrents"):
+        assert client.patch(url, json={"watch_rel_path": bad}).json()["detail"]["code"] == "watch_folder_overlaps"
+    assert client.patch(url, json={"watch_rel_path": "torrents/watch"}).status_code == 200
+
+    for field, path in (("new_torrent_rel_path", "torrents/watch/x"), ("upload_rel_path", "torrents/watch")):
+        refused = client.patch(url, json={field: path})
+        assert refused.status_code == 400, field
+        assert refused.json()["detail"]["code"] == "folder_overlaps"
+    assert client.get("/api/disks").json()[0]["new_torrent_rel_path"] == "torrents/new"
+
+
+def test_a_folder_with_library_files_is_never_watched(client):
+    """Una sottocartella media dedicata va bene; una che ha già film della
+    libreria (media/Movies) faceva partire un upload per ognuno."""
+    from datetime import UTC, datetime
+
+    from nazgarr.core.models import MediaFile
+    from nazgarr.reseed import pipeline
+
+    created = _disk(client, "media/Movies", "media/incoming", "torrents")
+    url = f"/api/disks/{created['id']}"
+    client.patch(url, json={"media_rel_path": "media", "torrents_rel_path": "torrents"})
+    session = client.app.state.session_factory()
+    try:
+        run = pipeline.start_run(session, "manual")
+        session.add(MediaFile(disk_id=created["id"], relative_path="media/Movies/A (2020)/A.mkv", size_bytes=1,
+                              st_dev=1, inode=1, last_scan_id=run.id, last_seen_at=datetime.now(UTC)))
+        session.commit()
+    finally:
+        session.close()
+
+    refused = client.patch(url, json={"watch_rel_path": "media/Movies"})
+    assert refused.status_code == 400 and refused.json()["detail"]["code"] == "watch_folder_has_library_files"
+    assert client.patch(url, json={"watch_rel_path": "media/incoming"}).status_code == 200
+

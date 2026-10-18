@@ -22,8 +22,9 @@ from sqlalchemy.orm import Session
 from nazgarr.core import mounts as container_mounts
 from nazgarr.core.errors import CodedError, coded_detail, from_coded_error
 from nazgarr.core.fs_scope import ScopeViolation, resolve_scoped
-from nazgarr.core.models import ClientTorrentFile, Disk, SeedFile
+from nazgarr.core.models import ClientTorrentFile, Disk, MediaFile, SeedFile
 from nazgarr.library import disk_folders, hardlinks
+from nazgarr.library.scan_state import latest_scan_by_disk
 from nazgarr.web.deps import get_or_404, get_session
 
 router = APIRouter(prefix="/api/disks", tags=["disks"])
@@ -334,10 +335,13 @@ def update_disk(disk_id: int, body: DiskUpdateRequest, session: Session = Depend
 
 def _watch_folder(session: Session, disk: Disk, relative: str | None) -> str | None:
     """La cartella osservata: dentro il disco ed esistente. Mai il disco
-    intero, la cartella media, quella dei torrent o quella degli upload (né
-    una che le contiene), e mai una dove un client scarica o seeda: ogni
-    download partirebbe come una release. Una sottocartella dedicata (es.
-    torrents/watch) va bene."""
+    intero, la cartella media, quella dei torrent, quella dei nuovi hardlink
+    di un reseed o quella degli upload (né una che le contiene), mai una dove
+    un client scarica o seeda (ogni download partirebbe come una release), e
+    mai una con dei file della libreria (audit 2026-10-18: media/Movies faceva
+    partire un upload per ogni film). Una sottocartella dedicata (es.
+    torrents/watch, o media/incoming vuota) va bene. Le altre cartelle non
+    possono poi finirci dentro (disk_folders.validate e validate_target)."""
     if relative is None:
         return None
     try:
@@ -349,7 +353,8 @@ def _watch_folder(session: Session, disk: Disk, relative: str | None) -> str | N
     root = os.path.realpath(disk.root_path)
     if path == root:
         raise HTTPException(status_code=400, detail=coded_detail("watch_folder_overlaps", path=relative))
-    for other in (*disk.media_folders, *disk.seeding_folders, disk.effective_upload_rel_path):
+    for other in (*disk.media_folders, *disk.seeding_folders, disk.effective_new_torrent_rel_path,
+                  disk.effective_upload_rel_path):
         if not other:
             continue
         other_path = os.path.realpath(os.path.join(disk.root_path, other))
@@ -364,6 +369,15 @@ def _watch_folder(session: Session, disk: Disk, relative: str | None) -> str | N
     )
     if any(seed_path.startswith(relative_path + "/") for (seed_path,) in tracked):
         raise HTTPException(status_code=400, detail=coded_detail("watch_folder_used_by_client", path=relative))
+    # Dentro una cartella media va bene solo una sottocartella dedicata: una
+    # che ha già file della libreria (l'ultima scansione) è la libreria stessa.
+    latest = latest_scan_by_disk(session, MediaFile).get(disk.id)
+    library = session.query(MediaFile.id).filter(
+        MediaFile.disk_id == disk.id, MediaFile.last_scan_id == latest,
+        MediaFile.relative_path.startswith(relative_path + "/", autoescape=True),
+    )
+    if latest is not None and library.first() is not None:
+        raise HTTPException(status_code=400, detail=coded_detail("watch_folder_has_library_files", path=relative))
     return relative_path
 
 

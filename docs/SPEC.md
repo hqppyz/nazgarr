@@ -101,7 +101,7 @@ A disk has **any number of media folders and seeding folders** (`disk_folder`, `
   - it is inside the disk, exists, and is not the disk root;
   - it is on the disk's filesystem, because hardlinks cannot cross filesystems. A folder mounted from another filesystem is refused with a hint to add it as a disk of its own;
   - it is never equal to, inside, or containing another folder of the disk, of either kind;
-  - it never contains the watched folder.
+  - it is never inside the watched folder, nor that folder itself; containing it is fine (a dedicated subfolder such as `torrents/watch`). The same holds for the folders for new hardlinks and for uploads (audit 2026-10-18: before, only choosing the watched folder was checked, so an upload folder set inside it later became a release, and approving it removed the files earlier uploads seeded from).
 - **Removing a folder** touches nothing on disk. Its files leave the library at the next scan.
 - **The scan** reads every folder. A folder that cannot be read (an unmounted share) keeps its files current: their `last_scan_id` is carried forward. Without this, files would disappear with the share. A file gone from a readable folder still disappears as before.
 - **Defaults:** new hardlinks and uploads go to their own folder if set, otherwise to the first seeding folder. The "already seeding" search covers every seeding folder.
@@ -357,7 +357,7 @@ The Phase 6 pipeline handled one file towards one tracker, synchronously inside 
 - **Existing `upload_job` rows are dropped** when the new tables are created (user decision: no real upload data to keep).
 
 
-**Releases from a watched folder** (user decisions, 2026-10-02). Each disk can have a watched folder (`disk.watch_rel_path`, `nazgarr/upload/watch.py`). It can never be the disk itself, nor contain the media, torrent or upload folder; a dedicated subfolder inside the torrent folder (e.g. `torrents/watch`) is fine.
+**Releases from a watched folder** (user decisions, 2026-10-02). Each disk can have a watched folder (`disk.watch_rel_path`, `nazgarr/upload/watch.py`). It can never be the disk itself, nor be or contain the media, torrent, new-hardlink (reseed) or upload folder, nor a folder a client downloads or seeds in, nor one that already holds library files (audit 2026-10-18, `watch_folder_has_library_files`: watching `media/Movies` started an upload for every film, and watching the folder for new reseed hardlinks made each reseed a release whose approval removed the files the reseed seeds from). A dedicated subfolder inside the torrent or media folder (e.g. `torrents/watch`, an empty `media/incoming`) is fine, and the other folders can never be moved inside it afterwards.
 
 - **Starting:** every new video file or folder put there starts an upload on its own, to every tracker that has an upload profile, as soon as nobody writes to it any more (user decision, 2026-10-02). That means: no partial files inside, no write for 15 seconds, and the same size as at the previous check. Checks run every 10 seconds, not through filesystem events: inotify isn't reliable on Unraid FUSE shares, NFS or SMB. A file moved in starts at the next check; a copy starts 15–25 seconds after it ends.
 - **Once only:** `watch_entry` remembers each entry, so a release starts one upload even after its job is deleted. The folder is only a way in, so what is already inside when it is chosen starts too.

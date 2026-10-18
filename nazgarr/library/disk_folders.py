@@ -8,7 +8,13 @@ Una cartella si aggiunge solo se:
 - non coincide con un'altra cartella del disco, non ne contiene una e non
   sta dentro un'altra (una media dentro una di seeding conterebbe due volte
   gli stessi file);
-- non contiene la cartella osservata (da dove le release se ne vanno).
+- non sta dentro la cartella osservata e non coincide con essa (da dove le
+  release se ne vanno); contenerla sì: una sottocartella dedicata (es.
+  torrents/watch) è il caso normale.
+
+Lo stesso vale per la cartella dei nuovi hardlink di un reseed e per quella
+degli upload (validate_target), e al contrario la cartella osservata non
+può contenere nessuna di queste (nazgarr/api/disks.py::_watch_folder).
 
 Togliere una cartella non tocca niente sul disco: i suoi file escono dalla
 libreria alla scansione successiva.
@@ -54,10 +60,7 @@ def validate(disk: Disk, kind: str, relative: str) -> str:
             raise FolderError("folder_already_added", path=normalized)
         if _inside_or_same(path, other) or _inside_or_same(other, path):
             raise FolderError("folder_overlaps", path=normalized, other=folder.relative_path, kind=folder.kind)
-    if disk.watch_rel_path:
-        watch = os.path.realpath(os.path.join(root, disk.watch_rel_path))
-        if _inside_or_same(path, watch):
-            raise FolderError("folder_overlaps", path=normalized, other=disk.watch_rel_path, kind="watch")
+    _outside_watch(disk, root, path, normalized)
     return normalized
 
 
@@ -80,7 +83,18 @@ def validate_target(disk: Disk, relative: str) -> str:
     seeding = [os.path.realpath(os.path.join(root, f)) for f in disk.seeding_folders]
     if not any(_inside_or_same(path, folder) for folder in seeding):
         raise FolderError("folder_not_in_seeding", path=normalized)
+    _outside_watch(disk, root, path, normalized)
     return normalized
+
+
+def _outside_watch(disk: Disk, root: str, path: str, normalized: str) -> None:
+    """Mai dentro la cartella osservata, né la stessa (audit 2026-10-18): ogni
+    reseed o upload lì dentro partirebbe come una release, e approvarla
+    toglierebbe i file da cui un torrent seeda."""
+    if disk.watch_rel_path:
+        watch = os.path.realpath(os.path.join(root, disk.watch_rel_path))
+        if _inside_or_same(path, watch):
+            raise FolderError("folder_overlaps", path=normalized, other=disk.watch_rel_path, kind="watch")
 
 
 def add(session: Session, disk: Disk, kind: str, relative: str) -> DiskFolder:

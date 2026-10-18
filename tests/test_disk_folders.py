@@ -38,7 +38,7 @@ def test_more_media_and_seeding_folders_on_one_disk(db_session, disk):
     ("media", "movies", "folder_already_added"),
     ("seeding", "movies", "folder_overlaps"),          # la stessa cartella come media e come seeding
     ("media", "movies/sub", "folder_overlaps"),       # dentro un'altra
-    ("seeding", "torrents/watch", "folder_overlaps"),  # contiene la cartella osservata
+    ("seeding", "torrents/watch", "folder_overlaps"),  # è la cartella osservata (né dentro, né la stessa)
     ("other", "tv", "folder_kind_invalid"),
 ])
 def test_a_folder_is_refused_when(db_session, disk, kind, path, code):
@@ -183,3 +183,20 @@ def test_a_changed_st_dev_alone_is_only_a_warning_and_is_updated_when_links_work
     assert changed["level"] == "warning" and changed["params"]["updated"] is True
     assert disk.st_dev == os.stat(disk.root_path).st_dev
     assert ("hardlink_ok", "ok") in _codes(result)  # l'unica cartella: un link dentro la stessa
+
+
+def test_reseed_and_upload_folders_never_go_inside_the_watched_folder(db_session, disk):
+    """Prima si controllava solo al momento di scegliere la cartella
+    osservata, mai dopo (audit 2026-10-18): una cartella degli upload dentro
+    quella osservata diventava una release, e approvarla toglieva i file da
+    cui seedavano gli upload precedenti."""
+    os.makedirs(os.path.join(disk.root_path, "torrents", "watch", "out"))
+    disk_folders.add(db_session, disk, "seeding", "torrents")
+    disk.watch_rel_path = "torrents/watch"
+    db_session.commit()
+    for path in ("torrents/watch", "torrents/watch/out"):
+        with pytest.raises(FolderError) as exc:
+            disk_folders.validate_target(disk, path)
+        assert (exc.value.code, exc.value.params["kind"]) == ("folder_overlaps", "watch")
+    assert disk_folders.validate_target(disk, "torrents") == "torrents"  # contenerla va bene
+
