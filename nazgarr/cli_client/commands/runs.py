@@ -60,7 +60,9 @@ def scan(
 @app.command("ls")
 def list_runs(ctx: typer.Context, limit: int = typer.Option(10, "--limit", "-n", help="How many, newest first.")):
     """The latest scans."""
-    runs = api(ctx).get("/api/runs")[:limit]
+    # Il limite al server (audit 2026-10-18): prima arrivavano tutte le run e se
+    # ne tenevano 10. Un server di prima lo ignora, e il taglio resta.
+    runs = api(ctx).get("/api/runs", limit=max(1, min(limit, 1000)))[:limit]
     emit(state(ctx), runs, lambda data: table(
         ["ID", "Type", "Started", "Finished", "Scanned", "Matches", "Review", "Errors"],
         [(r["id"], r["run_type"], r["started_at"], r.get("finished_at") or "running", r["items_scanned"],
