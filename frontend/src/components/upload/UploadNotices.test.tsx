@@ -69,4 +69,21 @@ describe('UploadNotices', () => {
     expect(get.mock.calls[1][1]).toEqual({ params: { query: { after: 42 } } })
     expect(toast).toHaveBeenCalledTimes(1)
   })
+
+  it('does not show again a notice still in the cache when it mounts again', async () => {
+    localStorage.setItem('nazgarr-upload-notice', '41')
+    const notice = { id: 42, upload_id: 7, kind: 'ready', title: 'My Movie', year: 2024, path: 'releases/My.Movie.mkv' }
+    get.mockResolvedValueOnce({ notices: [notice], latest_id: 42 })
+    get.mockResolvedValue({ notices: [], latest_id: 42 })
+    const client = new QueryClient()
+    const first = renderIt(client)
+    await waitFor(() => expect(toast).toHaveBeenCalledTimes(1))
+    first.unmount()
+
+    // Es. dopo una sessione scaduta: la risposta con l'avviso è ancora in cache.
+    renderIt(client)
+    await waitFor(() => expect(get).toHaveBeenCalledTimes(2))
+    expect(get.mock.calls[1][1]).toEqual({ params: { query: { after: 42 } } })
+    expect(toast).toHaveBeenCalledTimes(1)
+  })
 })

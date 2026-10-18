@@ -48,8 +48,12 @@ export function UploadNotices() {
 
   useEffect(() => {
     if (!data) return
+    // La cache tiene l'ultima risposta (il cursore non è nella chiave): un
+    // rimontaggio (sessione scaduta, nuovo login) la rilegge con `shown`
+    // vuoto, e senza questo controllo rimostrava un avviso già visto.
+    const cursor = after.current
     for (const notice of data.notices) {
-      if (shown.current.has(notice.id)) continue
+      if (shown.current.has(notice.id) || (cursor != null && notice.id <= cursor)) continue
       shown.current.add(notice.id)
       const name = notice.title ? `${notice.title}${notice.year ? ` (${notice.year})` : ''}` : notice.path
       toast(t(`upload.notice.${notice.kind}`), {
