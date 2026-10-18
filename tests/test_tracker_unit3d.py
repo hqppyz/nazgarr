@@ -553,3 +553,23 @@ def test_a_download_link_with_an_invalid_host_label_is_an_upload_error():
         with pytest.raises(UploadError, match="Invalid host"):
             adapter.download_torrent(link)
     assert seen == []
+
+
+@pytest.mark.parametrize("bad", [-30, -1, 0])
+def test_a_rate_limit_below_one_still_lets_requests_through_one_per_minute(bad):
+    """Audit 2026-10-18: con un rate limit negativo salvato sul tracker ogni
+    wait() sollevava IndexError, e ogni ricerca di quel tracker falliva."""
+    from nazgarr.adapters.tracker import base
+    from nazgarr.adapters.tracker.base import _RateLimiter
+
+    limiter = _RateLimiter(bad)
+    waits = []
+    limiter.wait(waits.append)
+    limiter.wait(waits.append)
+    assert limiter.max_per_min == 1 and len(waits) == 1  # la seconda aspetta la finestra
+
+    try:
+        shared = base._shared_limiter("https://neg.example", 30)
+        assert base._shared_limiter("https://neg.example", bad) is shared and shared.max_per_min == 1
+    finally:
+        base.reset_shared_state()
