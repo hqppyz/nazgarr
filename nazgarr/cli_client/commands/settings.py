@@ -66,6 +66,8 @@ def set_setting(
     yes: bool = typer.Option(False, "--yes", "-y", help="Do not ask for confirmation (safety settings)."),
 ):
     """Change one setting. Secrets and safety settings ask for your password."""
+    if key in catalog.MANAGED:
+        raise fail(f"{key} is not changed with settings set: use {catalog.MANAGED[key]}.", EXIT_USAGE)
     entry = catalog.BY_KEY.get(key)
     is_secret = (entry is not None and entry.kind == "secret") or any(w in key for w in catalog.SECRET_WORDS)
     if is_secret:

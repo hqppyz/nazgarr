@@ -8,9 +8,12 @@ x == "true" dall'altra).
 - validate controlla e normalizza un valore prima di salvarlo
   (PUT /api/settings/{key}): una soglia fuori da 0-1 o un "yes" al posto di
   true non arrivano più al DB. Le chiavi che non sono qui (dinamiche: host
-  di immagini, plugin; o solo dell'interfaccia) passano com'erano.
+  di immagini, plugin; o solo dell'interfaccia) passano com'erano, entro
+  MAX_VALUE_LENGTH caratteri.
 - SAFETY_KEYS: le protezioni, che una API key legge ma non cambia
   (nazgarr/api/settings.py) e che il CLI chiede con la password.
+- MANAGED_KEYS: le chiavi che hanno un endpoint proprio o sono stato
+  interno, che l'API generica non scrive mai (audit 2026-10-18).
 """
 
 from dataclasses import dataclass
@@ -67,6 +70,30 @@ _SPECS = [
 REGISTRY: dict[str, SettingSpec] = {spec.key: spec for spec in _SPECS}
 SAFETY_KEYS = frozenset(spec.key for spec in _SPECS if spec.safety)
 
+# Chiavi con un endpoint proprio o di stato interno: PUT /api/settings/{key}
+# le rifiuta (setting_protected), da chiunque. Scritte da lì saltavano i
+# controlli del loro endpoint: un schedule_cron non valido (o un canary
+# rovinato) fermava l'avvio successivo, e si riparava solo a mano nel DB
+# (audit 2026-10-18). Ognuna è la costante del suo modulo
+# (tests/test_api_settings.py lo controlla). Una lista di esclusione, non di
+# ammissione: le chiavi dinamiche (plugin, host di immagini, interfaccia)
+# devono passare.
+MANAGED_KEYS = frozenset({
+    "schedule_cron",  # PUT /api/schedule: lo valida e riprogramma il job (nazgarr/scheduler.py)
+    "app_secret_key_canary",  # il controllo di APP_SECRET_KEY all'avvio (nazgarr/core/startup_checks.py)
+    "plugins_disabled",  # PUT /api/plugins/{name}/enabled (nazgarr/plugins/switch.py)
+    "release_notes_seen",  # POST /api/system/release-notes/seen (nazgarr/core/updates.py)
+    "update_check_last",  # l'esito del controllo degli aggiornamenti (idem)
+    "identity_rules_version",  # nazgarr/library/resolution.py
+    "instance_name",  # PUT /api/instances/local
+    "upload_file_naming_rules",  # PUT /api/uploads/file-naming
+    "not_imported_status",  # nazgarr/library/not_imported.py
+})
+
+# Un valore libero (una chiave non nel registro) non serve più lungo di così:
+# il più lungo della UI è una firma o un elenco di esclusioni.
+MAX_VALUE_LENGTH = 100_000
+
 _TRUE = ("true", "yes", "on", "1")
 _FALSE = ("false", "no", "off", "0")
 
@@ -74,7 +101,7 @@ _FALSE = ("false", "no", "off", "0")
 class SettingValueError(ValueError):
     """Un valore non valido per una chiave nota; code per il messaggio tradotto."""
 
-    def __init__(self, key: str, spec: SettingSpec):
+    def __init__(self, key: str, spec: SettingSpec | None):
         super().__init__(key)
         self.key, self.spec = key, spec
 
@@ -85,6 +112,8 @@ def validate(key: str, value: str) -> str:
     SettingValueError."""
     spec = REGISTRY.get(key)
     if spec is None:
+        if len(value) > MAX_VALUE_LENGTH:
+            raise SettingValueError(key, None)
         return value
     text = value.strip()
     if text == "":

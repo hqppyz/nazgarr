@@ -65,6 +65,21 @@ CATALOG = [
 ]
 
 BY_KEY = {s.key: s for s in CATALOG}
+
+# Le chiavi che PUT /api/settings/{key} non scrive mai (MANAGED_KEYS in
+# nazgarr/core/settings_registry.py, un test controlla che siano le stesse):
+# dove si cambiano invece.
+MANAGED = {
+    "schedule_cron": "nazgarr schedule set",
+    "upload_file_naming_rules": "Settings › Upload › File names in the web UI",
+    "instance_name": "Settings › Instances in the web UI",
+    "plugins_disabled": "Settings › Plugins in the web UI",
+    "app_secret_key_canary": "nothing: Nazgarr keeps it itself",
+    "release_notes_seen": "nothing: Nazgarr keeps it itself",
+    "update_check_last": "nothing: Nazgarr keeps it itself",
+    "identity_rules_version": "nothing: Nazgarr keeps it itself",
+    "not_imported_status": "nothing: Nazgarr keeps it itself",
+}
 SECRET_WORDS = ("api_key", "token", "password", "secret", "cookie")
 
 

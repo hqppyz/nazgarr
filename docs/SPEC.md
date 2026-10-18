@@ -316,6 +316,7 @@ Inherits ratio-guardian §9-11 in full:
 - Forced recheck, never skipped.
 - Periodic reconciliation of recheck status (async on the client).
 - Bulk import mode (one-off full scan) + scheduled run (cron configurable from the UI), both on the same engine.
+- **The scheduled run** (audit 2026-10-18): a slot missed while the process was suspended (host sleep, `docker pause`, a frozen VM) runs once when it wakes up (`misfire_grace_time=None`, with `coalesce`); APScheduler's default grace of 1 s dropped it until the next day. A restart over the slot is still not caught up (the jobs live in memory). A stored cron that does not parse never stops the start: it is logged as an error and the app starts without a scheduled scan until a new cron is saved (`PUT /api/schedule`, the only way to write it).
 
 ## 9. Upload: creating and publishing a new torrent
 
@@ -527,6 +528,7 @@ The mandatory login (user decision, 2026-10-01) and the rules above are unchange
 - **Browser cache.** `index.html` is always revalidated (`no-cache`); the content-hashed files under `/assets` are cached for a year (`immutable`).
 - **File permissions.** No process-wide `umask 077` any more: the data folder is `0700` and the database `0600` at every start, and the container's umask comes from `UMASK` (default `022`). Folders Nazgarr creates on the disks (`hardlinks.make_dirs`: seeding folders of reseeds and uploads, folders made from the disk browser) get at least the permissions, and the group, of the folder they are created in, so a torrent client running as another user of the same group can enter them. Permissions are only ever added, and Nazgarr always keeps `rwx` on its own folders; under a parent whose mode bits are all zero (an ACL-managed share, e.g. Synology or a TrueNAS NFSv4 dataset) the mode is left to the inherited ACL.
 - **Logs.** uvicorn's access log goes through the same redaction as the rest (a `?token=` webhook password no longer appears in clear).
+- **Settings.** `PUT /api/settings/{key}` refuses, to everyone, the keys that have their own endpoint or are internal state (`setting_protected`, `settings_registry.MANAGED_KEYS`): `schedule_cron`, the `APP_SECRET_KEY` canary, the plugin switch, the file naming rules of uploads, the instance name, the update check and release notes state, the not-imported status and the identity rules version. Written from there they skipped their own checks: a bad cron stopped the next start, and only an edit of the SQLite file brought the app back. They can still be read. A free value (a key not in the registry) is at most 100,000 characters. Only the value of a secret key is ever decrypted (an `enc:` value on any other key broke every read of it), and a new secret is always encrypted, also when it starts with `enc:`. The CLI refuses those keys in `settings set` and `config import` and says where they are changed.
 
 ## 11. Tech stack
 

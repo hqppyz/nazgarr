@@ -202,6 +202,19 @@ def test_safety_settings_ask_before_changing(cli_env, client, capsys):
     assert code == 2 and "never passed as arguments" in err
 
 
+def test_keys_with_their_own_command_are_not_set_as_settings(cli_env, client, capsys):
+    """Un schedule_cron salvato da settings set saltava la validazione e
+    fermava l'avvio successivo (audit 2026-10-18)."""
+    _login(capsys)
+    code, _out, err = run(capsys, "settings", "set", "schedule_cron", "every night")
+    assert code == 2 and "nazgarr schedule set" in err
+    file = cli_env / "nazgarr.yaml"
+    file.write_text("version: 1\nsettings:\n  schedule_cron: '0 3 * * *'\n")
+    code, _out, err = run(capsys, "config", "import", str(file), "--yes")
+    assert code == 2 and "schedule:" in err
+    assert client.get("/api/schedule").json()["enabled"] is False
+
+
 def test_config_export_and_import(cli_env, client, capsys, monkeypatch):
     import yaml
 

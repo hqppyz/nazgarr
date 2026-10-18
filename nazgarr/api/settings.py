@@ -1,6 +1,8 @@
 """API generica per app_settings (docs/SPEC.md — key/value libero, es.
-tmdb_api_key). Non specifica per il resolver: qualunque chiave futura
-(soglie di confidence, cron dello scheduler) passa da qui."""
+tmdb_api_key). Non specifica per il resolver: le soglie, le opzioni e le
+chiavi dei plugin passano da qui. Non le chiavi con un endpoint proprio o di
+stato interno (settings_registry.MANAGED_KEYS: il cron dello scheduler, il
+canary, le regole dei nomi, ...), che da qui non si scrivono."""
 
 import re
 
@@ -50,10 +52,11 @@ _AUTH = re.compile(r"^auth_")
 _SECRET = settings_repo.SECRET_KEY
 
 
-
-
 def _check_access(request: Request, key: str) -> None:
     if _AUTH.match(key):
+        raise HTTPException(status_code=403, detail=coded_detail("setting_protected", key=key))
+    # Si leggono, ma si scrivono solo dal loro endpoint (audit 2026-10-18).
+    if request.method != "GET" and key in settings_registry.MANAGED_KEYS:
         raise HTTPException(status_code=403, detail=coded_detail("setting_protected", key=key))
     by_api_key = getattr(request.state, "api_key_id", None) is not None
     if by_api_key and _SECRET.search(key):

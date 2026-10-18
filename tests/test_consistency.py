@@ -133,3 +133,10 @@ def test_the_cli_and_the_api_agree_on_the_protected_settings():
     from nazgarr.core.settings_registry import SAFETY_KEYS
 
     assert {s.key for s in CATALOG if s.safety} == SAFETY_KEYS
+
+
+def test_the_cli_knows_which_settings_have_their_own_endpoint():
+    from nazgarr.cli_client.settings_catalog import MANAGED
+    from nazgarr.core.settings_registry import MANAGED_KEYS
+
+    assert set(MANAGED) == MANAGED_KEYS

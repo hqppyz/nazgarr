@@ -363,6 +363,10 @@ def _plan_arr(plan: Planner, wanted: dict) -> None:
 
 def _plan_settings(plan: Planner, wanted: dict, schedule) -> None:
     client = plan.client
+    managed = sorted(set(wanted or {}) & set(catalog.MANAGED))
+    if managed:
+        hint = "put the cron under schedule:" if managed == ["schedule_cron"] else f"use {catalog.MANAGED[managed[0]]}"
+        raise fail(f"settings: {', '.join(managed)} cannot be set here ({hint}).", EXIT_USAGE)
     for key, value in (wanted or {}).items():
         value = catalog.normalize(key, str(value).lower() if isinstance(value, bool) else str(value))
         privileged = catalog.needs_login(key, writing=True)

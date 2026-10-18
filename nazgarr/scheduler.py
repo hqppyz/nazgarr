@@ -48,6 +48,15 @@ def _run_scheduled(session_factory: sessionmaker, data_dir: str) -> None:
         session.close()
 
 
+# Un'ora del cron passata mentre il processo era fermo (l'host in sospensione,
+# docker pause, una VM congelata): APScheduler la scarta se il ritardo supera
+# misfire_grace_time, di default 1 secondo, e la scansione del giorno saltava
+# fino al giorno dopo. None: un'ora persa gira una volta al risveglio (con
+# coalesce, una sola anche se ne ha perse più d'una; audit 2026-10-18).
+# Un riavvio a cavallo dell'ora resta scoperto: i job vivono in memoria.
+_JOB_DEFAULTS = {"misfire_grace_time": None}
+
+
 def _add_job(scheduler: BackgroundScheduler, cron_expr: str, session_factory: sessionmaker, data_dir: str) -> None:
     scheduler.add_job(
         _run_scheduled,
@@ -57,6 +66,7 @@ def _add_job(scheduler: BackgroundScheduler, cron_expr: str, session_factory: se
         replace_existing=True,
         max_instances=1,
         coalesce=True,
+        misfire_grace_time=None,
     )
 
 
@@ -191,11 +201,22 @@ def add_watch_job(scheduler: BackgroundScheduler, session_factory: sessionmaker,
 
 
 def build_scheduler(session_factory: sessionmaker, data_dir: str) -> BackgroundScheduler:
-    scheduler = BackgroundScheduler()
+    scheduler = BackgroundScheduler(job_defaults=_JOB_DEFAULTS)
     with session_factory() as session:
         cron_expr = settings_repo.get_setting(session, SETTING_KEY)
     if cron_expr:
-        _add_job(scheduler, cron_expr, session_factory, data_dir)
+        try:
+            _add_job(scheduler, cron_expr, session_factory, data_dir)
+        except ValueError:
+            # Un cron salvato che non si legge (scritto prima che l'API
+            # generica lo rifiutasse, o a mano nel DB) non deve fermare
+            # l'avvio: prima l'eccezione usciva dalla lifespan, e supervisord
+            # riavviava in loop un processo che non partiva mai, senza
+            # un'interfaccia per correggerlo (audit 2026-10-18). Si parte
+            # senza scansioni pianificate; da Impostazioni se ne salva uno
+            # nuovo (PUT /api/schedule).
+            logger.exception("Il cron delle scansioni salvato (%r) non è valido: nessuna scansione pianificata",
+                             cron_expr)
     scheduler.add_job(
         _reconcile_between_runs, IntervalTrigger(seconds=RECONCILE_INTERVAL_SECONDS),
         args=[session_factory], id=RECONCILE_JOB_ID, replace_existing=True, max_instances=1, coalesce=True,
