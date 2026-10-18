@@ -214,3 +214,18 @@ def test_stop_pauses_the_torrent():
     _adapter(mock).stop("H1")
 
     assert mock.called("core.pause_torrent") == [[["h1"]]]
+
+
+def test_a_reseed_is_added_paused_and_rechecked_then_resumed_on_request():
+    # Decisione dell'utente, 2026-10-18: force_recheck di Deluge controlla
+    # anche un torrent in pausa e lo rimette in pausa dopo.
+    mock = _DelugeMock()
+    adapter = _adapter(mock)
+
+    adapter.add_torrent("magnet:?x", save_path="/d", stopped=True)
+
+    assert DelugeAdapter.can_add_stopped is True
+    assert mock.called("core.add_torrent_magnet")[0][1]["add_paused"] is True
+    assert mock.called("core.force_recheck") == [[["abc123"]]] and not mock.called("core.resume_torrent")
+    adapter.start("ABC123")
+    assert mock.called("core.resume_torrent") == [[["abc123"]]]

@@ -22,6 +22,8 @@ Verificato contro un'istanza reale (lscr.io/linuxserver/deluge, Deluge
 - L'opzione `download_location` è la save path, passata così com'è.
 - Recheck: `core.force_recheck`. skip_check_verified usa `seed_mode` di
   libtorrent (Deluge 2): il torrent entra già completo, senza recheck.
+- stopped (un reseed): `add_paused`; force_recheck lo avvia per il
+  controllo e lo rimette in pausa dopo, `core.resume_torrent` lo avvia.
 - Etichette: categoria = label del plugin Label, solo se il plugin è acceso
   (Nazgarr non accende plugin del client). Le label di Deluge sono in
   minuscolo ([a-z0-9_-]); una label che non c'è si crea. Deluge non ha tag:
@@ -69,6 +71,8 @@ class DelugeError(Exception):
 
 
 class DelugeAdapter(TorrentClientAdapter):
+    can_add_stopped = True
+
     def __init__(
         self,
         base_url: str,
@@ -142,6 +146,7 @@ class DelugeAdapter(TorrentClientAdapter):
         self, torrent_file_or_url: str, save_path: str, force_recheck: bool = True,
         expected_info_hash: str | None = None, skip_check_verified: bool = False,
         category: str | None = None, tags: list[str] | None = None, content_layout: str = "Original",
+        stopped: bool = False,
     ) -> str:
         require_recheck(force_recheck)
         before = self._hashes()
@@ -150,7 +155,11 @@ class DelugeAdapter(TorrentClientAdapter):
             raise TorrentAlreadyInClientError(
                 f"Torrent {expected} is already in the client (possibly with another save path): nothing added"
             )
-        options = {"download_location": save_path, "add_paused": False, "seed_mode": bool(skip_check_verified)}
+        # Fermo per un reseed: force_recheck di Deluge avvia il torrent per il
+        # controllo e lo rimette in pausa dopo, se lo era (core.resume_torrent
+        # lo fa partire al recheck riuscito).
+        options = {"download_location": save_path, "add_paused": bool(stopped),
+                   "seed_mode": bool(skip_check_verified)}
         content = local_torrent_bytes(torrent_file_or_url)
         try:
             if content is not None:
@@ -204,6 +213,10 @@ class DelugeAdapter(TorrentClientAdapter):
 
     def recheck(self, info_hash: str) -> None:
         self._call("core.force_recheck", [info_hash.lower()])
+
+    def start(self, info_hash: str) -> None:
+        # Una lista, come stop: Deluge 1.3 vuole una lista, il 2 accetta entrambi.
+        self._call("core.resume_torrent", [info_hash.lower()])
 
     def stop(self, info_hash: str) -> None:
         # Una lista, come force_recheck: Deluge 1.3 vuole una lista, il 2 accetta entrambi.

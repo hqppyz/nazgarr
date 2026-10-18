@@ -32,9 +32,11 @@ solo, execute.*). Quindi:
 - Un .torrent locale va col suo contenuto (`load.raw`, i byte del file),
   mai col percorso: il client non vede la cartella dati di Nazgarr. Un URL
   (http/https/magnet) resta un URL (`load.normal`), lo scarica rTorrent.
-- Il torrent entra fermo, poi il recheck (`d.check_hash`) e `d.start`. La
-  save path è passata così com'è: per un torrent multi-file rTorrent ci
-  aggiunge la cartella del torrent, come qBittorrent.
+- Il torrent entra fermo, poi il recheck (`d.check_hash`) e `d.start`,
+  tranne con stopped (un reseed): resta fermo dopo il recheck, e `d.start`
+  arriva con start() quando è riuscito. La save path è passata così com'è:
+  per un torrent multi-file rTorrent ci aggiunge la cartella del torrent,
+  come qBittorrent.
 - L'hash si trova nell'elenco (`download_list`), atteso o per differenza,
   come negli altri adapter. rTorrent usa hash maiuscoli: l'adapter li
   restituisce in minuscolo e li rimette maiuscoli nelle chiamate.
@@ -121,6 +123,7 @@ def _state(row: dict) -> str:
 
 class RTorrentAdapter(TorrentClientAdapter):
     can_skip_recheck = False
+    can_add_stopped = True
 
     def __init__(
         self,
@@ -155,6 +158,7 @@ class RTorrentAdapter(TorrentClientAdapter):
         self, torrent_file_or_url: str, save_path: str, force_recheck: bool = True,
         expected_info_hash: str | None = None, skip_check_verified: bool = False,
         category: str | None = None, tags: list[str] | None = None, content_layout: str = "Original",
+        stopped: bool = False,
     ) -> str:
         require_recheck(force_recheck)
         before = {h.lower() for h in self._hashes()}
@@ -186,8 +190,12 @@ class RTorrentAdapter(TorrentClientAdapter):
         target = info_hash.upper()
         # Sempre, anche con skip_check_verified: rTorrent non sa saltarlo.
         self._call("d.check_hash", target)
-        self._call("d.start", target)
+        if not stopped:  # un reseed resta fermo, start() dopo il recheck riuscito
+            self.start(info_hash)
         return info_hash
+
+    def start(self, info_hash: str) -> None:
+        self._call("d.start", info_hash.upper())
 
     def recheck(self, info_hash: str) -> None:
         self._call("d.check_hash", info_hash.upper())

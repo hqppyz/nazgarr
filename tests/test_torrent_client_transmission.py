@@ -170,3 +170,24 @@ def test_stop_stops_the_torrent():
     _adapter(mock).stop("H1")
 
     assert mock.calls[-1] == {"method": "torrent-stop", "arguments": {"ids": ["h1"]}}
+
+
+def test_a_reseed_is_added_paused_and_verified_then_started_on_request():
+    # Decisione dell'utente, 2026-10-18: torrent-verify controlla anche un
+    # torrent fermo, che resta fermo finché non parte con torrent-start.
+    mock = _TransmissionMock()
+    adapter = _adapter(mock)
+
+    adapter.add_torrent("magnet:?x", save_path="/d", stopped=True)
+
+    add = next(c["arguments"] for c in mock.calls if c["method"] == "torrent-add")
+    assert TransmissionAdapter.can_add_stopped is True and add["paused"] is True
+    assert mock.methods() == ["torrent-add", "torrent-verify"]
+    adapter.start("ABC123")
+    assert mock.calls[-1] == {"method": "torrent-start", "arguments": {"ids": ["abc123"]}}
+
+
+def test_an_upload_is_added_running():
+    mock = _TransmissionMock()
+    _adapter(mock).add_torrent("magnet:?x", save_path="/d")
+    assert next(c["arguments"] for c in mock.calls if c["method"] == "torrent-add")["paused"] is False

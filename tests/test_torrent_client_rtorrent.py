@@ -303,3 +303,18 @@ def test_a_torrent_gone_during_the_index_fails_it_instead_of_a_partial_list():
     mock._dispatch = dispatch
     with pytest.raises(xmlrpc.client.Fault):
         _adapter(mock).list_torrents()
+
+
+def test_a_reseed_is_loaded_stopped_and_hashed_without_d_start(tmp_path):
+    # Decisione dell'utente, 2026-10-18: d.start solo con start(), a recheck riuscito.
+    path, torrent = _torrent_file(tmp_path)
+    mock = _RTorrentMock()
+    mock.on_load = torrent.infohash.upper()
+    adapter = _adapter(mock)
+
+    info_hash = adapter.add_torrent(str(path), save_path="/downloads", stopped=True)
+
+    assert RTorrentAdapter.can_add_stopped is True
+    assert [m for m, _ in mock.calls if m.startswith("d.")] == ["d.check_hash"]
+    adapter.start(info_hash)
+    assert mock.calls[-1] == ("d.start", (torrent.infohash.upper(),))

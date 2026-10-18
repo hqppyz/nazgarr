@@ -21,6 +21,8 @@ Transmission 4.1.3, RPC 19): tests/integration/test_real_clients.py.
   (`torrent-duplicate`, che diventa TorrentAlreadyInClientError). L'hash si
   conferma comunque sulla lista, atteso o per differenza, come negli altri
   adapter.
+- Fermo con `paused` (un reseed, che parte dopo il recheck riuscito con
+  `torrent-start`), altrimenti avviato.
 - Recheck: `torrent-verify` subito dopo l'aggiunta. Transmission non ha un
   modo per aggiungere un torrent già completo senza verificarlo
   (can_skip_recheck = False): skip_check_verified non salta niente, il
@@ -84,6 +86,7 @@ def _state(torrent: dict) -> str:
 
 class TransmissionAdapter(TorrentClientAdapter):
     can_skip_recheck = False
+    can_add_stopped = True
 
     def __init__(
         self,
@@ -137,6 +140,7 @@ class TransmissionAdapter(TorrentClientAdapter):
         self, torrent_file_or_url: str, save_path: str, force_recheck: bool = True,
         expected_info_hash: str | None = None, skip_check_verified: bool = False,
         category: str | None = None, tags: list[str] | None = None, content_layout: str = "Original",
+        stopped: bool = False,
     ) -> str:
         require_recheck(force_recheck)
         before = self._hashes()
@@ -145,7 +149,9 @@ class TransmissionAdapter(TorrentClientAdapter):
             raise TorrentAlreadyInClientError(
                 f"Torrent {expected} is already in the client (possibly with another save path): nothing added"
             )
-        arguments: dict = {"download-dir": save_path, "paused": False}
+        # Fermo per un reseed: torrent-verify controlla anche un torrent
+        # fermo, che resta fermo dopo (torrent-start lo avvia).
+        arguments: dict = {"download-dir": save_path, "paused": bool(stopped)}
         content = local_torrent_bytes(torrent_file_or_url)
         if content is not None:
             arguments["metainfo"] = base64.b64encode(content).decode("ascii")
@@ -171,6 +177,9 @@ class TransmissionAdapter(TorrentClientAdapter):
 
     def recheck(self, info_hash: str) -> None:
         self._rpc("torrent-verify", {"ids": [info_hash.lower()]})
+
+    def start(self, info_hash: str) -> None:
+        self._rpc("torrent-start", {"ids": [info_hash.lower()]})
 
     def stop(self, info_hash: str) -> None:
         self._rpc("torrent-stop", {"ids": [info_hash.lower()]})

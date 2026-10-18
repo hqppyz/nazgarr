@@ -58,6 +58,8 @@ FILE_WORKERS = 4
 
 
 class QBittorrentAdapter(TorrentClientAdapter):
+    can_add_stopped = True
+
     def __init__(
         self,
         base_url: str,
@@ -95,6 +97,7 @@ class QBittorrentAdapter(TorrentClientAdapter):
         self, torrent_file_or_url: str, save_path: str, force_recheck: bool = True,
         expected_info_hash: str | None = None, skip_check_verified: bool = False,
         category: str | None = None, tags: list[str] | None = None, content_layout: str = "Original",
+        stopped: bool = False,
     ) -> str:
         require_recheck(force_recheck)
 
@@ -119,10 +122,15 @@ class QBittorrentAdapter(TorrentClientAdapter):
             is_skip_checking=skip_check_verified,
             use_auto_torrent_management=False,
             content_layout=content_layout,
-            # Avviato e senza condizione di arresto, qualunque cosa dicano le
-            # preferenze del client ("non avviare automaticamente", "fermati
-            # dopo il controllo dei file"): un reseed o un upload deve seedare.
-            is_stopped=False,
+            # Fermo solo se lo chiede il chiamante (un reseed, che parte dopo
+            # il recheck riuscito): il recheck di un torrent fermo qBittorrent
+            # lo fa lo stesso, avviandolo per il controllo e fermandolo dopo.
+            # Altrimenti avviato e senza condizione di arresto, qualunque
+            # cosa dicano le preferenze ("non avviare automaticamente",
+            # "fermati dopo il controllo dei file"): un upload deve seedare.
+            # qbittorrent-api manda sia "stopped" (WebUI API 2.11+) sia
+            # "paused" (qBittorrent 4).
+            is_stopped=stopped,
             stop_condition="None",
             **({"category": category} if category else {}),
             **({"tags": ",".join(tags)} if tags else {}),
@@ -131,7 +139,8 @@ class QBittorrentAdapter(TorrentClientAdapter):
                                   self.poll_timeout, "qBittorrent")
         if not skip_check_verified:
             self._client.torrents_recheck(torrent_hashes=info_hash)
-        self.start(info_hash)  # una versione che ignora "stopped" all'aggiunta
+        if not stopped:
+            self.start(info_hash)  # una versione che ignora "stopped" all'aggiunta
         return info_hash
 
     def start(self, info_hash: str) -> None:

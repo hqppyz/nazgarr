@@ -218,8 +218,56 @@ def test_recheck_really_reads_the_data(workspace):
 
 
 @pytest.mark.parametrize("workspace", list(CLIENTS), indirect=True)
+def test_a_reseed_added_stopped_is_rechecked_and_starts_only_when_asked(workspace):
+    """Decisione dell'utente, 2026-10-18 (reconcile_seed_job): un reseed entra
+    fermo, il client fa comunque il recheck (Deluge lo avvia per il
+    controllo e lo rimette in pausa, Transmission e rTorrent controllano un
+    torrent fermo), resta fermo dopo, e parte con start()."""
+    ws = workspace
+    adapter = _adapter(ws.name)
+    source = _payload_single(ws)
+    torrent_path, torrent = _make_torrent(ws, source)
+    assert adapter.can_add_stopped
+
+    info_hash = adapter.add_torrent(torrent_path, save_path=CLIENT_ROOT, stopped=True)
+
+    try:
+        status, seen = _settled(adapter, info_hash)
+        assert status.recheck_status == "ok" and status.progress == pytest.approx(1.0), seen
+        assert is_stopped_state(status.state), seen
+        adapter.start(info_hash)
+        started = _wait(lambda: not is_stopped_state(adapter.get_torrent_status(info_hash).state), timeout=30)
+        assert started, adapter.get_torrent_status(info_hash).state
+    finally:
+        adapter.remove_torrent(info_hash, delete_files=True)
+
+
+@pytest.mark.parametrize("workspace", list(CLIENTS), indirect=True)
+def test_a_reseed_with_wrong_data_stays_stopped_after_its_recheck(workspace):
+    """Il caso che la decisione chiude: con un recheck fallito il torrent
+    resta fermo, e non scarica niente dentro gli hardlink della libreria."""
+    ws = workspace
+    adapter = _adapter(ws.name)
+    source = _payload_single(ws)
+    torrent_path, torrent = _make_torrent(ws, source)
+    with open(source, "r+b") as f:  # stessa dimensione, contenuto diverso
+        f.write(os.urandom(300_000))
+
+    info_hash = adapter.add_torrent(torrent_path, save_path=CLIENT_ROOT, stopped=True)
+
+    try:
+        status, seen = _settled(adapter, info_hash)
+        assert status.recheck_status == "failed" and status.incomplete, seen
+        time.sleep(3)  # nessun avvio dopo il controllo
+        assert is_stopped_state(adapter.get_torrent_status(info_hash).state), seen
+    finally:
+        adapter.remove_torrent(info_hash, delete_files=True)
+
+
+@pytest.mark.parametrize("workspace", list(CLIENTS), indirect=True)
 def test_stop_after_a_failed_recheck(workspace):
-    """Il caso di reconcile_seed_job: un recheck fallito si ferma, così il
+    """Il caso di reconcile_seed_job per un torrent aggiunto avviato (un
+    plugin senza can_add_stopped): un recheck fallito si ferma, così il
     client non scarica i piece mancanti dentro gli hardlink della libreria.
     Per rTorrent anche attraverso ruTorrent, che rifiuta alcuni comandi di
     scrittura (docs/SPEC.md §5)."""

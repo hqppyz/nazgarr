@@ -368,3 +368,17 @@ def test_status_and_count_ignore_the_case_of_the_hash():
 
     assert adapter.get_torrent_status("abcdef").recheck_status == "ok"
     assert adapter.count_torrents() == 1
+
+
+def test_a_reseed_is_added_paused_and_rechecked_never_resumed():
+    # Decisione dell'utente, 2026-10-18: parte solo a recheck riuscito.
+    mock = _QuiMock()
+    adapter = _adapter(mock)
+
+    info_hash = adapter.add_torrent("magnet:?xt=...", save_path="/torrents/movie", stopped=True)
+
+    assert QuiTorrentClientAdapter.can_add_stopped is True
+    assert b'name="paused"\r\n\r\ntrue' in mock.bodies[0]
+    assert mock.bulk_actions == [{"hashes": [info_hash], "action": "recheck"}]
+    adapter.start(info_hash)
+    assert mock.bulk_actions[-1] == {"hashes": [info_hash], "action": "resume"}

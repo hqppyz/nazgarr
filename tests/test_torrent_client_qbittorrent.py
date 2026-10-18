@@ -353,3 +353,19 @@ def test_the_credentials_test_counts_torrents_without_their_files():
             raise AssertionError("file non richiesti per contare")
 
     assert _adapter(NoFiles(torrents=[FakeTorrent(hash="a"), FakeTorrent(hash="b")])).count_torrents() == 2
+
+
+def test_a_reseed_is_added_stopped_and_rechecked_never_started():
+    """Decisione dell'utente, 2026-10-18: un reseed entra fermo e parte solo
+    a recheck riuscito (nazgarr/reseed/executor.py::reconcile_seed_job); il
+    recheck c'è lo stesso, qBittorrent lo fa anche su un torrent fermo."""
+    client = FakeQbtClient()
+    adapter = _adapter(client)
+
+    info_hash = adapter.add_torrent("magnet:?xt=...", save_path="/torrents/movie", stopped=True)
+
+    assert QBittorrentAdapter.can_add_stopped is True
+    assert client.added_calls[0]["stopped"] is True and client.rechecked == [info_hash]
+    assert client.started == []
+    adapter.start(info_hash)
+    assert client.started == [info_hash]

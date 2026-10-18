@@ -62,6 +62,8 @@ DETAIL_WORKERS = 8
 
 
 class QuiTorrentClientAdapter(TorrentClientAdapter):
+    can_add_stopped = True
+
     def __init__(
         self,
         base_url: str,
@@ -124,6 +126,7 @@ class QuiTorrentClientAdapter(TorrentClientAdapter):
         self, torrent_file_or_url: str, save_path: str, force_recheck: bool = True,
         expected_info_hash: str | None = None, skip_check_verified: bool = False,
         category: str | None = None, tags: list[str] | None = None, content_layout: str = "Original",
+        stopped: bool = False,
     ) -> str:
         require_recheck(force_recheck)
 
@@ -146,9 +149,11 @@ class QuiTorrentClientAdapter(TorrentClientAdapter):
             "savepath": (None, save_path),
             "skip_checking": (None, "true" if skip_check_verified else "false"),
             "contentLayout": (None, content_layout),
-            # Avviato anche con "non avviare automaticamente" nelle preferenze
-            # del qBittorrent dietro (qui le confronta e lo forza se serve).
-            "paused": (None, "false"),
+            # Fermo per un reseed, che parte dopo il recheck riuscito (il
+            # qBittorrent dietro fa il recheck anche di un torrent fermo);
+            # altrimenti avviato anche con "non avviare automaticamente" nelle
+            # preferenze del qBittorrent dietro (qui le confronta e lo forza).
+            "paused": (None, "true" if stopped else "false"),
         }
         if category:
             files["category"] = (None, category)
@@ -166,7 +171,8 @@ class QuiTorrentClientAdapter(TorrentClientAdapter):
                                   self.poll_timeout, f"qui instance {self.instance_id}")
         if not skip_check_verified:
             self._bulk_action([info_hash], "recheck")
-        self.start(info_hash)
+        if not stopped:
+            self.start(info_hash)
         return info_hash
 
     def start(self, info_hash: str) -> None:

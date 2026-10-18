@@ -27,7 +27,7 @@ export const reseeding = {
   'reseeding.retryVerifying': 'Checking every piece first: it is added again only if the check passes.',
   'reseeding.retryFailed': 'Retry failed: {message}',
   'reseeding.executions': 'Executions',
-  'reseeding.executionsHint': 'Every approved match: hardlinks created and torrent added to the client, then the recheck outcome.',
+  'reseeding.executionsHint': 'Every approved match: hardlinks created and torrent added to the client, stopped until its recheck passes, then the outcome.',
   'reseeding.filter.all': 'All',
   'reseeding.filter.seeding': 'Seeding',
   'reseeding.filter.in_progress': 'In progress',

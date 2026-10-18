@@ -111,6 +111,12 @@ class TorrentClientAdapter(ABC):
     # (skip_check_verified). Transmission e rTorrent non lo sanno fare: lì il
     # recheck c'è sempre, e i chiamanti non registrano un recheck "saltato".
     can_skip_recheck: bool = True
+    # Se add_torrent sa aggiungere un torrent fermo (stopped=True) e start()
+    # lo avvia: un reseed entra fermo e parte solo dopo un recheck riuscito
+    # (decisione dell'utente, 2026-10-18). Ogni adapter incluso lo sa fare;
+    # un plugin scritto prima no (default False): i suoi reseed entrano
+    # avviati come prima, e un recheck fallito si ferma con stop().
+    can_add_stopped: bool = False
 
     def close(self) -> None:
         """Chiude le connessioni dell'adapter. Chi lo costruisce lo chiude
@@ -132,6 +138,7 @@ class TorrentClientAdapter(ABC):
         self, torrent_file_or_url: str, save_path: str, force_recheck: bool = True,
         expected_info_hash: str | None = None, skip_check_verified: bool = False,
         category: str | None = None, tags: list[str] | None = None, content_layout: str = "Original",
+        stopped: bool = False,
     ) -> str:
         """Aggiunge il torrent puntando a save_path (il file già hardlinkato,
         o già presente per la direzione torrent->client di SPEC.md sezione 3).
@@ -159,20 +166,32 @@ class TorrentClientAdapter(ABC):
         (CONTENT_LAYOUTS). Nazgarr lo passa sempre esplicito, così la
         preferenza globale del client non sposta i file da dove li ha messi
         lui; un client senza questa preferenza segue il .torrent, cioè
-        "Original", e può ignorarlo."""
+        "Original", e può ignorarlo.
+
+        stopped (solo con can_add_stopped): il torrent entra fermo, il
+        recheck forzato si fa lo stesso (qBittorrent, qui e Deluge lo
+        avviano per il controllo e lo rifermano dopo), e niente si scarica
+        né si condivide finché qualcuno non chiama start(). Lo chiede un
+        reseed (decisione dell'utente, 2026-10-18): i file a save_path sono
+        hardlink dei file in libreria, e un torrent avviato con un recheck
+        fallito ci scaricava dentro i piece che mancavano. Senza stopped
+        (un upload) il torrent parte, qualunque cosa dicano le preferenze
+        del client ("non avviare automaticamente", la condizione di arresto
+        "file controllati")."""
         raise NotImplementedError
 
     def start(self, info_hash: str) -> None:
-        """Avvia un torrent fermo. Un reseed o un upload deve condividere:
-        qBittorrent e qui, con "non avviare automaticamente" o la condizione
-        di arresto "file controllati", lo lascerebbero fermo dopo il recheck.
-        Default: niente, il client lo avvia da sé (Deluge, Transmission e
-        rTorrent lo aggiungono già avviato)."""
+        """Avvia un torrent fermo: un reseed aggiunto con stopped, quando il
+        suo recheck è riuscito (nazgarr/reseed/executor.py::reconcile_seed_job),
+        o un torrent che le preferenze del client hanno lasciato fermo.
+        Default: niente, per un plugin senza can_add_stopped, i cui torrent
+        partono da soli."""
 
     def stop(self, info_hash: str) -> None:
         """Ferma un torrent: niente download né upload finché non si riavvia.
-        Nazgarr lo chiama su un reseed il cui recheck è fallito (audit
-        2026-10-18): un torrent incompleto lasciato avviato scarica i piece
+        Nazgarr lo chiama su un reseed il cui recheck è fallito e che non è
+        fermo (audit 2026-10-18; un plugin senza can_add_stopped lo aggiunge
+        avviato): un torrent incompleto lasciato avviato scarica i piece
         che mancano e li scrive nei file a save_path, che per un reseed sono
         hardlink dei file in libreria, cioè gli stessi byte. Default: non
         supportato (un plugin scritto prima di stop): il seed job dice di
@@ -277,6 +296,22 @@ def layout_kwargs(adapter, layout: str) -> dict:
     except (TypeError, ValueError):
         accepted = False
     return {"content_layout": layout} if accepted else {}
+
+
+def stopped_kwargs(adapter) -> dict:
+    """stopped=True per add_torrent, solo se l'adapter sa aggiungere un
+    torrent fermo (can_add_stopped) e il suo add_torrent lo accetta: un
+    plugin che eredita da un adapter incluso e ridefinisce add_torrent senza
+    il parametro non lo riceve (e il suo torrent parte come prima). Un
+    add_torrent con **kwargs lo riceve: l'adapter ha detto di saperlo fare."""
+    if not getattr(adapter, "can_add_stopped", False):
+        return {}
+    try:
+        parameters = inspect.signature(adapter.add_torrent).parameters.values()
+    except (TypeError, ValueError):
+        return {}
+    accepted = any(p.name == "stopped" or p.kind is inspect.Parameter.VAR_KEYWORD for p in parameters)
+    return {"stopped": True} if accepted else {}
 
 
 def local_torrent_bytes(torrent_file_or_url: str) -> bytes | None:
