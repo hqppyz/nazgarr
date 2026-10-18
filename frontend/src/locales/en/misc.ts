@@ -13,6 +13,9 @@ export const misc = {
   'nav.configuration': 'Configuration',
   'misc.review': 'Review',
   'misc.schedule': 'Schedule',
+  // Un cron salvato che non si legge: nessuna scansione parte da sola (audit 2026-10-18).
+  'misc.scheduleInvalid': 'invalid',
+  'misc.scheduleInvalidDetail': 'The saved schedule "{cron}" cannot be read ({error}), so no scan runs on its own. Pick one of the choices or save a new cron.',
   'logs.levelVerbose': 'Verbose',
   'logs.levelInfo': 'Info',
   'logs.levelWarning': 'Warning',

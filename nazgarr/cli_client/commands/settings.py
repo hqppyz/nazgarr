@@ -106,8 +106,17 @@ def set_setting(
 def show_schedule(ctx: typer.Context):
     """The current schedule."""
     data = api(ctx).get("/api/schedule")
-    emit(state(ctx), data, lambda d: console.print(f"Scans run on their own: {d['cron']}" if d["enabled"]
-                                                   else "Scans run only when you start them."))
+
+    def render(d: dict) -> None:
+        if d.get("error"):
+            # Un cron salvato che non si legge: nessuna scansione parte (audit 2026-10-18).
+            err_console.print(f"[red]The saved schedule {d['cron']!r} cannot be read ({d['error']}):[/red] "
+                              "no scan runs on its own. Set a new one with `nazgarr schedule set`.")
+        else:
+            console.print(f"Scans run on their own: {d['cron']}" if d["enabled"]
+                          else "Scans run only when you start them.")
+
+    emit(state(ctx), data, render)
 
 
 @schedule_app.command("set")

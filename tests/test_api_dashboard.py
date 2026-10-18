@@ -57,14 +57,14 @@ def test_schedule_defaults_to_disabled(client):
     response = client.get("/api/schedule")
 
     assert response.status_code == 200
-    assert response.json() == {"cron": None, "enabled": False}
+    assert response.json() == {"cron": None, "enabled": False, "error": None}
 
 
 def test_schedule_put_valid_cron_enables_and_persists(client):
     response = client.put("/api/schedule", json={"cron": "0 3 * * *"})
 
     assert response.status_code == 200
-    assert response.json() == {"cron": "0 3 * * *", "enabled": True}
+    assert response.json() == {"cron": "0 3 * * *", "enabled": True, "error": None}
     assert client.get("/api/schedule").json()["enabled"] is True
     assert client.app.state.scheduler.get_job("scheduled_run") is not None
 
@@ -76,13 +76,29 @@ def test_schedule_put_invalid_cron_rejected(client):
     assert client.get("/api/schedule").json()["enabled"] is False
 
 
+def test_schedule_reports_a_stored_cron_that_does_not_parse(client):
+    """Un cron salvato a mano (o da una versione di prima) che APScheduler non
+    legge: all'avvio lo scheduler lo scarta, e la risposta non lo dà per
+    attivo ma dice perché (audit 2026-10-18)."""
+    from nazgarr.core import settings_repo
+
+    with client.app.state.session_factory() as session:
+        settings_repo.set_setting(session, "schedule_cron", "every night please")
+
+    body = client.get("/api/schedule").json()
+
+    assert body["cron"] == "every night please"
+    assert body["enabled"] is False
+    assert "fields" in body["error"]
+
+
 def test_schedule_put_empty_disables(client):
     client.put("/api/schedule", json={"cron": "0 3 * * *"})
 
     response = client.put("/api/schedule", json={"cron": ""})
 
     assert response.status_code == 200
-    assert response.json() == {"cron": None, "enabled": False}
+    assert response.json() == {"cron": None, "enabled": False, "error": None}
     assert client.app.state.scheduler.get_job("scheduled_run") is None
 
 
