@@ -32,6 +32,7 @@ class _RTorrentMock:
         self.calls: list[tuple] = []
         self.forms: list[dict] = []
         self.on_load = HASH
+        self.refuse_multicall = False
 
     def _dispatch(self, method, params):
         if method == "download_list":
@@ -42,11 +43,15 @@ class _RTorrentMock:
         if method == "d.multicall2":
             return [[r[f.rstrip("=")] for f in params[2:]] for r in self.rows.values()]
         if method == "system.multicall":
+            if self.refuse_multicall:
+                raise xmlrpc.client.Fault(-32601, "Method not allowed")
             out = []
             for call in params[0]:
                 row = self.rows.get(call["params"][0])
                 if row is None:
                     out.append({"faultCode": -501, "faultString": "Could not find info-hash."})
+                elif call["methodName"] in ("f.multicall", "t.multicall"):
+                    out.append([self._dispatch(call["methodName"], call["params"])])
                 else:
                     out.append([row[call["methodName"]]])
             return out
@@ -64,7 +69,10 @@ class _RTorrentMock:
             return httpx.Response(200, json=["", "0", "0"])
         params, method = xmlrpc.client.loads(request.content, use_builtin_types=True)
         self.calls.append((method, params))
-        body = xmlrpc.client.dumps((self._dispatch(method, params),), methodresponse=True, allow_none=True)
+        try:
+            body = xmlrpc.client.dumps((self._dispatch(method, params),), methodresponse=True, allow_none=True)
+        except xmlrpc.client.Fault as fault:
+            body = xmlrpc.client.dumps(fault, methodresponse=True)
         return httpx.Response(200, content=body.encode(), headers={"Content-Type": "text/xml"})
 
     def called(self, method):
@@ -240,3 +248,58 @@ def test_stop_stops_the_torrent():
     _adapter(mock).stop(HASH.lower())
 
     assert mock.calls == [("d.stop", (HASH,))]
+
+
+def _many(count):
+    hashes = [f"{i:040X}" for i in range(count)]
+    return _RTorrentMock(
+        rows=[_row(**{"d.hash": h, "d.name": f"M{i}.mkv"}) for i, h in enumerate(hashes)],
+        files={h: [{"f.path": f"M{i}.mkv", "f.size_bytes": i + 1}] for i, h in enumerate(hashes)},
+        trackers={h: [f"https://t{i}.example/announce"] for i, h in enumerate(hashes)},
+    ), hashes
+
+
+def test_the_index_asks_files_and_trackers_of_many_torrents_in_one_request():
+    """Prima due richieste per torrent (f.multicall e t.multicall): minuti per
+    migliaia di torrent dietro il PHP di ruTorrent (audit 2026-10-18)."""
+    from nazgarr.adapters.torrent_client import rtorrent
+
+    mock, hashes = _many(rtorrent.DETAIL_BATCH + 5)
+    progress = []
+
+    torrents = _adapter(mock).list_torrents(on_progress=lambda done, total: progress.append((done, total)))
+
+    assert [m for m, _ in mock.calls] == ["d.multicall2", "system.multicall", "system.multicall"]
+    assert [t.info_hash for t in torrents] == [h.lower() for h in hashes]
+    assert [(f.path_in_torrent, f.size_bytes) for f in torrents[7].files] == [("M7.mkv", 8)]
+    assert torrents[7].tracker_url == "https://t7.example/announce"
+    assert progress == [(rtorrent.DETAIL_BATCH, len(hashes)), (len(hashes), len(hashes))]
+    assert _adapter(mock).count_torrents() == len(hashes)
+
+
+def test_an_endpoint_without_system_multicall_falls_back_to_one_request_per_torrent():
+    mock, hashes = _many(3)
+    mock.refuse_multicall = True
+
+    torrents = _adapter(mock).list_torrents()
+
+    assert [t.tracker_url for t in torrents] == [f"https://t{i}.example/announce" for i in range(3)]
+    assert len(mock.called("f.multicall")) == 3 and len(mock.called("t.multicall")) == 3
+
+
+def test_a_torrent_gone_during_the_index_fails_it_instead_of_a_partial_list():
+    """Un elenco parziale toglierebbe dall'indice torrent che il client ha
+    (prune_missing_torrents): un errore su un torrent resta un errore."""
+    mock, hashes = _many(2)
+    real = mock._dispatch
+
+    def dispatch(method, params):
+        if method == "d.multicall2":
+            rows = real(method, params)
+            del mock.rows[hashes[1]]  # tolto dal client fra l'elenco e i dettagli
+            return rows
+        return real(method, params)
+
+    mock._dispatch = dispatch
+    with pytest.raises(xmlrpc.client.Fault):
+        _adapter(mock).list_torrents()

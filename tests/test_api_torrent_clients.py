@@ -64,6 +64,25 @@ def test_connection_test_reports_success(client, monkeypatch):
     assert response.json() == {"status": "ok", "torrents_found": 3, "error": None}
 
 
+def test_connection_test_only_counts_the_torrents(client, monkeypatch):
+    """La prova chiedeva i file di ogni torrent solo per contarli (audit
+    2026-10-18): con count_torrents una richiesta sola."""
+    tc_id = client.post(
+        "/api/torrent-clients", json={"label": "qbt", "adapter_type": "qbittorrent", "base_url": "http://qbt"}
+    ).json()["id"]
+
+    class FakeAdapter:
+        def count_torrents(self):
+            return 5000
+
+        def list_torrents(self):
+            raise AssertionError("l'elenco completo non serve per contare")
+
+    monkeypatch.setattr("nazgarr.integrations.adapter_factory.build_torrent_client_adapter", lambda tc: FakeAdapter())
+
+    assert client.post(f"/api/torrent-clients/{tc_id}/test").json()["torrents_found"] == 5000
+
+
 def test_connection_test_reports_failure_against_unreachable_host(client):
     # Porta 1 su localhost: quasi certamente nessuno in ascolto, connection
     # refused immediato — nessuna chiamata di rete reale verso l'esterno.
