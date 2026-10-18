@@ -219,7 +219,7 @@ Some keys are not settings of this command: `schedule_cron` is changed with `naz
 
 ### Other instances
 
-The web UI of this instance can open other Nazgarr instances (Configuration › Instances). From the terminal:
+The web UI of this instance can open other Nazgarr instances (Settings › System › Instances). From the terminal:
 
 ```bash
 nazgarr instance add seedbox --url https://seedbox.example:3019   # its API key is asked

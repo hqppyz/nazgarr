@@ -85,9 +85,9 @@ BY_KEY = {s.key: s for s in CATALOG}
 # dove si cambiano invece.
 MANAGED = {
     "schedule_cron": "nazgarr schedule set",
-    "upload_file_naming_rules": "Settings › Upload › File names in the web UI",
-    "instance_name": "Settings › Instances in the web UI",
-    "plugins_disabled": "Settings › Plugins in the web UI",
+    "upload_file_naming_rules": "Settings › Upload › Releases in the web UI",
+    "instance_name": "Settings › System › Instances in the web UI",
+    "plugins_disabled": "Settings › Extensions › Plugins in the web UI",
     "app_secret_key_canary": "nothing: Nazgarr keeps it itself",
     "release_notes_seen": "nothing: Nazgarr keeps it itself",
     "update_check_last": "nothing: Nazgarr keeps it itself",
