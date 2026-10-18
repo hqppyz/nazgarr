@@ -2,6 +2,8 @@
 pianificazione salvata che non si legge, un indirizzo in chiaro verso un host
 pubblico, cosa se ne va eliminando un tracker o un disco."""
 
+import json
+
 from tests import test_cli_client
 from tests.test_cli_client import _login, run
 
@@ -129,3 +131,77 @@ def test_removing_a_used_tracker_or_disk_says_what_goes_and_asks_first(cli_env, 
     code, out, err = run(capsys, "tracker", "rm", "ITT", "--yes")
     assert code == 0, err
     assert client.get("/api/trackers").json() == []
+
+
+def _itt_profile(cli_env, client, capsys) -> None:
+    _login(capsys)
+    code, _out, err = run(capsys, "tracker", "add", "--preset", "itt", "--token-stdin", stdin="tracker-token\n")
+    assert code == 0, err
+
+
+def test_naming_rules_from_a_file_are_previewed_by_the_server_before_saving(cli_env, client, capsys, tmp_path,
+                                                                           monkeypatch):
+    """Audit 2026-10-18: --set salvava il JSON così com'era, e una regola di
+    un tipo sbagliato faceva poi fallire ogni upload verso quel tracker.
+    Ora passa prima dall'anteprima del server, che controlla la forma: una
+    regola sbagliata si ferma lì, col campo che non va, e niente si salva;
+    una giusta mostra i nomi che dà, poi si salva."""
+    _itt_profile(cli_env, client, capsys)
+    before = json.loads(run(capsys, "--json", "tracker", "profile", "show", "itt")[1])
+    bad = tmp_path / "bad.json"
+    bad.write_text(json.dumps({"templates": 5}))
+    from nazgarr.cli_client import http
+
+    sent = []
+    real_request = http.Api.request
+    monkeypatch.setattr(http.Api, "request", lambda self, method, path, **kw: (
+        sent.append((method, path.rsplit("/", 1)[-1])), real_request(self, method, path, **kw))[1])
+
+    code, _out, err = run(capsys, "tracker", "profile", "naming", "itt", "--set", str(bad))
+
+    assert code == 1 and "templates" in err
+    assert ("POST", "preview") in sent and not any(method == "PATCH" for method, _ in sent)
+    after = json.loads(run(capsys, "--json", "tracker", "profile", "show", "itt")[1])
+    assert after["naming_rules"] == before["naming_rules"] and not after["naming_customized"]
+
+    good = tmp_path / "good.json"
+    rules = dict(before["naming_rules"], separator=".")
+    good.write_text(json.dumps(rules))
+    code, out, err = run(capsys, "tracker", "profile", "naming", "itt", "--set", str(good))
+
+    assert code == 0, err
+    assert "Example" in out and "saved" in out
+    saved = json.loads(run(capsys, "--json", "tracker", "profile", "show", "itt")[1])
+    assert saved["naming_rules"]["separator"] == "." and saved["naming_customized"]
+
+
+def test_naming_rules_that_are_not_a_json_object_are_a_usage_error(cli_env, client, capsys, tmp_path):
+    _itt_profile(cli_env, client, capsys)
+    for text in ("{not json", "[1, 2]"):
+        path = tmp_path / "rules.json"
+        path.write_text(text)
+        code, _out, err = run(capsys, "tracker", "profile", "naming", "itt", "--set", str(path))
+        assert code == 2 and "naming rules" in err.lower(), (text, err)
+
+
+def test_config_import_checks_naming_rules_before_changing_anything(cli_env, client, capsys):
+    import yaml
+
+    _itt_profile(cli_env, client, capsys)
+    exported = yaml.safe_load(run(capsys, "config", "export")[1])
+    profile = exported["trackers"][0].setdefault("upload_profile", {})
+    profile["naming_rules"] = {"templates": {"movie": "{title}"}, "separator": 3}
+    exported["trackers"][0]["min_ratio"] = 2.5  # una modifica che verrebbe prima
+    file = cli_env / "nazgarr.yaml"
+    file.write_text(yaml.safe_dump(exported))
+
+    code, _out, err = run(capsys, "config", "import", str(file), "--yes")
+
+    assert code == 2 and "ITT" in err and "separator" in err
+    tracker = json.loads(run(capsys, "--json", "tracker", "ls")[1])[0]
+    assert tracker["min_ratio"] != 2.5  # niente applicato
+
+    profile["naming_rules"] = ["not", "a", "mapping"]
+    file.write_text(yaml.safe_dump(exported))
+    code, _out, err = run(capsys, "config", "import", str(file), "--yes")
+    assert code == 2 and "mapping" in err
