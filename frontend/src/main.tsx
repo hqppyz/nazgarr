@@ -14,7 +14,6 @@ import { CrashPanel } from '@/components/CrashPanel'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
-import { installChunkReload } from '@/lib/chunkReload'
 import { reportMutationError } from '@/lib/mutationErrors'
 import { touringNow } from '@/onboarding/state'
 import {
@@ -31,10 +30,6 @@ import './index.css'
 // un font con le sole bandiere, servito da qui perché la CSP non carica font
 // da altri siti. Non fa niente dove le bandiere ci sono già.
 polyfillCountryFlagEmojis('Twemoji Country Flags', flagsFont)
-
-// Un chunk della build di prima che non c'è più (container aggiornato con la
-// pagina aperta): si ricarica una volta, invece della pagina bianca.
-installChunkReload()
 
 // Dopo ogni salvataggio, la checklist del tour (src/onboarding) si riallinea:
 // un passo si chiude appena la configurazione c'è, ovunque sia stata fatta.

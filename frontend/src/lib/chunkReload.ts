@@ -1,7 +1,11 @@
 // Dopo un aggiornamento del container i chunk della build vecchia non ci sono
 // più (/assets risponde 404): una scheda rimasta aperta, al primo import
 // dinamico che non aveva ancora scaricato, non può più caricarlo. L'unico
-// rimedio è ricaricare la pagina, che prende la build nuova.
+// rimedio è ricaricare la pagina, che prende la build nuova. Lo fa la vista
+// che ne aveva bisogno (CrashPanel, il fallback delle pagine e dell'app), non
+// un ascoltatore globale di `vite:preloadError`: un chunk decorativo (l'anello
+// del logo) o un precaricamento di fondo che fallisce non deve ricaricare la
+// pagina sotto le mani di chi scrive (audit 2026-10-18).
 
 const CHUNK_ERROR =
   /Failed to fetch dynamically imported module|error loading dynamically imported module|Importing a module script failed|Unable to preload CSS/i
@@ -31,12 +35,4 @@ export function reloadOnce(
   }
   reload()
   return true
-}
-
-// Vite emette `vite:preloadError` quando un import dinamico (o il suo CSS)
-// fallisce; senza preventDefault rilancia l'errore.
-export function installChunkReload(): void {
-  window.addEventListener('vite:preloadError', (event) => {
-    if (reloadOnce()) event.preventDefault()
-  })
 }
