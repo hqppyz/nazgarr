@@ -80,6 +80,7 @@ SAFETY_KEYS = frozenset(spec.key for spec in _SPECS if spec.safety)
 # devono passare.
 MANAGED_KEYS = frozenset({
     "schedule_cron",  # PUT /api/schedule: lo valida e riprogramma il job (nazgarr/scheduler.py)
+    "schedule_last_slot",  # fin dove le ore del cron sono servite, per il recupero all'avvio (idem)
     "app_secret_key_canary",  # il controllo di APP_SECRET_KEY all'avvio (nazgarr/core/startup_checks.py)
     "plugins_disabled",  # PUT /api/plugins/{name}/enabled (nazgarr/plugins/switch.py)
     "release_notes_seen",  # POST /api/system/release-notes/seen (nazgarr/core/updates.py)

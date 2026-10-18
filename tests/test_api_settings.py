@@ -69,9 +69,9 @@ def test_the_managed_keys_are_the_ones_their_modules_use():
     from nazgarr.upload import file_names
 
     assert settings_registry.MANAGED_KEYS == {
-        scheduler.SETTING_KEY, startup_checks._CANARY_KEY, switch.SETTING, updates.SEEN_KEY, updates.LAST_CHECK_KEY,
-        resolution.IDENTITY_RULES_KEY, instances_api.LOCAL_NAME_SETTING, file_names.SETTING,
-        not_imported.STATUS_SETTING,
+        scheduler.SETTING_KEY, scheduler.LAST_SLOT_KEY, startup_checks._CANARY_KEY, switch.SETTING,
+        updates.SEEN_KEY, updates.LAST_CHECK_KEY, resolution.IDENTITY_RULES_KEY, instances_api.LOCAL_NAME_SETTING,
+        file_names.SETTING, not_imported.STATUS_SETTING,
     }
     assert not settings_registry.MANAGED_KEYS & set(settings_registry.REGISTRY)
 
