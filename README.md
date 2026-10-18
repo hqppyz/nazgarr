@@ -226,7 +226,7 @@ Besides running the server, the `nazgarr` command talks to a running instance: l
 
 ## API and automation
 
-Everything the UI does goes through a JSON API under `/api`. The interactive reference is at `http://<host>:3019/docs`. Scripts authenticate with an API key created in Configuration › API keys. See [docs/SDK.md](docs/SDK.md) for plugins, webhooks and API keys, and [examples/nazgarr-ntfy](examples/nazgarr-ntfy) for a complete plugin.
+Everything the UI does goes through a JSON API under `/api`. Its OpenAPI schema is at `http://<host>:3019/openapi.json`, for any OpenAPI viewer or client generator. Scripts authenticate with an API key created in Configuration › API keys. See [docs/SDK.md](docs/SDK.md) for plugins, webhooks and API keys, and [examples/nazgarr-ntfy](examples/nazgarr-ntfy) for a complete plugin.
 
 ## Development
 

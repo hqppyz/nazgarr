@@ -4,9 +4,10 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.gzip import GZipMiddleware
 from pydantic import BaseModel
+from sqlalchemy.orm import Session
 
 from nazgarr import scheduler
 from nazgarr.api.api_keys import router as api_keys_router
@@ -44,6 +45,7 @@ from nazgarr.upload import profiles as upload_profiles
 from nazgarr.upload.worker import UploadWorker
 from nazgarr.web import auth
 from nazgarr.web.body_limit import BodyLimitMiddleware
+from nazgarr.web.deps import get_session
 from nazgarr.web.frontend import mount_frontend
 from nazgarr.web.security_headers import SecurityMiddleware
 
@@ -99,7 +101,11 @@ async def lifespan(app: FastAPI):
         app.state.upload_worker.shutdown()
 
 
-app = FastAPI(title="Nazgarr", lifespan=lifespan)
+# Niente /docs e /redoc: caricano Swagger UI e ReDoc da un CDN con uno script
+# inline, che la CSP dell'app (nazgarr/web/security_headers.py) blocca, quindi
+# nel browser erano pagine vuote. Lo schema resta in /openapi.json (audit
+# 2026-10-18).
+app = FastAPI(title="Nazgarr", lifespan=lifespan, docs_url=None, redoc_url=None)
 
 # /api/auth/* è l'unico router mai protetto da require_auth (altrimenti
 # nessuno potrebbe mai autenticarsi la prima volta) — vedi nazgarr/api/auth.py.
@@ -148,12 +154,19 @@ app.include_router(remote_router, dependencies=[Depends(auth.require_login)])
 
 class HealthResponse(BaseModel):
     status: str
-    version: str
-    commit: str | None = None  # commit dell'immagine, per riconoscere a colpo d'occhio la build in uso
+    # Versione e commit dell'immagine, per riconoscere a colpo d'occhio la build
+    # in uso: solo a chi è entrato (login o API key). A un visitatore anonimo
+    # direbbero quale build attaccare (audit 2026-10-18).
+    version: str | None = None
+    commit: str | None = None
 
 
 @app.get("/api/health", response_model=HealthResponse)
-def health():
+def health(request: Request, session: Session = Depends(get_session)):
+    """Senza login: l'HEALTHCHECK del container (Dockerfile) ha solo bisogno
+    di una risposta, e senza credenziali non legge nemmeno il DB."""
+    if auth.optional_identity(request, session) is None:
+        return HealthResponse(status="ok")
     return HealthResponse(status="ok", version=__version__, commit=__commit__)
 
 

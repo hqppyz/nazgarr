@@ -331,7 +331,7 @@ nazgarr api POST /api/disks -d '{"label": "main", "root_path": "/data"}'
 nazgarr api PATCH /api/trackers/3 -d @tracker.json
 ```
 
-The full list of endpoints, with the exact request and answer of each, is at `http://HOST:3019/docs`.
+The full list of endpoints, with the exact request and answer of each, is the OpenAPI schema at `http://HOST:3019/openapi.json`: open it in any OpenAPI viewer.
 
 ## Exit codes
 

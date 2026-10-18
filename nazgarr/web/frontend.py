@@ -34,8 +34,8 @@ def mount_frontend(app: FastAPI, dist_dir: str = FRONTEND_DIST) -> bool:
 
     # Catch-all registrato PER ULTIMO (in nazgarr/main.py, dopo ogni
     # app.include_router di /api/*): Starlette fa match delle route
-    # nell'ordine in cui sono aggiunte, quindi non intercetta mai /api/*,
-    # /docs, /redoc, /openapi.json — già tutte registrate prima di questa.
+    # nell'ordine in cui sono aggiunte, quindi non intercetta mai /api/* né
+    # /openapi.json — già registrate prima di questa.
     @app.get("/{full_path:path}")
     def serve_spa(full_path: str):
         # Un /api/… che non esiste è un 404 in JSON, non la pagina: chi chiama

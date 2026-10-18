@@ -214,6 +214,19 @@ def require_auth(request: Request, session: Session = Depends(get_session)) -> s
     return username
 
 
+def optional_identity(request: Request, session: Session) -> str | None:
+    """Chi chiama, se ha un token o una API key validi, se no None — mai un
+    errore: per le risposte che dicono di più a chi è entrato (/api/health).
+    Senza header nessuna lettura del DB."""
+    raw = request.headers.get(api_keys.HEADER)
+    if raw is not None:
+        key = api_keys.authenticate(session, raw)
+        return f"api-key:{key.name}" if key is not None else None
+    if not request.headers.get("Authorization"):
+        return None
+    return authenticated_username(request, session)
+
+
 def require_login(request: Request, session: Session = Depends(get_session)) -> str | None:
     """Come require_auth, ma una API key non basta: per le cose che una
     chiave non deve poter fare (creare o revocare API key)."""

@@ -475,4 +475,4 @@ curl -H "X-Api-Key: nzg_..." http://nazgarr:3019/api/dashboard
 
 A wrong or revoked key always gets `401`; a read key gets `403` on anything but `GET`. Error messages returned by the API never contain credentials (download keys, passkeys, tokens in URLs).
 
-The full API is described at `/docs` (OpenAPI) on your instance.
+The full API is described by the OpenAPI schema at `/openapi.json` on your instance.
