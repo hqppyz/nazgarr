@@ -177,10 +177,66 @@ def test_system_superseded_review_does_not_block_the_same_torrent(db_session, mo
     adapter = CountingTracker(candidates=[_tc(torrent_id_remote="7", size_bytes=1000)])
 
     matching.run_media_to_torrent_matching(db_session, tracker, adapter)
+    # Chiusa dal sistema (es. close_resolved_reviews): non è un "no" dell'utente.
+    review._reject_by_system(db_session, db_session.query(MatchReview).all())
     matching.run_media_to_torrent_matching(db_session, tracker, adapter)
 
     statuses = sorted(r.status for r in db_session.query(MatchReview).all())
     assert statuses == ["pending", "rejected"]
+
+
+def test_searching_the_same_proposal_again_keeps_its_review(db_session, monkeypatch):
+    # Prima ogni nuova ricerca rifiutava la review e ne rifaceva una uguale:
+    # review.decided + review.created ogni settimana, e categoria e tag
+    # scelti a mano persi (audit 2026-10-18).
+    monkeypatch.setattr(matching, "compute_unique_id", lambda path: None)
+    settings_repo.set_setting(db_session, "rematch_interval_days", "0")
+    tracker, _ = _setup(db_session)
+    adapter = CountingTracker(candidates=[_tc(torrent_id_remote="7", size_bytes=1000)])
+
+    matching.run_media_to_torrent_matching(db_session, tracker, adapter)
+    first = db_session.query(MatchReview).one()
+    review.set_client_labels(db_session, first, "movies-hd", "")
+    matching.run_media_to_torrent_matching(db_session, tracker, adapter)
+
+    again = db_session.query(MatchReview).one()
+    assert (again.id, again.status, again.client_category) == (first.id, "pending", "movies-hd")
+
+
+def test_repeated_searches_do_not_add_rows(db_session, monkeypatch):
+    # Ogni ricerca riscriveva tutti i risultati, confidence 0 compresi.
+    monkeypatch.setattr(matching, "compute_unique_id", lambda path: None)
+    settings_repo.set_setting(db_session, "rematch_interval_days", "0")
+    tracker, _ = _setup(db_session)
+    results = [_tc(torrent_id_remote=f"other-{n}", size_bytes=900 + n) for n in range(10)]
+    adapter = CountingTracker(candidates=[*results, _tc(torrent_id_remote="7", size_bytes=1000)])
+
+    from nazgarr.core.models import CandidateFile
+
+    counts = []
+    for _ in range(4):
+        matching.run_media_to_torrent_matching(db_session, tracker, adapter)
+        counts.append((db_session.query(Candidate).count(), db_session.query(CandidateFile).count()))
+
+    # La riga della review in coda non si tocca: la ricerca dopo ne aggiunge
+    # una, poi aggiorna sempre quella.
+    assert counts == [(11, 11), (12, 12), (12, 12), (12, 12)]
+
+
+def test_the_busy_torrents_are_read_once_per_tracker_pass(db_session, monkeypatch):
+    monkeypatch.setattr(matching, "compute_unique_id", lambda path: None)
+    tracker, _ = _setup(db_session, paths=("movies/a.mkv", "movies/b.mkv", "movies/c.mkv"))
+    reads = []
+    original = review._busy_rows
+    monkeypatch.setattr(review, "_busy_rows", lambda *a: reads.append(1) or original(*a))
+    adapter = CountingTracker(candidates=[_tc(torrent_id_remote=str(n), size_bytes=1000) for n in range(3)])
+
+    matching.run_media_to_torrent_matching(db_session, tracker, adapter)
+
+    assert len(reads) == 1
+    # Ogni file ha la sua proposta, e nessun torrent ne ha due.
+    picked = [r.candidate.torrent_id_remote for r in db_session.query(MatchReview).order_by(MatchReview.id)]
+    assert len(picked) == 3 and len(set(picked)) == 3
 
 
 def test_pipeline_records_rate_limit_and_skips_the_other_direction(db_session, monkeypatch, tmp_path):

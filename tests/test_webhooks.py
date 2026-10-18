@@ -74,6 +74,33 @@ def test_state_changes_in_the_db_become_events(db_session):
     assert db_session.query(EventDelivery).filter_by(status="pending").count() == 4
 
 
+def test_a_bulk_change_reads_the_subscribers_once_and_builds_no_payload_without_them(db_session, monkeypatch):
+    # close_resolved_reviews chiude migliaia di review in un commit: prima due
+    # query e il payload per ognuna, anche senza iscritti (audit 2026-10-18).
+    candidate = _candidate(db_session)
+    rows = [MatchReview(candidate_id=candidate.id, status="pending") for _ in range(20)]
+    db_session.add_all(rows)
+    db_session.commit()
+    lookups, payloads = [], []
+    original_targets, original_payload = events.webhook_targets, events._payload
+    monkeypatch.setattr(events, "webhook_targets", lambda s, name: lookups.append(name) or original_targets(s, name))
+    monkeypatch.setattr(events, "_payload", lambda *a: payloads.append(a) or original_payload(*a))
+
+    for row in rows:
+        row.status, row.decided_by = "rejected", "system"
+    db_session.commit()
+
+    assert lookups == ["review.decided"] and payloads == []
+    _webhook(db_session, names=["review.decided"])
+    for row in rows:
+        row.status = "pending"
+    db_session.commit()
+    for row in rows:
+        row.status = "rejected"
+    db_session.commit()
+    assert len(payloads) == 20 and db_session.query(Event).count() == 20
+
+
 def test_a_webhook_only_gets_the_events_it_chose(db_session):
     _webhook(db_session, names=["run.finished"])
     candidate = _candidate(db_session)

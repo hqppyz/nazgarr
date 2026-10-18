@@ -92,3 +92,85 @@ def test_client_labels_of_a_reseed_are_chosen_on_its_review(client):
 
     client.post(f"/api/reviews/{review_id}/reject")
     assert client.put(f"/api/reviews/{review_id}/client-labels", json={}).status_code == 409
+
+
+_next_tmdb = iter(range(1000, 2000))
+
+
+def _review(client, status="pending", decided_by=None, seed_job=None):
+    from nazgarr.core.models import SeedJob
+
+    session = _session(client)
+    try:
+        tracker = Tracker(label="t", adapter_type="unit3d", base_url="https://t.example", api_token="x")
+        item = MediaItem(content_type="movie", tmdb_id=next(_next_tmdb))
+        session.add_all([tracker, item])
+        session.commit()
+        candidate = Candidate(
+            media_item_id=item.id, tracker_id=tracker.id, torrent_id_remote="1", name="x", size_bytes=1,
+            source="catalog_search", direction="media_to_torrent", confidence=0.5,
+        )
+        session.add(candidate)
+        session.commit()
+        row = MatchReview(candidate_id=candidate.id, status=status, decided_by=decided_by)
+        session.add(row)
+        if seed_job:
+            session.add(SeedJob(candidate_id=candidate.id, final_status=seed_job))
+        session.commit()
+        return row.id
+    finally:
+        session.close()
+
+
+def _no_verification(client):
+    from nazgarr.core import settings_repo
+
+    session = _session(client)
+    try:
+        settings_repo.set_setting(session, "verify_before_execute", "false")
+    finally:
+        session.close()
+
+
+def test_a_decided_review_is_never_approved_or_executed_again(client, monkeypatch):
+    # Con la verifica spenta una review rifiutata (dal sistema o dall'utente)
+    # o già eseguita ripartiva: hardlink e client per un file escluso, o un
+    # secondo seed job (audit 2026-10-18, finding 65).
+    from nazgarr.reseed import review
+
+    executed = []
+    monkeypatch.setattr(review, "_try_execute", lambda session, row, **kw: executed.append(row.id))
+    _no_verification(client)
+    cases = [_review(client, "rejected", "system"), _review(client, "rejected", "user"),
+             _review(client, "approved", "user", seed_job="seeding")]
+
+    for review_id in cases:
+        response = client.post(f"/api/reviews/{review_id}/approve")
+        assert response.status_code == 409
+        assert response.json()["detail"] == {"code": "review_already_decided", "params": {"id": review_id}}
+        assert client.post(f"/api/reviews/{review_id}/reject").status_code == 409
+    assert executed == []
+
+
+def test_approving_twice_executes_once(client, monkeypatch):
+    from nazgarr.reseed import review
+
+    executed = []
+    monkeypatch.setattr(review, "_try_execute", lambda session, row, **kw: executed.append(row.id))
+    _no_verification(client)
+    review_id = _review(client)
+
+    assert client.post(f"/api/reviews/{review_id}/approve").status_code == 200
+    assert client.post(f"/api/reviews/{review_id}/approve").status_code == 409
+    assert executed == [review_id]
+
+
+def test_with_verification_a_decided_review_starts_no_check(client, monkeypatch):
+    from nazgarr.reseed import full_check
+
+    started = []
+    monkeypatch.setattr(full_check, "start_check", lambda *a, **k: started.append(a))
+    review_id = _review(client, "rejected", "system")
+
+    assert client.post(f"/api/reviews/{review_id}/approve").status_code == 409
+    assert started == []

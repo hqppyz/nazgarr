@@ -1,5 +1,5 @@
 import { ChevronRightIcon, Loader2Icon, RotateCcwIcon, TrashIcon } from 'lucide-react'
-import { memo, useMemo, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 
 import {
@@ -10,9 +10,10 @@ import {
   useRecentSeedJobs,
   useRejectReview,
   useRetryFailed,
-  useReviews,
+  useReviewQueue,
   useSetReviewClientLabels,
 } from '@/api/hooks/reviews'
+import type { Schemas } from '@/api/client'
 import { useTorrentClientCategories } from '@/api/hooks/torrentClients'
 import { ClientCategorySelect } from '@/components/ClientCategorySelect'
 import { ConfirmButton } from '@/components/ConfirmButton'
@@ -27,14 +28,13 @@ import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle }
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { ToggleGroupItem, ToggleGroupSingle } from '@/components/ui/toggle-group'
-import { useIncrementalCount } from '@/hooks/use-incremental'
 import { t } from '@/lib/i18n'
 import { formatBytes } from '@/lib/library-filters'
 import { episodeRanges, groupBySeason, seasonLabel } from '@/lib/reviewGroups'
 import { parseApiDate, relativeFromNow } from '@/lib/time'
 import { cn } from '@/lib/utils'
 
-type Review = NonNullable<ReturnType<typeof useReviews>['data']>[number]
+type Review = Schemas['ReviewResponse']
 type Layout = NonNullable<Review['layout']>
 
 // Dove il file è già in seed, tolto il tracker della review: lì è il secondo
@@ -361,32 +361,56 @@ const SeasonRow = memo(function SeasonRow({ reviews }: { reviews: Review[] }) {
   )
 }, sameReviews)
 
-// Righe (stagioni o review) rese alla volta, altre scorrendo: una prima run
-// su una libreria grande può lasciare migliaia di review in coda.
-const REVIEWS_PAGE = 50
+// La sentinella in fondo alla coda: vicina alla vista, chiede la pagina dopo.
+function NextPageSentinel({ onVisible }: { onVisible: () => void }) {
+  const ref = useRef<HTMLDivElement | null>(null)
+  useEffect(() => {
+    const node = ref.current
+    if (!node) return
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) onVisible()
+      },
+      { rootMargin: '800px' },
+    )
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [onVisible])
+  return <div ref={ref} aria-hidden className="h-px" />
+}
 
 function ReviewCard() {
-  const { data: reviews, isPending } = useReviews()
-  const groups = useMemo(() => groupBySeason(reviews ?? []), [reviews])
-  // Mai da capo: dopo un'approvazione chi ha scorso resta dov'era.
-  const { visible, hasMore, sentinelRef } = useIncrementalCount<HTMLDivElement>(groups.length, REVIEWS_PAGE, 'queue')
+  // A pagine dal server, altre scorrendo: una prima run su una libreria
+  // grande può lasciare migliaia di review in coda. Dopo un'approvazione si
+  // ricaricano solo le pagine già lette, e chi ha scorso resta dov'era.
+  const { data, isPending, hasNextPage, isFetchingNextPage, fetchNextPage } = useReviewQueue()
+  const reviews = useMemo(() => data?.pages.flatMap((page) => page.items) ?? [], [data])
+  const total = data?.pages[0]?.total ?? 0
+  const groups = useMemo(() => groupBySeason(reviews), [reviews])
+  const loadMore = useCallback(() => {
+    if (hasNextPage && !isFetchingNextPage) void fetchNextPage()
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage])
 
   return (
     <Card data-tour="views.review">
       <CardHeader>
         <CardTitle>{t('misc.review')}</CardTitle>
+        {total > 0 && <CardDescription>{t('reseeding.queueTotal', { count: total })}</CardDescription>}
       </CardHeader>
       <CardContent className="p-0">
         {isPending && <p className="p-3 text-sm text-muted-foreground">{t('common.loading')}</p>}
-        {groups.slice(0, visible).map((group) =>
+        {groups.map((group) =>
           group.length > 1 ? (
             <SeasonRow key={`season-${group[0].id}`} reviews={group} />
           ) : (
             <ReviewRow key={group[0].id} review={group[0]} />
           ),
         )}
-        {hasMore && <div ref={sentinelRef} aria-hidden className="h-px" />}
-        {reviews?.length === 0 && <p className="p-3 text-sm text-muted-foreground">{t('reseeding.noPendingReviews')}</p>}
+        {hasNextPage && <NextPageSentinel onVisible={loadMore} />}
+        {isFetchingNextPage && <p className="p-3 text-sm text-muted-foreground">{t('common.loading')}</p>}
+        {!isPending && reviews.length === 0 && (
+          <p className="p-3 text-sm text-muted-foreground">{t('reseeding.noPendingReviews')}</p>
+        )}
       </CardContent>
     </Card>
   )
@@ -448,7 +472,12 @@ function ExecutionRow({ job }: { job: SeedJob }) {
               disabled={retry.isPending}
               onClick={() =>
                 retry.mutate(job.id, {
-                  onSuccess: () => toast.success(t('reseeding.retryCompleted')),
+                  // Da zero, con il controllo completo acceso, parte prima quel
+                  // controllo: l'avanzamento lo segue la notifica in basso.
+                  onSuccess: (result) =>
+                    result.verify_check_id
+                      ? toast.info(t('reseeding.retryVerifying'))
+                      : toast.success(t('reseeding.retryCompleted')),
                   onError: (error) => toast.error(t('reseeding.retryFailed', { message: error.message })),
                 })
               }

@@ -36,6 +36,7 @@ from nazgarr.core.fs_scope import ScopeViolation, resolve_scoped
 from nazgarr.core.logs import safe_error
 from nazgarr.core.models import Candidate, MatchReview, MediaFile, SeedFile, SeedJob
 from nazgarr.integrations import adapter_factory
+from nazgarr.reseed import download_links
 from nazgarr.torrents import pieces as piece_hashing
 from nazgarr.torrents.metainfo import TorrentFileEntry, TorrentInfo, compute_info_hash, parse_torrent_info
 
@@ -359,7 +360,7 @@ def _download_torrent(candidate: Candidate) -> bytes:
         raise FullCheckError("This candidate has no download link for its .torrent")
     try:
         with adapter_factory.tracker(candidate.tracker) as adapter:
-            return adapter.download_torrent(candidate.download_link)
+            return download_links.download(adapter, candidate)  # la chiave rimessa qui
     except Exception as exc:
         raise FullCheckError(f"Could not download the .torrent from {candidate.tracker.label}: {exc}") from exc
 

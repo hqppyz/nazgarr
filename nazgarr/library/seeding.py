@@ -76,31 +76,55 @@ def seeding_formats(
     return formats
 
 
-def seeding_media_file_ids(session: Session, tracker: Tracker | None = None) -> set[int]:
+def seeding_media_file_ids(
+    session: Session, tracker: Tracker | None = None, media_file_ids: list[int] | None = None,
+) -> set[int]:
     """I media_file con un hardlink in un torrent tracciato: di questo
-    tracker, se c'è e la ricerca dei cross-seed è accesa, di qualunque se no."""
+    tracker, se c'è e la ricerca dei cross-seed è accesa, di qualunque se no.
+    media_file_ids: solo questi file (una ricerca mirata), None = tutti."""
     torrent_ids = tracker_torrent_ids(session, tracker) if tracker is not None and cross_seed_enabled(session) else None
     tracked, _active = _tracking(session, torrent_ids)
-    return {mf_id for mf_id, seeds in media_links(session).items() if any(sf_id in tracked for sf_id, _ in seeds)}
+    return {
+        mf_id for mf_id, seeds in media_links(session, media_file_ids).items()
+        if any(sf_id in tracked for sf_id, _ in seeds)
+    }
 
 
 def seeding_on(session: Session, media_file_id: int) -> list[str]:
     """Dove questo file è già in seed: il nome del tracker configurato, o
     l'host dell'announce se non lo è. Per la coda di review: un cross-seed si
     distingue da un reseed di un file che non seeda da nessuna parte."""
-    seed_ids = {sf_id for sf_id, _ in media_links(session, [media_file_id]).get(media_file_id, [])}
+    return seeding_on_many(session, [media_file_id]).get(media_file_id, [])
+
+
+def seeding_on_many(session: Session, media_file_ids: list[int]) -> dict[int, list[str]]:
+    """seeding_on per tanti file con una lettura sola: hardlink, torrent e
+    nomi dei tracker una volta per tutta la coda, non per review (audit
+    2026-10-18: con migliaia di review in coda erano decine di migliaia di
+    query, ognuna con le sue GROUP BY su tutta la libreria). Solo i file che
+    seedano da qualche parte."""
+    if not media_file_ids:
+        return {}
+    links = media_links(session, list(media_file_ids))
+    seed_ids = {sf_id for seeds in links.values() for sf_id, _ in seeds}
     if not seed_ids:
-        return []
-    urls = {
-        url for (url,) in session.query(ClientTorrent.tracker_url)
-        .join(ClientTorrentFile, ClientTorrentFile.client_torrent_id == ClientTorrent.id)
+        return {}
+    urls_by_seed: dict[int, set[str]] = defaultdict(set)
+    for seed_file_id, url in (
+        session.query(ClientTorrentFile.seed_file_id, ClientTorrent.tracker_url)
+        .join(ClientTorrent, ClientTorrent.id == ClientTorrentFile.client_torrent_id)
         .filter(ClientTorrentFile.seed_file_id.in_(seed_ids))
-        .all()
-    }
+    ):
+        if url:
+            urls_by_seed[seed_file_id].add(url)
     labels = {}
     for tracker in session.query(Tracker).order_by(Tracker.id):
         for url in (tracker.announce_url, tracker.base_url):
             if torrent_host(url):
                 labels.setdefault(torrent_host(url), tracker.label)
-    hosts = {torrent_host(url) for url in urls} - {None}
-    return sorted({labels.get(host, host) for host in hosts})
+    result = {}
+    for media_file_id, seeds in links.items():
+        hosts = {torrent_host(url) for sf_id, _ in seeds for url in urls_by_seed.get(sf_id, ())} - {None}
+        if hosts:
+            result[media_file_id] = sorted({labels.get(host, host) for host in hosts})
+    return result

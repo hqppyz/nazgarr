@@ -40,6 +40,7 @@ import os
 import threading
 from datetime import UTC, datetime
 
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from nazgarr.core import settings_repo
@@ -183,6 +184,7 @@ class _BulkRun:
 
     def __init__(self, session: Session, run: RunLog, data_dir: str):
         self.session, self.run_log, self.data_dir = session, run, data_dir
+        self.run_id = run.id
         self.totals = {
             "media_files_scanned": 0, "seed_files_scanned": 0,
             "torrents_indexed": 0, "files_indexed": 0,
@@ -197,6 +199,7 @@ class _BulkRun:
         self.torrent_clients: list[TorrentClient] = []
         self.t2c_problem: str | None = None
         self.skip_t2c = False
+        self.local_files: matching.SharedLocalFiles | None = None
 
     # --- infrastruttura -----------------------------------------------------
 
@@ -433,6 +436,8 @@ class _BulkRun:
             "Run #%s: %d tracker abilitat%s per il matching",
             run.id, len(trackers), _plural(len(trackers), "o", "i"),
         )
+        # Gli indici dei file locali una volta per tutta la run, non per tracker.
+        self.local_files = matching.SharedLocalFiles(session)
         for i, tracker_row in enumerate(trackers, start=1):
             self._match_tracker(tracker_row, f"{tracker_row.label} ({i}/{len(trackers)})")
 
@@ -454,7 +459,7 @@ class _BulkRun:
             if hasattr(tracker_adapter, "on_rate_limit_wait"):
                 tracker_adapter.on_rate_limit_wait = on_wait
             m2t = matching.run_media_to_torrent_matching(
-                session, tracker_row, tracker_adapter, self.arr_index, progress=progress
+                session, tracker_row, tracker_adapter, self.arr_index, progress=progress, local=self.local_files,
             )
             # Già in rate limit: la seconda direzione peggiorerebbe solo il blocco.
             t2c = None
@@ -462,7 +467,7 @@ class _BulkRun:
                 current["detail"] = f"{where} · torrent → client"
                 progress.detail(current["detail"])
                 t2c = matching.run_torrent_to_client_matching(
-                    session, tracker_row, tracker_adapter, self.arr_index, progress=progress
+                    session, tracker_row, tracker_adapter, self.arr_index, progress=progress, local=self.local_files,
                 )
         except Exception as exc:
             self._fail(f"tracker {tracker_row.label!r}", exc)
@@ -527,13 +532,43 @@ class _BulkRun:
         # Torrent in seed senza hardlink in libreria, e perché (vista Not imported).
         self._guard("not imported torrents", lambda: not_imported.classify_not_imported(session, self.arr_index, run))
 
-    def finish(self) -> RunLog:
-        session, run, totals = self.session, self.run_log, self.totals
-        self.progress.finish()
-        run.finished_at = datetime.now(UTC)
+    def _closing_totals(self, finished_at: datetime) -> None:
+        run, totals = self.run_log, self.totals
+        run.finished_at = finished_at
         run.items_scanned = totals["media_files_scanned"] + totals["seed_files_scanned"]
         run.matches_found = totals["candidates_found"]
         run.auto_executed = totals["auto_executed"]
+
+    def finish(self) -> RunLog:
+        """La fine della run. finished_at e i totali si scrivono insieme alla
+        fotografia della salute (l'evento run.finished la riporta), ma un
+        errore nella fotografia, nel salvataggio dell'avanzamento, nella
+        registrazione di quell'errore o nel commit finale non deve mai
+        lasciare la run senza fine: il rollback di _fail buttava via anche
+        finished_at, e la run restava "in corso" fino al riavvio, fermando
+        ogni run pianificata, il controllo dei recheck e i webhook di
+        Radarr/Sonarr (audit 2026-10-18)."""
+        session, run = self.session, self.run_log
+        finished_at = datetime.now(UTC)
+        try:
+            self._save_end(finished_at)
+        except Exception:
+            logger.exception("Run #%s: salvataggio finale fallito, chiudo la run con il minimo", self.run_id)
+            session.rollback()
+            self._close_anyway(finished_at)
+        self._refresh_statistics()
+        totals = self.totals
+        logger.info(
+            "Run #%s completata: %d item scansionati, %d match, %d auto-eseguiti, %d errori",
+            self.run_id, totals["media_files_scanned"] + totals["seed_files_scanned"], totals["candidates_found"],
+            totals["auto_executed"], self.errors,
+        )
+        return run
+
+    def _save_end(self, finished_at: datetime) -> None:
+        session, run = self.session, self.run_log
+        self.progress.finish()
+        self._closing_totals(finished_at)
         try:
             data = library.LibraryData(session)
             shared = health.shared_metrics(session)
@@ -550,11 +585,39 @@ class _BulkRun:
             _save_tracker_snapshots(session, run, data, shared)
         except Exception as exc:
             self._fail("library health snapshot", exc)
-            run.pending_review = len(review.list_ready_for_review(session))
+            self._closing_totals(finished_at)  # il rollback li aveva tolti
+            try:
+                run.pending_review = review.count_ready_for_review(session)
+            except Exception:
+                logger.exception("Run #%s: review in attesa non contate", self.run_id)
+                session.rollback()
+                self._closing_totals(finished_at)
         run.errors = self.errors
         session.commit()
-        logger.info(
-            "Run #%s completata: %d item scansionati, %d match, %d auto-eseguiti, %d errori",
-            run.id, run.items_scanned, run.matches_found, run.auto_executed, self.errors,
-        )
-        return run
+
+    def _refresh_statistics(self) -> None:
+        """Le statistiche del planner dopo le scritture della run (candidati,
+        review, file): senza, SQLite poteva scegliere l'indice sbagliato per
+        le query del matching (audit 2026-10-18). PRAGMA optimize analizza
+        solo le tabelle cambiate molto, col limite di righe della
+        connessione: un di più, mai un errore della run."""
+        try:
+            self.session.execute(text("PRAGMA optimize"))
+        except Exception:
+            logger.debug("PRAGMA optimize non riuscita a fine run", exc_info=True)
+            self.session.rollback()
+
+    def _close_anyway(self, finished_at: datetime) -> None:
+        """Ultima rete: solo la fine e l'errore, con un UPDATE che non
+        dipende dagli oggetti della sessione. Se fallisce anche questo, la
+        chiude close_interrupted_runs al prossimo avvio."""
+        try:
+            self.session.query(RunLog).filter(RunLog.id == self.run_id, RunLog.finished_at.is_(None)).update(
+                {"finished_at": finished_at, "current_phase": None, "errors": self.errors + 1,
+                 "last_error": "the end of the run could not be saved (details in the logs)"},
+                synchronize_session=False,
+            )
+            self.session.commit()
+        except Exception:
+            logger.exception("Run #%s: nemmeno la chiusura minima è riuscita", self.run_id)
+            self.session.rollback()

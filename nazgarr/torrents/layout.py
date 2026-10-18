@@ -25,6 +25,7 @@ locale vengono usati, se mancano li scarica il client dopo il recheck
 (nazgarr/reseed/executor.py, tolleranza expected_missing_bytes).
 """
 
+import hashlib
 import os
 from collections import defaultdict
 from collections.abc import Callable
@@ -34,7 +35,7 @@ from functools import lru_cache
 from sqlalchemy.orm import Session, selectinload
 
 from nazgarr.core.file_types import is_video
-from nazgarr.core.models import MediaFile, SeedFile
+from nazgarr.core.models import MediaFile, MediaItem, SeedFile
 from nazgarr.integrations.arr import ArrIndex, path_key
 from nazgarr.library.guess import guess as guess_name
 from nazgarr.library.scan_state import is_current, latest_scan_by_disk
@@ -91,10 +92,26 @@ def layout_from_torrent(parsed: TorrentInfo) -> Layout:
     return Layout(folder=folder, files=files, torrent=parsed)
 
 
+def _safe_part(part: str) -> bool:
+    return part not in ("", ".", "..") and not any(ch in part for ch in ("\\", "\x00"))
+
+
+def catalog_names_safe(file_list: list[str] | None, folder: str | None) -> bool:
+    """Nomi e cartella dalla ricerca sul catalogo (l'API del tracker, cioè di
+    chiunque ci abbia caricato qualcosa) con le stesse regole dei percorsi di
+    un .torrent (nazgarr/torrents/metainfo.py::_safe_component): nessuna parte
+    vuota, "." o "..", niente backslash o byte nulli, una cartella sola. Un
+    nome così non si valuta nemmeno (audit 2026-10-18)."""
+    if folder is not None and ("/" in folder or not _safe_part(folder)):
+        return False
+    return all(_safe_part(part) for path in (file_list or []) for part in path.split("/"))
+
+
 def layout_from_catalog(file_list: list[str] | None, file_sizes: dict[str, int] | None,
                         folder: str | None, total_size: int, name: str) -> Layout:
     """Da ciò che espone la ricerca sul catalogo (UNIT3D files[] già
-    normalizzati da _normalize_pack_structure): nessun download."""
+    normalizzati da _normalize_pack_structure): nessun download. I nomi
+    vanno prima controllati con catalog_names_safe."""
     names = file_list or [name]
     sizes = file_sizes or {}
     if len(names) == 1 and names[0] not in sizes:
@@ -174,13 +191,25 @@ class LocalFiles:
     seed_by_path: dict[tuple[int, str], SeedFile] = field(default_factory=dict)
 
     @classmethod
-    def load(cls, session: Session) -> "LocalFiles":
+    def load(cls, session: Session, disk_ids: set[int] | None = None) -> "LocalFiles":
         """Solo le righe dell'ultima scansione di ogni disco: un file che non
-        c'è più non si propone come sorgente di un torrent."""
+        c'è più non si propone come sorgente di un torrent.
+
+        disk_ids: solo i file di questi dischi, per una ricerca mirata ("Cerca
+        ora", la ricerca dopo un import): ogni abbinamento resta sul disco
+        dell'anchor (un hardlink non attraversa i dischi), quindi il risultato
+        non cambia. episodes_by_series resta di tutta la libreria (serve alle
+        traduzioni fra ordinamenti), letto con una query leggera."""
         index = cls()
         latest_media = latest_scan_by_disk(session, MediaFile)
         latest_seed = latest_scan_by_disk(session, SeedFile)
-        for mf in session.query(MediaFile).options(selectinload(MediaFile.media_item)).all():
+        media = session.query(MediaFile).options(selectinload(MediaFile.media_item))
+        seeds = session.query(SeedFile)
+        if disk_ids is not None:
+            media = media.filter(MediaFile.disk_id.in_(disk_ids))
+            seeds = seeds.filter(SeedFile.disk_id.in_(disk_ids))
+            index._load_episodes(session, latest_media)
+        for mf in media.all():
             if not is_current(mf, latest_media):
                 continue
             index.media_by_key[(path_key(mf.relative_path), mf.size_bytes)].append(mf)
@@ -191,10 +220,21 @@ class LocalFiles:
                 index.episodes_by_series[item.tmdb_id].add((item.season_number, item.episode_number))
             if item is not None and item.content_type == "tv" and is_video(mf.relative_path):
                 index.media_by_series_size[(item.tmdb_id, mf.disk_id, mf.size_bytes)].append(mf)
-        for sf in session.query(SeedFile).all():
+        for sf in seeds.all():
             if is_current(sf, latest_seed):
                 index.seed_by_path[(sf.disk_id, sf.relative_path)] = sf
         return index
+
+    def _load_episodes(self, session: Session, latest_media: dict[int, int]) -> None:
+        rows = (
+            session.query(MediaFile.disk_id, MediaFile.last_scan_id, MediaItem.tmdb_id, MediaItem.season_number,
+                          MediaItem.episode_number)
+            .join(MediaItem, MediaItem.id == MediaFile.media_item_id)
+            .filter(MediaItem.season_number.isnot(None), MediaItem.episode_number.isnot(None))
+        )
+        for disk_id, last_scan_id, tmdb_id, season, episode in rows:
+            if last_scan_id == latest_media.get(disk_id, last_scan_id):
+                self.episodes_by_series[tmdb_id].add((season, episode))
 
 
 @lru_cache(maxsize=65536)
@@ -211,6 +251,64 @@ def _episode_numbers(filename: str) -> tuple[int, int] | None:
     if season is None or episode is None:
         return None
     return int(season), int(episode)
+
+
+@lru_cache(maxsize=65536)
+def _episode_refs(filename: str) -> tuple[int, frozenset[int]] | None:
+    """(stagione, episodi) dal nome di un file: più episodi per un file
+    doppio (S01E01E02). None se guessit non li legge o se il nome copre più
+    stagioni: in quei casi non si può dire che sia un altro episodio."""
+    guess = guess_name(filename)
+    season, episode = guess.get("season"), guess.get("episode")
+    if isinstance(season, list):
+        season = season[0] if len(season) == 1 else None
+    episodes = episode if isinstance(episode, list) else [episode]
+    if season is None or not episodes or any(e is None for e in episodes):
+        return None
+    return int(season), frozenset(int(e) for e in episodes)
+
+
+def other_episode(layout: Layout, anchor: MediaFile, local: LocalFiles, translate=None) -> bool:
+    """Un torrent con un video solo che è un altro episodio della serie
+    dell'anchor. La ricerca sul catalogo è per tmdb_id della serie, e
+    map_media_side abbina all'anchor il video di qualunque torrent a file
+    singolo: ogni singolo di un altro episodio diventava un candidato a
+    confidence 0 per ogni episodio cercato, a ogni nuova ricerca (audit
+    2026-10-18). Come il pack di un'altra stagione, non riguarda il file.
+
+    Solo quando lo si sa davvero: numeri leggibili dal nome che non
+    comprendono l'episodio dell'anchor, nemmeno tradotti da un altro
+    ordinamento (translate: (tmdb_id, episodi del torrent, episodi della
+    libreria, fetch) -> mapping, Translator.mapping di
+    nazgarr/library/episode_orders.py; fetch=False: solo con gli ordinamenti
+    già noti, senza chiamate esterne),
+    e una size diversa da quella dell'anchor (a size uguale decidono i piece,
+    come sempre). Un film, un nome che guessit non legge, un file doppio che
+    contiene l'episodio restano com'erano."""
+    videos = layout.videos
+    item = anchor.media_item
+    if len(videos) != 1 or item is None or item.season_number is None or item.episode_number is None:
+        return False
+    video = videos[0]
+    if video.size is None or video.size == anchor.size_bytes:
+        return False
+    refs = _episode_refs(os.path.basename(video.path))
+    if refs is None:
+        return False
+    season, episodes = refs
+    target = (item.season_number, item.episode_number)
+    if season == target[0] and target[1] in episodes:
+        return False
+    if translate is not None:
+        torrent = frozenset((season, e) for e in episodes)
+        library = local.episodes_by_series.get(item.tmdb_id, set())
+        # Numeri che la libreria ha già: altri episodi, senza chiedere gli
+        # ordinamenti a TMDB e Sonarr solo per decidere se salvare una riga a
+        # confidence 0 (fetch=False usa solo quelli già letti in questa run).
+        mapping = translate(item.tmdb_id, torrent, library, fetch=not torrent <= library)
+        if target in mapping.values():
+            return False
+    return True
 
 
 def _pick_same_disk(files: list[MediaFile], disk_id: int, size: int | None) -> MediaFile | None:
@@ -321,17 +419,24 @@ def _match_extra(lf: LayoutFile, neighbours: list[MediaFile]) -> MediaFile | Non
     return same[0] if len(same) == 1 else None
 
 
-def map_seed_side(layout: Layout, anchor: SeedFile, local: LocalFiles) -> list[FileMatch]:
-    """La cartella del torrent è ancora su disco con i nomi originali:
-    ritrovata la radice dall'anchor, ogni altro file è un lookup esatto."""
-    root = None
+def seed_root(layout: Layout, anchor: SeedFile) -> str | None:
+    """La cartella che contiene il torrent sul disco, ricavata dall'anchor:
+    il percorso dell'anchor finisce con quello di un file del torrent, della
+    stessa size. None = l'anchor non è in questo torrent (un altro torrent
+    della stessa serie, trovato cercando per tmdb_id)."""
     for lf in layout.files:
         suffix = lf.full_path(layout.folder)
         if anchor.relative_path.endswith(suffix) and (lf.size is None or lf.size == anchor.size_bytes):
             head = anchor.relative_path[: -len(suffix)]
             if head == "" or head.endswith("/"):
-                root = head
-                break
+                return head
+    return None
+
+
+def map_seed_side(layout: Layout, anchor: SeedFile, local: LocalFiles) -> list[FileMatch]:
+    """La cartella del torrent è ancora su disco con i nomi originali:
+    ritrovata la radice dall'anchor, ogni altro file è un lookup esatto."""
+    root = seed_root(layout, anchor)
     if root is None:
         return [FileMatch(lf, None) for lf in layout.files]
     result = []
@@ -505,12 +610,24 @@ def _torrent_entry(lf: LayoutFile, parsed: TorrentInfo):
     return entry
 
 
+def _pieces_key(path: str, parsed: TorrentInfo, entry) -> tuple:
+    """La chiave di un campione di piece: il file locale e gli hash dei
+    piece che la voce del .torrent tocca, con la geometria che li colloca.
+    Dipende solo dal contenuto, non dall'oggetto del .torrent: prima era
+    id(parsed), che un altro .torrent può riprendere quando il primo esce
+    dalla cache del matching (audit 2026-10-18), e lo stesso torrent su due
+    tracker si rileggeva per ognuno."""
+    first = entry.offset // parsed.piece_length
+    last = max(entry.offset + entry.length - 1, entry.offset) // parsed.piece_length
+    digest = hashlib.sha1(b"".join(parsed.pieces[first:last + 1])).digest()
+    return (path, entry.offset, entry.length, parsed.piece_length, parsed.total_length, digest)
+
+
 def _check_pieces(path: str, parsed: TorrentInfo, entry, piece_checks: dict | None):
     """Il campione di piece di un file locale contro una voce del .torrent,
     letto una volta per run: lo stesso torrent si valuta dal catalogo e poi
-    dal .torrent vero. La chiave usa l'oggetto del .torrent, che il
-    contesto del matching tiene per tutta la run."""
-    key = (id(parsed), path, entry.offset, entry.length)
+    dal .torrent vero, e si ritrova su più tracker."""
+    key = _pieces_key(path, parsed, entry)
     if piece_checks is not None and key in piece_checks:
         return piece_checks[key]
     result = verify_file_pieces(

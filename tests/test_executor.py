@@ -831,3 +831,84 @@ def test_a_candidate_whose_tracker_is_gone_cannot_be_downloaded(monkeypatch):
     with pytest.raises(executor.ExecutionError, match="tracker no longer exists"):
         _REAL_DOWNLOAD_TORRENT(Candidate(tracker=None, download_link="https://t.example/torrent/download/1.k"))
     assert fake.links == []
+
+
+def _catalog_only_review(db_session, tmp_path):
+    """Un candidato a file singolo il cui .torrent il matching non ha letto:
+    cartella e nome solo dal catalogo, nessun info hash."""
+    from nazgarr.core.models import CandidateFile
+
+    root, review = _movie_review(db_session, tmp_path)
+    review.candidate.files = [CandidateFile(torrent_path="Movie.2024.mkv", size_bytes=7, is_video=True,
+                                            media_file_id=review.media_file_id)]
+    db_session.commit()
+    return root, review
+
+
+def _folder_torrent(name: str, folder: str = "Movie.2024.1080p-GRP") -> bytes:
+    return _bencode({"info": {"name": folder, "piece length": 16, "pieces": hashlib.sha1(b"content").digest(),
+                              "files": [{"length": 7, "path": [name]}]}})
+
+
+def test_a_catalogue_only_structure_takes_the_folder_from_the_torrent_before_any_hardlink(
+        db_session, tmp_path, _tracker_torrent):
+    # Con la verifica spenta, cartella e nomi del catalogo arrivavano fino agli
+    # hardlink (audit 2026-10-18, finding 146).
+    root, review = _catalog_only_review(db_session, tmp_path)
+    _tracker_torrent["content"] = _folder_torrent("Movie.2024.mkv")
+    adapter = FakeAdapter(info_hash=compute_info_hash(_tracker_torrent["content"]))
+
+    executor.execute_review(db_session, review, adapter)
+
+    assert (root / "torrents" / "Movie.2024.1080p-GRP" / "Movie.2024.mkv").is_file()
+    assert review.candidate.folder == "Movie.2024.1080p-GRP"
+    assert len(_tracker_torrent["links"]) == 1  # scaricato una volta sola
+
+
+def test_a_catalogue_name_the_torrent_does_not_have_creates_nothing(db_session, tmp_path, _tracker_torrent):
+    root, review = _catalog_only_review(db_session, tmp_path)
+    _tracker_torrent["content"] = _folder_torrent("Something.Else.mkv")
+    adapter = FakeAdapter()
+
+    with pytest.raises(executor.ExecutionError, match="not the ones the tracker's catalogue listed"):
+        executor.execute_review(db_session, review, adapter)
+
+    assert not any((root / "torrents").rglob("*.mkv"))
+    assert adapter.add_torrent_calls == []
+
+
+def test_a_known_info_hash_does_not_skip_the_structure_check(db_session, tmp_path, _tracker_torrent):
+    # Il controllo completo impara l'info hash e ritrova i file anche per
+    # nome: prima, con l'info hash noto, gli hardlink seguivano lo stesso i
+    # nomi del catalogo. Conta se la struttura è mai stata letta da un .torrent.
+    root, review = _catalog_only_review(db_session, tmp_path)
+    _tracker_torrent["content"] = _folder_torrent("Something.Else.mkv")
+    review.candidate.info_hash = compute_info_hash(_tracker_torrent["content"])
+    db_session.commit()
+    adapter = FakeAdapter(info_hash=review.candidate.info_hash)
+
+    with pytest.raises(executor.ExecutionError, match="not the ones the tracker's catalogue listed"):
+        executor.execute_review(db_session, review, adapter)
+
+    assert not any((root / "torrents").rglob("*.mkv"))
+    assert adapter.add_torrent_calls == []
+
+
+def test_an_execution_error_carries_the_english_text_never_the_bare_code(db_session, tmp_path, monkeypatch):
+    # Il retry mostrava "Retry failed: client_cannot_see_path", senza percorso,
+    # mentre il seed_job aveva il testo giusto (audit 2026-10-18, finding 119).
+    from nazgarr.core.models import SeedJob
+    from nazgarr.torrents.client_paths import ClientPathError
+
+    _root, review = _catalog_only_review(db_session, tmp_path)
+
+    def cannot_see(*args):
+        raise ClientPathError("client_cannot_see_path", path="/data/torrents", folder="/data/media",
+                              client_root="/downloads")
+
+    monkeypatch.setattr(executor, "client_visible_path", cannot_see)
+    with pytest.raises(executor.ExecutionError) as info:
+        executor.execute_review(db_session, review, FakeAdapter())
+
+    assert str(info.value).startswith("The client cannot see /data/torrents")
+    assert str(info.value) == db_session.query(SeedJob).one().error_message

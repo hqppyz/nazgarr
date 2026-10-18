@@ -19,7 +19,6 @@ from sqlalchemy.orm import Session
 from nazgarr.adapters.torrent_client.base import is_stopped_state
 from nazgarr.core.file_types import is_video
 from nazgarr.core.models import (
-    Candidate,
     ClientTorrent,
     ClientTorrentFile,
     MatchAttempt,
@@ -43,7 +42,9 @@ from nazgarr.reseed.matching import _as_utc, get_rematch_interval
 from nazgarr.reseed.review import (
     READY_FOR_DECISION_STATUSES,
     hashes_in_clients,
+    one_per_torrent,
     seed_job_display_status,
+    with_details,
     without_seed_job,
 )
 
@@ -180,9 +181,9 @@ def item_detail(session: Session, content_type: str, tmdb_id: int) -> dict | Non
                     for g in group["files"] if g["media_file_id"] != f["media_file_id"]
                 )
 
-    reviews = without_seed_job(session.query(MatchReview).filter(
+    reviews = with_details(without_seed_job(session.query(MatchReview).filter(
         MatchReview.media_file_id.in_(mf_ids), MatchReview.status.in_(READY_FOR_DECISION_STATUSES),
-    )).all() if mf_ids else []
+    ))).all() if mf_ids else []
     in_review = {r.media_file_id for r in reviews}
 
     items_by_id = {i.id: i for i in items}
@@ -229,24 +230,17 @@ def item_detail(session: Session, content_type: str, tmdb_id: int) -> dict | Non
                 "next_search_at": (first + interval).astimezone(UTC) if interval.total_seconds() > 0 else None,
             })
 
-    seen: set[tuple[int, str]] = set()
-    candidates = []
-    for c in (
-        session.query(Candidate).filter(Candidate.media_item_id.in_(item_ids))
-        .order_by(Candidate.confidence.desc(), Candidate.id.desc()).all()
-    ):
-        key = (c.tracker_id, c.torrent_id_remote)
-        if key in seen:
-            continue
-        seen.add(key)
-        candidates.append({
+    # Uno per torrent, il più plausibile, scelti e tagliati in SQL: prima si
+    # caricavano tutti i candidati della serie (audit 2026-10-18).
+    candidates = [
+        {
             "id": c.id, "name": c.name, "tracker": tracker_labels.get(c.tracker_id, f"#{c.tracker_id}"),
             "torrent_id_remote": c.torrent_id_remote, "confidence": c.confidence,
             "ambiguity_reason": c.ambiguity_reason, "source": c.source, "direction": c.direction,
             "videos": sum(1 for f in c.files if f.is_video) or 1,
-        })
-        if len(candidates) >= MAX_CANDIDATES:
-            break
+        }
+        for c in one_per_torrent(session, item_ids, limit=MAX_CANDIDATES, newest=False, by_direction=False)
+    ]
 
     seed_jobs = []
     in_client = hashes_in_clients(session)

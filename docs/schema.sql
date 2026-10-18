@@ -507,7 +507,10 @@ CREATE TABLE IF NOT EXISTS candidate (
     size_bytes           INTEGER NOT NULL,
     file_list_json       TEXT,                   -- if available from the API
     folder               TEXT,                   -- pack subfolder (UNIT3D "folder"), null for a single file
-    download_link        TEXT,                   -- authenticated URL to the .torrent (needed for add_torrent)
+    download_link        TEXT,
+        -- link to the .torrent, stored without the tracker key (placeholder 'rsskey'): the key is put
+        -- back only when Nazgarr downloads it (nazgarr/reseed/download_links.py), and the client gets
+        -- the .torrent's bytes, never this link (audit 2026-10-18)
     source               TEXT NOT NULL CHECK (source IN ('history','catalog_search')),
     direction            TEXT NOT NULL CHECK (direction IN ('media_to_torrent','torrent_to_client')),
         -- which of the two SPEC.md §3 directions produced this candidate — absent from
@@ -663,7 +666,7 @@ CREATE TABLE IF NOT EXISTS seed_job (
         -- known only after the add to the client and the next poll — never at add_torrent time
     info_hash                   TEXT,
         -- known as soon as add_torrent() succeeds (returned by the client adapter) — used by
-        -- reconcile_seed_job()/retry_seed_job() to query the client's real status. Missing from
+        -- reconcile_seed_job()/adopt_for_retry() to query the client's real status. Missing from
         -- the first draft of this table (found while implementing the executor in Fase 4).
     hardlink_created_at         TIMESTAMP,
     torrent_added_at            TIMESTAMP,

@@ -11,9 +11,9 @@ def _tracker(db_session):
     return t
 
 
-def _candidate(db_session, item, tracker, *, confidence, direction="media_to_torrent"):
+def _candidate(db_session, item, tracker, *, confidence, direction="media_to_torrent", remote="1"):
     c = Candidate(
-        media_item_id=item.id, tracker_id=tracker.id, torrent_id_remote="1", name="x", size_bytes=1,
+        media_item_id=item.id, tracker_id=tracker.id, torrent_id_remote=remote, name="x", size_bytes=1,
         source="catalog_search", direction=direction, confidence=confidence,
     )
     db_session.add(c)
@@ -357,7 +357,8 @@ def test_each_tracker_keeps_its_own_proposal_for_the_same_file(db_session):
     on_b = review.create_review_for_media_file(db_session, mf, [_candidate(db_session, item, b, confidence=0.5)])
     assert (on_a.status, on_b.status) == ("pending", "pending")
 
-    again_on_a = review.create_review_for_media_file(db_session, mf, [_candidate(db_session, item, a, confidence=0.6)])
+    again_on_a = review.create_review_for_media_file(
+        db_session, mf, [_candidate(db_session, item, a, confidence=0.6, remote="2")])
     db_session.refresh(on_a)
     db_session.refresh(on_b)
     assert (on_a.status, on_b.status, again_on_a.status) == ("rejected", "pending", "pending")
@@ -407,3 +408,144 @@ def test_a_review_says_where_the_file_already_seeds(db_session):
     row = _review_for(db_session, _candidate(db_session, item, tracker, confidence=0.5), media_file_id=mf.id)
 
     assert ReviewResponse.from_model(row).seeding_on == ["public.example", "t"]
+
+
+def test_automatic_execution_skips_a_review_decided_meanwhile(db_session, monkeypatch):
+    # La lista si legge una volta: una review approvata dall'utente nel
+    # frattempo non si esegue una seconda volta (audit 2026-10-18, finding 116).
+    from nazgarr.core import settings_repo
+
+    settings_repo.set_setting(db_session, "auto_execute_above_threshold", "true")
+    settings_repo.set_setting(db_session, "verify_before_execute", "false")
+    tracker = _tracker(db_session)
+    item = _media_item(db_session)
+    first = _review_for(db_session, _candidate(db_session, item, tracker, confidence=0.99))
+    second = _review_for(db_session, _candidate(db_session, item, tracker, confidence=0.99, remote="2"))
+    for row in (first, second):
+        row.status = "auto_approved"
+    db_session.commit()
+    executed = []
+
+    def execute(session, row, **kw):
+        executed.append(row.id)
+        if row.id == first.id:  # mentre la run esegue la prima, l'utente rifiuta la seconda
+            other = session.get(MatchReview, second.id)
+            review.reject(session, other)
+
+    monkeypatch.setattr(review, "_try_execute", execute)
+    result = review.execute_auto_approved(db_session)
+
+    assert executed == [first.id]
+    assert result["executed"] == 1
+
+
+def test_the_users_own_upload_is_never_proposed_as_a_reseed(db_session):
+    # Il flusso degli upload aggiunge il torrent al client senza indicizzarlo
+    # subito: fino alla run dopo, "Cerca ora" trovava l'upload stesso e lo
+    # proponeva (audit 2026-10-18, finding 171).
+    from nazgarr.core.models import UploadJob, UploadTarget
+
+    tracker = _tracker(db_session)
+    item = _media_item(db_session)
+    mf = _media_file_stub(db_session, item)
+    job = UploadJob(disk_id=mf.disk_id, relative_path=mf.relative_path, source_path="/mnt/d/movies/x.mkv",
+                    status="done")
+    db_session.add(job)
+    db_session.commit()
+    db_session.add(UploadTarget(job_id=job.id, tracker_id=tracker.id, status="seeding", torrent_id_remote="77"))
+    db_session.commit()
+
+    assert review.create_review_for_media_file(
+        db_session, mf, [_candidate(db_session, item, tracker, confidence=0.99, remote="77")]) is None
+    assert review.create_review_for_media_file(
+        db_session, mf, [_candidate(db_session, item, tracker, confidence=0.99, remote="78")]) is not None
+
+
+def test_a_queued_review_whose_torrent_reached_a_client_leaves_the_queue(db_session):
+    # Ogni candidato plausibile escluso: la review in coda restava anche se
+    # il suo torrent era ora in un client (un'altra copia), e approvarla
+    # poteva solo fallire (audit 2026-10-18, finding 30).
+    from nazgarr.core.models import ClientTorrent, TorrentClient
+
+    tracker = _tracker(db_session)
+    item = _media_item(db_session)
+    mf = _media_file_stub(db_session, item)
+    first = _candidate(db_session, item, tracker, confidence=0.5)
+    first.info_hash = "abc"
+    db_session.commit()
+    queued = review.create_review_for_media_file(db_session, mf, [first])
+    client = TorrentClient(label="q", adapter_type="qbittorrent", base_url="http://q")
+    db_session.add(client)
+    db_session.commit()
+    db_session.add(ClientTorrent(torrent_client_id=client.id, info_hash="abc", name="x", save_path="/x",
+                                 state="uploading", last_polled_at=datetime.now(UTC)))
+    db_session.commit()
+    again = _candidate(db_session, item, tracker, confidence=0.5)
+    again.info_hash = "ABC"
+    db_session.commit()
+
+    assert review.create_review_for_media_file(db_session, mf, [again]) is None
+    assert (queued.status, queued.decided_by) == ("rejected", "system")
+
+
+def test_a_queued_review_on_a_torrent_now_busy_elsewhere_stays(db_session):
+    # Il torrent ora occupato da un altro file non si ripropone, ma la
+    # review di questo file resta: si può ancora eseguire.
+    tracker = _tracker(db_session)
+    item = _media_item(db_session)
+    mf = _media_file_stub(db_session, item)
+    other = MediaFile(disk_id=mf.disk_id, relative_path="movies/y.mkv", size_bytes=1, st_dev=1, inode=9,
+                      media_item_id=item.id, last_scan_id=mf.last_scan_id, last_seen_at=datetime.now(UTC))
+    db_session.add(other)
+    db_session.commit()
+    queued = review.create_review_for_media_file(db_session, mf, [_candidate(db_session, item, tracker,
+                                                                              confidence=0.5)])
+    db_session.add(MatchReview(candidate_id=_candidate(db_session, item, tracker, confidence=0.5, remote="2").id,
+                               media_file_id=other.id, status="pending"))
+    db_session.commit()
+
+    assert review.create_review_for_media_file(
+        db_session, mf, [_candidate(db_session, item, tracker, confidence=0.5, remote="2")]) is None
+    assert queued.status == "pending"
+
+
+def _upload_target(db_session, mf, tracker, **values):
+    from nazgarr.core.models import UploadJob, UploadTarget
+
+    job = UploadJob(disk_id=mf.disk_id, relative_path=mf.relative_path, source_path="/mnt/d/movies/x.mkv",
+                    status="done")
+    db_session.add(job)
+    db_session.commit()
+    target = UploadTarget(job_id=job.id, tracker_id=tracker.id, **values)
+    db_session.add(target)
+    db_session.commit()
+    return target
+
+
+def test_an_upload_seeded_before_the_last_run_is_proposed_again_once_gone_from_the_client(db_session):
+    # Solo fino alla prima indicizzazione dopo l'upload: poi un torrent tolto
+    # dal client si ripropone come ogni altro, e un target fallito non ha mai
+    # messo niente in seed (audit 2026-10-18, finding 171).
+    from datetime import timedelta
+
+    tracker = _tracker(db_session)
+    item = _media_item(db_session)
+    mf = _media_file_stub(db_session, item)
+    now = datetime.now(UTC)
+    _upload_target(db_session, mf, tracker, status="done", action="upload", torrent_id_remote="77",
+                   info_hash="aa77", finished_at=now - timedelta(hours=2))
+    _upload_target(db_session, mf, tracker, status="failed", action="upload", torrent_id_remote="79",
+                   error_message="upload_outcome_unknown", finished_at=now)
+    run = pipeline.start_run(db_session, "manual")
+    run.started_at, run.finished_at = now - timedelta(hours=1), now - timedelta(minutes=50)
+    db_session.commit()
+
+    proposed = review.create_review_for_media_file(
+        db_session, mf, [_candidate(db_session, item, tracker, confidence=0.99, remote="77")])
+    assert proposed is not None
+    assert review._own_uploads(db_session) == (set(), set())
+
+    # Uno finito dopo l'inizio dell'ultima run conclusa non è ancora indicizzato.
+    _upload_target(db_session, mf, tracker, status="done", action="reseed", reseed_torrent_id="78",
+                   info_hash="AA78", finished_at=now)
+    assert review._own_uploads(db_session) == ({(tracker.id, "78")}, {"aa78"})
