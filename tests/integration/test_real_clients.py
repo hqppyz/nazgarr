@@ -265,6 +265,40 @@ def test_a_reseed_with_wrong_data_stays_stopped_after_its_recheck(workspace):
 
 
 @pytest.mark.parametrize("workspace", list(CLIENTS), indirect=True)
+def test_the_retry_of_a_stopped_failed_reseed_rechecks_it_and_it_stays_stopped(workspace):
+    """Il retry di un reseed rimasto fermo col recheck fallito
+    (executor.adopt_for_retry, audit 2026-10-18): un torrent fermo il client
+    non lo ricontrolla da solo, quindi recheck(); coi file ora giusti il
+    controllo riesce e il torrent resta fermo, finché start()."""
+    ws = workspace
+    adapter = _adapter(ws.name)
+    source = _payload_single(ws)
+    torrent_path, torrent = _make_torrent(ws, source)
+    with open(source, "rb") as f:
+        good = f.read()
+    with open(source, "r+b") as f:  # stessa dimensione, contenuto diverso
+        f.write(os.urandom(len(good)))
+
+    info_hash = adapter.add_torrent(torrent_path, save_path=CLIENT_ROOT, stopped=True)
+
+    try:
+        status, seen = _settled(adapter, info_hash)
+        assert status.recheck_status == "failed", seen
+        # L'utente rimette i file giusti. Transmission ("rename-partial-files",
+        # acceso di default) ha intanto rinominato il file incompleto in .part.
+        restored = source if os.path.exists(source) else source + ".part"
+        with open(restored, "r+b") as f:
+            f.write(good)
+        adapter.recheck(info_hash)
+        status, seen = _settled(adapter, info_hash)
+        assert status.recheck_status == "ok" and status.progress == pytest.approx(1.0), seen
+        time.sleep(3)  # nessun avvio dopo il controllo
+        assert is_stopped_state(adapter.get_torrent_status(info_hash).state), seen
+    finally:
+        adapter.remove_torrent(info_hash, delete_files=True)
+
+
+@pytest.mark.parametrize("workspace", list(CLIENTS), indirect=True)
 def test_stop_after_a_failed_recheck(workspace):
     """Il caso di reconcile_seed_job per un torrent aggiunto avviato (un
     plugin senza can_add_stopped): un recheck fallito si ferma, così il

@@ -28,15 +28,21 @@ solo, execute.*). Quindi:
   dati" della sua UI), che cancella i file pochi secondi dopo. ruTorrent
   prepara i suoi plugin la prima volta che se ne apre la UI: prima, quella
   azione risponde false e l'adapter lo segnala.
+- il recheck, via ruTorrent, passa dalla sua azione `recheck` (la stessa
+  "Ricontrolla" della sua UI), che ruTorrent ricostruisce da sé: un
+  `d.check_hash` inoltrato risponde 0 e non controlla niente su un torrent
+  fermo (visto sull'istanza reale, audit 2026-10-18). Prima lo si notava
+  appena perché `d.start` dopo l'aggiunta faceva comunque il primo
+  controllo; un reseed, che entra fermo, restava allo 0% e falliva sempre.
 
 - Un .torrent locale va col suo contenuto (`load.raw`, i byte del file),
   mai col percorso: il client non vede la cartella dati di Nazgarr. Un URL
   (http/https/magnet) resta un URL (`load.normal`), lo scarica rTorrent.
-- Il torrent entra fermo, poi il recheck (`d.check_hash`) e `d.start`,
-  tranne con stopped (un reseed): resta fermo dopo il recheck, e `d.start`
-  arriva con start() quando è riuscito. La save path è passata così com'è:
-  per un torrent multi-file rTorrent ci aggiunge la cartella del torrent,
-  come qBittorrent.
+- Il torrent entra fermo, poi il recheck (`d.check_hash`, o l'azione
+  `recheck` di ruTorrent) e `d.start`, tranne con stopped (un reseed):
+  resta fermo dopo il recheck, e `d.start` arriva con start() quando è
+  riuscito. La save path è passata così com'è: per un torrent multi-file
+  rTorrent ci aggiunge la cartella del torrent, come qBittorrent.
 - L'hash si trova nell'elenco (`download_list`), atteso o per differenza,
   come negli altri adapter. rTorrent usa hash maiuscoli: l'adapter li
   restituisce in minuscolo e li rimette maiuscoli nelle chiamate.
@@ -188,9 +194,8 @@ class RTorrentAdapter(TorrentClientAdapter):
         else:
             self._call("load.normal", "", torrent_file_or_url, *commands)
         info_hash = wait_for_hash(self._hashes, before, expected, self.poll_interval, self.poll_timeout, "rTorrent")
-        target = info_hash.upper()
         # Sempre, anche con skip_check_verified: rTorrent non sa saltarlo.
-        self._call("d.check_hash", target)
+        self.recheck(info_hash)
         if not stopped:  # un reseed resta fermo, start() dopo il recheck riuscito
             self.start(info_hash)
         return info_hash
@@ -199,7 +204,18 @@ class RTorrentAdapter(TorrentClientAdapter):
         self._call("d.start", info_hash.upper())
 
     def recheck(self, info_hash: str) -> None:
-        self._call("d.check_hash", info_hash.upper())
+        target = info_hash.upper()
+        if not self.via_rutorrent:
+            self._call("d.check_hash", target)
+            return
+        # L'azione di ruTorrent, non d.check_hash inoltrato (il docstring del modulo).
+        response = self._client.post(
+            self.url, content=f"mode=recheck&hash={target}".encode(),
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        )
+        response.raise_for_status()
+        if response.text.strip() in ("", "false"):
+            raise RuntimeError(f"ruTorrent did not take the recheck of {info_hash}")
 
     def stop(self, info_hash: str) -> None:
         self._call("d.stop", info_hash.upper())

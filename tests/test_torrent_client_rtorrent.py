@@ -338,3 +338,30 @@ def test_the_live_path_check_asks_only_the_files_of_the_torrents_it_looks_at():
     mock.calls.clear()
     _adapter(mock).list_largest_files(limit=2)
     assert len(mock.called("f.multicall")) == 2 and not mock.called("t.multicall")
+
+
+@pytest.mark.parametrize("stopped", [False, True])
+def test_through_rutorrent_the_recheck_is_its_own_action(tmp_path, stopped):
+    # Un d.check_hash inoltrato da ruTorrent risponde 0 e non controlla
+    # niente su un torrent fermo (istanza reale, audit 2026-10-18): un
+    # reseed restava allo 0% e falliva sempre.
+    path, torrent = _torrent_file(tmp_path)
+    mock = _RTorrentMock()
+    mock.on_load = torrent.infohash.upper()
+    adapter = _adapter(mock, url="http://rutorrent:8080")
+
+    info_hash = adapter.add_torrent(str(path), save_path="/d", stopped=stopped)
+    adapter.recheck(info_hash)
+
+    target = torrent.infohash.upper()
+    assert mock.forms == [{"mode": "recheck", "hash": target}] * 2
+    assert not mock.called("d.check_hash")
+    assert mock.called("d.start") == ([] if stopped else [(target,)])
+
+
+def test_a_recheck_rutorrent_refuses_is_an_error():
+    client = httpx.Client(transport=httpx.MockTransport(lambda request: httpx.Response(200, text="false")))
+    adapter = RTorrentAdapter("http://rutorrent:8080", None, None, http_client=client)
+
+    with pytest.raises(RuntimeError, match="did not take the recheck"):
+        adapter.recheck(HASH.lower())
