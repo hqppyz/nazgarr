@@ -125,6 +125,32 @@ def strip_dupe_download_keys(engine: Engine) -> dict[str, int]:
     return {"stripped": stripped}
 
 
+# Gli stessi limiti dell'API (nazgarr/api/trackers.py, RATE_LIMIT_MAX): qui
+# a mano, perché un passo già rilasciato non deve cambiare se cambia l'API.
+_RATE_LIMIT_DEFAULT, _RATE_LIMIT_MAX = 30, 600
+
+
+def normalize_tracker_rate_limits(engine: Engine) -> dict[str, int]:
+    """Una tantum (audit 2026-10-18): prima dei limiti dell'API un tracker
+    poteva salvare un rate_limit_per_min negativo, 0 con una PATCH, o
+    enorme. Il limitatore ora tratta tutto sotto 1 come 1 (una richiesta al
+    minuto, non quello che si voleva), e l'interfaccia mostrava e rimandava
+    il valore salvato, che l'API rifiuta con 422 a ogni modifica del
+    tracker. Sotto 1 diventa il default (30, come 0 alla creazione e nella
+    PATCH), sopra il massimo il massimo. NULL resta: vale già 30.
+    Idempotente."""
+    with engine.begin() as conn:
+        low = conn.execute(text(
+            "UPDATE tracker SET rate_limit_per_min = :default WHERE rate_limit_per_min < 1"),
+            {"default": _RATE_LIMIT_DEFAULT}).rowcount or 0
+        high = conn.execute(text(
+            "UPDATE tracker SET rate_limit_per_min = :max WHERE rate_limit_per_min > :max"),
+            {"max": _RATE_LIMIT_MAX}).rowcount or 0
+    if low or high:
+        logger.info("Database: limite di richieste corretto per %d tracker", low + high)
+    return {"defaulted": low, "capped": high}
+
+
 def _vacuum(engine: Engine) -> None:
     """Restituisce al disco lo spazio delle righe tolte. Un di più: serve
     spazio libero quanto il database, e se manca l'avvio continua."""
@@ -167,6 +193,8 @@ MIGRATIONS: tuple[Migration, ...] = (
     Migration(11, "candidati doppi tolti, link di download senza chiave", clean_stale_candidates,
               before_schema=False),
     Migration(12, "link dei dupe degli upload senza chiave", strip_dupe_download_keys, before_schema=False),
+    Migration(13, "limite di richieste dei tracker entro i limiti dell'API", normalize_tracker_rate_limits,
+              before_schema=False),
 )
 
 LATEST = MIGRATIONS[-1].version
