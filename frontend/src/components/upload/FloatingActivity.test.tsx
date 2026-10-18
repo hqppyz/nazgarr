@@ -1,10 +1,8 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { fireEvent, render, screen } from '@testing-library/react'
+import { describe, expect, it } from 'vitest'
 
 import type { UploadJob } from '@/api/hooks/uploads'
 import { FloatingActivity } from '@/components/upload/FloatingActivity'
-
-afterEach(cleanup)
 
 const job = {
   targets: [],

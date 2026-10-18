@@ -8,7 +8,6 @@ const retry = vi.fn((_confirm: boolean) => Promise.resolve({}))
 vi.mock('@/api/hooks/uploads', () => ({ useRetryUpload: () => ({ mutateAsync: retry, isPending: false }) }))
 
 afterEach(() => {
-  cleanup()
   retry.mockClear()
 })
 

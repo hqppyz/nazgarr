@@ -1,11 +1,9 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { fireEvent, render, screen } from '@testing-library/react'
+import { describe, expect, it } from 'vitest'
 
 import type { UploadJob } from '@/api/hooks/uploads'
 import { AnalysisSummary } from '@/components/upload/AnalysisSummary'
 import { MetadataLinks } from '@/components/upload/MetadataLinks'
-
-afterEach(cleanup)
 
 const episode = (n: number) => ({
   client: 'qBit', name: `Show.S01E0${n}.mkv`, info_hash: `h${n}`, tracker_host: 'itatorrents.xyz', state: 'uploading',

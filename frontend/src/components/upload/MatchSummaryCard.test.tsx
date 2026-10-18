@@ -1,5 +1,5 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import type { UploadJob } from '@/api/hooks/uploads'
 import { MatchSummaryCard } from '@/components/upload/MatchSummaryCard'
@@ -9,8 +9,6 @@ vi.mock('@/api/hooks/uploads', () => ({ useRematch: () => ({ mutate: rematch, is
 vi.mock('@/api/hooks/metadata', () => ({ posterUrl: () => '', useMetadataDetails: () => ({ data: undefined }) }))
 vi.mock('@/components/AuthedPoster', () => ({ AuthedPoster: () => null }))
 vi.mock('@/components/upload/MetadataLinks', () => ({ MetadataLinks: () => null }))
-
-afterEach(cleanup)
 
 const job = (extra = {}) => ({
   id: 4, status: 'awaiting_decision', title: 'The Matrix', year: 1999, tmdb_id: 603, content_type: 'movie',

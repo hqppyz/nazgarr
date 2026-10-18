@@ -1,5 +1,5 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import type { UploadJob } from '@/api/hooks/uploads'
 import { DecisionStep } from '@/components/upload/DecisionStep'
@@ -13,8 +13,6 @@ vi.mock('@/api/hooks/uploads', () => ({
 }))
 
 vi.mock('@/components/upload/MatchSummaryCard', () => ({ MatchSummaryCard: () => null }))
-
-afterEach(cleanup)
 
 const target = (id: number, label: string, extra = {}) => ({
   id, tracker_label: label, status: 'awaiting_decision', suggested_action: 'upload', error_message: null,

@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { UploadQueuePage } from '@/pages/upload/UploadQueuePage'
 
@@ -52,8 +52,6 @@ vi.mock('@/api/hooks/uploads', () => ({
 }))
 vi.mock('@/api/hooks/metadata', () => ({ posterUrl: () => '', useMetadataDetails: () => ({ data: undefined }) }))
 vi.mock('@/components/AuthedPoster', () => ({ AuthedPoster: () => null }))
-
-afterEach(cleanup)
 
 describe('UploadQueuePage', () => {
   it('lists what is running first, then the queue in order, and reorders it', () => {

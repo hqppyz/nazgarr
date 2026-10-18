@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { UploadJob } from '@/api/hooks/uploads'
@@ -54,7 +54,6 @@ const job = {
 
 afterEach(() => {
   ordersData = undefined
-  cleanup()
   confirm.mockClear()
   split.mockClear()
   navigate.mockClear()
