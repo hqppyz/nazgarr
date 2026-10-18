@@ -183,12 +183,17 @@ class MatchContext:
             self.translator = Translator(self.session)
         return self.translator
 
-    def translate_episodes(self, tmdb_id: int, torrent: frozenset, library: set) -> dict:
+    def translate_episodes(self, tmdb_id: int, torrent: frozenset, library: set, fetch: bool = True) -> dict:
         """Translator.mapping, una volta per serie ed episodi del torrent: i
         singoli di un'altra serie di episodi si ripresentano per ogni episodio
-        cercato (layout.other_episode)."""
+        cercato (layout.other_episode). fetch=False: solo se gli ordinamenti
+        della serie sono già stati letti in questa run (per un pack), mai una
+        chiamata a TMDB o a Sonarr per questo."""
         key = (tmdb_id, torrent)
         if key not in self._episode_mappings:
+            # Translator li tiene per serie in _orders (nazgarr/library/episode_orders.py).
+            if not fetch and tmdb_id not in getattr(self.translator, "_orders", ()):
+                return {}
             self._episode_mappings[key] = self.episode_translator().mapping(tmdb_id, set(torrent), library)
         return self._episode_mappings[key]
 

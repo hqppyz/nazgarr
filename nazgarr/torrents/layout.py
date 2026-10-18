@@ -279,7 +279,9 @@ def other_episode(layout: Layout, anchor: MediaFile, local: LocalFiles, translat
     Solo quando lo si sa davvero: numeri leggibili dal nome che non
     comprendono l'episodio dell'anchor, nemmeno tradotti da un altro
     ordinamento (translate: (tmdb_id, episodi del torrent, episodi della
-    libreria) -> mapping, Translator.mapping di nazgarr/library/episode_orders.py),
+    libreria, fetch) -> mapping, Translator.mapping di
+    nazgarr/library/episode_orders.py; fetch=False: solo con gli ordinamenti
+    già noti, senza chiamate esterne),
     e una size diversa da quella dell'anchor (a size uguale decidono i piece,
     come sempre). Un film, un nome che guessit non legge, un file doppio che
     contiene l'episodio restano com'erano."""
@@ -299,7 +301,11 @@ def other_episode(layout: Layout, anchor: MediaFile, local: LocalFiles, translat
         return False
     if translate is not None:
         torrent = frozenset((season, e) for e in episodes)
-        mapping = translate(item.tmdb_id, torrent, local.episodes_by_series.get(item.tmdb_id, set()))
+        library = local.episodes_by_series.get(item.tmdb_id, set())
+        # Numeri che la libreria ha già: altri episodi, senza chiedere gli
+        # ordinamenti a TMDB e Sonarr solo per decidere se salvare una riga a
+        # confidence 0 (fetch=False usa solo quelli già letti in questa run).
+        mapping = translate(item.tmdb_id, torrent, library, fetch=not torrent <= library)
         if target in mapping.values():
             return False
     return True

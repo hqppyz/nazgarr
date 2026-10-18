@@ -417,3 +417,26 @@ def test_dropped_rows_leave_the_session(db_session, tmp_path, monkeypatch):
     (row,) = db_session.query(Candidate).all()
     assert (row.torrent_id_remote, row.media_item_id) == ("600", e02.media_item_id)
     assert row.id == stale_id  # l'id riusato, senza oggetti vecchi in mezzo
+
+
+def test_a_single_of_an_episode_in_the_library_asks_no_episode_orders(db_session, tmp_path, monkeypatch):
+    # Per un singolo di un altro episodio che la libreria ha, i numeri bastano:
+    # prima ogni serie con un orfano costava le chiamate a TMDB e Sonarr per
+    # gli ordinamenti, a ogni run, solo per non salvare una riga a confidence 0.
+    from nazgarr.library import episode_orders
+
+    _no_mediainfo(monkeypatch)
+    _disk, tracker, _files = _library(db_session, tmp_path)
+    asked = []
+    monkeypatch.setattr(episode_orders.Translator, "orders",
+                        lambda self, tmdb_id, library=None: asked.append(tmdb_id) or [])
+
+    matching.run_media_to_torrent_matching(
+        db_session, tracker, PackTracker([_single("601", "Show.S01E02.720p-OTHER.mkv", 997)]))
+    assert asked == []
+    assert db_session.query(Candidate).count() == 1  # solo per E02, l'episodio del singolo
+
+    # Un episodio che la libreria non ha può essere numerato con un altro ordinamento.
+    matching.run_media_to_torrent_matching(
+        db_session, tracker, PackTracker([_single("609", "Show.S01E09.720p-OTHER.mkv", 997)]), force=True)
+    assert asked
