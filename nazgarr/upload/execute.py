@@ -828,24 +828,62 @@ def _remember_seeded(ctx: dict, target: UploadTarget, paths: list[str]) -> None:
     percorso), per target: contano solo quelli dei tracker andati a buon
     fine (_seeded_by_done). Dalla cartella osservata si toglie solo un file
     la cui copia è fra questi (_clear_watch_source), e la pulizia degli
-    hardlink non tocca mai un file che seedano (_cleanup_unused_links)."""
+    hardlink non tocca mai un file che seedano (_cleanup_unused_links).
+
+    Anche in un file del job (_seeded_journal), come l'id di un torrent
+    pubblicato: la release resta nella cartella osservata finché un tracker
+    è fallito, e se ne va dopo un nuovo tentativo riuscito (o un riavvio),
+    in un'esecuzione che non ha più in memoria le copie messe in seed da
+    questa."""
     seeded = ctx.setdefault("seeded", {}).setdefault(target.id, {})
     for path in paths:
         with contextlib.suppress(OSError):
             st = os.stat(path)
             seeded[(st.st_dev, st.st_ino)] = os.path.realpath(path)
+    if ctx.get("dir"):
+        with contextlib.suppress(OSError):
+            with open(_seeded_journal(ctx["dir"], target.id), "w") as f:
+                json.dump({"files": [[dev, ino, path] for (dev, ino), path in seeded.items()]}, f)
+
+
+def _seeded_journal(job_dir: str, target_id: int) -> str:
+    return os.path.join(job_dir, f"seeded-{target_id}.json")
+
+
+def _forget_seeded(ctx: dict, target: UploadTarget) -> None:
+    """Un tracker che parte (di nuovo, es. dopo "Cambia match"): le copie in
+    seed registrate da un'esecuzione precedente non sono più le sue."""
+    if ctx.get("dir"):
+        with contextlib.suppress(OSError):
+            os.unlink(_seeded_journal(ctx["dir"], target.id))
+
+
+def _journaled_seeded(job_dir: str | None, target_id: int) -> dict[tuple[int, int], str]:
+    """Le copie in seed scritte nel file del job; vuoto se manca o non si
+    legge: al massimo un file resta nella cartella osservata, mai uno tolto
+    senza la sua copia."""
+    if not job_dir:
+        return {}
+    try:
+        with open(_seeded_journal(job_dir, target_id)) as f:
+            files = json.load(f).get("files") or []
+        return {(int(dev), int(ino)): str(path) for dev, ino, path in files}
+    except (OSError, ValueError, TypeError, AttributeError):
+        return {}
 
 
 def _seeded_by_done(job: UploadJob, ctx: dict) -> dict[tuple[int, int], set[str]]:
     """(dispositivo, inode) -> i percorsi da cui seedano i tracker di questo
-    job finiti 'done' in questa esecuzione. Un reseed fallito dopo aver
+    job finiti 'done', in questa esecuzione o in una precedente (il file del
+    job: un nuovo tentativo, un riavvio). Un reseed fallito dopo aver
     registrato i suoi file non conta."""
     seeded = ctx.get("seeded") or {}
     out: dict[tuple[int, int], set[str]] = {}
     for target in job.targets:
         if target.status != "done":
             continue
-        for key, path in (seeded.get(target.id) or {}).items():
+        records = {**_journaled_seeded(ctx.get("dir"), target.id), **(seeded.get(target.id) or {})}
+        for key, path in records.items():
             out.setdefault(key, set()).add(path)
     return out
 
@@ -997,8 +1035,15 @@ def _clear_watch_source(session: Session, job: UploadJob, overrides: dict, ctx: 
     file già collegato altrove (es. dalla cartella dei download) si
     cancellava anche se a seedare era proprio lui. Quello che il torrent non
     ha preso (es. un sample) resta, elencato nel registro del job, e le
-    cartelle vuote spariscono. Solo se almeno un tracker è andato, se si
-    mette in seed e se la sorgente è davvero dentro la cartella osservata.
+    cartelle vuote spariscono. Solo se si mette in seed e se la sorgente è
+    davvero dentro la cartella osservata.
+
+    Solo quando ogni tracker (gli skip non contano) è andato (decisione
+    dell'utente, 2026-10-18; prima bastava il primo): con uno fallito la
+    release resta dov'è, così "Riprova" ha ancora i suoi file, e se ne va
+    alla fine del tentativo che porta a 'done' anche l'ultimo. Le copie in
+    seed dei tracker andati in un'esecuzione precedente contano come quelle
+    di questa (_seeded_by_done, dal file del job).
 
     La copia si ricontrolla subito prima di togliere l'originale (audit
     2026-10-18): deve esistere ancora, essere un file vero con lo stesso
@@ -1006,11 +1051,18 @@ def _clear_watch_source(session: Session, job: UploadJob, overrides: dict, ctx: 
     se no l'originale resta."""
     if job.origin != "watch" or overrides.get("no_seed") or job.disk is None:
         return
-    if not any(t.status == "done" and t.action != "skip" for t in job.targets):
+    targets = [t for t in job.targets if t.action != "skip"]
+    if not any(t.status == "done" for t in targets):
         return
     watch = upload_watch.watch_root(job.disk)
     source = os.path.realpath(job.source_path)
     if watch is None or not source.startswith(os.path.realpath(watch) + os.sep):
+        return
+    waiting = [t for t in targets if t.status != "done"]
+    if waiting:
+        upload_jobs.log_event(session, job, "watch_source_kept",
+                              trackers=", ".join(t.tracker.label for t in waiting))
+        session.commit()
         return
     seeded = _seeded_by_done(job, ctx or {})
     moved, kept = [], []
@@ -1048,7 +1100,9 @@ def _remove_split_folder(session: Session, job: UploadJob, watch: str) -> None:
     cartella si toglie con quello che resta (nfo, sample...), decisione
     dell'utente del 2026-10-09. Un video ancora lì (l'upload di un
     altro episodio non è finito, o è stato annullato) o un file ancora in
-    scrittura la lasciano dov'è.
+    scrittura la lasciano dov'è. Mai per un job con un tracker fallito: si
+    arriva qui solo dopo che _clear_watch_source ha tolto la sorgente, cioè
+    con ogni tracker andato (decisione dell'utente, 2026-10-18).
 
     Si tolgono solo i file appena controllati, poi le cartelle rimaste vuote
     (audit 2026-10-18): prima un rmtree, che cancellava anche un file
@@ -1212,6 +1266,7 @@ def _fail_approved(session: Session, job: UploadJob, targets: list[UploadTarget]
 
 def _run_target(session: Session, job: UploadJob, target: UploadTarget, ctx: dict) -> None:
     _progress(session, job, f"tracker:{target.tracker.label}")
+    _forget_seeded(ctx, target)
     try:
         if target.action == "upload":
             run_upload(session, job, target, ctx)

@@ -372,11 +372,13 @@ def _cancelled_from(job: UploadJob) -> str:
 
 def require_source(job: UploadJob) -> None:
     """La sorgente ha ancora quello che va nel torrent, non solo la sua
-    cartella (audit 2026-10-18): una release della cartella osservata, uscita
-    da lì dopo il primo tracker riuscito, lascia la cartella con un sample o
-    un nfo, e un nuovo tentativo partiva senza file da caricare (o con il
-    torrent fatto dalla copia in seed di un altro tracker). Un file solo
-    basta che ci sia; una cartella o un pack devono avere ancora un video."""
+    cartella (audit 2026-10-18): una release della cartella osservata uscita
+    da lì (prima del 2026-10-18 dopo il primo tracker riuscito, ora solo con
+    ogni tracker andato: execute._clear_watch_source; o tolta a mano) lascia
+    la cartella con un sample o un nfo, e un nuovo tentativo partiva senza
+    file da caricare (o con il torrent fatto dalla copia in seed di un altro
+    tracker). Un file solo basta che ci sia; una cartella o un pack devono
+    avere ancora un video."""
     try:
         files = upload_inventory.job_files(job)
     except (OSError, ScopeViolation):
