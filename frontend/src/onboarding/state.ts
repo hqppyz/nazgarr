@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, type QueryClient } from '@tanstack/react-query'
 
 import { api, unwrap } from '@/api/client'
 import { useSetSetting, useSetting } from '@/api/hooks/settings'
@@ -41,11 +41,22 @@ export function useOnboarding() {
   }
 }
 
+// Il benvenuto (mai visto) e la checklist (tour attivo) hanno bisogno dello
+// stato della configurazione; a tour finito o chiuso nessuno lo guarda più
+// di continuo.
+export function isTouring(state: OnboardingState | null): boolean {
+  return state === null || state.status === 'active'
+}
+
+// Lo stesso, dalla cache: per il MutationCache (main.tsx), che rilegge
+// setup-status dopo ogni salvataggio solo finché serve a qualcuno.
+export function touringNow(queryClient: QueryClient): boolean {
+  return isTouring(parseState(queryClient.getQueryData<{ value?: string | null }>(['settings', ONBOARDING_SETTING])?.value))
+}
+
 export function useSetupStatus() {
   const { state } = useOnboarding()
-  // Il benvenuto (mai visto) e la checklist (tour attivo) ne hanno bisogno;
-  // a tour finito o chiuso nessuno la guarda più di continuo.
-  const touring = state === null || state.status === 'active'
+  const touring = isTouring(state)
   return useQuery({
     queryKey: ['setup-status'],
     queryFn: () => unwrap(api.GET('/api/system/setup-status')),

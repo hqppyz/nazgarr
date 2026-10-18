@@ -3,12 +3,14 @@ import { useQuery } from '@tanstack/react-query'
 import { api, unwrap } from '@/api/client'
 import { useTrackerFilter } from '@/lib/trackerFilter'
 
-export function useDashboard() {
+// refetchInterval: la dashboard ogni 15 s; chi ne mostra solo due numeri
+// su ogni pagina (il piè della sidebar) può chiederla più di rado.
+export function useDashboard(refetchInterval = 15_000) {
   const tracker = useTrackerFilter()
   return useQuery({
     queryKey: ['dashboard', tracker],
     queryFn: () => unwrap(api.GET('/api/dashboard', { params: { query: { tracker } } })),
-    refetchInterval: 15_000,
+    refetchInterval,
   })
 }
 

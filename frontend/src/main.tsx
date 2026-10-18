@@ -16,6 +16,7 @@ import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { installChunkReload } from '@/lib/chunkReload'
 import { reportMutationError } from '@/lib/mutationErrors'
+import { touringNow } from '@/onboarding/state'
 import {
   activeTrackerFilter,
   applyPersistedDefaults,
@@ -37,10 +38,14 @@ installChunkReload()
 
 // Dopo ogni salvataggio, la checklist del tour (src/onboarding) si riallinea:
 // un passo si chiude appena la configurazione c'è, ovunque sia stata fatta.
+// Solo finché il tour è aperto (o mai visto): dopo, nessuno la guarda, e ogni
+// salvataggio automatico costava una richiesta in più.
 const queryClient: QueryClient = new QueryClient({
   defaultOptions: { queries: { retry: shouldRetryQuery } },
   mutationCache: new MutationCache({
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['setup-status'] }),
+    onSuccess: () => {
+      if (touringNow(queryClient)) void queryClient.invalidateQueries({ queryKey: ['setup-status'] })
+    },
     onError: (error, _variables, _context, mutation) => reportMutationError(error, mutation),
   }),
 })

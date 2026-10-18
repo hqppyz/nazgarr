@@ -59,7 +59,9 @@ function StatBox({ dotClassName, label, value }: { dotClassName: string; label: 
 const COPYRIGHT_YEAR = new Date().getFullYear()
 
 function AppSidebarFooter() {
-  const { data: dashboard } = useDashboard()
+  // Salute e review in attesa su ogni pagina: basta un minuto (sulla
+  // dashboard la pagina stessa li rinfresca ogni 15 s, stessa query).
+  const { data: dashboard } = useDashboard(60_000)
   const { data: health } = useHealth()
   const { data: update } = useUpdateStatus()
   const { username, logout } = useAuth()
