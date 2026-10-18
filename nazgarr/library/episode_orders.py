@@ -17,14 +17,18 @@ volta per la serie, poi TVDB aired, poi TMDB), sempre modificabile, e avvisa
 solo se i file non seguono TVDB aired, l'ordine di Sonarr. Più gli episodi
 trovati, tradotti in ognuno."""
 
+import bisect
 import difflib
+import functools
+import hashlib
 import json
 import logging
 import re
 import threading
 import time
 import unicodedata
-from collections import OrderedDict, defaultdict
+from collections import Counter, OrderedDict, defaultdict
+from collections.abc import Callable
 from copy import deepcopy
 from dataclasses import asdict, dataclass, field
 
@@ -95,16 +99,33 @@ class EpisodeOrder:
 # --- Traduzione ----------------------------------------------------------------
 
 
+def translator(source: EpisodeOrder, target: EpisodeOrder) -> Callable[[int, int], list[Ref]]:
+    """translate() fra due ordinamenti fissi, con gli indici costruiti una
+    volta (audit 2026-10-18): translate() rifaceva e riordinava tutti gli
+    episodi dei due a ogni episodio, e una serie lunga (1100 episodi, 8
+    ordinamenti) costava secondi alla scheda, al match e ai nomi dei file."""
+    if source.key == target.key:
+        return lambda season, episode: [(season, episode)]
+    episodes = source.episodes()
+    by_ref: dict[Ref, set[Ref]] = defaultdict(set)
+    for ref, other in target.episodes().items():
+        for r in other.refs:
+            by_ref[r].add(ref)
+
+    def lookup(season: int, episode: int) -> list[Ref]:
+        ep = episodes.get((season, episode))
+        if ep is None or not ep.refs:
+            return []
+        return sorted({ref for r in ep.refs for ref in by_ref.get(r, ())})
+
+    return lookup
+
+
 def translate(source: EpisodeOrder, target: EpisodeOrder, season: int, episode: int) -> list[Ref]:
     """(stagione, episodio) in `source` -> gli episodi di `target` con gli
-    stessi riferimenti, in ordine. Vuoto se non si sa."""
-    if source.key == target.key:
-        return [(season, episode)]
-    ep = source.episodes().get((season, episode))
-    if ep is None or not ep.refs:
-        return []
-    wanted = set(ep.refs)
-    return [ref for ref, other in sorted(target.episodes().items()) if wanted & set(other.refs)]
+    stessi riferimenti, in ordine. Vuoto se non si sa. Per molti episodi
+    fra gli stessi due ordinamenti, translator()."""
+    return translator(source, target)(season, episode)
 
 
 def align(episodes: list[tuple[int, OrderEpisode]], reference: list[tuple[int, OrderEpisode]]) -> None:
@@ -182,10 +203,36 @@ def _title_parts(ep: OrderEpisode) -> list[str]:
     return [_title_key(part) for title in ep.titles for part in _SEGMENTS.split(title or "")]
 
 
+# Numeri romani e in lettere, per non scambiare "Part I" con "Part II":
+# contano come le cifre nel controllo dei titoli quasi uguali.
+_NUMERALS = {
+    **{roman: n for n, roman in enumerate(("i", "ii", "iii", "iv", "v", "vi", "vii", "viii", "ix", "x"), 1)},
+    **{word: n for n, word in enumerate(("one", "two", "three", "four", "five", "six", "seven", "eight", "nine",
+                                         "ten"), 1)},
+}
+
+
+def _numbers(key: str) -> tuple[int, ...]:
+    """I numeri di un titolo (già _title_key), in cifre, romani o in lettere.
+    Romani e lettere solo dopo la prima parola ("Part II", "Chapter Four"):
+    in testa sono più spesso un articolo o un pronome ("I Simpson")."""
+    out: list[int] = []
+    for position, token in enumerate(key.split()):
+        if position and token in _NUMERALS:
+            out.append(_NUMERALS[token])
+        else:
+            out.extend(int(d) for d in re.findall(r"\d+", token))
+    return tuple(out)
+
+
 def _by_title(episodes: list[tuple[int, OrderEpisode]],
               reference: list[tuple[int, OrderEpisode]]) -> dict[int, list[Ref]]:
     """Posizione in `episodes` -> riferimenti, per gli episodi di cui ogni
-    segmento ha un titolo che nel riferimento è di un episodio solo."""
+    segmento ha un titolo che nel riferimento è di un episodio solo, e
+    nell'ordinamento pure (audit 2026-10-18: due "Pilot" nell'ordinamento
+    finivano sullo stesso riferimento). Un titolo quasi uguale vale solo con
+    gli stessi numeri, anche romani ("Part I" non è "Part II"), e mai verso
+    un episodio che un titolo identico ha già preso: lì resta la posizione."""
     owners: dict[str, set[Ref]] = defaultdict(set)
     for season, ep in reference:
         for part in _title_parts(ep):
@@ -193,25 +240,51 @@ def _by_title(episodes: list[tuple[int, OrderEpisode]],
                 owners[part].add((season, ep.number))
     if not owners:
         return {}
-    titles = list(owners)
+    # Per i titoli quasi uguali, solo quelli con gli stessi numeri e una
+    # lunghezza che può arrivare a TITLE_SIMILARITY (audit 2026-10-18:
+    # difflib su tutti i titoli della serie, per ogni titolo senza un
+    # uguale, costava secondi alle serie lunghe).
+    by_numbers: dict[tuple[int, ...], list[str]] = defaultdict(list)
+    for title in owners:
+        by_numbers[_numbers(title)].append(title)
+    for titles in by_numbers.values():
+        titles.sort(key=len)
+    lengths = {key: [len(t) for t in titles] for key, titles in by_numbers.items()}
+    low, high = TITLE_SIMILARITY / (2 - TITLE_SIMILARITY), (2 - TITLE_SIMILARITY) / TITLE_SIMILARITY
 
-    def owner(part: str) -> Ref | None:
-        if part not in owners:
-            close = [t for t in difflib.get_close_matches(part, titles, n=3, cutoff=TITLE_SIMILARITY)
-                     if re.findall(r"\d+", t) == re.findall(r"\d+", part)]
+    def owner(part: str) -> tuple[Ref | None, bool]:
+        """(riferimento, trovato con un titolo identico)."""
+        exact = part in owners
+        if not exact:
+            key = _numbers(part)
+            titles = by_numbers.get(key, [])
+            window = titles[bisect.bisect_left(lengths.get(key, []), len(part) * low):
+                            bisect.bisect_right(lengths.get(key, []), len(part) * high)]
+            close = difflib.get_close_matches(part, window, n=3, cutoff=TITLE_SIMILARITY)
             if len(close) != 1:
-                return None
+                return None, False
             part = close[0]
-        return next(iter(owners[part])) if len(owners[part]) == 1 else None
+        return (next(iter(owners[part])) if len(owners[part]) == 1 else None), exact
 
-    out = {}
+    mine = Counter(part for _season, ep in episodes for part in set(_title_parts(ep)) if not _GENERIC_TITLE.match(part))
+    found: dict[int, list[tuple[Ref | None, bool]]] = {}
     for i, (_season, ep) in enumerate(episodes):
         parts = _title_parts(ep)
-        if not parts or any(_GENERIC_TITLE.match(p) for p in parts):
+        if not parts or any(_GENERIC_TITLE.match(p) or mine[p] > 1 for p in parts):
             continue
-        found = [owner(p) for p in parts]
-        if all(found):
-            out[i] = sorted(set(found))
+        found[i] = [owner(p) for p in parts]
+    claimed: dict[Ref, set[int]] = defaultdict(set)
+    for i, owned in found.items():
+        for ref, exact in owned:
+            if ref is not None and exact:
+                claimed[ref].add(i)
+    out = {}
+    for i, owned in found.items():
+        if not all(ref for ref, _exact in owned):
+            continue
+        if any(not exact and claimed.get(ref, set()) - {i} for ref, exact in owned):
+            continue
+        out[i] = sorted({ref for ref, _exact in owned})
     return out
 
 
@@ -223,9 +296,28 @@ def _in_airing_order(order: EpisodeOrder, specials: bool) -> list[tuple[int, Ord
     ]
 
 
+def _fingerprint(order: EpisodeOrder, refs: bool) -> str:
+    """Quello di un ordinamento da cui dipende l'allineamento, in breve."""
+    shape = [(season, ep.number, ep.titles, ep.air_date, ep.refs if refs else None)
+             for season, eps in sorted(order.seasons.items()) for ep in eps]
+    return hashlib.sha1(repr(shape).encode(), usedforsecurity=False).hexdigest()
+
+
 def align_to(order: EpisodeOrder, reference: EpisodeOrder) -> None:
-    align(_in_airing_order(order, False), _in_airing_order(reference, False))
-    align(_in_airing_order(order, True), _in_airing_order(reference, True))
+    """I riferimenti di `order` verso `reference` (le stagioni di default di
+    TMDB). Il risultato resta in cache per gli stessi due ordinamenti (audit
+    2026-10-18): il reseeding riallineava la stessa serie per ogni tracker
+    e la scheda a ogni apertura, e una serie lunga costa secondi."""
+    def compute() -> list[list[Ref]]:
+        align(_in_airing_order(order, False), _in_airing_order(reference, False))
+        align(_in_airing_order(order, True), _in_airing_order(reference, True))
+        return [list(ep.refs) for _season, eps in sorted(order.seasons.items()) for ep in eps]
+
+    key = ("aligned", _fingerprint(order, refs=False), _fingerprint(reference, refs=True))
+    aligned = iter(_cached(key, compute, copy=True))
+    for _season, eps in sorted(order.seasons.items()):
+        for ep in eps:
+            ep.refs = [tuple(r) for r in next(aligned)]
 
 
 # --- Fonti -------------------------------------------------------------------------
@@ -259,6 +351,23 @@ def _cached(key: tuple, fetch, copy: bool = False, ttl: float = CACHE_SECONDS):
 def clear_cache() -> None:
     with _cache_lock:
         _cache.clear()
+    _files_translator.cache_clear()
+
+
+def _int(value) -> int | None:
+    """Un numero di stagione o di episodio come arriva da TMDB, Sonarr o
+    TVDB: solo un intero vero (audit 2026-10-18). Un null o un testo
+    passavano e facevano fallire ordinamento e risposta con un TypeError,
+    per quella serie finché la fonte non si correggeva."""
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def _titles(value) -> list[str]:
+    return [value if isinstance(value, str) else ""]
+
+
+def _date(value) -> str | None:
+    return value if isinstance(value, str) and value else None
 
 
 def tmdb_orders(client, tmdb_id: int) -> list[EpisodeOrder]:
@@ -266,7 +375,7 @@ def tmdb_orders(client, tmdb_id: int) -> list[EpisodeOrder]:
     stagioni) e i gruppi di episodi, che portano i numeri di default."""
     def fetch() -> list[EpisodeOrder]:
         show = client.get(f"/tv/{tmdb_id}")
-        numbers = [s["season_number"] for s in show.get("seasons") or []]
+        numbers = [n for n in (_int(s.get("season_number")) for s in show.get("seasons") or []) if n is not None]
         default = EpisodeOrder(TMDB_DEFAULT, "TMDB", "tmdb")
         for start in range(0, len(numbers), 20):
             chunk = numbers[start:start + 20]
@@ -274,9 +383,9 @@ def tmdb_orders(client, tmdb_id: int) -> list[EpisodeOrder]:
             for n in chunk:
                 season = body.get(f"season/{n}") or {}
                 default.seasons[n] = [
-                    OrderEpisode(number=e["episode_number"], titles=[e.get("name") or ""],
-                                 air_date=e.get("air_date"), refs=[(n, e["episode_number"])])
-                    for e in season.get("episodes") or []
+                    OrderEpisode(number=number, titles=_titles(e.get("name")), air_date=_date(e.get("air_date")),
+                                 refs=[(n, number)])
+                    for e in season.get("episodes") or [] if (number := _int(e.get("episode_number"))) is not None
                 ]
         orders = [default]
         for group in client.get(f"/tv/{tmdb_id}/episode_groups").get("results") or []:
@@ -287,16 +396,18 @@ def tmdb_orders(client, tmdb_id: int) -> list[EpisodeOrder]:
                 f"tmdb:group:{group['id']}",
                 f"TMDB · {group.get('name') or TMDB_GROUP_TYPES.get(group.get('type'), 'Group')}", "tmdb",
             )
-            parts = sorted(detail.get("groups") or [], key=lambda g: g.get("order", 0))
-            for index, part in enumerate(parts):
-                season = _group_season(part, index, parts)
-                if season in order.seasons:
-                    continue  # due gruppi con lo stesso numero: tiene il primo
-                order.seasons[season] = [
-                    OrderEpisode(number=pos + 1, titles=[e.get("name") or ""], air_date=e.get("air_date"),
-                                 refs=[(e["season_number"], e["episode_number"])])
-                    for pos, e in enumerate(sorted(part.get("episodes") or [], key=lambda e: e.get("order", 0)))
-                ]
+            parts = sorted(detail.get("groups") or [], key=lambda g: _int(g.get("order")) or 0)
+            for part, season in zip(parts, _group_seasons(parts, f"{tmdb_id}/{group['id']}"), strict=True):
+                episodes = [e for e in part.get("episodes") or []
+                            if _int(e.get("season_number")) is not None and _int(e.get("episode_number")) is not None]
+                # Più gruppi di speciali: tutti nella stagione 0, di seguito.
+                into = order.seasons.setdefault(season, [])
+                start = len(into)
+                into.extend([
+                    OrderEpisode(number=start + pos + 1, titles=_titles(e.get("name")),
+                                 air_date=_date(e.get("air_date")), refs=[(e["season_number"], e["episode_number"])])
+                    for pos, e in enumerate(sorted(episodes, key=lambda e: _int(e.get("order")) or 0))
+                ])
             if order.seasons:
                 orders.append(order)
         return orders
@@ -308,21 +419,38 @@ _SPECIALS = re.compile(r"\b(specials?|speciali|extras?)\b", re.IGNORECASE)
 _NUMBER = re.compile(r"(\d+)")
 
 
-def _group_season(part: dict, index: int, parts: list[dict]) -> int:
-    """Il numero di stagione di un gruppo di un episode group TMDB: dal nome
-    ("Season 1", "Stagione 2", "Part 3"; gli speciali sono la 0), altrimenti
-    dalla posizione. Le posizioni partono spesso da 0 anche senza un gruppo
-    di speciali: allora la prima è la stagione 1."""
-    name = part.get("name") or ""
-    if _SPECIALS.search(name):
-        return 0
-    number = _NUMBER.search(name)
-    if number:
-        return int(number.group(1))
-    order = part.get("order", index)
-    starts_at_zero = min((p.get("order", i) for i, p in enumerate(parts)), default=0) == 0
-    has_specials = any(_SPECIALS.search(p.get("name") or "") for p in parts)
-    return order + 1 if starts_at_zero and not has_specials else order
+def _group_seasons(parts: list[dict], where: str = "") -> list[int]:
+    """I numeri di stagione dei gruppi di un episode group TMDB, in ordine:
+    gli speciali (dal loro nome, o "Season 0") sono la 0; gli altri dal
+    numero nel nome ("Season 1", "Stagione 2", "Part 3"), se i numeri dei
+    nomi sono tutti diversi, altrimenti dalla posizione fra i gruppi non
+    speciali, da 1 (audit 2026-10-18: "Season 1 Part 1" e "Season 1 Part 2"
+    diventavano entrambi la stagione 1 e il secondo spariva, e un gruppo
+    senza numero davanti agli speciali in fondo diventava la stagione 0).
+    Un gruppo senza numero nel nome prende la sua posizione, o il primo
+    numero libero dopo."""
+    names = [part.get("name") or "" for part in parts]
+    named = {i: int(match.group(1)) for i, name in enumerate(names)
+             if not _SPECIALS.search(name) and (match := _NUMBER.search(name))}
+    # "Season 0" è la stagione degli speciali, come quelli col nome: se no
+    # spostava di uno tutte le altre ("Season 1" diventava la 2).
+    regular = [i for i, name in enumerate(names) if not _SPECIALS.search(name) and named.get(i) != 0]
+    named = {i: number for i, number in named.items() if number != 0}
+    seasons = [0] * len(parts)
+    values = list(named.values())
+    if len(set(values)) != len(values):
+        logger.info("Episode group TMDB %s: numeri delle stagioni dalla posizione (%s)", where, ", ".join(names))
+        named = {}
+    taken = set(named.values())
+    for position, i in enumerate(regular, 1):
+        if i in named:
+            seasons[i] = named[i]
+            continue
+        while position in taken:
+            position += 1
+        taken.add(position)
+        seasons[i] = position
+    return seasons
 
 
 class TmdbApi:
@@ -365,10 +493,11 @@ def sonarr_order(session: Session, tmdb_id: int, tvdb_id: int | None, api_factor
                                lambda: api.get("/api/v3/episode", seriesId=series["id"]) or [],
                                ttl=SONARR_CACHE_SECONDS)
             for e in episodes:
-                if e.get("seasonNumber") is None or e.get("episodeNumber") is None:
+                season, number = _int(e.get("seasonNumber")), _int(e.get("episodeNumber"))
+                if season is None or number is None:
                     continue
-                order.seasons.setdefault(e["seasonNumber"], []).append(
-                    OrderEpisode(number=e["episodeNumber"], titles=[e.get("title") or ""], air_date=e.get("airDate")))
+                order.seasons.setdefault(season, []).append(
+                    OrderEpisode(number=number, titles=_titles(e.get("title")), air_date=_date(e.get("airDate"))))
             for eps in order.seasons.values():
                 eps.sort(key=lambda ep: ep.number)
             return order
@@ -423,10 +552,11 @@ def tvdb_orders(api: TvdbApi, tvdb_id: int) -> list[EpisodeOrder]:
             while page is not None and page < 50:
                 body = api.get(f"/series/{tvdb_id}/episodes/{kind}", page=page)
                 for e in body.get("episodes") or []:
-                    if e.get("seasonNumber") is None or e.get("number") is None:
+                    season, number = _int(e.get("seasonNumber")), _int(e.get("number"))
+                    if season is None or number is None:
                         continue
-                    order.seasons.setdefault(e["seasonNumber"], []).append(
-                        OrderEpisode(number=e["number"], titles=[e.get("name") or ""], air_date=e.get("aired")))
+                    order.seasons.setdefault(season, []).append(
+                        OrderEpisode(number=number, titles=_titles(e.get("name")), air_date=_date(e.get("aired"))))
                 page = page + 1 if (body.get("episodes") and len(body["episodes"]) >= 500) else None
             for eps in order.seasons.values():
                 eps.sort(key=lambda ep: ep.number)
@@ -520,7 +650,15 @@ def collect(session: Session, tmdb_id: int, tvdb_id: int | None, found: dict[int
     if default is not None:
         for order in orders:
             if order.source in ("sonarr", "tvdb"):
-                align_to(order, default)
+                try:
+                    align_to(order, default)
+                except Exception:
+                    # Un ordinamento che non si allinea resta senza
+                    # riferimenti (non si traduce), gli altri no.
+                    logger.warning("Ordinamento %s di %s non allineato a TMDB", order.key, tmdb_id, exc_info=True)
+                    for eps in order.seasons.values():
+                        for ep in eps:
+                            ep.refs = []
     return orders
 
 
@@ -558,17 +696,23 @@ def build(session: Session, tmdb_id: int, tvdb_id: int | None, found: dict[int, 
     # Di default quello che combacia meglio con i file (decisione dell'utente, 2026-10-04).
     chosen = best_fit(orders, found, pack, preferred)
     recommended = chosen.key if chosen is not None else None
+    # La numerazione dei numeri dei file (per tradurli): quella in cui
+    # esistono, che può non essere quella proposta (es. Sonarr in TVDB aired
+    # con tre segmenti per file, e i file che sono gli episodi di un'altra).
+    numbering = best_fit(orders, found, pack, preferred, by="coverage") if found else chosen
+    files_order = numbering.key if numbering is not None else recommended
+    if files_order and not any(o.key == TMDB_DEFAULT for o in orders):
+        # Senza le stagioni di default di TMDB (niente chiave, o un errore)
+        # nessun ordinamento ha i riferimenti: da quello dei file non si
+        # traduce, e proporne un altro lasciava i numeri dei file sotto
+        # l'etichetta di quell'altro (audit 2026-10-18).
+        recommended = files_order
     # L'avviso solo se i file non seguono TVDB aired, l'ordine di Sonarr, e
     # solo se TVDB aired si conosce (Sonarr o la chiave TVDB).
     warning = None
     if found and recommended and tvdb_aired and recommended != tvdb_aired \
             and fits[recommended]["score"] > fits[tvdb_aired]["score"] + WARNING_MARGIN:
         warning = {"code": "files_not_tvdb_aired", "order": recommended, "tvdb": tvdb_aired}
-    # La numerazione dei numeri dei file (per tradurli): quella in cui
-    # esistono, che può non essere quella proposta (es. Sonarr in TVDB aired
-    # con tre segmenti per file, e i file che sono gli episodi di un'altra).
-    numbering = best_fit(orders, found, pack, preferred, by="coverage") if found else chosen
-    files_order = numbering.key if numbering is not None else recommended
     by_key = {o.key: o for o in orders}
     return {
         "sources": status,
@@ -587,9 +731,10 @@ def build(session: Session, tmdb_id: int, tvdb_id: int | None, found: dict[int, 
 
 def translate_found(source: EpisodeOrder, target: EpisodeOrder, found: dict[int, list[int]]) -> dict[int, list[int]]:
     out: dict[int, set[int]] = defaultdict(set)
+    lookup = translator(source, target)
     for season, eps in found.items():
         for e in eps:
-            for s2, e2 in translate(source, target, season, e):
+            for s2, e2 in lookup(season, e):
                 out[s2].add(e2)
     return {s: sorted(eps) for s, eps in sorted(out.items())}
 
@@ -654,6 +799,19 @@ def numbers_in(result: dict, order_key: str, kind: str | None, seasons: list[int
     return translated, episode
 
 
+def untranslated(order_snapshot: dict | None, found: dict[int, list[int]]) -> list[Ref]:
+    """Gli episodi dei file (nella loro numerazione) che non si traducono
+    nell'ordinamento scelto di un job: restano coi numeri dei file (nomi e
+    campi del tracker), e va detto (audit 2026-10-18). Vuoto se i file
+    seguono l'ordinamento scelto."""
+    data = order_snapshot or {}
+    chosen, files = data.get("chosen") or {}, data.get("files") or {}
+    if chosen.get("seasons") is None or files.get("seasons") is None or chosen.get("key") == files.get("key"):
+        return []
+    lookup = translator(EpisodeOrder.from_dict(data["files"]), EpisodeOrder.from_dict(data["chosen"]))
+    return [(season, e) for season, eps in sorted(found.items()) for e in sorted(eps) if not lookup(season, e)]
+
+
 def remember(session: Session, tmdb_id: int, order_key: str) -> None:
     """La scelta diventa la proposta per la stessa serie la prossima volta."""
     from nazgarr.core.db_utils import bulk_upsert
@@ -663,14 +821,24 @@ def remember(session: Session, tmdb_id: int, order_key: str) -> None:
                 conflict_cols=["tmdb_id"], update_cols=["order_key"])
 
 
-def translate_files(job, season: int, episode: int) -> list[Ref]:
-    """Un episodio come lo numerano i file -> come lo numera l'ordinamento
-    scelto al match. Senza ordinamento scelto (o senza traduzione) resta com'è."""
-    data = json.loads(job.episode_order_json or "{}")
+@functools.lru_cache(maxsize=8)
+def _files_translator(episode_order_json: str) -> Callable[[int, int], list[Ref]] | None:
+    """Dai file all'ordinamento scelto di un job, letto una volta per job e
+    non a ogni file del pack (i nomi generati lo chiedono per ogni video)."""
+    data = json.loads(episode_order_json or "{}")
     if not data.get("chosen") or not data.get("files"):
+        return None
+    return translator(EpisodeOrder.from_dict(data["files"]), EpisodeOrder.from_dict(data["chosen"]))
+
+
+def translate_files(job, season: int, episode: int, strict: bool = False) -> list[Ref]:
+    """Un episodio come lo numerano i file -> come lo numera l'ordinamento
+    scelto al match. Senza ordinamento scelto resta com'è; senza traduzione
+    anche, o vuoto con strict (chi deve saperlo: i nomi generati)."""
+    lookup = _files_translator(job.episode_order_json or "")
+    if lookup is None:
         return [(season, episode)]
-    chosen, files = EpisodeOrder.from_dict(data["chosen"]), EpisodeOrder.from_dict(data["files"])
-    return translate(files, chosen, season, episode) or [(season, episode)]
+    return lookup(season, episode) or ([] if strict else [(season, episode)])
 
 
 def group(episodes) -> dict[int, list[int]]:
@@ -717,8 +885,9 @@ class Translator:
         if source is None or target is None or source.key == target.key:
             return {}
         out = {}
+        lookup = translator(source, target)
         for season, episode in torrent:
-            translated = translate(source, target, season, episode)
+            translated = lookup(season, episode)
             if len(translated) == 1 and translated[0] in library:
                 out[(season, episode)] = translated[0]
         return out

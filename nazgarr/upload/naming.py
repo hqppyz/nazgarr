@@ -746,9 +746,16 @@ def release_values(
     values["content_type"] = job.content_type
     values["local_title"] = local_title if local_title and local_title != job.title else None
     values["year"] = None if "year" in cleared else overrides.get("year") or job.year
-    seasons = json.loads(job.seasons_json or "[]")
-    values["season"] = season_token(job.kind or "movie", seasons, job.episode) if job.content_type == "tv" else None
-    values["episode"] = episode_token(job.episode) if job.kind == "episode" and job.episode is not None else None
+    # Un episodio accorpato (E03E04) in un upload da solo: il nome li dice
+    # tutti, come quello del file (audit 2026-10-18).
+    from nazgarr.upload.file_names import episode_view  # import qui: file_names importa questo modulo
+
+    named = episode_view(job) or job
+    seasons = json.loads(named.seasons_json or "[]")
+    values["season"] = season_token(named.kind or "movie", seasons, named.episode) if job.content_type == "tv" \
+        else None
+    values["episode"] = episode_token(named.episode) if named.kind == "episode" and named.episode is not None \
+        else None
     return values
 
 

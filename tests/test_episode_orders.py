@@ -19,7 +19,7 @@ def _order(key, seasons, source="tmdb", refs=True, dates=None):
 
 @pytest.fixture(autouse=True)
 def _no_cache():
-    eo._cache.clear()
+    eo.clear_cache()
 
 
 def test_align_one_to_one_in_pairs_and_by_date():
@@ -380,16 +380,42 @@ def test_a_library_in_joined_order_is_not_taken_for_aired_segments(db_session, m
 
 
 def test_episode_group_seasons_come_from_their_names_or_start_at_one():
-    parts = [{"order": 0, "name": "Season 1"}, {"order": 1, "name": "Season 2"}]
-    assert [eo._group_season(p, i, parts) for i, p in enumerate(parts)] == [1, 2]
-    named = [{"order": 0, "name": "Specials"}, {"order": 1, "name": "Stagione 1"}, {"order": 2, "name": "Part 3"}]
-    assert [eo._group_season(p, i, named) for i, p in enumerate(named)] == [0, 1, 3]
-    # Senza numeri nel nome: dalla posizione, da 1 se parte da 0 senza speciali.
-    bare = [{"order": 0, "name": "First"}, {"order": 1, "name": "Second"}]
-    assert [eo._group_season(p, i, bare) for i, p in enumerate(bare)] == [1, 2]
-    with_specials = [{"order": 0, "name": "Specials"}, {"order": 1, "name": "Main"}]
-    assert [eo._group_season(p, i, with_specials) for i, p in enumerate(with_specials)] == [0, 1]
+    def seasons(*names):
+        return eo._group_seasons([{"order": i, "name": name} for i, name in enumerate(names)])
 
+    assert seasons("Season 1", "Season 2") == [1, 2]
+    assert seasons("Specials", "Stagione 1", "Part 3") == [0, 1, 3]
+    # Senza numeri nel nome: dalla posizione, da 1.
+    assert seasons("First", "Second") == [1, 2]
+    assert seasons("Specials", "Main") == [0, 1]
+    # Audit 2026-10-18: due gruppi con lo stesso numero nel nome (il secondo
+    # spariva), e gli speciali in fondo (il primo gruppo diventava la 0).
+    assert seasons("Season 1 Part 1", "Season 1 Part 2", "Season 2") == [1, 2, 3]
+    assert seasons("Season 4 Volume 1", "Season 4 Volume 2") == [1, 2]
+    assert seasons("Volume One", "Volume Two", "Specials") == [1, 2, 0]
+    # "Season 0" sono gli speciali, e le altre stagioni restano le loro.
+    assert seasons("Season 0", "Season 1") == [0, 1]
+    assert seasons("Season 0", "Season 1", "Season 2") == [0, 1, 2]
+    assert seasons("Season 0", "Specials", "Season 1") == [0, 0, 1]
+    assert seasons("Season 0", "Season 1", "Season 1") == [0, 1, 2]
+    # Un gruppo senza numero fra quelli numerati: il primo numero libero.
+    assert seasons("Pilot Movie", "Season 1", "Season 2") == [3, 1, 2]
+
+
+def test_parts_of_an_episode_group_with_the_same_number_keep_all_their_episodes():
+    class Tmdb(FakeTmdb):
+        def get(self, path, **params):
+            if path == "/tv/episode_group/g1":
+                def part(order, name, numbers):
+                    return {"order": order, "name": name, "episodes": [
+                        {"season_number": 1, "episode_number": e, "order": i} for i, e in enumerate(numbers)]}
+                return {"groups": [part(0, "Season 1 Part 1", range(1, 6)), part(1, "Season 1 Part 2", range(6, 11)),
+                                   part(2, "Extras", [1]), part(3, "Specials", [2])]}
+            return super().get(path, **params)
+
+    group = eo.tmdb_orders(Tmdb(), 96677)[1]
+    assert {s: len(eps) for s, eps in group.seasons.items()} == {1: 5, 2: 5, 0: 2}
+    assert group.seasons[2][0].refs == [(1, 6)] and [e.number for e in group.seasons[0]] == [1, 2]
 
 
 def test_without_a_tvdb_key_the_tmdb_production_group_fits_a_joined_library(db_session):
@@ -494,3 +520,280 @@ def test_the_cache_keeps_a_bounded_number_of_entries(monkeypatch):
     for n in range(5):
         eo._cached(("k", n), lambda n=n: n)
     assert list(eo._cache) == [("k", 2), ("k", 3), ("k", 4)]
+
+
+def test_malformed_numbers_and_titles_from_the_sources_are_skipped(db_session):
+    """Audit 2026-10-18: un episode_number null o un titolo non testo da
+    TMDB o Sonarr facevano fallire build() (e le API sopra) con un TypeError."""
+    from nazgarr.core.models import SonarrInstance
+
+    class Tmdb:
+        def get(self, path, **params):
+            if path == "/tv/5" and not params:
+                return {"seasons": [{"season_number": 1}, {"season_number": None}]}
+            if path == "/tv/5":
+                return {"season/1": {"episodes": [
+                    {"episode_number": 1, "name": "Pilot", "air_date": "2020-01-01"},
+                    {"episode_number": None, "name": "Broken"},
+                    {"episode_number": "3", "name": "Text"},
+                    {"episode_number": 2, "name": 42, "air_date": 7},
+                ]}}
+            if path == "/tv/5/episode_groups":
+                return {"results": [{"id": "g", "name": "G", "type": 4, "episode_count": 2}]}
+            if path == "/tv/episode_group/g":
+                return {"groups": [{"order": 0, "name": "Season 1", "episodes": [
+                    {"season_number": 1, "episode_number": 1, "order": 0},
+                    {"season_number": None, "episode_number": 2, "order": 1}]}]}
+            raise AssertionError(path)
+
+    class Sonarr:
+        def __init__(self, instance):
+            pass
+
+        def get(self, path, **params):
+            if path == "/api/v3/series":
+                return [{"id": 1, "tmdbId": 5}]
+            return [{"seasonNumber": 1, "episodeNumber": 1, "title": ["not", "text"]},
+                    {"seasonNumber": 1, "episodeNumber": "2", "title": "Two"},
+                    {"seasonNumber": 1, "episodeNumber": 2, "title": 99}]
+
+    alone = eo.build(db_session, 5, None, {1: [1, 2]}, pack=True, tmdb_api=Tmdb())
+    tmdb = next(o for o in alone["orders"] if o["key"] == "tmdb:default")
+    assert [(e["number"], e["titles"], e["air_date"]) for e in tmdb["seasons"][0]["episodes"]] == [
+        (1, ["Pilot"], "2020-01-01"), (2, [""], None)]
+    group = next(o for o in alone["orders"] if o["key"] == "tmdb:group:g")
+    assert [e["refs"] for e in group["seasons"][0]["episodes"]] == [[[1, 1]]]
+
+    db_session.add(SonarrInstance(label="s", base_url="http://s", api_key="k"))
+    db_session.commit()
+    eo.clear_cache()
+    result = eo.build(db_session, 5, None, {1: [1, 2]}, pack=True, tmdb_api=Tmdb(), sonarr_factory=Sonarr)
+    sonarr = next(o for o in result["orders"] if o["key"] == "sonarr:aired")
+    assert [(e["number"], e["titles"], e["refs"]) for e in sonarr["seasons"][0]["episodes"]] == [
+        (1, [""], [[1, 1]]), (2, [""], [[1, 2]])]
+
+
+def test_an_order_that_fails_to_align_is_left_without_references(db_session, monkeypatch):
+    from nazgarr.core.models import SonarrInstance
+
+    db_session.add(SonarrInstance(label="sonarr", base_url="http://s", api_key="k"))
+    db_session.commit()
+    monkeypatch.setattr(eo, "align", lambda episodes, reference: 1 / 0)
+
+    result = eo.build(db_session, 96677, 375921, {1: [1]}, pack=False, tmdb_api=FakeTmdb(), sonarr_factory=FakeSonarr)
+
+    sonarr = next(o for o in result["orders"] if o["key"] == "sonarr:aired")
+    assert all(e["refs"] == [] for s in sonarr["seasons"] for e in s["episodes"])
+
+
+def test_translations_index_each_pair_of_orders_once(monkeypatch):
+    """Audit 2026-10-18: translate() rifaceva e riordinava i due ordinamenti
+    a ogni episodio; una serie da 1100 episodi costava secondi alla scheda,
+    al match e ai nomi dei file di un pack."""
+    import json
+    from types import SimpleNamespace
+
+    tmdb = _order("tmdb:default", {1: 300, 2: 300})
+    parts = _order("tvdb:alternate", {1: 200, 2: 200, 3: 200}, "tvdb", refs=False)
+    eo.align_to(parts, tmdb)
+    calls = []
+    real = EpisodeOrder.episodes
+    monkeypatch.setattr(EpisodeOrder, "episodes", lambda self: calls.append(self.key) or real(self))
+
+    found = eo.translate_found(parts, tmdb, {3: list(range(1, 201))})
+
+    assert found == {2: list(range(101, 301))}
+    assert sorted(calls) == ["tmdb:default", "tvdb:alternate"]  # una volta per ordinamento, non per episodio
+
+    calls.clear()
+    job = SimpleNamespace(episode_order_json=json.dumps({"chosen": tmdb.to_dict(), "files": parts.to_dict()}))
+    parsed = []
+    real_from = EpisodeOrder.from_dict
+    monkeypatch.setattr(EpisodeOrder, "from_dict", staticmethod(lambda data: parsed.append(1) or real_from(data)))
+    assert [eo.translate_files(job, 3, e) for e in (1, 2, 200)] == [[(2, 101)], [(2, 102)], [(2, 300)]]
+    assert len(parsed) == 2  # il JSON del job letto una volta, non a ogni file
+    assert eo.translate_files(job, 9, 9) == [(9, 9)]
+
+
+def _titled(key, titles, source="tvdb", refs=False):
+    return EpisodeOrder(key, key, source, {1: [
+        OrderEpisode(n, [t], None, [(1, n)] if refs else []) for n, t in enumerate(titles, 1)]})
+
+
+def test_a_title_override_needs_the_same_numbers_and_a_title_unique_on_both_sides():
+    """Audit 2026-10-18: "Part I" passava per "Part II" (il controllo dei
+    numeri guardava solo le cifre), e due episodi con lo stesso titolo
+    nell'ordinamento finivano sullo stesso riferimento."""
+    tmdb = _titled("tmdb:default", ["Pilot", "The Best of Both Worlds", "The Best of Both Worlds Part II", "Restless"],
+                   "tmdb", refs=True)
+    sonarr = _titled("sonarr:aired", ["Pilot", "The Best of Both Worlds Part I", "The Best of Both Worlds Part II",
+                                      "Restless"])
+    eo.align_to(sonarr, tmdb)
+    assert [e.refs for e in sonarr.seasons[1]] == [[(1, 1)], [(1, 2)], [(1, 3)], [(1, 4)]]
+    assert eo.translate_found(sonarr, tmdb, {1: [1, 2, 3, 4]}) == {1: [1, 2, 3, 4]}
+
+    # Lo stesso titolo due volte nell'ordinamento (una volta sola nel riferimento): resta la posizione.
+    tmdb = EpisodeOrder("tmdb:default", "TMDB", "tmdb", {
+        1: [OrderEpisode(1, ["Pilot"], None, [(1, 1)]), OrderEpisode(2, ["Second"], None, [(1, 2)])],
+        2: [OrderEpisode(1, ["The Pilot"], None, [(2, 1)]), OrderEpisode(2, ["Fourth"], None, [(2, 2)])]})
+    sonarr = EpisodeOrder("sonarr:aired", "S", "sonarr", {
+        1: [OrderEpisode(1, ["Pilot"]), OrderEpisode(2, ["Second"])],
+        2: [OrderEpisode(1, ["Pilot"]), OrderEpisode(2, ["Fourth"])]})
+    eo.align_to(sonarr, tmdb)
+    assert [e.refs for s in (1, 2) for e in sonarr.seasons[s]] == [[(1, 1)], [(1, 2)], [(2, 1)], [(2, 2)]]
+
+
+def test_roman_numerals_and_number_words_count_only_after_the_first_word():
+    assert eo._numbers(eo._title_key("The Best of Both Worlds, Part I")) == (1,)
+    assert eo._numbers(eo._title_key("Chapter Four")) == (4,)
+    # In testa sono un articolo o un pronome: "I Misteri" e "Misteri" si somigliano ancora.
+    assert eo._numbers(eo._title_key("I misteri della notte")) == ()
+    assert eo._numbers(eo._title_key("S01 2gether")) == (1, 2)
+
+
+def test_a_near_title_never_takes_an_episode_an_identical_title_already_owns():
+    tmdb = _titled("tmdb:default", ["Into the Woods", "Bushwhacked", "Restless"], "tmdb", refs=True)
+    # "Into the Wood" somiglia a "Into the Woods", che però è già di un altro episodio.
+    dvd = _titled("tvdb:dvd", ["Bushwhacked", "Into the Woods", "Into the Wood"])
+    eo.align_to(dvd, tmdb)
+    assert [e.refs for e in dvd.seasons[1]] == [[(1, 2)], [(1, 1)], [(1, 3)]]
+    # Senza un titolo identico che lo prenda, un refuso vale ancora.
+    typo = _titled("tvdb:dvd", ["Restless", "Into the Wood", "Bushwhacked"])
+    eo.align_to(typo, tmdb)
+    assert [e.refs for e in typo.seasons[1]] == [[(1, 3)], [(1, 1)], [(1, 2)]]
+
+
+def test_an_alignment_is_computed_once_for_the_same_orders(monkeypatch):
+    calls = []
+    real = eo.align
+    monkeypatch.setattr(eo, "align", lambda episodes, reference: calls.append(1) or real(episodes, reference))
+    tmdb = _order("tmdb:default", {1: 10, 2: 7})
+    for _ in range(3):
+        parts = _order("tvdb:alternate", {1: 5, 2: 5, 3: 7}, "tvdb", refs=False)
+        eo.align_to(parts, tmdb)
+        assert parts.seasons[3][0].refs == [(2, 1)]
+    assert len(calls) == 2  # stagioni e speciali, una volta sola
+    other = _order("tvdb:alternate", {1: 5, 2: 12}, "tvdb", refs=False)
+    eo.align_to(other, tmdb)
+    assert len(calls) == 4 and other.seasons[2][0].refs == [(1, 6)]
+
+
+def test_without_tmdb_the_files_ordering_is_proposed_since_nothing_translates(db_session):
+    """Audit 2026-10-18: senza le stagioni di default di TMDB nessun
+    ordinamento ha i riferimenti; proporne uno diverso da quello dei file
+    (qui "Joined") lasciava i numeri di Sonarr sotto un'altra etichetta."""
+    from nazgarr.core.models import SonarrInstance
+
+    class Sonarr:
+        def __init__(self, instance):
+            pass
+
+        def get(self, path, **params):
+            if path == "/api/v3/series":
+                return [{"id": 1, "tmdbId": 4229}]
+            return [{"seasonNumber": 1, "episodeNumber": n, "title": f"Segment {n}"} for n in range(1, 40)]
+
+    class Tvdb:
+        def get(self, path, **params):
+            if path.endswith("/extended"):
+                return {"seasonTypes": [{"type": "official", "name": "Aired"}, {"type": "alternate", "name": "Joined"}]}
+            count = 39 if path.endswith("/official") else 13
+            return {"episodes": [{"seasonNumber": 1, "number": n, "name": f"x {n}"} for n in range(1, count + 1)]}
+
+    db_session.add(SonarrInstance(label="sonarr", base_url="http://s", api_key="k"))
+    db_session.commit()
+    found = {1: list(range(1, 38, 3))}  # 13 file numerati col primo segmento di Sonarr
+
+    result = eo.build(db_session, 4229, 76015, found, pack=True, tvdb_api=Tvdb(), sonarr_factory=Sonarr)
+
+    assert result["sources"]["tmdb"] == "no_key"
+    assert result["files_order"] == "sonarr:aired" and result["recommended"] == "sonarr:aired"
+    # Scelto comunque l'altro a mano: nessun episodio si traduce, e si sa quali.
+    snap = eo.snapshot(result, "tvdb:alternate")
+    assert eo.untranslated(snap, found) == [(1, e) for e in found[1]]
+    assert eo.untranslated(eo.snapshot(result, "sonarr:aired"), found) == []
+
+
+def _named_job(db_session, tmp_path, relative, layout, chosen, files, *, kind, seasons, episode=None):
+    import json
+
+    from nazgarr.upload import jobs as upload_jobs
+    from tests.upload_helpers import make_disk, make_tracker
+
+    make_tracker(db_session)
+    job = upload_jobs.create_job(db_session, make_disk(db_session, tmp_path), relative)
+    job.status, job.content_type, job.title, job.year, job.tmdb_id = "analyzing", "tv", "Show", 2024, 1
+    job.kind, job.seasons_json, job.episode = kind, json.dumps(seasons), episode
+    job.layout_json = json.dumps(layout)
+    job.episode_order = chosen.key
+    job.episode_order_json = json.dumps({"chosen": chosen.to_dict(), "files": files.to_dict()})
+    db_session.commit()
+    return job
+
+
+def test_a_single_file_of_a_merged_episode_is_named_with_both_episodes(db_session, tmp_path):
+    """Audit 2026-10-18: lo stesso file in un pack si chiamava S01E03E04, da
+    solo S01E03 (solo job.episode)."""
+    from nazgarr.upload import file_names as upload_file_names
+    from tests.upload_helpers import write_video
+
+    tmdb = _order("tmdb:default", {1: 10})
+    doubled = _order("tvdb:regional", {1: 5}, "tvdb", refs=False)
+    eo.align_to(doubled, tmdb)
+    write_video(tmp_path / "Show.S01E02.1080p.WEB-DL-GRP.mkv")
+    layout = {"videos": [{"relative_path": "Show.S01E02.1080p.WEB-DL-GRP.mkv", "season": 1, "episodes": [2]}]}
+    job = _named_job(db_session, tmp_path, "Show.S01E02.1080p.WEB-DL-GRP.mkv", layout, tmdb, doubled,
+                     kind="episode", seasons=[1], episode=3)
+
+    plan = upload_file_names.plan(db_session, job, "generated")
+
+    assert "S01E03E04" in plan.content_name and plan.content_name.endswith(".mkv")
+    assert job.episode == 3  # il campo episodio del tracker resta uno
+    # Il titolo proposto per il tracker dice gli stessi episodi del file.
+    from nazgarr.upload import decision as upload_decision
+
+    upload_decision.propose(db_session, job)
+    assert job.targets and all("S01E03E04" in t.proposed_name for t in job.targets)
+    # Un episodio corretto a mano al match resta il suo.
+    job.episode = 7
+    assert "S01E07" in upload_file_names.plan(db_session, job, "generated").content_name
+    upload_decision.propose(db_session, job)
+    assert all("S01E07" in t.proposed_name and "E08" not in t.proposed_name for t in job.targets)
+
+
+def test_a_pack_file_the_chosen_ordering_lacks_keeps_its_name_and_the_match_says_so(db_session, tmp_path):
+    """Audit 2026-10-18: un episodio che non si traduce prendeva il numero
+    dei file dentro il nome dell'altro ordinamento, senza dirlo."""
+    import json
+
+    from nazgarr.upload import file_names as upload_file_names
+    from nazgarr.upload import identify as upload_identify
+    from tests.upload_helpers import write_video
+
+    tmdb = _order("tmdb:default", {1: 2})
+    sonarr = _order("sonarr:aired", {1: 3}, "sonarr")  # un episodio in più, che TMDB non ha
+    sonarr.seasons[1][2].refs = []
+    names = [f"Show.S01E0{e}.1080p.WEB-DL-GRP.mkv" for e in (1, 2, 3)]
+    for name in names:
+        write_video(tmp_path / "Show.S01" / name)
+    layout = {"kind": "season_pack", "videos": [{"relative_path": n, "season": 1, "episodes": [e]}
+                                                for e, n in enumerate(names, 1)],
+              "episodes_by_season": {"1": [1, 2, 3]}}
+    job = _named_job(db_session, tmp_path, "Show.S01", layout, tmdb, sonarr, kind="season_pack", seasons=[1])
+
+    plan = upload_file_names.plan(db_session, job, "generated")
+
+    renamed = sorted(target.rsplit("/", 1)[1] for _s, target in plan.files)
+    assert renamed[:2] == ["Show.S01E01.mkv", "Show.S01E02.mkv"]  # generati (nessun MediaInfo)
+    assert renamed[2] == "Show.S01E03.1080p.WEB-DL-GRP.mkv"  # il suo nome di prima
+
+    job.status, job.episode_order, job.episode_order_json = "awaiting_match", None, None
+    db_session.commit()
+    orders = {"orders": [tmdb.to_dict(), sonarr.to_dict()], "files_order": "sonarr:aired", "found": {}}
+    upload_identify.confirm(db_session, job, content_type="tv", tmdb_id=1, kind="season_pack", seasons=[1],
+                            episode=None, details=None, order_key="tmdb:default", orders=orders)
+    db_session.commit()
+    event = next(e for e in job.events if e.code == "episode_order_untranslated")
+    assert (event.level, json.loads(event.params_json)) == ("warning", {"order": "tmdb:default", "count": 1,
+                                                                        "episodes": "S01E03"})
+    assert job.status == "analyzing"

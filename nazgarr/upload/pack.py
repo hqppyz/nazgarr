@@ -181,28 +181,56 @@ def _common_folder(paths: list[str]) -> str:
 # --- le stagioni scelte di una cartella con più stagioni ----------------------
 
 
-def _video_seasons(video: dict, orders: tuple | None) -> set[int]:
+def _video_seasons(video: dict, translated: dict[int, dict[int, set[int]]] | None) -> set[int]:
     """Le stagioni di un video della sorgente nella numerazione scelta al
-    match (orders: l'ordinamento dei file e quello scelto)."""
+    match (translated: episodio dei file -> stagioni scelte, per stagione
+    dei file; None se i file seguono l'ordinamento scelto). Un episodio che
+    non si traduce prende la stagione dell'episodio tradotto prima di lui
+    nella stessa stagione dei file, o se non c'è di quello dopo (audit
+    2026-10-18: con quella dei file, il video finiva fuori dal season pack
+    in cui stanno i suoi vicini, perso dall'upload). Una sola: con quelle di
+    entrambi, un episodio a cavallo fra due stagioni finiva nell'upload di
+    tutte e due."""
     season = video.get("season")
     if season is None:
         return set()
     episodes = video.get("episodes") or []
-    if orders is None or not episodes:
+    if translated is None or not episodes:
         return {season}
-    files, chosen = orders
-    return {s for e in episodes for s, _e in (episode_orders.translate(files, chosen, season, e) or [(season, e)])}
+    known = translated.get(season, {})
+    out: set[int] = set()
+    for e in episodes:
+        if e in known:
+            out |= known[e]
+            continue
+        lower = max((k for k in known if k < e), default=None)
+        higher = min((k for k in known if k > e), default=None)
+        if lower is not None:
+            out.add(max(known[lower]))
+        elif higher is not None:
+            out.add(min(known[higher]))
+        else:
+            out.add(season)
+    return out
 
 
 def _with_seasons(job: UploadJob, order_snapshot: dict | None) -> list[tuple[dict, set[int]]]:
     """Ogni video della sorgente con le sue stagioni nella numerazione scelta."""
     snapshot = order_snapshot or {}
-    orders = None
-    if snapshot.get("chosen") and snapshot.get("files"):
-        orders = (episode_orders.EpisodeOrder.from_dict(snapshot["files"]),
-                  episode_orders.EpisodeOrder.from_dict(snapshot["chosen"]))
     layout = json.loads(job.layout_json or "{}")
-    return [(video, _video_seasons(video, orders)) for video in layout.get("videos") or []]
+    videos = layout.get("videos") or []
+    translated = None
+    if snapshot.get("chosen") and snapshot.get("files"):
+        lookup = episode_orders.translator(episode_orders.EpisodeOrder.from_dict(snapshot["files"]),
+                                           episode_orders.EpisodeOrder.from_dict(snapshot["chosen"]))
+        translated = {}
+        for video in videos:
+            season = video.get("season")
+            for e in video.get("episodes") or [] if season is not None else []:
+                refs = lookup(season, e)
+                if refs:
+                    translated.setdefault(season, {})[e] = {s for s, _e in refs}
+    return [(video, _video_seasons(video, translated)) for video in videos]
 
 
 def seasons_in_source(job: UploadJob) -> set[int]:

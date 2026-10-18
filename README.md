@@ -38,7 +38,7 @@ It isn't tied to Unraid or to the \*arr stack. Separate disks without FUSE or RA
 - Release names per tracker from editable patterns: resolution, source, HDR and Dolby Vision profile, audio, languages, REMUX and HYBRID detection.
 - MediaInfo, screenshots uploaded to an image host (with fallback across hosts), and descriptions from a sandboxed template.
 - The new torrent seeds from hardlinks in an upload folder, with the file names you chose, so the library keeps its own names.
-- A watched folder for releasers: whatever lands there starts an upload on its own up to the decision, then moves to the releases folder once it seeds.
+- A watched folder for releasers: whatever lands there starts an upload on its own up to the decision, then moves to the releases folder once it seeds on every tracker (while one has failed it stays, so a retry still has its files).
 - Packs from episodes picked by hand: episodes downloaded one at a time, even ones already seeding with their own torrent, become a season pack or a complete pack.
 
 **Fits your setup**

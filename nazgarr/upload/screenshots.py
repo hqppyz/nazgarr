@@ -1,10 +1,20 @@
 """Generazione screenshot per l'upload (docs/SPEC.md §9, Fase 6) — v1 già
-la include, non rimandata. ffmpeg-python, richiede il binario `ffmpeg` nel
-container (aggiunto al Dockerfile in questa stessa fase)."""
+la include, non rimandata. ffmpeg-python per costruire i comandi, richiede
+il binario `ffmpeg` nel container (aggiunto al Dockerfile in questa stessa
+fase).
+
+Ogni comando gira con un tempo massimo (audit 2026-10-18): ffmpeg-python
+aspetta il processo senza limiti, e un ffmpeg bloccato su un file
+malformato teneva fermo per sempre l'unico thread dell'esecuzione, e con
+lui tutta la coda degli upload. Scaduto il tempo il processo si ferma e
+quello screenshot si salta; scaduto il tempo di tutti gli screenshot, si
+tiene quello che c'è."""
 
 import logging
 import os
 import re
+import subprocess
+import time
 
 import ffmpeg
 
@@ -15,6 +25,27 @@ logger = logging.getLogger(__name__)
 
 class ScreenshotError(Exception):
     pass
+
+
+# Un comando di ffmpeg (un fotogramma, le statistiche, un JPEG) non arriva
+# mai a minuti su un file sano; tutti gli screenshot di un upload insieme
+# (4 x 5 tentativi, più il tonemap) hanno un tetto a parte.
+COMMAND_TIMEOUT_SECONDS = 120
+TOTAL_TIMEOUT_SECONDS = 900
+
+
+def _run(stream, timeout: float = COMMAND_TIMEOUT_SECONDS) -> tuple[bytes, bytes]:
+    """Il comando di ffmpeg-python, ma con un tempo massimo: scaduto,
+    subprocess ferma il processo. Gli errori (anche il tempo scaduto) come
+    ffmpeg.Error, quelli che i chiamanti gestiscono già."""
+    argv = ffmpeg.compile(stream)
+    try:
+        done = subprocess.run(argv, stdin=subprocess.DEVNULL, capture_output=True, timeout=max(timeout, 1))
+    except subprocess.TimeoutExpired as exc:
+        raise ffmpeg.Error("ffmpeg", exc.stdout or b"", f"ffmpeg stopped after {timeout:.0f} s".encode()) from exc
+    if done.returncode != 0:
+        raise ffmpeg.Error("ffmpeg", done.stdout, done.stderr)
+    return done.stdout, done.stderr
 
 
 # Catena di filtri ffmpeg per il tonemap HDR->SDR standard (algoritmo
@@ -76,10 +107,10 @@ RETRY_OFFSETS = (0.33, -0.33, 0.66, -0.66)
 _STAT = re.compile(r"lavfi\.signalstats\.(YAVG|YMIN|YMAX)=([0-9.]+)")
 
 
-def luma_stats(image_path: str) -> dict[str, float] | None:
+def luma_stats(image_path: str, timeout: float = COMMAND_TIMEOUT_SECONDS) -> dict[str, float] | None:
     """YAVG/YMIN/YMAX di un'immagine, o None se ffmpeg non li dà."""
     try:
-        _out, err = (
+        _out, err = _run(
             ffmpeg.input(image_path)
             .filter("scale", 160, -1)
             # Sempre a 8 bit: da una sorgente a 10 bit il PNG è a 16 bit e
@@ -88,8 +119,8 @@ def luma_stats(image_path: str) -> dict[str, float] | None:
             .filter("signalstats")
             .filter("metadata", mode="print")
             .output("-", format="null")
-            .global_args("-hide_banner")
-            .run(quiet=True, capture_stdout=True, capture_stderr=True)
+            .global_args("-hide_banner"),
+            timeout,
         )
     except ffmpeg.Error:
         logger.warning("Statistiche di luminanza non disponibili per %r", image_path, exc_info=True)
@@ -111,18 +142,18 @@ def _ffmpeg_message(error: ffmpeg.Error) -> str:
     return " | ".join(line.strip() for line in lines[-4:]) or "no output from ffmpeg"
 
 
-def _capture(video_path: str, timestamp: float, output_path: str, output_kwargs: dict) -> bool:
+def _capture(video_path: str, timestamp: float, output_path: str, output_kwargs: dict,
+             timeout: float = COMMAND_TIMEOUT_SECONDS) -> bool:
     try:
-        ffmpeg.input(video_path, ss=timestamp).output(output_path, **output_kwargs).overwrite_output().global_args(
-            "-hide_banner", "-loglevel", "error"
-        ).run(quiet=True, capture_stdout=True, capture_stderr=True)
+        _run(ffmpeg.input(video_path, ss=timestamp).output(output_path, **output_kwargs).overwrite_output()
+             .global_args("-hide_banner", "-loglevel", "error"), timeout)
     except ffmpeg.Error as exc:
         logger.error("Cattura screenshot fallita a %.1fs per %r: %s", timestamp, video_path, _ffmpeg_message(exc))
         return False
     return os.path.isfile(output_path)
 
 
-def _fit_size(path: str) -> str:
+def _fit_size(path: str, timeout: float = COMMAND_TIMEOUT_SECONDS) -> str:
     """Il file da tenere: il PNG se sta sotto MAX_SCREENSHOT_BYTES, se no un
     JPEG dello stesso frame (stessa risoluzione) alla qualità più alta che ci
     sta; nel dubbio il JPEG più piccolo, meglio del PNG troppo grande."""
@@ -131,9 +162,8 @@ def _fit_size(path: str) -> str:
     jpeg = os.path.splitext(path)[0] + ".jpg"
     for quality in _JPEG_QUALITIES:
         try:
-            ffmpeg.input(path).output(jpeg, vframes=1, qscale=quality, pix_fmt="yuvj444p").overwrite_output().run(
-                quiet=True, capture_stdout=True, capture_stderr=True
-            )
+            _run(ffmpeg.input(path).output(jpeg, vframes=1, qscale=quality, pix_fmt="yuvj444p").overwrite_output(),
+                 timeout)
         except ffmpeg.Error:
             logger.warning("Compressione JPEG fallita per %r", path, exc_info=True)
             return path
@@ -171,22 +201,32 @@ def generate_screenshots(video_path: str, output_dir: str, count: int = 4, tonem
         output_kwargs["vf"] = _tonemap_filter(transfer)
 
     step = usable / (count + 1)
+    deadline = time.monotonic() + TOTAL_TIMEOUT_SECONDS
+
+    def left() -> float:
+        return min(COMMAND_TIMEOUT_SECONDS, deadline - time.monotonic())
+
     paths = []
     for i in range(count):
+        if left() <= 0:
+            logger.warning("Screenshot di %r: tempo finito dopo %d su %d", video_path, len(paths), count)
+            break
         base = margin + step * (i + 1)
         output_path = os.path.join(output_dir, f"screenshot_{i}.png")
         best: tuple[float, str] | None = None  # (escursione, file) del tentativo migliore
         for attempt, offset in enumerate((0.0, *RETRY_OFFSETS)):
+            if left() <= 0:
+                break  # si tiene il tentativo migliore fin qui
             timestamp = min(max(base + offset * step, margin), margin + usable)
             candidate = output_path if attempt == 0 else os.path.join(output_dir, f"screenshot_{i}_retry{attempt}.png")
-            captured = _capture(video_path, timestamp, candidate, output_kwargs)
-            if not captured and "vf" in output_kwargs:
+            captured = _capture(video_path, timestamp, candidate, output_kwargs, left())
+            if not captured and "vf" in output_kwargs and left() > 0:
                 logger.warning("Tonemap HDR non riuscito per %r: screenshot senza", video_path)
                 del output_kwargs["vf"]
-                captured = _capture(video_path, timestamp, candidate, output_kwargs)
+                captured = _capture(video_path, timestamp, candidate, output_kwargs, left())
             if not captured:
                 continue
-            stats = luma_stats(candidate)
+            stats = luma_stats(candidate, max(left(), 1))
             if not is_blank(stats):
                 best = (float("inf"), candidate)
                 break
@@ -198,7 +238,7 @@ def generate_screenshots(video_path: str, output_dir: str, count: int = 4, tonem
             continue
         if best[1] != output_path:
             os.replace(best[1], output_path)
-        paths.append(_fit_size(output_path))
+        paths.append(_fit_size(output_path, max(left(), 1)))
         for leftover in os.listdir(output_dir):
             if leftover.startswith(f"screenshot_{i}_retry"):
                 os.remove(os.path.join(output_dir, leftover))

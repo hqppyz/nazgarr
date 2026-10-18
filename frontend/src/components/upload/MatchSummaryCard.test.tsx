@@ -28,6 +28,19 @@ describe('MatchSummaryCard', () => {
     expect(rematch).toHaveBeenCalled()
   })
 
+  it('warns about episodes the chosen ordering does not have, from the last match only', () => {
+    const untranslated = {
+      id: 7, code: 'episode_order_untranslated', params: { order: 'TMDB', count: 1, episodes: 'S01E03' },
+    }
+    render(<MatchSummaryCard job={job({ events: [{ id: 5, code: 'match_confirmed', params: {} }, untranslated] })} />)
+    expect(screen.getByText(/1 episode\(s\) of the files are not in TMDB/)).toBeTruthy()
+    cleanup()
+
+    const rematched = [{ id: 5, code: 'match_confirmed', params: {} }, untranslated, { id: 9, code: 'match_confirmed', params: {} }]
+    render(<MatchSummaryCard job={job({ events: rematched })} />)
+    expect(screen.queryByText(/are not in TMDB/)).toBeNull()
+  })
+
   it('offers no rollback once the upload is approved', () => {
     render(<MatchSummaryCard job={job({ status: 'queued', origin: null, events: [] })} />)
     expect(screen.queryByRole('button', { name: /Change match/ })).toBeNull()

@@ -314,3 +314,72 @@ def test_the_folder_goes_once_every_season_is_out(db_session, tmp_path, from_wat
     assert not folder.exists()
     removed = next(e for e in seasons[2].events if e.code == "watch_folder_removed")
     assert json.loads(removed.params_json)["files"] == ["Show.nfo"]
+
+
+def test_a_split_into_seasons_failing_halfway_leaves_only_the_complete_pack(db_session, from_watch, monkeypatch):
+    """Audit 2026-10-18: la seconda stagione non si crea (la cartella
+    sparita, un errore del DB): via anche la prima, il complete pack va
+    avanti da solo."""
+    real_create = upload_jobs.create_job
+    calls = []
+
+    def create_job(*args, **kwargs):
+        calls.append(1)
+        if len(calls) == 3:  # il pack, la S01, poi la S02 fallisce
+            raise OSError("folder gone")
+        return real_create(*args, **kwargs)
+
+    monkeypatch.setattr(upload_jobs, "create_job", create_job)
+    job, kicked = from_watch()
+
+    assert (job.status, job.kind) == ("analyzing", "complete_pack")
+    assert db_session.query(UploadJob).count() == 1 and kicked == []
+    assert job.events[-1].code == "split_seasons_failed"
+
+
+def test_a_split_into_seasons_stopped_by_a_restart_never_splits_twice(db_session, from_watch, monkeypatch):
+    """Audit 2026-10-18: una stagione creata a metà da una divisione fermata
+    da un riavvio ha la cartella intera; ripresa da sola si identificava come
+    complete pack e si divideva di nuovo (S01 tre volte)."""
+    from tests.test_upload_split import _crash_on, _Killed, _restart
+
+    restore = _crash_on(monkeypatch, 3)  # il pack, la S01, poi il kill sulla S02
+    with pytest.raises(_Killed):
+        from_watch()
+    restore()
+    parent, first, second = db_session.query(UploadJob).order_by(UploadJob.id).all()
+    assert (parent.status, first.status, second.status) == ("analyzing", "analyzing", "identifying")
+
+    _resumed, kicked = _restart(db_session, [second.id, first.id], parent.id)
+
+    seasons = _children(db_session, parent)
+    assert parent.status == "cancelled"
+    assert [(json.loads(c.seasons_json), c.status, c.stage) for c in seasons] == [
+        ([1], "analyzing", None), ([2], "analyzing", None), ([3], "analyzing", None)]
+    assert db_session.query(UploadJob).count() == 4 and kicked == [c.id for c in seasons]
+
+
+def test_an_episode_that_does_not_translate_goes_into_one_season_only():
+    """Audit 2026-10-18: un episodio che non si traduce, a cavallo fra due
+    stagioni dell'ordinamento scelto, prendeva le stagioni di entrambi i
+    vicini, e una serie intera divisa in stagioni lo metteva in due upload."""
+    from types import SimpleNamespace
+
+    from tests.test_episode_orders import _order
+
+    chosen = _order("tmdb:default", {1: 2, 2: 2})
+    # I file in una stagione sola da quattro: il terzo non ha riferimenti.
+    files = EpisodeOrder("sonarr", "Sonarr", "sonarr", {1: [
+        OrderEpisode(number=1, refs=[(1, 1)]), OrderEpisode(number=2, refs=[(1, 2)]),
+        OrderEpisode(number=3, refs=[]), OrderEpisode(number=4, refs=[(2, 2)])]})
+    snapshot = {"chosen": chosen.to_dict(), "files": files.to_dict()}
+    videos = [{"relative_path": f"Show.S01E{e:02d}.mkv", "season": 1, "episodes": [e]} for e in (1, 2, 3, 4)]
+    job = SimpleNamespace(layout_json=json.dumps({"videos": videos}))
+
+    seasons = {video["relative_path"]: found for video, found in upload_pack._with_seasons(job, snapshot)}
+    assert seasons == {"Show.S01E01.mkv": {1}, "Show.S01E02.mkv": {1}, "Show.S01E03.mkv": {1},
+                       "Show.S01E04.mkv": {2}}
+    # Senza un vicino prima, quello dopo; senza nessuno, la stagione dei file.
+    assert upload_pack._video_seasons({"season": 1, "episodes": [1]}, {1: {2: {2}}}) == {2}
+    assert upload_pack._video_seasons({"season": 3, "episodes": [1]}, {1: {2: {2}}}) == {3}
+    assert upload_pack._video_seasons({"season": 1, "episodes": [14]}, {1: {13: {1}, 15: {2}}}) == {1}

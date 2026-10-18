@@ -101,6 +101,11 @@ export function TrackerCheckCard({
   const seeding = ((job.analysis as Record<string, unknown> | null)?.seeding_here as
     | Record<string, { name: string; client: string }>
     | undefined)?.[String(target.id)]
+  // Il tracker aveva più risultati di quelli letti (nazgarr/upload/analysis.py):
+  // un dupe oltre il limite non si vede.
+  const truncated = ((job.analysis as Record<string, unknown> | null)?.dupes_truncated as
+    | Record<string, number>
+    | undefined)?.[String(target.id)]
   // La lingua del tracker nell'audio del file (nazgarr/upload/naming.py audio_language_check).
   const language = ((job.analysis as Record<string, unknown> | null)?.languages as
     | Record<string, { language: string; status: 'present' | 'missing' | 'unknown' }>
@@ -143,6 +148,12 @@ export function TrackerCheckCard({
           )}
           {target.error_message === 'dupe_check_failed' && (
             <p className="text-sm text-amber-600 dark:text-amber-400">{t('upload.dupes.checkFailed')}</p>
+          )}
+          {truncated != null && (
+            <p className="flex items-start gap-2 text-sm text-amber-600 dark:text-amber-400">
+              <TriangleAlertIcon className="mt-0.5 size-3.5 shrink-0" />
+              {t('upload.dupes.truncated', { count: truncated })}
+            </p>
           )}
           {target.error_message !== 'dupe_check_failed' && dupes.length === 0 && target.status !== 'checking' && (
             <p className="text-sm text-muted-foreground">{t('upload.dupes.none')}</p>

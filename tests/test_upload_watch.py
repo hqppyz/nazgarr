@@ -168,3 +168,59 @@ def test_an_item_whose_upload_started_is_not_walked_again(db_session, tmp_path, 
     monkeypatch.setattr(upload_watch, "_signature", lambda path: walked.append(path) or real(path))
     upload_watch.scan(db_session, now=T0 + QUIET)
     assert walked == []
+
+
+def test_a_failure_after_the_job_never_starts_the_release_twice(db_session, tmp_path, watched, monkeypatch):
+    """Audit 2026-10-18: il job si salvava prima di prendere l'elemento, con
+    due commit; se il secondo falliva (il DB occupato) il giro dopo creava
+    un secondo upload della stessa release."""
+    from sqlalchemy.exc import OperationalError
+
+    _written_at(write_video(tmp_path / "releases" / "My.Movie.2024.1080p.WEB-DL.mkv"), T0 - timedelta(hours=2))
+    real_commit = db_session.commit
+
+    def commit():
+        if any(isinstance(o, WatchEntry) and o.job_id is not None for o in db_session.dirty):
+            raise OperationalError("COMMIT", {}, Exception("database is locked"))
+        real_commit()
+
+    monkeypatch.setattr(db_session, "commit", commit)
+    kicked = []
+
+    [job_id] = upload_watch.scan(db_session, kick=lambda *a: kicked.append(a), now=T0)
+    monkeypatch.setattr(db_session, "commit", real_commit)
+
+    assert kicked == [(job_id, "identifying")]  # parte lo stesso
+    entry = db_session.query(WatchEntry).one()
+    assert entry.started_at is not None
+    assert upload_watch.scan(db_session, now=T0 + timedelta(seconds=10)) == []
+    assert [j.id for j in _jobs(db_session)] == [job_id]
+
+
+def test_the_scan_holds_no_write_lock_while_it_reads_the_releases(db_session, tmp_path, watched, monkeypatch):
+    """Audit 2026-10-18: un elemento nuovo non ancora pronto apriva la
+    scrittura (flush) e la teneva mentre si leggevano gli alberi delle
+    release dopo di lui."""
+    import sqlite3
+
+    for name in ("A.Copying.mkv", "B.Copying.mkv"):
+        _written_at(write_video(tmp_path / "releases" / name), T0)  # appena scritti: non pronti
+    database = db_session.get_bind().url.database
+    real_signature = upload_watch._signature
+    locked = []
+
+    def signature(path):
+        other = sqlite3.connect(database, timeout=0)
+        try:
+            other.execute("BEGIN IMMEDIATE")
+            other.rollback()
+        except sqlite3.OperationalError:
+            locked.append(os.path.basename(path))
+        finally:
+            other.close()
+        return real_signature(path)
+
+    monkeypatch.setattr(upload_watch, "_signature", signature)
+
+    assert upload_watch.scan(db_session, now=T0 + timedelta(seconds=5)) == []
+    assert locked == [] and db_session.query(WatchEntry).count() == 2
