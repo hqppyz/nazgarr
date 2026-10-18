@@ -99,18 +99,24 @@ def index_torrent_client(
     (disk_torrent_client), o di tutti i dischi se non ne ha nessuno
     associato (stessi percorsi fra client e Nazgarr)."""
     logger.debug("Client %r: chiamata adapter.list_torrents()...", torrent_client.label)
+    listed_at = datetime.now(UTC)
     torrents: list[ClientTorrentInfo] = (
         adapter.list_torrents(on_progress=on_progress) if on_progress is not None else adapter.list_torrents()
     )
     logger.debug("Client %r: adapter.list_torrents() ha restituito %d torrent", torrent_client.label, len(torrents))
 
     counts = store_client_torrents(session, torrent_client, torrents, run.id)
-    counts["torrents_removed"] = prune_missing_torrents(session, torrent_client, torrents, run.id)
+    counts["torrents_removed"] = prune_missing_torrents(session, torrent_client, torrents, run.id, listed_at)
     return counts
 
 
+def _utc(value: datetime) -> datetime:
+    return value if value.tzinfo is not None else value.replace(tzinfo=UTC)  # SQLite li rende senza fuso
+
+
 def prune_missing_torrents(
-    session: Session, torrent_client: TorrentClient, torrents: list[ClientTorrentInfo], run_id: int
+    session: Session, torrent_client: TorrentClient, torrents: list[ClientTorrentInfo], run_id: int,
+    listed_at: datetime | None = None,
 ) -> int:
     """Dopo un'indicizzazione COMPLETA e riuscita del client (list_torrents
     solleva su qualunque errore, mai una lista parziale): i torrent che il
@@ -118,15 +124,29 @@ def prune_missing_torrents(
     Senza questo un torrent rimosso dal client restava "tracciato" per
     sempre: il suo file risultava in seeding e non tornava mai orfano, quindi
     mai più cercato né proposto in review. Mai chiamata dall'aggiornamento
-    mirato di un solo torrent (store_client_torrents da seed_refresh)."""
+    mirato di un solo torrent (store_client_torrents da seed_refresh).
+
+    listed_at: quando è partita la richiesta dell'elenco al client. Un
+    torrent assente dall'elenco ma registrato dopo (last_polled_at più
+    recente: un upload, un reseed o un import di Radarr/Sonarr appena
+    aggiunti, nazgarr/library/seed_refresh.py) resta, coi suoi file:
+    l'elenco era già partito quando il client lo ha ricevuto (audit
+    2026-10-18). Prima la potatura lo toglieva, e il file appena messo in
+    seed tornava "orphan" fino alla run dopo, che lo cercava sui tracker.
+    Se il client non lo ha davvero più, lo toglie l'indicizzazione dopo."""
     present = {t.info_hash for t in torrents}
-    stale_ids = [
-        ct_id
-        for ct_id, info_hash in session.query(ClientTorrent.id, ClientTorrent.info_hash)
+    stale_ids, registered_since = [], []
+    for ct_id, info_hash, polled_at in (
+        session.query(ClientTorrent.id, ClientTorrent.info_hash, ClientTorrent.last_polled_at)
         .filter_by(torrent_client_id=torrent_client.id)
         .all()
-        if info_hash not in present
-    ]
+    ):
+        if info_hash in present:
+            continue
+        if listed_at is not None and polled_at is not None and _utc(polled_at) > listed_at:
+            registered_since.append(ct_id)
+        else:
+            stale_ids.append(ct_id)
     for chunk_start in range(0, len(stale_ids), 500):
         chunk = stale_ids[chunk_start:chunk_start + 500]
         session.query(SeedJob).filter(SeedJob.result_client_torrent_id.in_(chunk)).update(
@@ -137,6 +157,8 @@ def prune_missing_torrents(
         )
         session.query(ClientTorrent).filter(ClientTorrent.id.in_(chunk)).delete(synchronize_session=False)
     kept_ids = session.query(ClientTorrent.id).filter_by(torrent_client_id=torrent_client.id)
+    if registered_since:  # i loro file non sono in questo elenco: non si potano
+        kept_ids = kept_ids.filter(ClientTorrent.id.notin_(registered_since))
     removed_files = (
         session.query(ClientTorrentFile)
         .filter(ClientTorrentFile.client_torrent_id.in_(kept_ids), ClientTorrentFile.last_scan_id != run_id)
@@ -148,6 +170,9 @@ def prune_missing_torrents(
             "Client %r: %d torrent non più presenti nel client rimossi (%d file di torrent rimasti non più presenti)",
             torrent_client.label, len(stale_ids), removed_files,
         )
+    if registered_since:
+        logger.info("Client %r: %d torrent registrati durante l'elenco del client restano fino alla prossima "
+                    "indicizzazione", torrent_client.label, len(registered_since))
     return len(stale_ids)
 
 
