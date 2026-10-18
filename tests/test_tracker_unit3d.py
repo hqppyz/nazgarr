@@ -504,7 +504,9 @@ def test_a_tracker_repeating_the_same_cursor_does_not_loop():
     from nazgarr.adapters.tracker.base import catalog_truncated
 
     results = _adapter(handler).search_by_tmdb(7)
-    assert len(calls) == 2 and catalog_truncated(results) is False
+    # Le pagine dopo il cursore ripetuto non si sono mai lette: il catalogo
+    # non è completo, e il controllo dei dupe deve poterlo dire.
+    assert len(calls) == 2 and catalog_truncated(results) is True
 
 
 def test_a_download_link_downgraded_to_http_or_another_scheme_is_not_followed():

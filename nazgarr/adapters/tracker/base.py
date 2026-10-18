@@ -353,7 +353,17 @@ class Unit3dTrackerAdapter(TrackerAdapter):
                 raise UploadError("Unexpected answer from the UNIT3D tracker search")
             candidates.extend(self._to_candidate(item) for item in data)
             following = self._next_page(body)
-            if following is None or following in seen:  # ultima pagina, o un tracker che ripete la stessa
+            if following is None:  # ultima pagina
+                break
+            if following in seen:
+                # Un tracker che ripete un cursore già visto: non si gira in
+                # tondo, ma le pagine dopo non si sono lette, quindi il
+                # catalogo non è completo.
+                candidates.truncated = True
+                logger.warning(
+                    "Tracker %s: cursore ripetuto nei risultati per tmdb %s, letti solo i primi %d torrent",
+                    self.base_url, tmdb_id, len(candidates),
+                )
                 break
             seen.add(following)
             params = {"tmdbId": tmdb_id, "perPage": self.SEARCH_PER_PAGE, **dict(following)}
