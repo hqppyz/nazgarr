@@ -40,6 +40,7 @@ from nazgarr.core.models import (
     MatchReview,
     MediaFile,
     MediaItem,
+    RunLog,
     SeedFile,
     SeedJob,
     TorrentClient,
@@ -256,16 +257,34 @@ def _torrents_already_in_progress(
     return _busy_for([*active.values(), *running], media_file_id, seed_file_id)
 
 
+# Un upload in corso di pubblicazione o di aggiunta al client.
+_UPLOADS_IN_FLIGHT = ("uploading", "seeding")
+
+
 def _own_uploads(session: Session) -> tuple[set[tuple[int, str]], set[str]]:
-    """I torrent pubblicati da un upload di Nazgarr: (tracker_id,
-    torrent_id_remote) e info hash. Il flusso degli upload aggiunge il
-    torrent al client senza registrarlo subito fra quelli indicizzati, così
-    fino alla run dopo il file sembrava orfano e "Cerca ora" proponeva di
-    riaggiungere l'upload stesso (audit 2026-10-18)."""
-    rows = session.query(UploadTarget.tracker_id, UploadTarget.torrent_id_remote, UploadTarget.info_hash).filter(
-        (UploadTarget.torrent_id_remote.isnot(None)) | (UploadTarget.info_hash.isnot(None))).all()
-    return ({(tracker_id, remote) for tracker_id, remote, _h in rows if remote is not None},
-            {info_hash.lower() for _t, _r, info_hash in rows if info_hash})
+    """I torrent che un upload di Nazgarr (o un reseed del flusso degli
+    upload) sta mettendo in seed o ha appena messo in seed, non ancora
+    indicizzati: (tracker_id, id sul tracker) e info hash. Il flusso degli
+    upload aggiunge il torrent al client senza registrarlo fra quelli
+    indicizzati, così fino alla run dopo il file sembrava orfano e "Cerca
+    ora" proponeva di riaggiungere l'upload stesso (audit 2026-10-18). Solo
+    in quella finestra: i target in corso, e quelli finiti senza errori dopo
+    l'inizio dell'ultima run conclusa (l'ultima indicizzazione). Dopo, il
+    torrent è fra quelli dei client, o l'utente l'ha tolto e va riproposto
+    come ogni altro; un target fallito non ha messo niente in seed."""
+    last_index = session.query(func.max(RunLog.started_at)).filter(RunLog.finished_at.isnot(None)).scalar()
+    finished = (UploadTarget.status == "done") & UploadTarget.error_message.is_(None)
+    if last_index is not None:
+        finished &= UploadTarget.finished_at > last_index
+    rows = session.query(UploadTarget.tracker_id, UploadTarget.action, UploadTarget.torrent_id_remote,
+                         UploadTarget.reseed_torrent_id, UploadTarget.info_hash).filter(
+        UploadTarget.status.in_(_UPLOADS_IN_FLIGHT) | finished).all()
+    remotes = {
+        (tracker_id, remote if action != "reseed" else (remote or reseed_id))
+        for tracker_id, action, remote, reseed_id, _hash in rows
+    }
+    return ({(tracker_id, remote) for tracker_id, remote in remotes if remote},
+            {info_hash.lower() for *_rest, info_hash in rows if info_hash})
 
 
 class ReviewQueue:

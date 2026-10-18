@@ -507,3 +507,45 @@ def test_a_queued_review_on_a_torrent_now_busy_elsewhere_stays(db_session):
     assert review.create_review_for_media_file(
         db_session, mf, [_candidate(db_session, item, tracker, confidence=0.5, remote="2")]) is None
     assert queued.status == "pending"
+
+
+def _upload_target(db_session, mf, tracker, **values):
+    from nazgarr.core.models import UploadJob, UploadTarget
+
+    job = UploadJob(disk_id=mf.disk_id, relative_path=mf.relative_path, source_path="/mnt/d/movies/x.mkv",
+                    status="done")
+    db_session.add(job)
+    db_session.commit()
+    target = UploadTarget(job_id=job.id, tracker_id=tracker.id, **values)
+    db_session.add(target)
+    db_session.commit()
+    return target
+
+
+def test_an_upload_seeded_before_the_last_run_is_proposed_again_once_gone_from_the_client(db_session):
+    # Solo fino alla prima indicizzazione dopo l'upload: poi un torrent tolto
+    # dal client si ripropone come ogni altro, e un target fallito non ha mai
+    # messo niente in seed (audit 2026-10-18, finding 171).
+    from datetime import timedelta
+
+    tracker = _tracker(db_session)
+    item = _media_item(db_session)
+    mf = _media_file_stub(db_session, item)
+    now = datetime.now(UTC)
+    _upload_target(db_session, mf, tracker, status="done", action="upload", torrent_id_remote="77",
+                   info_hash="aa77", finished_at=now - timedelta(hours=2))
+    _upload_target(db_session, mf, tracker, status="failed", action="upload", torrent_id_remote="79",
+                   error_message="upload_outcome_unknown", finished_at=now)
+    run = pipeline.start_run(db_session, "manual")
+    run.started_at, run.finished_at = now - timedelta(hours=1), now - timedelta(minutes=50)
+    db_session.commit()
+
+    proposed = review.create_review_for_media_file(
+        db_session, mf, [_candidate(db_session, item, tracker, confidence=0.99, remote="77")])
+    assert proposed is not None
+    assert review._own_uploads(db_session) == (set(), set())
+
+    # Uno finito dopo l'inizio dell'ultima run conclusa non è ancora indicizzato.
+    _upload_target(db_session, mf, tracker, status="done", action="reseed", reseed_torrent_id="78",
+                   info_hash="AA78", finished_at=now)
+    assert review._own_uploads(db_session) == ({(tracker.id, "78")}, {"aa78"})
