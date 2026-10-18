@@ -98,15 +98,21 @@ def update_check(session: Session = Depends(get_session)):
 def update_status(session: Session = Depends(get_session)):
     """L'ultimo esito salvato, senza chiamare GitHub: per l'avviso nella
     barra laterale. None se non c'è o riguardava un'altra versione."""
-    last = updates.last_check(session)
-    if not last:
-        return None
     try:
+        # Anche last_check sta dentro: legge l'esito con .get(), e un valore
+        # salvato che non è un oggetto JSON (es. [1]) lo fa cadere.
+        last = updates.last_check(session)
+        if not last:
+            return None
+        if not isinstance(last, dict):
+            raise TypeError("not an object")
         return UpdateCheckResponse(**last)
-    except (TypeError, ValidationError):
+    except (TypeError, ValidationError, AttributeError, KeyError):
         # Un esito salvato che non ha la forma attesa (di una versione di
         # prima, o scritto a mano): nessun avviso, invece di un 500 a ogni
-        # pagina (audit 2026-10-18). Il prossimo controllo lo riscrive.
+        # pagina (audit 2026-10-18). "Controlla aggiornamenti" lo riscrive;
+        # quello automatico ancora no, finché check_if_due in
+        # nazgarr/core/updates.py legge checked_at senza difendersi.
         logger.warning("Esito salvato del controllo degli aggiornamenti illeggibile: ignorato")
         return None
 

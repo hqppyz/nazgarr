@@ -197,12 +197,14 @@ def test_a_malformed_stored_update_result_shows_no_banner(client):
     """Prima un 500 a ogni pagina: last_check controllava solo il JSON."""
     import json
 
+    from nazgarr.core import settings_repo
     from nazgarr.core.version import __version__
 
-    with client.app.state.session_factory() as session:
-        from nazgarr.core import settings_repo
+    stored = [json.dumps({"current_version": __version__, "checked_at": "yesterday"}),
+              "[1]", "5", '"x"']  # anche un valore che non è un oggetto JSON
+    for value in stored:
+        with client.app.state.session_factory() as session:
+            settings_repo.set_setting(session, updates.LAST_CHECK_KEY, value)
+        response = client.get("/api/system/update-status")
+        assert response.status_code == 200 and response.json() is None, value
 
-        settings_repo.set_setting(session, updates.LAST_CHECK_KEY,
-                                  json.dumps({"current_version": __version__, "checked_at": "yesterday"}))
-    response = client.get("/api/system/update-status")
-    assert response.status_code == 200 and response.json() is None
