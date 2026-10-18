@@ -1580,6 +1580,47 @@ def test_the_episode_folder_stays_while_a_tracker_of_the_episode_failed(db_sessi
     assert "watch_folder_removed" in [e.code for e in job.events]
 
 
+def test_a_cancel_during_the_last_tracker_that_then_fails_can_still_be_retried(
+        db_session, tmp_path, env, monkeypatch):
+    """L'annullamento arriva mentre "b" invia, e "b" fallisce: l'esecuzione
+    aveva già fatto tutto, la release resta nella cartella osservata per
+    "Riprova", ma il job resta annullato. Prima né la ripresa (niente da
+    fare) né "Riprova" (non finito) lo accettavano, e la release restava lì
+    per sempre; la ripresa ora lo chiude 'partial', da cui "Riprova"."""
+    video = _watched_job(db_session, env, "My.Movie.2024.mkv", {"a": _upload("Movie A"), "b": _upload("Movie B")})
+    job = db_session.query(upload_jobs.UploadJob).one()
+    tracker_b = env["trackers"]["b"]
+    send = tracker_b.upload_torrent
+
+    def cancel_then_fail(fields, torrent_path):
+        monkeypatch.setattr(tracker_b, "upload_torrent", send)  # solo il primo invio
+        other = db_session.__class__(bind=db_session.get_bind())
+        upload_jobs.cancel_job(other, other.get(upload_jobs.UploadJob, job.id))
+        other.close()
+        raise _unreachable()
+
+    monkeypatch.setattr(tracker_b, "upload_torrent", cancel_then_fail)
+    _run(db_session, tmp_path, job)
+
+    assert (job.status, [t.status for t in job.targets]) == ("cancelled", ["done", "failed"])
+    assert video.is_file() and "watch_source_kept" in [e.code for e in job.events]
+    with pytest.raises(UploadJobError, match="upload_job_wrong_status"):
+        upload_jobs.retry_failed(db_session, job)
+
+    assert upload_jobs.resume_job(db_session, job) == "partial"
+    assert job.status == "partial" and job.finished_at is not None
+    assert [t.status for t in job.targets] == ["done", "failed"] and len(tracker_b.uploads) == 0  # niente rifatto
+    last = job.events[-1]
+    assert (last.code, json.loads(last.params_json)) == ("job_partial", {"after_cancel": True})
+
+    assert [t.tracker.label for t in upload_jobs.retry_failed(db_session, job)] == ["b"]
+    _run(db_session, tmp_path, job)
+
+    assert (job.status, [t.status for t in job.targets]) == ("done", ["done", "done"]), [e.code for e in job.events]
+    assert len(env["trackers"]["a"].uploads) == 1 and len(tracker_b.uploads) == 1
+    assert not video.exists() and (env["root"] / "torrents" / "My.Movie.2024.mkv").is_file()
+
+
 @pytest.mark.parametrize("cause, unsure", [
     (httpx.ReadTimeout("timed out"), True),  # la risposta non è arrivata: il tracker può averlo salvato
     (None, True),  # "nessun id riconoscibile", con success: true
