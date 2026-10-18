@@ -22,7 +22,9 @@ sbagliati), ma trattato con la stessa severità — soglia più alta di
 default, mai un bypass "perché il file esiste già"."""
 
 import logging
+from collections import Counter
 from datetime import UTC, datetime, timedelta
+from typing import NamedTuple
 
 from sqlalchemy import exists, func, select
 from sqlalchemy.orm import Session, selectinload
@@ -116,7 +118,7 @@ def _active_reviews(
 
 def _supersede_active_reviews(
     session: Session, *, media_file_id: int | None, seed_file_id: int | None, tracker_id: int | None = None,
-    formats: frozenset[str] = FORMATS, keep: tuple[MatchReview, ...] = (), queue: "ReviewQueue | None" = None,
+    formats: frozenset[str] = FORMATS, queue: "ReviewQueue | None" = None,
 ) -> int:
     """Marca come 'rejected' ogni review ancora attiva per lo stesso file
     orfano sullo stesso tracker. Senza questo, ogni nuovo run che rimatcha lo
@@ -125,12 +127,14 @@ def _supersede_active_reviews(
     tracker. Per tracker e non per file: con i cross-seed (nazgarr/library/seeding.py) lo
     stesso file può avere una proposta su ogni tracker. formats: solo le
     review di questi formati, quelli appena cercati (con "pack e singoli" un
-    episodio ha una proposta per formato). keep: quelle che la nuova ricerca
-    conferma, che restano."""
+    episodio ha una proposta per formato). queue: senza review di quel file
+    su quel tracker nella coda del passaggio, nessuna query."""
+    if queue is not None and tracker_id is not None and not queue.has_reviews(tracker_id, media_file_id,
+                                                                              seed_file_id):
+        return 0
     active = _active_reviews(session, media_file_id=media_file_id, seed_file_id=seed_file_id,
                              tracker_id=tracker_id, formats=formats)
-    kept = {r.id for r in keep}
-    return _reject_by_system(session, [r for r in active if r.id not in kept], queue)
+    return _reject_by_system(session, active, queue)
 
 
 def _user_rejected_torrents(
@@ -277,17 +281,27 @@ class ReviewQueue:
         self.in_client = hashes_in_clients(session) if in_client is None else in_client
         self._active, self._running = _busy_rows(session, self.in_client)
         self.uploaded, self.uploaded_hashes = _own_uploads(session)
+        # Quante review attive o approvate ha ogni file su ogni tracker: per
+        # non interrogare il DB per i file che non ne hanno (quasi tutti).
+        self._by_file: Counter[tuple] = Counter((t, mf, sf) for t, _r, mf, sf in self._active.values())
 
     def busy_for(self, media_file_id: int | None, seed_file_id: int | None) -> set[tuple[int, str]]:
         return _busy_for([*self._active.values(), *self._running], media_file_id, seed_file_id)
 
+    def has_reviews(self, tracker_id: int, media_file_id: int | None, seed_file_id: int | None) -> bool:
+        return self._by_file[(tracker_id, media_file_id, seed_file_id)] > 0
+
     def opened(self, review: MatchReview, candidate: Candidate) -> None:
         self._active[review.id] = (candidate.tracker_id, candidate.torrent_id_remote, review.media_file_id,
                                    review.seed_file_id)
+        self._by_file[(candidate.tracker_id, review.media_file_id, review.seed_file_id)] += 1
 
     def closed(self, reviews: list[MatchReview]) -> None:
         for review in reviews:
-            self._active.pop(review.id, None)
+            entry = self._active.pop(review.id, None)
+            if entry is not None:
+                tracker_id, _remote, mf_id, sf_id = entry
+                self._by_file[(tracker_id, mf_id, sf_id)] -= 1
 
 
 def _status_for(session: Session, candidate: Candidate) -> str:
@@ -296,20 +310,114 @@ def _status_for(session: Session, candidate: Candidate) -> str:
         else "pending"
 
 
+def _files_mapping(candidate: Candidate) -> frozenset[tuple]:
+    return frozenset((f.torrent_path, f.size_bytes, f.media_file_id, f.seed_file_id) for f in candidate.files)
+
+
+def _same_when_known(a: str | None, b: str | None) -> bool:
+    return a is None or b is None or a.lower() == b.lower()
+
+
 def _same_proposal(review: MatchReview, pick: Candidate, status: str) -> bool:
     """La review in coda propone già questo torrent, nello stesso formato e
-    con lo stesso esito: la nuova ricerca la conferma."""
+    con lo stesso esito, e la nuova valutazione lo ricrea allo stesso modo:
+    gli stessi file del torrent sugli stessi file locali, e lo stesso info
+    hash e la stessa cartella quando entrambe le valutazioni li conoscono.
+    Allora la nuova ricerca la conferma; con un abbinamento diverso no, la
+    review deve puntare alla valutazione nuova (audit 2026-10-18: il
+    controllo completo e l'esecuzione usavano quella vecchia)."""
     current = review.candidate
     return (current is not None and review.status == status
             and (current.tracker_id, current.torrent_id_remote, current.direction)
             == (pick.tracker_id, pick.torrent_id_remote, pick.direction)
-            and candidate_format(current) == candidate_format(pick))
+            and candidate_format(current) == candidate_format(pick)
+            and _files_mapping(current) == _files_mapping(pick)
+            and _same_when_known(current.info_hash, pick.info_hash)
+            and _same_when_known(current.folder, pick.folder))
+
+
+class CatalogSearch(NamedTuple):
+    """La ricerca sul catalogo appena fatta per un file: il tracker e gli id
+    di tutti i torrent che ha restituito, anche quelli scartati prima di
+    valutarli (il singolo di un altro episodio, un pack che un altro
+    episodio ha già valutato in questa run, uno già visto dalla history)."""
+
+    tracker_id: int
+    returned: frozenset[str]
+
+
+class _Exclusions:
+    """I torrent che non si possono proporre per un file: rifiutati
+    dall'utente per quel file (anche come pack di un altro episodio, lo
+    stesso "no" per tutta la stagione), già in coda o in esecuzione per un
+    altro file, già in un client, o un upload di Nazgarr non ancora
+    indicizzato."""
+
+    def __init__(self, session: Session, *, media_file_id: int | None, seed_file_id: int | None,
+                 in_client: set[str] | None, queue: ReviewQueue | None):
+        self.rejected = _user_rejected_torrents(session, media_file_id=media_file_id, seed_file_id=seed_file_id)
+        if queue is not None:
+            in_client = queue.in_client
+            self.busy = queue.busy_for(media_file_id, seed_file_id)
+            uploaded, uploaded_hashes = queue.uploaded, queue.uploaded_hashes
+        else:
+            in_client = hashes_in_clients(session) if in_client is None else in_client
+            self.busy = _torrents_already_in_progress(
+                session, media_file_id=media_file_id, seed_file_id=seed_file_id, in_client=in_client)
+            uploaded, uploaded_hashes = _own_uploads(session)
+        self.refused = self.rejected | uploaded
+        self.hashes = in_client | uploaded_hashes
+
+    def impossible(self, candidate: Candidate) -> bool:
+        """Mai eseguibile per questo file: il client rifiuterebbe un torrent
+        che ha già (con un'altra copia dei file), un upload di Nazgarr è già
+        in seed, e un "no" dell'utente resta."""
+        return ((candidate.tracker_id, candidate.torrent_id_remote) in self.refused
+                or bool(candidate.info_hash) and candidate.info_hash.lower() in self.hashes)
+
+    def allows(self, candidate: Candidate) -> bool:
+        return (not self.impossible(candidate)
+                and (candidate.tracker_id, candidate.torrent_id_remote) not in self.busy)
+
+
+def _drop_unavailable(
+    session: Session, *, media_file_id: int | None, seed_file_id: int | None, tracker_id: int,
+    formats: frozenset[str], queue: ReviewQueue | None, exclusions: _Exclusions | None = None,
+    returned: frozenset[str] | None = None, evaluated: list[Candidate] | None = None,
+    in_client: set[str] | None = None,
+) -> int:
+    """Una ricerca che non lascia nessuna proposta nuova: delle review in
+    coda per il file su questo tracker restano solo quelle che si possono
+    ancora eseguire. Escono quelle su un torrent ora impossibile
+    (_Exclusions.impossible), su uno che la ricerca sul catalogo non
+    restituisce più (returned, se il catalogo è stato cercato) e su uno che
+    la nuova valutazione dà per non plausibile (evaluated). Resta quella su un
+    torrent ora occupato da un altro file, o su un pack che un altro episodio
+    ha già valutato in questa run."""
+    if queue is not None and not queue.has_reviews(tracker_id, media_file_id, seed_file_id):
+        return 0  # quasi sempre: niente da leggere
+    active = _active_reviews(session, media_file_id=media_file_id, seed_file_id=seed_file_id,
+                             tracker_id=tracker_id, formats=formats)
+    if not active:
+        return 0
+    if exclusions is None:
+        exclusions = _Exclusions(session, media_file_id=media_file_id, seed_file_id=seed_file_id,
+                                 in_client=in_client, queue=queue)
+    evaluated = evaluated or []
+    implausible = ({c.torrent_id_remote for c in evaluated}
+                   - {c.torrent_id_remote for c in evaluated if c.confidence > 0.0})
+    gone = [
+        r for r in active
+        if exclusions.impossible(r.candidate) or r.candidate.torrent_id_remote in implausible
+        or (returned is not None and r.candidate.torrent_id_remote not in returned)
+    ]
+    return _reject_by_system(session, gone, queue)
 
 
 def _create_review(
     session: Session, candidates: list[Candidate], *, media_file_id: int | None, seed_file_id: int | None,
     in_client: set[str] | None = None, formats: frozenset[str] = FORMATS, both_formats: bool = False,
-    prefer_pack: bool = False, queue: ReviewQueue | None = None,
+    prefer_pack: bool = False, queue: ReviewQueue | None = None, searched: CatalogSearch | None = None,
 ) -> MatchReview | None:
     """in_client: gli info hash nei client, se il chiamante li ha già letti;
     queue: la coda del passaggio di matching (ReviewQueue), che li ha già
@@ -317,15 +425,28 @@ def _create_review(
     ogni file. formats: quelli cercati per il file. Solo per un episodio:
     both_formats ("pack e singoli dello stesso tracker") fa una review per
     formato, prefer_pack una sola, col pack se ce n'è uno plausibile.
-    Restituisce la prima (il pack, se c'è).
+    searched: la ricerca sul catalogo appena fatta (CatalogSearch), None se
+    il catalogo non è stato cercato (solo la history). Restituisce la prima
+    review (il pack, se c'è).
 
     Una review già in coda che propone lo stesso torrent con lo stesso esito
     resta com'è, invece di essere rifiutata dal sistema e rifatta uguale a
     ogni nuova ricerca (audit 2026-10-18): niente eventi review.decided e
     review.created ogni settimana per la stessa proposta, e restano la
     categoria e i tag scelti a mano e una verifica in corso."""
+    returned = None
+    if searched is not None:
+        returned = searched.returned | {c.torrent_id_remote for c in candidates}
     if not candidates:
-        return None  # il caso più comune nel matching: niente da leggere
+        # Il caso più comune nel matching. Una ricerca sul catalogo che ha
+        # scartato tutto prima di valutarlo (es. i singoli degli altri
+        # episodi) toglie comunque la review in coda su un torrent che il
+        # tracker non restituisce più: prima restava in coda per sempre.
+        if searched is not None:
+            _drop_unavailable(session, media_file_id=media_file_id, seed_file_id=seed_file_id,
+                              tracker_id=searched.tracker_id, formats=formats, queue=queue, returned=returned,
+                              in_client=in_client)
+        return None
     tracker_id = candidates[0].tracker_id  # tutti dallo stesso tracker
     plausible = [c for c in candidates if c.confidence > 0.0]
     if not plausible:
@@ -335,28 +456,14 @@ def _create_review(
         _supersede_active_reviews(session, media_file_id=media_file_id, seed_file_id=seed_file_id,
                                   tracker_id=tracker_id, formats=formats, queue=queue)
         return None
-    # Un torrent già rifiutato dall'utente per questo file non torna mai in
-    # coda a ogni nuova ricerca — resta solo nell'audit trail di candidate.
-    rejected = _user_rejected_torrents(session, media_file_id=media_file_id, seed_file_id=seed_file_id)
-    if queue is not None:
-        in_client = queue.in_client
-        busy = queue.busy_for(media_file_id, seed_file_id)
-        uploaded, uploaded_hashes = queue.uploaded, queue.uploaded_hashes
-    else:
-        in_client = hashes_in_clients(session) if in_client is None else in_client
-        busy = _torrents_already_in_progress(
-            session, media_file_id=media_file_id, seed_file_id=seed_file_id, in_client=in_client)
-        uploaded, uploaded_hashes = _own_uploads(session)
-    # Un torrent già in un client (con un'altra copia dei file) non si può
-    # aggiungere di nuovo: il client lo rifiuterebbe come duplicato. Né uno
-    # caricato da Nazgarr: è già in seed dall'upload.
-    plausible = [
-        c for c in plausible
-        if (c.tracker_id, c.torrent_id_remote) not in rejected | busy | uploaded
-        and (c.info_hash or "").lower() not in in_client | uploaded_hashes
-    ]
+    exclusions = _Exclusions(session, media_file_id=media_file_id, seed_file_id=seed_file_id,
+                             in_client=in_client, queue=queue)
+    plausible = [c for c in plausible if exclusions.allows(c)]
     if not plausible:
-        return None  # la proposta in coda, se c'è, resta
+        _drop_unavailable(session, media_file_id=media_file_id, seed_file_id=seed_file_id, tracker_id=tracker_id,
+                          formats=formats, queue=queue, exclusions=exclusions, returned=returned,
+                          evaluated=candidates)
+        return None
     if prefer_pack and _covered_by_pack(session, media_file_id, tracker_id):
         plausible = [c for c in plausible if candidate_format(c) == PACK]
         if not plausible:
@@ -402,20 +509,21 @@ def _create_review(
 def create_review_for_media_file(
     session: Session, media_file: MediaFile, candidates: list[Candidate], in_client: set[str] | None = None,
     formats: frozenset[str] = FORMATS, both_formats: bool = False, queue: ReviewQueue | None = None,
+    searched: CatalogSearch | None = None,
 ) -> MatchReview | None:
     # Un film con dei contenuti extra in video non è un pack: formati solo per gli episodi.
     episode = is_episode(media_file.media_item)
     return _create_review(session, candidates, media_file_id=media_file.id, seed_file_id=None, in_client=in_client,
                           formats=formats, both_formats=both_formats and episode,
-                          prefer_pack=episode and not both_formats, queue=queue)
+                          prefer_pack=episode and not both_formats, queue=queue, searched=searched)
 
 
 def create_review_for_seed_file(
     session: Session, seed_file: SeedFile, candidates: list[Candidate], in_client: set[str] | None = None,
-    queue: ReviewQueue | None = None,
+    queue: ReviewQueue | None = None, searched: CatalogSearch | None = None,
 ) -> MatchReview | None:
     return _create_review(session, candidates, media_file_id=None, seed_file_id=seed_file.id, in_client=in_client,
-                          queue=queue)
+                          queue=queue, searched=searched)
 
 
 def _build_torrent_client_adapter_or_none(session: Session):

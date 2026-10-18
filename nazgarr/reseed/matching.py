@@ -397,14 +397,20 @@ def _drop_stale(ctx: MatchContext, media_item_id: int, anchor: MediaFile | SeedF
 
 
 def match_file(ctx: MatchContext, anchor: MediaFile | SeedFile, media_item_id: int, tmdb_id: int,
-               formats: frozenset[str] = FORMATS, skip: frozenset[str] = frozenset()) -> list[Candidate]:
+               formats: frozenset[str] = FORMATS, skip: frozenset[str] = frozenset(),
+               returned: set[str] | None = None) -> list[Candidate]:
     """Cerca sul catalogo del tracker per tmdb_id e valuta ogni torrent
     trovato contro i file locali. Persiste anche i candidati a confidence 0
     (audit trail), tranne quelli che non riguardano affatto questo file.
     formats: solo i torrent di questi formati; skip: torrent già valutati
-    (dalla history)."""
+    (dalla history). returned, se dato, riceve gli id di tutti i torrent
+    restituiti dal catalogo, anche quelli scartati prima di valutarli: per
+    togliere dalla coda una review su un torrent che il tracker non ha più
+    (review.CatalogSearch)."""
     persisted = []
     for tc in ctx.tracker_adapter.search_by_tmdb(tmdb_id):
+        if returned is not None:
+            returned.add(tc.torrent_id_remote)
         if tc.torrent_id_remote in skip:
             continue
         if not catalog_names_safe(tc.file_list, tc.folder):
@@ -518,13 +524,21 @@ def _anchor_path(anchor: MediaFile | SeedFile) -> str:
     return f"{anchor.disk.root_path}/{anchor.relative_path}"
 
 
-def find_candidates(ctx: MatchContext, anchor: MediaFile | SeedFile, media_item_id: int,
-                    tmdb_id: int, formats: frozenset[str] = FORMATS) -> tuple[list[Candidate], bool]:
-    """(candidati, da_history). Prima la history di Radarr/Sonarr se ricorda
-    un torrent di QUESTO tracker per il file; ricerca sul catalogo solo se
-    non c'è o non ha dato un candidato plausibile. Un episodio che la
-    history dà come singolo cerca comunque il pack nel catalogo: è il
-    formato preferito (review.py), o il secondo con "pack e singoli"."""
+def find_candidates(
+    ctx: MatchContext, anchor: MediaFile | SeedFile, media_item_id: int, tmdb_id: int,
+    formats: frozenset[str] = FORMATS,
+) -> tuple[list[Candidate], bool, "review.CatalogSearch | None"]:
+    """(candidati, da_history, ricerca sul catalogo). Prima la history di
+    Radarr/Sonarr se ricorda un torrent di QUESTO tracker per il file;
+    ricerca sul catalogo solo se non c'è o non ha dato un candidato
+    plausibile. Un episodio che la history dà come singolo cerca comunque il
+    pack nel catalogo: è il formato preferito (review.py), o il secondo con
+    "pack e singoli". La ricerca sul catalogo è None se non c'è stata."""
+    returned: set[str] = set()
+
+    def searched() -> review.CatalogSearch:
+        return review.CatalogSearch(ctx.tracker_row.id, frozenset(returned))
+
     grab = ctx.arr_index.grab_for(_anchor_path(anchor), anchor.size_bytes) if ctx.arr_index is not None else None
     if grab is not None and grab.tracker_host == host_of(ctx.tracker_row.base_url):
         candidates = match_from_history(ctx, anchor, media_item_id, grab, formats)
@@ -533,9 +547,11 @@ def find_candidates(ctx: MatchContext, anchor: MediaFile | SeedFile, media_item_
         ):
             if PACK in formats and _wants_pack_search(ctx, anchor, candidates):
                 seen = frozenset(c.torrent_id_remote for c in candidates)
-                candidates += match_file(ctx, anchor, media_item_id, tmdb_id, frozenset({PACK}), skip=seen)
-            return candidates, True
-    return match_file(ctx, anchor, media_item_id, tmdb_id, formats), False
+                candidates += match_file(ctx, anchor, media_item_id, tmdb_id, frozenset({PACK}), skip=seen,
+                                         returned=returned)
+                return candidates, True, searched()
+            return candidates, True, None
+    return match_file(ctx, anchor, media_item_id, tmdb_id, formats, returned=returned), False, searched()
 
 
 def _wants_pack_search(ctx: MatchContext, anchor: MediaFile | SeedFile, candidates: list[Candidate]) -> bool:
@@ -756,12 +772,14 @@ def _match_orphans(ctx: MatchContext, orphans: list[tuple], side: str, progress,
                 progress.advance(skipped=1)
                 continue
             try:
-                candidates, from_history = find_candidates(ctx, orphan, item.id, item.tmdb_id, formats)
+                candidates, from_history, searched = find_candidates(ctx, orphan, item.id, item.tmdb_id, formats)
                 if side == "media":
                     review.create_review_for_media_file(session, orphan, candidates, formats=formats,
-                                                        both_formats=ctx.both_formats, queue=ctx.review_queue())
+                                                        both_formats=ctx.both_formats, queue=ctx.review_queue(),
+                                                        searched=searched)
                 else:
-                    review.create_review_for_seed_file(session, orphan, candidates, queue=ctx.review_queue())
+                    review.create_review_for_seed_file(session, orphan, candidates, queue=ctx.review_queue(),
+                                                       searched=searched)
             except TrackerRateLimitedError:
                 logger.warning("Tracker %r in rate limit: matching interrotto per questa run", tracker_row.label)
                 session.rollback()

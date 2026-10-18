@@ -309,3 +309,81 @@ def test_a_torrent_with_a_huge_piece_length_is_never_read_against_the_library(db
     assert reads == []
     candidate = db_session.query(Candidate).filter_by(media_item_id=e01.media_item_id).one()
     assert candidate.piece_length is None and candidate.info_hash is None  # resta la forma del catalogo
+
+
+def test_a_review_on_a_torrent_the_tracker_no_longer_returns_leaves_the_queue(db_session, tmp_path, monkeypatch):
+    # La nuova ricerca restituisce solo singoli di altri episodi, scartati
+    # prima di valutarli: senza candidati, la review sul torrent sparito
+    # restava in coda per sempre (ed eseguita, con l'esecuzione automatica).
+    from nazgarr.core import settings_repo
+
+    _no_mediainfo(monkeypatch)
+    settings_repo.set_setting(db_session, "rematch_interval_days", "0")
+    _disk, tracker, (e01, _e02) = _library(db_session, tmp_path)
+    matching.run_media_to_torrent_matching(
+        db_session, tracker, PackTracker([_single("500", "Show.S01E01.WEB-GONE.mkv", len(E01))]))
+    (queued,) = db_session.query(MatchReview).filter_by(media_file_id=e01.id).all()
+    assert queued.status in ("pending", "auto_approved")
+
+    matching.run_media_to_torrent_matching(
+        db_session, tracker, PackTracker([_single("103", "Show.S01E03.1080p-GRP.mkv", 1003)]))
+
+    db_session.refresh(queued)
+    assert (queued.status, queued.decided_by) == ("rejected", "system")
+
+
+def test_a_review_on_a_pack_another_episode_evaluated_stays(db_session, tmp_path, monkeypatch):
+    # Senza candidati perché il pack l'ha già valutato un altro episodio in
+    # questa run: la review su quel pack resta (il tracker lo restituisce).
+    from nazgarr.reseed import review
+
+    _disk, tracker, (e01, _e02) = _library(db_session, tmp_path)
+    pack = Candidate(media_item_id=e01.media_item_id, tracker_id=tracker.id, torrent_id_remote="900", name="p",
+                     size_bytes=1, source="catalog_search", direction="media_to_torrent", confidence=0.9)
+    db_session.add(pack)
+    db_session.commit()
+    queued = MatchReview(candidate_id=pack.id, media_file_id=e01.id, status="pending")
+    db_session.add(queued)
+    db_session.commit()
+
+    review.create_review_for_media_file(db_session, e01, [], searched=review.CatalogSearch(tracker.id,
+                                                                                         frozenset({"900"})))
+    assert queued.status == "pending"
+    review.create_review_for_media_file(db_session, e01, [], searched=None)  # solo la history
+    assert queued.status == "pending"
+
+    review.create_review_for_media_file(db_session, e01, [], searched=review.CatalogSearch(tracker.id,
+                                                                                         frozenset({"103"})))
+    assert (queued.status, queued.decided_by) == ("rejected", "system")
+
+
+def test_a_queued_review_follows_a_pack_whose_mapping_changed(db_session, tmp_path, monkeypatch):
+    # Stesso pack, stesso esito, ma ora il sottotitolo c'è anche in libreria:
+    # la review in coda puntava ancora alla valutazione vecchia, e il
+    # controllo completo e l'esecuzione usavano quella (audit 2026-10-18).
+    from nazgarr.core import settings_repo
+    from nazgarr.core.models import MediaFile
+    from tests.test_season_pack import SRT
+
+    _no_mediainfo(monkeypatch)
+    settings_repo.set_setting(db_session, "rematch_interval_days", "0")
+    disk, tracker, (e01, _e02) = _library(db_session, tmp_path, with_srt=False)
+    matching.run_media_to_torrent_matching(db_session, tracker, PackTracker([_pack_candidate()]))
+    (first,) = db_session.query(MatchReview).filter_by(media_file_id=e01.id).all()
+    status = first.status
+    assert all(f.media_file_id is None for f in first.candidate.files if f.torrent_path.endswith(".srt"))
+
+    srt_name = "Show - S01E01 - Pilot.en.srt"
+    (tmp_path / "media" / "tv" / "Show" / "Season 01" / srt_name).write_bytes(SRT)
+    db_session.add(MediaFile(disk_id=disk.id, relative_path=f"media/tv/Show/Season 01/{srt_name}",
+                             size_bytes=len(SRT), st_dev=1, inode=50, last_scan_id=e01.last_scan_id,
+                             last_seen_at=datetime.now(UTC)))
+    db_session.commit()
+    matching.run_media_to_torrent_matching(db_session, tracker, PackTracker([_pack_candidate()]))
+
+    db_session.refresh(first)
+    (current,) = db_session.query(MatchReview).filter(MatchReview.media_file_id == e01.id,
+                                                     MatchReview.status != "rejected").all()
+    assert (first.status, first.decided_by) == ("rejected", "system")
+    assert current.status == status and current.candidate_id != first.candidate_id
+    assert any(f.media_file_id is not None for f in current.candidate.files if f.torrent_path.endswith(".srt"))

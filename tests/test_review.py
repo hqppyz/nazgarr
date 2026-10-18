@@ -459,3 +459,51 @@ def test_the_users_own_upload_is_never_proposed_as_a_reseed(db_session):
         db_session, mf, [_candidate(db_session, item, tracker, confidence=0.99, remote="77")]) is None
     assert review.create_review_for_media_file(
         db_session, mf, [_candidate(db_session, item, tracker, confidence=0.99, remote="78")]) is not None
+
+
+def test_a_queued_review_whose_torrent_reached_a_client_leaves_the_queue(db_session):
+    # Ogni candidato plausibile escluso: la review in coda restava anche se
+    # il suo torrent era ora in un client (un'altra copia), e approvarla
+    # poteva solo fallire (audit 2026-10-18, finding 30).
+    from nazgarr.core.models import ClientTorrent, TorrentClient
+
+    tracker = _tracker(db_session)
+    item = _media_item(db_session)
+    mf = _media_file_stub(db_session, item)
+    first = _candidate(db_session, item, tracker, confidence=0.5)
+    first.info_hash = "abc"
+    db_session.commit()
+    queued = review.create_review_for_media_file(db_session, mf, [first])
+    client = TorrentClient(label="q", adapter_type="qbittorrent", base_url="http://q")
+    db_session.add(client)
+    db_session.commit()
+    db_session.add(ClientTorrent(torrent_client_id=client.id, info_hash="abc", name="x", save_path="/x",
+                                 state="uploading", last_polled_at=datetime.now(UTC)))
+    db_session.commit()
+    again = _candidate(db_session, item, tracker, confidence=0.5)
+    again.info_hash = "ABC"
+    db_session.commit()
+
+    assert review.create_review_for_media_file(db_session, mf, [again]) is None
+    assert (queued.status, queued.decided_by) == ("rejected", "system")
+
+
+def test_a_queued_review_on_a_torrent_now_busy_elsewhere_stays(db_session):
+    # Il torrent ora occupato da un altro file non si ripropone, ma la
+    # review di questo file resta: si può ancora eseguire.
+    tracker = _tracker(db_session)
+    item = _media_item(db_session)
+    mf = _media_file_stub(db_session, item)
+    other = MediaFile(disk_id=mf.disk_id, relative_path="movies/y.mkv", size_bytes=1, st_dev=1, inode=9,
+                      media_item_id=item.id, last_scan_id=mf.last_scan_id, last_seen_at=datetime.now(UTC))
+    db_session.add(other)
+    db_session.commit()
+    queued = review.create_review_for_media_file(db_session, mf, [_candidate(db_session, item, tracker,
+                                                                              confidence=0.5)])
+    db_session.add(MatchReview(candidate_id=_candidate(db_session, item, tracker, confidence=0.5, remote="2").id,
+                               media_file_id=other.id, status="pending"))
+    db_session.commit()
+
+    assert review.create_review_for_media_file(
+        db_session, mf, [_candidate(db_session, item, tracker, confidence=0.5, remote="2")]) is None
+    assert queued.status == "pending"
