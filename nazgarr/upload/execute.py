@@ -39,7 +39,7 @@ from sqlalchemy.orm import Session
 
 from nazgarr.adapters.image_host.base import ImageHostError
 from nazgarr.adapters.torrent_client.base import TorrentAlreadyInClientError
-from nazgarr.adapters.tracker.base import UploadFields
+from nazgarr.adapters.tracker.base import UploadFields, catalog_truncated
 from nazgarr.core import settings_registry
 from nazgarr.core.errors import CodedError
 from nazgarr.core.file_types import is_video
@@ -1230,13 +1230,20 @@ def _recheck_dupes(session: Session, job: UploadJob, targets: list[UploadTarget]
         try:
             with adapter_factory.tracker(target.tracker) as adapter:
                 _forget_search(adapter, job.tmdb_id)
-                results, _suggested = upload_dupes.check(adapter.search_by_tmdb(job.tmdb_id), summary)
+                found = adapter.search_by_tmdb(job.tmdb_id)
+                results, _suggested = upload_dupes.check(found, summary)
         except Exception as exc:
             logger.warning("Upload %s: dupe check prima dell'invio fallito su %s", job.id, target.tracker.label,
                            exc_info=True)
             upload_jobs.log_event(session, job, "dupe_recheck_failed", level="warning", target=target,
                                   error=safe_error(exc))
             continue
+        if catalog_truncated(found):
+            # Come alla decisione (analysis.py): il tracker ha più risultati di
+            # quelli letti, e un dupe oltre il limite non si vede (audit
+            # 2026-10-18). Si va avanti, ma il registro lo dice.
+            upload_jobs.log_event(session, job, "dupe_recheck_truncated", level="warning", target=target,
+                                  results=len(found))
         new = [r for r in results if r["verdict"] in ("identical", "same_slot") and r["torrent_id_remote"] not in known]
         if new:
             upload_jobs.set_target_status(target, upload_jobs.TargetStatus.FAILED)

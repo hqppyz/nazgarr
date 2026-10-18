@@ -351,6 +351,7 @@ export const upload = {
   'upload.event.job_start_now': 'Started right away, without waiting for the scheduled time.',
   'upload.event.upload_dupe_appeared': 'Not sent: the same release showed up on the tracker in the meantime ({names}).',
   'upload.event.dupe_recheck_failed': 'Dupe check before sending failed ({error}): going on.',
+  'upload.event.dupe_recheck_truncated': 'Dupe check before sending incomplete: the tracker has more results than the {results} read. Going on.',
   'upload.event.job_cancelled': 'Upload cancelled.',
   'upload.event.job_resumed_by_user': "Resumed.",
   'upload.event.job_retried': 'Retried: {trackers} back in the queue, with the choices already made.',

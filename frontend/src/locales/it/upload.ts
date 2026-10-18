@@ -340,6 +340,7 @@ export const upload = {
   'upload.event.job_start_now': 'Avviato subito, senza aspettare l’ora programmata.',
   'upload.event.upload_dupe_appeared': 'Non inviato: nel frattempo sul tracker è comparsa la stessa release ({names}).',
   'upload.event.dupe_recheck_failed': 'Dupe check prima dell’invio non riuscito ({error}): si va avanti.',
+  'upload.event.dupe_recheck_truncated': 'Dupe check prima dell’invio incompleto: il tracker ha più risultati dei {results} letti. Si va avanti.',
   'upload.event.job_split': 'Stagione incompleta: divisa in {count} upload, uno per episodio (upload {jobs}).',
   'upload.event.split_from': 'Episodio della stagione incompleta dell’upload #{upload}.',
   'upload.event.split_failed': 'Divisione in episodi non riuscita: va avanti come season pack.',

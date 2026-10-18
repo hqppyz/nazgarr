@@ -1014,6 +1014,31 @@ def test_a_dupe_that_appeared_after_the_decision_stops_that_tracker(db_session, 
     assert job.status == "partial"
 
 
+def test_a_truncated_catalogue_before_sending_is_said(db_session, tmp_path, env):
+    """Audit 2026-10-18 (finding 51): il dupe check prima dell'invio non
+    diceva che il tracker aveva più risultati di quelli letti."""
+    from datetime import timedelta
+
+    from nazgarr.adapters.tracker.base import CatalogResults, TorrentCandidate
+
+    video = write_video(env["root"] / "media" / "The.Matrix.1999.1080p.WEB-DL.H.264-GRP.mkv", 300 * KB)
+    job = _approved(db_session, env, "media/" + video.name, {"a": _upload("Matrix A"), "b": {"action": "skip"}},
+                    scheduled_at=datetime.now(UTC) + timedelta(hours=1))
+    other = TorrentCandidate(torrent_id_remote="5", info_hash=None, name="The.Matrix.1999.2160p.BluRay-X",
+                             size_bytes=1, file_list=None, mediainfo_unique_id=None)
+    catalog = CatalogResults([other])
+    catalog.truncated = True
+    env["trackers"]["a"].catalog = catalog
+    job.scheduled_at = datetime.now(UTC) - timedelta(seconds=1)
+    db_session.commit()
+
+    _run(db_session, tmp_path, job)
+
+    assert job.status == "done"  # si va avanti
+    event = next(e for e in job.events if e.code == "dupe_recheck_truncated")
+    assert (event.level, json.loads(event.params_json)) == ("warning", {"results": 1})
+
+
 # --- errori a metà esecuzione (audit 2026-10-18) -------------------------------
 
 
