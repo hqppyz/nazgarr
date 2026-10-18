@@ -5280,6 +5280,73 @@ export interface components {
             indexer?: string | null;
         };
         /**
+         * UploadCandidateParts
+         * @description Da cosa viene la confidence di un candidato (nazgarr/upload/match_score.py parts).
+         */
+        UploadCandidateParts: {
+            /**
+             * Basis
+             * @enum {string}
+             */
+            basis: "forced" | "arr" | "name";
+            /** Title */
+            title?: number;
+            /** Title Guess */
+            title_guess?: string | null;
+            /** Title Matched */
+            title_matched?: string | null;
+            /** Year */
+            year?: number;
+            /** Year Guess */
+            year_guess?: number | null;
+            /** Year Candidate */
+            year_candidate?: number | null;
+            /** Year Waived */
+            year_waived?: boolean;
+            /** Type */
+            type?: number;
+            /** Type Guess */
+            type_guess?: string;
+            /** Type Candidate */
+            type_candidate?: string;
+            /** Ambiguous */
+            ambiguous?: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * UploadCandidateResponse
+         * @description Un candidato TMDB dell'identificazione (nazgarr/upload/identify.py
+         *     find_candidates), con la sua confidence. Le altre chiavi salvate (i
+         *     titoli in altre lingue, i dettagli di un id forzato) restano nel job.
+         */
+        UploadCandidateResponse: {
+            /** Tmdb Id */
+            tmdb_id: number;
+            /**
+             * Content Type
+             * @enum {string}
+             */
+            content_type: "movie" | "tv";
+            /** Title */
+            title: string | null;
+            /** Original Title */
+            original_title?: string | null;
+            /** Year */
+            year: number | null;
+            /** Poster Path */
+            poster_path: string | null;
+            /** Overview */
+            overview?: string | null;
+            /** Source */
+            source?: string;
+            /** Confidence */
+            confidence?: number;
+            /** Ambiguous */
+            ambiguous?: boolean;
+            confidence_parts?: components["schemas"]["UploadCandidateParts"];
+        };
+        /**
          * UploadClientMatch
          * @description Un torrent dei client con gli stessi video (nazgarr/upload/analysis.py _client_matches).
          */
@@ -5486,9 +5553,7 @@ export interface components {
             };
             layout: components["schemas"]["UploadLayoutResponse"] | null;
             /** Candidates */
-            candidates: {
-                [key: string]: unknown;
-            }[];
+            candidates: components["schemas"]["UploadCandidateResponse"][];
             analysis: components["schemas"]["UploadAnalysisResponse"] | null;
             /** Mediainfo Text */
             mediainfo_text: string | null;

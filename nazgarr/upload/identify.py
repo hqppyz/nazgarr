@@ -126,6 +126,11 @@ def _resolver_candidates(session: Session, main_video: str) -> list[dict]:
         return []
     if resolved is None:
         return []
+    if resolved.content_type not in ("movie", "tv"):
+        # Un resolver di un plugin con un altro tipo: un candidato così non
+        # si potrebbe né confermare né mostrare (UploadCandidateResponse).
+        logger.warning("Resolver: tipo %r per %r ignorato", resolved.content_type, main_video)
+        return []
     return [{
         "tmdb_id": resolved.tmdb_id,
         "content_type": resolved.content_type,

@@ -501,7 +501,7 @@ function EpisodeOrderPicker({ data, active, onChange }: {
 }
 
 export function MatchStep({ job }: { job: UploadJob }) {
-  const candidates = job.candidates as unknown as MetadataCandidate[]
+  const candidates: MetadataCandidate[] = job.candidates
   const layout = job.layout
   const [selected, setSelected] = useState<MetadataCandidate | null>(candidates[0] ?? null)
   const [searchType, setSearchType] = useState<'movie' | 'tv'>((job.content_type as 'movie' | 'tv') ?? 'movie')

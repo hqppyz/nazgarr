@@ -242,6 +242,17 @@ def test_resolver_error_does_not_block_identification(client, tmp_path, setup):
     assert detail["candidates"] == []
 
 
+
+def test_a_resolver_result_of_an_unknown_type_is_not_a_candidate(client, tmp_path, setup):
+    """Un resolver di un plugin che risponde con un tipo né film né serie: il
+    candidato non si può confermare, e il dettaglio del job non deve fallire."""
+    write_video(tmp_path / "Movie.2024.mkv")
+    setup["resolver"].resolved = ResolvedMedia(tmdb_id=603, content_type="anime", title="Movie", year=2024)
+    resp = client.post("/api/uploads", json={"disk_id": setup["disk_id"], "relative_path": "Movie.2024.mkv"})
+
+    detail = client.get(f"/api/uploads/{resp.json()['id']}")
+    assert detail.status_code == 200 and detail.json()["candidates"] == []
+
 def _awaiting_match(client, tmp_path, setup, relative_path, files):
     for f in files:
         write_video(tmp_path / f)
@@ -685,3 +696,22 @@ def test_the_fixed_shapes_of_an_upload_are_typed_and_tolerate_older_rows():
     }).model_dump()
     assert analysis["pack_mixed"] == {"resolution": ["1080p", "720p"]}
     assert analysis["client_matches"][0]["videos_hardlinked"] is None and analysis["seeding_here"] == {}
+
+
+def test_the_tmdb_candidates_are_typed_and_an_older_row_keeps_its_missing_keys():
+    """Anche i candidati TMDB del dettaglio (finding 61, dopo la review): una
+    chiave che un job di prima non ha resta assente, mai null (la schermata
+    di match legge confidence?: number), e i dettagli di un id forzato
+    restano nel job."""
+    from pydantic import TypeAdapter
+
+    from nazgarr.api.uploads import UploadCandidateResponse
+
+    candidates = TypeAdapter(list[UploadCandidateResponse])
+    forced = {"tmdb_id": 603, "content_type": "movie", "title": "The Matrix", "original_title": "The Matrix",
+              "year": 1999, "poster_path": "/p.jpg", "overview": "x", "source": "forced_tmdb", "confidence": 1.0,
+              "confidence_parts": {"basis": "forced"}, "genres": ["Action"], "cast": ["Keanu"], "titles": ["Matrix"]}
+    older = {"tmdb_id": "1399", "content_type": "tv", "title": None, "year": None, "poster_path": None}
+    out = candidates.dump_python(candidates.validate_python([forced, older]), mode="json")
+    assert out[0] == {key: value for key, value in forced.items() if key not in ("genres", "cast", "titles")}
+    assert out[1] == {"tmdb_id": 1399, "content_type": "tv", "title": None, "year": None, "poster_path": None}

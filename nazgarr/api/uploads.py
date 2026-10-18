@@ -7,11 +7,11 @@ mostra e registra le decisioni dell'utente ai due punti di approvazione."""
 import json
 import logging
 from datetime import datetime
-from typing import Any, Literal
+from typing import Any, Literal, NotRequired, TypedDict
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, with_config
 from sqlalchemy import func
 from sqlalchemy.orm import Session, defer, joinedload, object_session, selectinload
 
@@ -297,6 +297,45 @@ class UploadAnalysisResponse(BaseModel):
     field_options: dict[str, list[str]] = {}  # i valori che i tracker del job accettano
 
 
+# I candidati TMDB come TypedDict, non BaseModel: una chiave che un job di
+# prima non ha (confidence, source) resta assente invece di diventare null,
+# come la legge la schermata di match (MetadataCandidate).
+@with_config(ConfigDict(extra="allow"))
+class UploadCandidateParts(TypedDict):
+    """Da cosa viene la confidence di un candidato (nazgarr/upload/match_score.py parts)."""
+
+    basis: Literal["forced", "arr", "name"]
+    title: NotRequired[float]
+    title_guess: NotRequired[str | None]
+    title_matched: NotRequired[str | None]
+    year: NotRequired[float]
+    year_guess: NotRequired[int | None]
+    year_candidate: NotRequired[int | None]
+    year_waived: NotRequired[bool]
+    type: NotRequired[float]
+    type_guess: NotRequired[str]
+    type_candidate: NotRequired[str]
+    ambiguous: NotRequired[float]
+
+
+class UploadCandidateResponse(TypedDict):
+    """Un candidato TMDB dell'identificazione (nazgarr/upload/identify.py
+    find_candidates), con la sua confidence. Le altre chiavi salvate (i
+    titoli in altre lingue, i dettagli di un id forzato) restano nel job."""
+
+    tmdb_id: int
+    content_type: Literal["movie", "tv"]
+    title: str | None
+    original_title: NotRequired[str | None]
+    year: int | None
+    poster_path: str | None
+    overview: NotRequired[str | None]
+    source: NotRequired[str]
+    confidence: NotRequired[float]
+    ambiguous: NotRequired[bool]
+    confidence_parts: NotRequired[UploadCandidateParts]
+
+
 class UploadTargetResponse(BaseModel):
     id: int
     tracker_id: int
@@ -432,7 +471,7 @@ class UploadJobDetail(UploadJobSummary):
     forced_ids: dict
     overrides: dict
     layout: UploadLayoutResponse | None
-    candidates: list[dict]
+    candidates: list[UploadCandidateResponse]
     analysis: UploadAnalysisResponse | None
     mediainfo_text: str | None
     screenshot_urls: list[str]
