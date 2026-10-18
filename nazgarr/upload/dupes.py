@@ -152,16 +152,20 @@ def classify(candidate: TorrentCandidate, source: SourceSummary, mine: ReleaseTr
         "size_bytes": candidate.size_bytes,
         "verdict": verdict,
         "reasons": reasons,
-        "download_link": stored_link(candidate.download_link),
+        # Ancora con la chiave: il reseed e il full hash check (execute.py,
+        # verify.py) lo scaricano così com'è. Quando passano da
+        # download_link(), qui va stored_link() (audit 2026-10-18).
+        "download_link": candidate.download_link,
         "verification": None,
     }
 
 
 # Il link di download di UNIT3D ha la chiave personale (rsskey) nel percorso:
 # /torrent/download/<id>.<chiave>. Con quella si scaricano .torrent col
-# passkey dell'utente: è un segreto (nel DB solo cifrato, sul tracker), e nel
-# dupe check si salva senza (audit 2026-10-18). Al posto della chiave un
-# segnaposto con la stessa forma, che rewrite_download_link sostituisce.
+# passkey dell'utente: è un segreto, e va nel DB solo cifrato, sul tracker
+# (audit 2026-10-18). stored_link() è il link da salvare, con un segnaposto
+# della stessa forma al posto della chiave, e download_link() lo ricostruisce
+# con la chiave attuale (rewrite_download_link) quando serve scaricarlo.
 _KEYED_LINK = re.compile(r"(/torrent/download/\d+\.)([A-Za-z0-9]+)$")
 KEY_PLACEHOLDER = "rsskey"
 

@@ -336,11 +336,12 @@ def test_a_truncated_catalogue_is_said_at_the_decision(db_session, tmp_path, mon
     assert (event.target_id, event.level, json.loads(event.params_json)) == (b.id, "warning", {"results": 1})
 
 
-def test_dupe_links_are_stored_without_the_download_key(db_session, tmp_path, monkeypatch, analyzing_job):
+def test_the_download_key_is_kept_encrypted_and_a_keyless_link_is_rebuilt(db_session, tmp_path, monkeypatch,
+                                                                         analyzing_job):
     """Audit 2026-10-18 (finding 55): il link di download di UNIT3D ha la
-    chiave personale, e finiva in chiaro nel dupes_json di ogni target (e
-    nella risposta dell'API). Si salva senza; la chiave imparata resta sul
-    tracker, cifrata, per ricostruire il link al full hash check o al reseed."""
+    chiave personale. La chiave imparata dalle risposte del tracker resta sul
+    tracker, cifrata; un link salvato senza (stored_link) si ricostruisce
+    con lei per il full hash check o il reseed (download_link)."""
     from nazgarr.upload import dupes as upload_dupes
 
     link = "https://a.example/torrent/download/77.SeCrEtKey123"
@@ -353,13 +354,15 @@ def test_dupe_links_are_stored_without_the_download_key(db_session, tmp_path, mo
     _run(db_session, tmp_path, analyzing_job)
 
     target = analyzing_job.targets[0]
-    assert "SeCrEtKey123" not in target.dupes_json
-    [dupe] = json.loads(target.dupes_json)
-    assert dupe["download_link"] == "https://a.example/torrent/download/77.rsskey"
     db_session.refresh(target.tracker)
     assert target.tracker.rss_key == "SeCrEtKey123"
     raw = db_session.execute(text("SELECT rss_key FROM tracker WHERE id = :id"), {"id": target.tracker_id}).scalar()
     assert raw and "SeCrEtKey123" not in raw  # cifrata nel DB
+
+    keyless = upload_dupes.stored_link(link)
+    assert keyless == "https://a.example/torrent/download/77.rsskey"
+    assert upload_dupes.stored_link("https://t/dl?id=1") == "https://t/dl?id=1"
+    dupe = {"torrent_id_remote": "77", "download_link": keyless}
 
     class Unit3d:
         rss_key = "NewKey9"
@@ -376,6 +379,8 @@ def test_dupe_links_are_stored_without_the_download_key(db_session, tmp_path, mo
             return type("T", (), {"download_link": f"https://a.example/torrent/download/{torrent_id}.FromApi"})()
 
     assert upload_dupes.download_link(NoKey(), dupe) == "https://a.example/torrent/download/77.FromApi"
-    # Un link salvato prima (con la chiave) o di un tracker senza chiave resta com'è.
+    # Senza chiave e senza dettaglio: nessun link, mai quello col segnaposto.
+    assert upload_dupes.download_link(type("Bare", (), {"rss_key": None})(), dupe) is None
+    # Un link salvato con la chiave dentro, o di un tracker senza chiave, resta com'è.
     assert upload_dupes.download_link(NoKey(), {"download_link": link}) == link
     assert upload_dupes.download_link(NoKey(), {"download_link": "https://t/dl?id=1"}) == "https://t/dl?id=1"
