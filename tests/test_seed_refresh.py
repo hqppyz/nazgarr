@@ -1,6 +1,8 @@
 """Il seed appena creato registrato subito (nazgarr/library/seed_refresh.py),
+e il controllo completo di un'esecuzione (nazgarr/reseed/full_check.py),
 dove l'executor ha messo davvero gli hardlink."""
 
+import hashlib
 import os
 
 import pytest
@@ -8,7 +10,14 @@ import pytest
 from nazgarr.core.models import SeedFile
 from nazgarr.library import seed_refresh
 from nazgarr.reseed import executor
-from tests.test_executor import LayoutAdapter, _movie_review, _tracker_torrent  # noqa: F401 (fixture autouse)
+from nazgarr.torrents.metainfo import compute_info_hash
+from tests.test_executor import (  # noqa: F401 (fixture autouse)
+    LayoutAdapter,
+    _movie_review,
+    _movie_torrent,
+    _tracker_torrent,
+)
+from tests.test_season_pack import _bencode
 
 
 @pytest.mark.parametrize(("layout", "folder", "expected"), [
@@ -102,3 +111,29 @@ def test_a_library_folder_that_is_itself_a_link_inside_the_disk_still_counts(db_
 
     row = db_session.query(SeedFile).one()
     assert (row.relative_path, row.media_file_id) == ("torrents/Movie.2024.mkv", review.media_file_id)
+
+
+@pytest.mark.parametrize(("layout", "folder"), [
+    ("Subfolder", None), ("NoSubfolder", "Release.Name"), ("Original", "Release.Name"), ("Original", None),
+])
+def test_the_full_check_of_an_execution_reads_the_hardlinks_where_the_executor_put_them(
+        db_session, tmp_path, layout, folder):
+    """build_locator ricostruiva sempre la cartella del torrent: con
+    "Subfolder" o "NoSubfolder" non trovava gli hardlink, leggeva il file
+    della libreria e diceva "library", cioè hardlink mancanti (audit
+    2026-10-18). Ora la stessa regola dell'executor (seed_refresh.hardlink_folder)."""
+    from nazgarr.reseed import full_check
+
+    _root, review = _movie_review(db_session, tmp_path, folder=folder)
+    torrent = _movie_torrent()
+    if folder:  # la cartella del candidato è quella del .torrent (full_check._sync_folder)
+        torrent = _bencode({"info": {"name": folder, "piece length": 16, "pieces": hashlib.sha1(b"content").digest(),
+                                     "files": [{"length": 7, "path": ["Movie.2024.mkv"]}]}})
+    adapter = LayoutAdapter(layout)
+    adapter.info_hash = compute_info_hash(torrent)
+    seed_job = executor.execute_review(db_session, review, adapter)
+
+    result = full_check.run_full_check(db_session, review.candidate, seed_job, fetch_torrent=lambda _: torrent)
+
+    assert [f.location for f in result.files] == ["seed"] and result.percent == 100.0
+    assert full_check.verdict(result) == (True, None)

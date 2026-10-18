@@ -36,6 +36,7 @@ from nazgarr.core.fs_scope import ScopeViolation, resolve_scoped
 from nazgarr.core.logs import safe_error
 from nazgarr.core.models import Candidate, MatchReview, MediaFile, SeedFile, SeedJob
 from nazgarr.integrations import adapter_factory
+from nazgarr.library import seed_refresh
 from nazgarr.reseed import download_links
 from nazgarr.torrents import pieces as piece_hashing
 from nazgarr.torrents.metainfo import TorrentFileEntry, TorrentInfo, compute_info_hash, parse_torrent_info
@@ -223,8 +224,12 @@ def build_locator(session: Session, candidate: Candidate, seed_job: SeedJob | No
     if seed_job is not None and candidate.direction == "media_to_torrent":
         source = session.get(MediaFile, seed_job.source_media_file_id) if seed_job.source_media_file_id else None
         if source is not None:
-            base = os.path.join(source.disk.effective_new_torrent_rel_path or "", candidate.folder or "")
-            seed_root = _abs(source.disk, base)
+            # Dove l'executor ha messo gli hardlink, col layout del contenuto
+            # del client (la stessa regola, nazgarr/reseed/placement.py):
+            # prima sempre la cartella del torrent, e con "Subfolder" o
+            # "NoSubfolder" i file del seed risultavano "library", come se
+            # gli hardlink mancassero (audit 2026-10-18).
+            seed_root = _abs(source.disk, seed_refresh.hardlink_folder(seed_job, source))
 
     def locate(entry: TorrentFileEntry) -> tuple[str | None, str | None]:
         if seed_root is not None:

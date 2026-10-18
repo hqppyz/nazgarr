@@ -52,6 +52,7 @@ from nazgarr.integrations import adapter_factory
 from nazgarr.library import hardlinks
 from nazgarr.library.tmdb_client import TMDBClient
 from nazgarr.reseed import download_links
+from nazgarr.reseed.placement import Placement, placement_for
 from nazgarr.torrents import client_labels, client_paths
 from nazgarr.torrents.layout import expected_missing_bytes
 from nazgarr.torrents.metainfo import TorrentMetainfoError, compute_info_hash, parse_torrent_info
@@ -226,7 +227,7 @@ def _add_to_client(
     scritto sul seed_job, così si vede quali esecuzioni sono passate così.
     labels: categoria e tag del client (_labels), solo se ce ne sono.
     Un client che non sa saltarlo (can_skip_recheck) lo fa comunque.
-    layout: sempre esplicito (_Placement), "Original" per file già al loro
+    layout: sempre esplicito (Placement), "Original" per file già al loro
     posto: la preferenza del client non li deve spostare.
 
     Con il recheck del client il torrent entra fermo (decisione dell'utente,
@@ -287,22 +288,6 @@ def _adopt_after_add_error(
     return "adopted"
 
 
-@dataclass(frozen=True)
-class _Placement:
-    """Dove vanno i nuovi hardlink perché il torrent li trovi rispettando
-    il layout del contenuto scelto dall'utente nel client (qBittorrent:
-    Opzioni › Download): save_dir è la cartella di save_path dentro la
-    cartella dei nuovi torrent, folder la cartella radice dei file dentro
-    save_dir, layout quello da mandare al client."""
-
-    save_dir: str | None
-    folder: str | None
-    layout: str
-
-    def rel_path(self, torrent_path: str) -> str:
-        return "/".join(p for p in (self.save_dir, self.folder, torrent_path) if p)
-
-
 def _client_layout(adapter: TorrentClientAdapter) -> str:
     try:
         layout = adapter.content_layout()
@@ -314,20 +299,12 @@ def _client_layout(adapter: TorrentClientAdapter) -> str:
     return layout if layout in CONTENT_LAYOUTS else "Original"
 
 
-def _placement(adapter: TorrentClientAdapter, candidate, single_file_name: str | None) -> _Placement:
-    """"Crea sottocartella" su un torrent a file singolo: la cartella col
-    nome del file senza estensione la crea Nazgarr, e il torrent arriva con
-    save_path lì dentro e layout Original, così non serve indovinare come
-    il client sceglie quel nome. "Non creare sottocartella" su un torrent
-    con la cartella radice: gli hardlink senza quella cartella, e il client
-    riceve lo stesso layout. Negli altri casi il layout non cambia niente."""
-    layout = _client_layout(adapter)
-    if layout == "Subfolder" and not candidate.folder and single_file_name:
-        stem = os.path.splitext(single_file_name)[0] or single_file_name
-        return _Placement(save_dir=stem, folder=None, layout="Original")
-    if layout == "NoSubfolder" and candidate.folder:
-        return _Placement(save_dir=None, folder=None, layout="NoSubfolder")
-    return _Placement(save_dir=None, folder=candidate.folder, layout="Original")
+def _placement(adapter: TorrentClientAdapter, candidate, single_file_name: str | None) -> Placement:
+    """Dove vanno i nuovi hardlink perché il torrent li trovi rispettando il
+    layout del contenuto scelto dall'utente nel client: la regola è in
+    nazgarr/reseed/placement.py, la stessa con cui seed_refresh e il
+    controllo completo li cercano dopo."""
+    return placement_for(_client_layout(adapter), candidate.folder, single_file_name)
 
 
 def _torrent_rel_path(candidate, torrent_path: str) -> str:
