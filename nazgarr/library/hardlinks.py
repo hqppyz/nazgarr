@@ -208,7 +208,13 @@ def _like_parent(path: str, parent: str) -> None:
 # destinazioni sono quelle che restituisce check_link, già risolte: un link
 # simbolico che compare lungo il percorso vuol dire che qualcosa è cambiato,
 # e l'operazione fallisce (ELOOP/ENOTDIR) invece di seguirlo.
-_DIR_FLAGS = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+# Le cartelle si aprono "solo per attraversarle" (O_PATH su Linux, O_SEARCH
+# su macOS): come un percorso, basta il permesso di attraversamento (x), non
+# quello di lettura, che una cartella 0711 di un NAS non dà. Solo quelle
+# appena create si aprono in lettura, per copiarci i permessi (fchmod).
+_NOFOLLOW_DIR = getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+_DIR_FLAGS = (getattr(os, "O_PATH", 0) or getattr(os, "O_SEARCH", 0) or os.O_RDONLY) | _NOFOLLOW_DIR
+_NEW_DIR_FLAGS = os.O_RDONLY | _NOFOLLOW_DIR
 _FD_OPS = (hasattr(os, "O_DIRECTORY") and hasattr(os, "O_NOFOLLOW")
            and all(f in os.supports_dir_fd for f in (os.open, os.mkdir, os.link, os.unlink, os.rmdir)))
 
@@ -231,7 +237,7 @@ def _open_parent(path: str, create: bool) -> int:
                     made = True
                 except FileExistsError:
                     made = False  # creata da qualcun altro nel frattempo: la sua resta com'è
-                child = os.open(part, _DIR_FLAGS, dir_fd=fd)
+                child = os.open(part, _NEW_DIR_FLAGS if made else _DIR_FLAGS, dir_fd=fd)
                 if made:
                     _inherit(os.fstat(fd), os.fstat(child), lambda bits, c=child: os.fchmod(c, bits),
                              lambda gid, c=child: os.fchown(c, -1, gid), part)

@@ -240,3 +240,18 @@ def test_remove_links_can_prune_the_folders_left_empty(area):
     assert not os.path.exists(os.path.join(root, "Pack", "Season 1"))
     assert os.listdir(os.path.join(root, "Pack", "Other")) == ["keep.nfo"]
     assert os.path.isdir(root) and os.path.isfile(source)
+
+
+def test_a_folder_that_can_only_be_traversed_does_not_stop_the_link(area):
+    """Un NAS con una cartella 0711 sopra i dischi: come con un percorso,
+    basta poterla attraversare (O_PATH / O_SEARCH), non leggerla."""
+    tmp_path, source, root = area
+    os.makedirs(os.path.join(root, "pool", "Movies"))
+    target = hardlinks.check_link(source, os.path.join(root, "pool", "Movies", "New", "Movie.mkv"), root)
+    os.chmod(os.path.join(root, "pool"), 0o311)
+    try:
+        assert hardlinks.create_links([(source, target)]) == [target]
+        hardlinks.remove_links([target])
+    finally:
+        os.chmod(os.path.join(root, "pool"), 0o755)
+    assert not os.path.exists(target)
