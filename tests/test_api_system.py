@@ -191,3 +191,18 @@ def test_logs_stop_reading_once_the_last_entries_are_found(tmp_path, monkeypatch
     entries = system.read_log_entries(log, "DEBUG", chunk_bytes=64 * 1024)
     assert len(entries) == 500
     assert read and sum(read) < log.stat().st_size / 4
+
+
+def test_a_malformed_stored_update_result_shows_no_banner(client):
+    """Prima un 500 a ogni pagina: last_check controllava solo il JSON."""
+    import json
+
+    from nazgarr.core.version import __version__
+
+    with client.app.state.session_factory() as session:
+        from nazgarr.core import settings_repo
+
+        settings_repo.set_setting(session, updates.LAST_CHECK_KEY,
+                                  json.dumps({"current_version": __version__, "checked_at": "yesterday"}))
+    response = client.get("/api/system/update-status")
+    assert response.status_code == 200 and response.json() is None
