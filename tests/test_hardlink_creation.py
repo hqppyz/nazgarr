@@ -88,3 +88,50 @@ def test_make_dirs_leaves_existing_folders_alone(tmp_path, strict_umask):
     (tmp_path / "file").write_text("x")
     with pytest.raises(FileExistsError):
         hardlinks.make_dirs(str(tmp_path / "file"))
+
+
+def test_new_folders_never_lose_permissions_they_were_created_with(tmp_path):
+    # Copiare il modo tale e quale toglieva bit: sotto una cartella 0750 una
+    # nuova perdeva r-x per gli altri, e con una cartella sopra senza rwx per
+    # il proprietario Nazgarr si chiudeva fuori da solo.
+    previous = os.umask(0o022)
+    try:
+        parent = tmp_path / "seed"
+        parent.mkdir()
+        os.chmod(parent, 0o750)
+        hardlinks.make_dirs(str(parent / "a"))
+        assert os.stat(parent / "a").st_mode & 0o7777 == 0o755
+        os.chmod(parent, 0o2370)  # il proprietario può creare, ma non leggere
+        hardlinks.make_dirs(str(parent / "b"))
+        assert os.stat(parent / "b").st_mode & 0o7777 == 0o2775
+    finally:
+        os.chmod(tmp_path / "seed", 0o755)
+        os.umask(previous)
+
+
+def test_under_an_acl_managed_folder_the_mode_is_left_to_the_acl(tmp_path, strict_umask, monkeypatch):
+    # Synology (d---------+) o un dataset NFSv4 di TrueNAS: i bit della
+    # cartella sopra valgono 0, si scrive grazie all'ACL. Prima la cartella
+    # nuova finiva a 0000 e l'hardlink dopo falliva con EACCES (audit 2026-10-18).
+    import stat
+
+    acl_root = tmp_path / "share"
+    acl_root.mkdir()
+    real_stat = os.stat
+
+    def acl_stat(path, *args, **kwargs):
+        result = real_stat(path, *args, **kwargs)
+        if os.fspath(path) == str(acl_root):
+            fields = list(result)
+            fields[0] = stat.S_IFDIR  # nessun bit di permesso
+            return os.stat_result(fields)
+        return result
+
+    chmods = []
+    real_chmod = os.chmod
+    monkeypatch.setattr(os, "stat", acl_stat)
+    monkeypatch.setattr(os, "chmod", lambda path, mode, **kw: (chmods.append(mode), real_chmod(path, mode, **kw)))
+    hardlinks.make_dirs(str(acl_root / "Movie.2020.1080p"))
+    monkeypatch.undo()
+    assert chmods == []
+    assert os.stat(acl_root / "Movie.2020.1080p").st_mode & 0o700 == 0o700
