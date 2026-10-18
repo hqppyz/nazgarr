@@ -75,3 +75,16 @@ def test_the_seeding_requirement_is_optional_and_editable(client):
     assert (cleared["min_ratio"], cleared["min_seed_time_seconds"]) == (None, 259200)
     assert client.patch(url, json={"min_ratio": -1}).status_code == 422
     assert client.patch(url, json={"seed_rule": "maybe"}).status_code == 422
+
+
+def test_the_rate_limit_must_be_a_usable_number(client):
+    """Un valore negativo faceva sollevare IndexError al limitatore a ogni
+    chiamata al tracker (audit 2026-10-18)."""
+    body = {"label": "t", "adapter_type": "unit3d", "base_url": "https://t.example", "api_token": "x"}
+    assert client.post("/api/trackers", json={**body, "rate_limit_per_min": -5}).status_code == 422
+    assert client.post("/api/trackers", json={**body, "rate_limit_per_min": 100_000}).status_code == 422
+    created = client.post("/api/trackers", json={**body, "rate_limit_per_min": 0}).json()
+    assert created["rate_limit_per_min"] == 30  # 0 vale il default
+    assert client.patch(f"/api/trackers/{created['id']}", json={"rate_limit_per_min": -1}).status_code == 422
+    assert client.patch(f"/api/trackers/{created['id']}", json={"rate_limit_per_min": 60}).json()[
+        "rate_limit_per_min"] == 60

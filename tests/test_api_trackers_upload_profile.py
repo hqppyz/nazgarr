@@ -179,3 +179,23 @@ def test_an_upload_profile_can_be_restored_from_the_bundled_one(client):
     assert missing.status_code == 400
     chosen = client.post(f"/api/trackers/{other}/upload-profile/restore", json={"profile_key": "itt"}).json()
     assert chosen["source_profile_key"] == "itt" and chosen["type_id_map"] == original["type_id_map"]
+
+
+def test_naming_rules_of_the_wrong_shape_are_refused(client):
+    """Salvate storte facevano fallire con un TypeError ogni upload verso il
+    tracker, e l'anteprima rispondeva 500 (audit 2026-10-18)."""
+    tracker_id = _create_tracker(client)
+    created = client.post(f"/api/trackers/{tracker_id}/upload-profile", json={"profile_key": "itt"}).json()
+    rules = created["naming_rules"]
+    for bad, field in (({"templates": 5}, "templates"), ({"separator": 3}, "separator"),
+                       ({"audio_codecs": "x"}, "audio_codecs"), ({"audio_languages": "all"}, "audio_languages"),
+                       ({"audio_languages": {"multi_from": "4"}}, "audio_languages.multi_from"),
+                       ({"templates": {"default": 5}}, "templates"), ({"title": "nope"}, "title")):
+        for method, path in (("PATCH", ""), ("POST", "/naming/preview")):
+            response = client.request(method, f"/api/trackers/{tracker_id}/upload-profile{path}",
+                                      json={"naming_rules": {**rules, **bad}})
+            assert response.status_code == 400, (bad, path)
+            assert response.json()["detail"] == {"code": "upload_invalid_naming_rules", "params": {"field": field}}
+    assert client.get(f"/api/trackers/{tracker_id}/upload-profile").json()["naming_rules"] == rules
+    assert client.patch(f"/api/trackers/{tracker_id}/upload-profile",
+                        json={"naming_rules": {**rules, "future_key": [1]}}).status_code == 200
