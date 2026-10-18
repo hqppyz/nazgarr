@@ -4,7 +4,16 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 
 import { posterUrl } from '@/api/hooks/metadata'
-import { useCancelUpload, useDeleteUpload, useReorderQueue, useResumeUpload, useUploads, type UploadJobSummary } from '@/api/hooks/uploads'
+import {
+  useCancelUpload,
+  useDeleteUpload,
+  useHistoryFollowsQueue,
+  useReorderQueue,
+  useResumeUpload,
+  useUploadHistory,
+  useUploads,
+  type UploadJobSummary,
+} from '@/api/hooks/uploads'
 import { AuthedPoster } from '@/components/AuthedPoster'
 import { isBusy } from '@/components/upload/jobState'
 import { ActionBadge } from '@/components/upload/TrackerCheckCard'
@@ -275,38 +284,61 @@ function QuickResume({ job }: { job: UploadJobSummary }) {
   )
 }
 
-function HistoryList({ jobs, onOpen }: { jobs: UploadJobSummary[]; onOpen: (id: number) => void }) {
+function HistoryList({ jobs, onOpen, more }: {
+  jobs: UploadJobSummary[]
+  onOpen: (id: number) => void
+  more: ReturnType<typeof useUploadHistory>
+}) {
   if (jobs.length === 0) return <p className="py-10 text-center text-sm text-muted-foreground">{t('upload.noUploadsYet')}</p>
   return (
-    <ul className="grid gap-2">
-      {jobs.map((job) => (
-        <li key={job.id} className={cn(ROW, job.status === 'cancelled' && 'opacity-60')} onClick={() => onOpen(job.id)}>
-          <Poster job={job} />
-          <JobHeading job={job} open={onOpen} status={<UploadStatusBadge status={job.status} />} />
-          <TargetOutcomes job={job} className="min-w-0 flex-1 basis-[60%] lg:w-56 lg:flex-none lg:shrink-0 lg:basis-auto" />
-          <span className="text-xs text-muted-foreground tabular-nums lg:w-40 lg:shrink-0 lg:text-right">
-            {job.finished_at && parseApiDate(job.finished_at).toLocaleString()}
-          </span>
-          <div className="ml-auto flex shrink-0" onClick={(e) => e.stopPropagation()}>
-            {job.status === 'cancelled' && <QuickResume job={job} />}
-            <QuickDelete job={job} />
-          </div>
-        </li>
-      ))}
-    </ul>
+    <>
+      <ul className="grid gap-2">
+        {jobs.map((job) => (
+          <li key={job.id} className={cn(ROW, job.status === 'cancelled' && 'opacity-60')} onClick={() => onOpen(job.id)}>
+            <Poster job={job} />
+            <JobHeading job={job} open={onOpen} status={<UploadStatusBadge status={job.status} />} />
+            <TargetOutcomes job={job} className="min-w-0 flex-1 basis-[60%] lg:w-56 lg:flex-none lg:shrink-0 lg:basis-auto" />
+            <span className="text-xs text-muted-foreground tabular-nums lg:w-40 lg:shrink-0 lg:text-right">
+              {job.finished_at && parseApiDate(job.finished_at).toLocaleString()}
+            </span>
+            <div className="ml-auto flex shrink-0" onClick={(e) => e.stopPropagation()}>
+              {job.status === 'cancelled' && <QuickResume job={job} />}
+              <QuickDelete job={job} />
+            </div>
+          </li>
+        ))}
+      </ul>
+      {/* Lo storico arriva a pagine (audit 2026-10-18): prima la coda rimandava ogni upload di sempre. */}
+      {more.hasNextPage && (
+        <div className="flex justify-center pt-3">
+          <Button variant="outline" disabled={more.isFetchingNextPage} onClick={() => void more.fetchNextPage()}>
+            {more.isFetchingNextPage ? t('common.loading') : t('common.loadMore')}
+          </Button>
+        </div>
+      )}
+    </>
   )
 }
 
 export function UploadQueuePage() {
   const query = useUploads()
+  const historyQuery = useUploadHistory()
   const { data } = query
-  const loader = useRingLoader(query)
+  // La coda e la prima pagina dello storico insieme: la scheda di partenza
+  // dipende da entrambe.
+  const loader = useRingLoader({
+    data: data !== undefined && historyQuery.data !== undefined ? data : undefined,
+    isPending: query.isPending || historyQuery.isPending,
+    isError: query.isError || historyQuery.isError,
+    isFetching: query.isFetching || historyQuery.isFetching,
+    error: query.error ?? historyQuery.error,
+    refetch: () => Promise.all([query.refetch(), historyQuery.refetch()]),
+  })
   const navigate = useNavigate()
   const [openId, setOpenId] = useState<number | null>(null)
   const [params] = useSearchParams()
 
-  const jobs = data ?? []
-  const active = jobs
+  const active = (data ?? [])
     .filter((job) => !FINAL_STATES.includes(job.status))
     .sort(
       (a, b) =>
@@ -314,18 +346,20 @@ export function UploadQueuePage() {
         (a.queue_position ?? 0) - (b.queue_position ?? 0) ||
         a.id - b.id,
     )
-  const history = jobs.filter((job) => FINAL_STATES.includes(job.status))
+  useHistoryFollowsQueue(active.map((job) => job.id))
+  const history = historyQuery.data?.pages.flatMap((page) => page.jobs) ?? []
+  const historyTotal = historyQuery.data?.pages[0]?.total ?? history.length
 
   return (
     <div className="grid gap-4">
       {loader ? (
         loader
       ) : (
-        <Tabs defaultValue={params.get('tab') ?? (active.length > 0 || history.length === 0 ? 'active' : 'history')}>
+        <Tabs defaultValue={params.get('tab') ?? (active.length > 0 || historyTotal === 0 ? 'active' : 'history')}>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <TabsList data-tour="views.uploads">
               <TabsTrigger value="active">{t('upload.history.activeTab', { count: active.length })}</TabsTrigger>
-              <TabsTrigger value="history">{t('upload.history.historyTab', { count: history.length })}</TabsTrigger>
+              <TabsTrigger value="history">{t('upload.history.historyTab', { count: historyTotal })}</TabsTrigger>
             </TabsList>
             <Button data-tour="upload.new" onClick={() => navigate('/upload/new')}>
               <PlusIcon className="size-4" />
@@ -336,7 +370,7 @@ export function UploadQueuePage() {
             <ActiveList jobs={active} />
           </TabsContent>
           <TabsContent value="history" className="pt-2">
-            <HistoryList jobs={history} onOpen={setOpenId} />
+            <HistoryList jobs={history} onOpen={setOpenId} more={historyQuery} />
           </TabsContent>
         </Tabs>
       )}

@@ -7,12 +7,13 @@ mostra e registra le decisioni dell'utente ai due punti di approvazione."""
 import json
 import logging
 from datetime import datetime
+from typing import Literal
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import func
-from sqlalchemy.orm import Session, object_session
+from sqlalchemy.orm import Session, defer, joinedload, object_session, selectinload
 
 from nazgarr.core import settings_repo
 from nazgarr.core.errors import coded_detail, from_coded_error
@@ -191,8 +192,14 @@ class UploadTargetResponse(BaseModel):
     client_defaults: dict = {}  # {"category", "tags_upload", "tags_reseed"} dal client del tracker
 
     @classmethod
-    def from_model(cls, t: UploadTarget) -> "UploadTargetResponse":
-        profile = object_session(t).get(TrackerUploadProfile, t.tracker_id)
+    def from_model(
+        cls, t: UploadTarget, profiles: dict[int, TrackerUploadProfile] | None = None,
+    ) -> "UploadTargetResponse":
+        # profiles: già letti per tutta la lista, invece di una query per target.
+        profile = (
+            profiles.get(t.tracker_id) if profiles is not None
+            else object_session(t).get(TrackerUploadProfile, t.tracker_id)
+        )
         return cls(
             id=t.id, tracker_id=t.tracker_id, tracker_label=t.tracker.label,
             tracker_base_url=t.tracker.base_url.rstrip("/") if t.tracker.base_url else None,
@@ -257,21 +264,21 @@ class UploadJobSummary(BaseModel):
     scheduled_at: datetime | None = None  # in coda per partire a quest'ora (UTC)
 
     @classmethod
-    def fields_from(cls, j: UploadJob) -> dict:
+    def fields_from(cls, j: UploadJob, profiles: dict[int, TrackerUploadProfile] | None = None) -> dict:
         return dict(
             id=j.id, disk_id=j.disk_id, relative_path=j.relative_path, is_dir=j.is_dir, kind=j.kind,
             status=j.status, stage=j.stage, progress_done=j.progress_done, progress_total=j.progress_total,
             queue_position=j.queue_position, content_type=j.content_type, tmdb_id=j.tmdb_id, title=j.title,
             year=j.year, poster_path=j.poster_path, seasons=_loads(j.seasons_json, []), episode=j.episode,
             error_message=j.error_message, created_at=j.created_at, finished_at=j.finished_at,
-            targets=[UploadTargetResponse.from_model(t) for t in j.targets], origin=j.origin,
+            targets=[UploadTargetResponse.from_model(t, profiles) for t in j.targets], origin=j.origin,
             pack_name=upload_pack.name(j) if upload_pack.is_pack(j) else None,
             scheduled_at=upload_jobs.as_utc(j.scheduled_at),
         )
 
     @classmethod
-    def from_model(cls, j: UploadJob) -> "UploadJobSummary":
-        return cls(**cls.fields_from(j))
+    def from_model(cls, j: UploadJob, profiles: dict[int, TrackerUploadProfile] | None = None) -> "UploadJobSummary":
+        return cls(**cls.fields_from(j, profiles))
 
 
 class UploadJobDetail(UploadJobSummary):
@@ -337,10 +344,56 @@ def _refused(exc: UploadJobError) -> HTTPException:
     return HTTPException(status_code=409 if exc.code in _CONFLICT_CODES else 400, detail=from_coded_error(exc))
 
 
+def _summaries(session: Session, query) -> list[UploadJobSummary]:
+    """La lista senza una query per job e per target (audit 2026-10-18: 300
+    job con 3 tracker erano 1205 query, a ogni poll di 2 s): target, tracker
+    e client in due query, i profili in una, e senza le colonne lunghe che
+    il riepilogo non mostra (mediainfo, analisi, layout, candidati)."""
+    jobs = query.options(
+        selectinload(UploadJob.targets).options(
+            joinedload(UploadTarget.tracker), joinedload(UploadTarget.torrent_client),
+            defer(UploadTarget.description_rendered),
+        ),
+        defer(UploadJob.mediainfo_text), defer(UploadJob.analysis_json), defer(UploadJob.layout_json),
+        defer(UploadJob.candidates_json), defer(UploadJob.episode_order_json),
+    ).all()
+    profiles = {p.tracker_id: p for p in session.query(TrackerUploadProfile).all()}
+    return [UploadJobSummary.from_model(j, profiles) for j in jobs]
+
+
+def _active_jobs(session: Session):
+    return session.query(UploadJob).filter(UploadJob.status.notin_(upload_jobs.FINAL_STATES))
+
+
 @router.get("", response_model=list[UploadJobSummary])
-def list_uploads(session: Session = Depends(get_session)):
-    jobs = session.query(UploadJob).order_by(UploadJob.id.desc()).all()
-    return [UploadJobSummary.from_model(j) for j in jobs]
+def list_uploads(scope: Literal["all", "active"] = "all", session: Session = Depends(get_session)):
+    """Dal più recente. scope=active: solo quelli non finiti, pochi, per la
+    coda che si interroga ogni 2 s; lo storico è paginato a parte
+    (/api/uploads/history). Senza scope tutti, come prima (CLI, istanze
+    remote di versioni precedenti)."""
+    query = _active_jobs(session) if scope == "active" else session.query(UploadJob)
+    return _summaries(session, query.order_by(UploadJob.id.desc()))
+
+
+class UploadHistoryResponse(BaseModel):
+    jobs: list[UploadJobSummary]  # finiti, dal più recente
+    total: int  # tutti quelli finiti, non solo questa pagina
+    next_before_id: int | None  # per la pagina dopo; None = finiti
+
+
+@router.get("/history", response_model=UploadHistoryResponse)
+def upload_history(
+    limit: int = Query(50, ge=1, le=500), before_id: int | None = None, session: Session = Depends(get_session),
+):
+    """Lo storico (upload finiti) a pagine: before_id = l'id più piccolo della
+    pagina prima. Non si interroga in continuazione, e cresce senza fine."""
+    final = session.query(UploadJob).filter(UploadJob.status.in_(upload_jobs.FINAL_STATES))
+    total = final.count()
+    page = final.filter(UploadJob.id < before_id) if before_id is not None else final
+    jobs = _summaries(session, page.order_by(UploadJob.id.desc()).limit(limit + 1))
+    more = len(jobs) > limit
+    jobs = jobs[:limit]
+    return UploadHistoryResponse(jobs=jobs, total=total, next_before_id=jobs[-1].id if more else None)
 
 
 class QueueOrderRequest(BaseModel):
@@ -460,10 +513,10 @@ def preview_file_naming(body: FileNamingRequest, session: Session = Depends(get_
 
 @router.put("/queue", response_model=list[UploadJobSummary])
 def reorder_queue(body: QueueOrderRequest, session: Session = Depends(get_session)):
-    """Ordine della coda: il primo parte per primo quando il worker è libero."""
+    """Ordine della coda: il primo parte per primo quando il worker è libero.
+    Risponde con i job non finiti, come GET /api/uploads?scope=active."""
     upload_jobs.reorder_queue(session, body.job_ids)
-    jobs = session.query(UploadJob).order_by(UploadJob.id.desc()).all()
-    return [UploadJobSummary.from_model(j) for j in jobs]
+    return _summaries(session, _active_jobs(session).order_by(UploadJob.id.desc()))
 
 
 @router.get("/{upload_id}", response_model=UploadJobDetail)

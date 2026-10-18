@@ -14,6 +14,7 @@ export const common = {
   'common.edit': 'Modifica',
   'common.cancel': 'Annulla',
   'common.loading': 'Caricamento…',
+  'common.loadMore': 'Carica altri',
   'common.loadFailed': 'Non si è riusciti a caricare questa pagina.',
   'common.retry': 'Riprova',
   'common.reload': 'Ricarica la pagina',

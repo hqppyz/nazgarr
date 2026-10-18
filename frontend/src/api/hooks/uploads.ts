@@ -1,4 +1,5 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useEffect, useRef } from 'react'
 
 import { api, unwrap } from '@/api/client'
 import type { Schemas } from '@/api/client'
@@ -25,19 +26,62 @@ function isJobWorking(job: UploadJobSummary | undefined) {
 }
 
 // Dopo una mutation che ha già messo il job aggiornato in ['uploads', id]:
-// solo la lista della coda da ricaricare (audit 2026-10-18). Il prefisso
+// solo le liste da ricaricare, la coda e lo storico (un job ripreso o
+// riprovato passa dall'uno all'altra) (audit 2026-10-18). Il prefisso
 // ['uploads'] ricaricava anche il dettaglio appena scritto, gli avvisi e gli
 // ordinamenti degli episodi.
 function refreshList(queryClient: ReturnType<typeof useQueryClient>) {
-  return queryClient.invalidateQueries({ queryKey: ['uploads'], exact: true })
+  return Promise.all([
+    queryClient.invalidateQueries({ queryKey: ['uploads'], exact: true }),
+    queryClient.invalidateQueries({ queryKey: HISTORY_KEY }),
+  ])
 }
 
+// La coda: solo i job non finiti (pochi), interrogata ogni 2 s mentre il
+// worker lavora. Lo storico è a pagine, a parte (useUploadHistory): prima
+// ogni poll rimandava tutti gli upload di sempre (audit 2026-10-18).
 export function useUploads() {
   return useQuery({
     queryKey: ['uploads'],
-    queryFn: () => unwrap(api.GET('/api/uploads')),
+    queryFn: () => unwrap(api.GET('/api/uploads', { params: { query: { scope: 'active' } } })),
     refetchInterval: (query) => (query.state.data?.some(isJobWorking) ? POLL_MS : false),
   })
+}
+
+export const HISTORY_KEY = ['uploads', 'history']
+export const HISTORY_PAGE_SIZE = 50
+
+// Lo storico, dal più recente, una pagina alla volta ("Carica altri"). Non
+// si interroga da solo: lo rinnovano le mutation e la coda quando un job ne esce.
+export function useUploadHistory() {
+  return useInfiniteQuery({
+    queryKey: HISTORY_KEY,
+    queryFn: ({ pageParam }) =>
+      unwrap(
+        api.GET('/api/uploads/history', {
+          params: { query: { limit: HISTORY_PAGE_SIZE, ...(pageParam === null ? {} : { before_id: pageParam }) } },
+        }),
+      ),
+    initialPageParam: null as number | null,
+    getNextPageParam: (last) => last.next_before_id ?? undefined,
+  })
+}
+
+// Un job che lascia la coda (finito, annullato dal worker) entra nello
+// storico: si ricarica solo allora, non a ogni poll della coda.
+export function useHistoryFollowsQueue(activeIds: number[]) {
+  const queryClient = useQueryClient()
+  const previous = useRef<string | null>(null)
+  const key = activeIds.join(',')
+  useEffect(() => {
+    const before = previous.current
+    previous.current = key
+    if (before === null || before === key) return
+    const now = new Set(key.split(','))
+    if (before.split(',').some((id) => id && !now.has(id))) {
+      void queryClient.invalidateQueries({ queryKey: HISTORY_KEY })
+    }
+  }, [key, queryClient])
 }
 
 export function useUpload(uploadId: number | null) {

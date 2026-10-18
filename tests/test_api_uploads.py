@@ -548,3 +548,71 @@ def test_the_episode_ordering_is_offered_and_kept_with_the_match(client, tmp_pat
         assert episode_orders.translate_files(job, 2, 3) == [(2, 3)]  # i file seguono già quello scelto
     finally:
         session.close()
+
+
+def _jobs(session, statuses, trackers):
+    from nazgarr.core.models import UploadTarget
+
+    ids = []
+    for status in statuses:
+        job = UploadJob(relative_path=f"{status}.mkv", source_path=f"/x/{status}.mkv", status=status,
+                        mediainfo_text="M" * 1000, analysis_json='{"x": 1}')
+        session.add(job)
+        session.flush()
+        for tracker in trackers:
+            session.add(UploadTarget(job_id=job.id, tracker_id=tracker.id, status="done" if status == "done" else
+                                     "pending"))
+        ids.append(job.id)
+    session.commit()
+    return ids
+
+
+def test_the_list_costs_the_same_few_queries_whatever_the_history(client):
+    """Audit 2026-10-18: una query per job e una per target (il profilo del
+    tracker), a ogni poll di 2 s."""
+    from sqlalchemy import event
+
+    session = client.app.state.session_factory()
+    try:
+        trackers = [make_tracker(session, label=f"t{i}") for i in range(3)]
+        _jobs(session, ["done"] * 30, trackers)
+    finally:
+        session.close()
+    engine = client.app.state.session_factory.kw["bind"]
+    statements = []
+
+    def count(*_args):
+        statements.append(1)
+
+    event.listen(engine, "before_cursor_execute", count)
+    try:
+        listed = client.get("/api/uploads").json()
+    finally:
+        event.remove(engine, "before_cursor_execute", count)
+
+    assert len(listed) == 30 and all(len(j["targets"]) == 3 for j in listed)
+    assert listed[0]["targets"][0]["category_id_map"] is not None  # le mappe del profilo ci sono ancora
+    assert len(statements) < 15
+
+
+def test_active_jobs_and_the_history_in_pages(client):
+    session = client.app.state.session_factory()
+    try:
+        tracker = make_tracker(session)
+        done = _jobs(session, ["done", "failed", "cancelled", "partial", "done"], [tracker])
+        active = _jobs(session, ["queued", "awaiting_decision"], [tracker])
+    finally:
+        session.close()
+
+    assert [j["id"] for j in client.get("/api/uploads", params={"scope": "active"}).json()] == active[::-1]
+    assert len(client.get("/api/uploads").json()) == 7  # senza scope tutti, come prima
+    first = client.get("/api/uploads/history", params={"limit": 2}).json()
+    second = client.get("/api/uploads/history", params={"limit": 2, "before_id": first["next_before_id"]}).json()
+    last = client.get("/api/uploads/history", params={"limit": 2, "before_id": second["next_before_id"]}).json()
+
+    assert first["total"] == 5 and [j["id"] for j in first["jobs"]] == done[::-1][:2]
+    assert [j["id"] for j in second["jobs"]] == done[::-1][2:4]
+    assert [j["id"] for j in last["jobs"]] == done[:1] and last["next_before_id"] is None
+    # Il riordino della coda risponde con la stessa lista della coda.
+    reordered = client.put("/api/uploads/queue", json={"job_ids": [active[0]]}).json()
+    assert [j["id"] for j in reordered] == active[::-1]
