@@ -98,6 +98,25 @@ logger = logging.getLogger(__name__)
 _UNRELATED_REASONS = {"anchor_not_in_torrent"}
 
 
+class SharedLocalFiles:
+    """Gli indici dei file locali (LocalFiles) costruiti al più una volta per
+    tutta una run, per ogni tracker e le due direzioni: dipendono solo da
+    media_file e seed_file, che il matching non cambia. Prima si
+    ricostruivano per ogni tracker e direzione, rileggendo tutta la libreria
+    (audit 2026-10-18). Pigri: senza nessun torrent da valutare non si leggono.
+    disk_ids: solo quei dischi (LocalFiles.load)."""
+
+    def __init__(self, session: Session, disk_ids: set[int] | None = None):
+        self.session = session
+        self.disk_ids = disk_ids
+        self._local: LocalFiles | None = None
+
+    def get(self) -> LocalFiles:
+        if self._local is None:
+            self._local = LocalFiles.load(self.session, self.disk_ids)
+        return self._local
+
+
 @dataclass
 class MatchContext:
     """Stato di UN tracker per UNA run di matching, condiviso fra tutti gli
@@ -111,6 +130,7 @@ class MatchContext:
     direction: str
     arr_index: ArrIndex | None = None
     local: LocalFiles | None = None
+    shared_local: SharedLocalFiles | None = None
     translator: object | None = None  # nazgarr/library/episode_orders.py Translator, creato alla prima serie
     evaluated_packs: set[str] = field(default_factory=set)
     both_formats: bool = False  # "pack e singoli dello stesso tracker" acceso
@@ -143,7 +163,7 @@ class MatchContext:
 
     def local_files(self) -> LocalFiles:
         if self.local is None:
-            self.local = LocalFiles.load(self.session)
+            self.local = self.shared_local.get() if self.shared_local is not None else LocalFiles.load(self.session)
         return self.local
 
     def episode_translator(self):
@@ -501,20 +521,29 @@ def _wants_pack_search(ctx: MatchContext, anchor: MediaFile | SeedFile, candidat
             and bool(candidates) and all(review.candidate_format(c) == SINGLE for c in candidates))
 
 
+def _media_files(session: Session, media_file_ids: set[int] | None):
+    query = session.query(MediaFile).options(selectinload(MediaFile.media_item)).filter(
+        MediaFile.media_item_id.isnot(None))
+    return query.filter(MediaFile.id.in_(media_file_ids)) if media_file_ids is not None else query
+
+
 def orphan_media_files(
-    session: Session, exclusions: CompiledExclusions | None = None, tracker: Tracker | None = None
+    session: Session, exclusions: CompiledExclusions | None = None, tracker: Tracker | None = None,
+    media_file_ids: set[int] | None = None,
 ) -> list[MediaFile]:
     """media_file con identità risolta e non in seed (orphan_media, docs/SPEC.md
     sezione 3): stessa regola della Library (nazgarr/library/seeding.py), un hardlink che
     nessun client segue non conta. Con un tracker e la ricerca dei cross-seed
     accesa, "non in seed su questo tracker". Solo quelli risolvibili e non
-    esclusi (Configuration > Exclusions)."""
-    linked_ids = seeding_media_file_ids(session, tracker)
+    esclusi (Configuration > Exclusions). media_file_ids: solo questi (una
+    ricerca mirata), letti e controllati in SQL invece che su tutta la
+    libreria (audit 2026-10-18)."""
+    ids = list(media_file_ids) if media_file_ids is not None else None
+    linked_ids = seeding_media_file_ids(session, tracker, ids)
     latest = latest_scan_by_disk(session, MediaFile)
     return [
         mf
-        for mf in session.query(MediaFile).options(selectinload(MediaFile.media_item))
-        .filter(MediaFile.media_item_id.isnot(None)).all()
+        for mf in _media_files(session, media_file_ids).all()
         if mf.id not in linked_ids
         and is_current(mf, latest)  # un file sparito dal disco non si cerca più
         and is_video(mf.relative_path)
@@ -524,19 +553,20 @@ def orphan_media_files(
 
 def second_format_media_files(
     session: Session, tracker: Tracker, exclusions: CompiledExclusions | None = None,
+    media_file_ids: set[int] | None = None,
 ) -> list[tuple[MediaFile, frozenset[str]]]:
     """Con "pack e singoli dello stesso tracker" (nazgarr/library/seeding.py): gli
     episodi in seed su questo tracker in un formato solo, con quello che
     manca. Mai insieme agli orfani: un orfano non è in seed su questo tracker."""
-    missing = {mf_id: FORMATS - found for mf_id, found in seeding_formats(session, tracker).items()}
+    ids = list(media_file_ids) if media_file_ids is not None else None
+    missing = {mf_id: FORMATS - found for mf_id, found in seeding_formats(session, tracker, ids).items()}
     missing = {mf_id: wanted for mf_id, wanted in missing.items() if wanted}
     if not missing:
         return []
     latest = latest_scan_by_disk(session, MediaFile)
     return [
         (mf, frozenset(missing[mf.id]))
-        for mf in session.query(MediaFile).options(selectinload(MediaFile.media_item))
-        .filter(MediaFile.media_item_id.isnot(None)).all()
+        for mf in _media_files(session, set(missing)).all()
         if mf.id in missing
         and is_episode(mf.media_item)
         and is_current(mf, latest)
@@ -642,32 +672,43 @@ def _new_totals() -> dict:
 def run_media_to_torrent_matching(
     session: Session, tracker_row: Tracker, tracker_adapter: TrackerAdapter, arr_index: ArrIndex | None = None,
     progress=NULL_PROGRESS, only_media_file_ids: set[int] | None = None, force: bool = False,
+    local: "SharedLocalFiles | None" = None,
 ) -> dict:
     """Un errore su un singolo file lo salta (loggato, contato in "failed")
     senza fermare gli altri; un TrackerRateLimitedError invece ferma il
     matching su questo tracker per il resto della run ("rate_limited"),
     lasciando i file rimanenti al prossimo giro — la ricerca di quelli
-    completati è già registrata in match_attempt, quindi non si ripete."""
-    ctx = MatchContext(session, tracker_row, tracker_adapter, "media_to_torrent", arr_index)
+    completati è già registrata in match_attempt, quindi non si ripete.
+    local: gli indici dei file locali condivisi da tutta la run
+    (SharedLocalFiles), invece di ricostruirli per ogni tracker."""
+    ctx = MatchContext(session, tracker_row, tracker_adapter, "media_to_torrent", arr_index, shared_local=local)
     exclusions = load_exclusions(session)
-    orphans = [(mf, FORMATS) for mf in orphan_media_files(session, exclusions, tracker_row)]
+    # "Cerca ora" dalla scheda di dettaglio, o la ricerca dopo un import: solo
+    # i file di quel contenuto, filtrati nella query.
+    orphans = [(mf, FORMATS) for mf in orphan_media_files(session, exclusions, tracker_row, only_media_file_ids)]
     if pack_and_singles_enabled(session):
         ctx.both_formats = True
-        orphans += second_format_media_files(session, tracker_row, exclusions)
-    if only_media_file_ids is not None:
-        # "Cerca ora" dalla scheda di dettaglio: solo i file di quel contenuto.
-        orphans = [(mf, formats) for mf, formats in orphans if mf.id in only_media_file_ids]
+        orphans += second_format_media_files(session, tracker_row, exclusions, only_media_file_ids)
+    if local is None and only_media_file_ids is not None:
+        # Gli indici dei file locali solo per i dischi di quei file: ogni
+        # abbinamento resta sul disco dell'anchor (LocalFiles.load).
+        ctx.shared_local = SharedLocalFiles(session, {mf.disk_id for mf, _ in orphans})
     return _match_orphans(ctx, orphans, "media", progress, force)
 
 
 def run_torrent_to_client_matching(
     session: Session, tracker_row: Tracker, tracker_adapter: TrackerAdapter, arr_index: ArrIndex | None = None,
-    progress=NULL_PROGRESS,
+    progress=NULL_PROGRESS, local: "SharedLocalFiles | None" = None,
 ) -> dict:
     """Stesse regole di run_media_to_torrent_matching, direzione opposta."""
-    ctx = MatchContext(session, tracker_row, tracker_adapter, "torrent_to_client", arr_index)
+    ctx = MatchContext(session, tracker_row, tracker_adapter, "torrent_to_client", arr_index, shared_local=local)
     orphans = [(sf, FORMATS) for sf in orphan_seed_files_with_identity(session, load_exclusions(session))]
     return _match_orphans(ctx, orphans, "seed", progress)
+
+
+def _series_order(orphan, side: str) -> tuple:
+    item = orphan.media_item if side == "media" else orphan.media_file.media_item
+    return (item.tmdb_id, item.season_number or 0, item.episode_number or 0, orphan.id)
 
 
 def _match_orphans(ctx: MatchContext, orphans: list[tuple], side: str, progress, force: bool = False) -> dict:
@@ -679,6 +720,11 @@ def _match_orphans(ctx: MatchContext, orphans: list[tuple], side: str, progress,
     interval = get_rematch_interval(session)
     progress.add_total(len(orphans))
     attempts = _attempts_by_file(session, tracker_row, side)
+    # Per serie, stagione ed episodio: gli episodi di una serie si cercano
+    # vicini, mentre la ricerca è ancora nella cache dell'adapter (10 minuti),
+    # e il pack lo valuta per primo il suo primo episodio. Prima l'ordine era
+    # quello delle righe nel DB (audit 2026-10-18).
+    orphans = sorted(orphans, key=lambda entry: _series_order(entry[0], side))
     with keep_loaded_on_commit(session):
         for orphan, formats in orphans:
             item = orphan.media_item if side == "media" else orphan.media_file.media_item

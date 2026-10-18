@@ -180,3 +180,57 @@ def test_an_unexpected_torrent_error_keeps_the_other_candidates_and_the_attempt(
         == {"700", "701"}
     assert db_session.query(MatchAttempt).filter_by(media_file_id=e01.id).count() == 1
     assert adapter.downloads == [broken.download_link]  # una volta sola nella run
+
+
+def test_a_targeted_search_reads_only_its_files_and_their_disk(db_session, tmp_path, monkeypatch):
+    # "Cerca ora" su un contenuto: prima orfani e indici dei file locali di
+    # tutta la libreria, per ogni tracker (audit 2026-10-18, finding 34).
+    from nazgarr.torrents.layout import LocalFiles
+
+    _no_mediainfo(monkeypatch)
+    disk, tracker, (e01, _e02) = _library(db_session, tmp_path)
+    loads = []
+    original = LocalFiles.load.__func__
+    monkeypatch.setattr(LocalFiles, "load", classmethod(lambda cls, s, disk_ids=None: (
+        loads.append(disk_ids), original(cls, s, disk_ids))[1]))
+
+    assert [mf.id for mf in matching.orphan_media_files(db_session, tracker=tracker, media_file_ids={e01.id})] \
+        == [e01.id]
+    totals = matching.run_media_to_torrent_matching(
+        db_session, tracker, PackTracker([_pack_candidate()]), only_media_file_ids={e01.id}, force=True)
+
+    assert totals["files"] == 1
+    assert loads == [{disk.id}]
+
+
+def test_a_run_builds_the_local_file_indexes_once_for_every_tracker(db_session, tmp_path, monkeypatch):
+    from nazgarr.core.models import Tracker
+    from nazgarr.integrations import adapter_factory
+    from nazgarr.torrents.layout import LocalFiles
+
+    _no_mediainfo(monkeypatch)
+    _library(db_session, tmp_path)
+    db_session.add(Tracker(label="t2", adapter_type="unit3d", base_url="https://t2.example", api_token="x"))
+    db_session.commit()
+    loads = []
+    original = LocalFiles.load.__func__
+    monkeypatch.setattr(LocalFiles, "load", classmethod(lambda cls, s, disk_ids=None: (
+        loads.append(disk_ids), original(cls, s, disk_ids))[1]))
+    monkeypatch.setattr(adapter_factory, "build_tracker_adapter", lambda row: PackTracker([_pack_candidate()]))
+
+    run = pipeline.start_run(db_session, "manual")
+    pipeline.run_bulk_import(db_session, run, str(tmp_path / "data"))
+
+    assert loads == [None]
+
+
+def test_orphans_are_searched_by_series_season_and_episode():
+    from types import SimpleNamespace as NS
+
+    def orphan(oid, tmdb, season, episode):
+        return NS(id=oid, media_item=NS(tmdb_id=tmdb, season_number=season, episode_number=episode))
+
+    orphans = [orphan(1, 20, 1, 3), orphan(2, 10, 2, 1), orphan(3, 20, 1, 1), orphan(4, 10, 1, 9),
+               orphan(5, 30, None, None)]
+    ordered = sorted(orphans, key=lambda o: matching._series_order(o, "media"))
+    assert [o.id for o in ordered] == [4, 2, 3, 1, 5]

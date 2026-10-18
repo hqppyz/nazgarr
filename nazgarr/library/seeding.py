@@ -76,12 +76,18 @@ def seeding_formats(
     return formats
 
 
-def seeding_media_file_ids(session: Session, tracker: Tracker | None = None) -> set[int]:
+def seeding_media_file_ids(
+    session: Session, tracker: Tracker | None = None, media_file_ids: list[int] | None = None,
+) -> set[int]:
     """I media_file con un hardlink in un torrent tracciato: di questo
-    tracker, se c'è e la ricerca dei cross-seed è accesa, di qualunque se no."""
+    tracker, se c'è e la ricerca dei cross-seed è accesa, di qualunque se no.
+    media_file_ids: solo questi file (una ricerca mirata), None = tutti."""
     torrent_ids = tracker_torrent_ids(session, tracker) if tracker is not None and cross_seed_enabled(session) else None
     tracked, _active = _tracking(session, torrent_ids)
-    return {mf_id for mf_id, seeds in media_links(session).items() if any(sf_id in tracked for sf_id, _ in seeds)}
+    return {
+        mf_id for mf_id, seeds in media_links(session, media_file_ids).items()
+        if any(sf_id in tracked for sf_id, _ in seeds)
+    }
 
 
 def seeding_on(session: Session, media_file_id: int) -> list[str]:

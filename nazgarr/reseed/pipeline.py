@@ -197,6 +197,7 @@ class _BulkRun:
         self.torrent_clients: list[TorrentClient] = []
         self.t2c_problem: str | None = None
         self.skip_t2c = False
+        self.local_files: matching.SharedLocalFiles | None = None
 
     # --- infrastruttura -----------------------------------------------------
 
@@ -433,6 +434,8 @@ class _BulkRun:
             "Run #%s: %d tracker abilitat%s per il matching",
             run.id, len(trackers), _plural(len(trackers), "o", "i"),
         )
+        # Gli indici dei file locali una volta per tutta la run, non per tracker.
+        self.local_files = matching.SharedLocalFiles(session)
         for i, tracker_row in enumerate(trackers, start=1):
             self._match_tracker(tracker_row, f"{tracker_row.label} ({i}/{len(trackers)})")
 
@@ -454,7 +457,7 @@ class _BulkRun:
             if hasattr(tracker_adapter, "on_rate_limit_wait"):
                 tracker_adapter.on_rate_limit_wait = on_wait
             m2t = matching.run_media_to_torrent_matching(
-                session, tracker_row, tracker_adapter, self.arr_index, progress=progress
+                session, tracker_row, tracker_adapter, self.arr_index, progress=progress, local=self.local_files,
             )
             # Già in rate limit: la seconda direzione peggiorerebbe solo il blocco.
             t2c = None
@@ -462,7 +465,7 @@ class _BulkRun:
                 current["detail"] = f"{where} · torrent → client"
                 progress.detail(current["detail"])
                 t2c = matching.run_torrent_to_client_matching(
-                    session, tracker_row, tracker_adapter, self.arr_index, progress=progress
+                    session, tracker_row, tracker_adapter, self.arr_index, progress=progress, local=self.local_files,
                 )
         except Exception as exc:
             self._fail(f"tracker {tracker_row.label!r}", exc)
