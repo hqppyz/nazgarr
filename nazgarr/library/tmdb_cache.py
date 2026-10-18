@@ -15,7 +15,9 @@ Resta però in memoria per MISS_TTL, legato a quello che si è cercato
 (tipo, titolo normalizzato, anno): prima ogni run rifaceva la stessa ricerca
 per ogni episodio di una serie che TMDB non trova, a ogni run (audit
 2026-10-18). Un file rinominato cerca un altro titolo, quindi un'altra
-chiave, e si cerca subito; un riavvio dimentica tutti i miss."""
+chiave, e si cerca subito; un riavvio dimentica tutti i miss. Una scansione
+lanciata a mano non li dimentica: un titolo appena aggiunto a TMDB si trova
+allo scadere del giorno o dopo un riavvio."""
 
 import threading
 import time
@@ -58,7 +60,8 @@ def _known_miss(key: tuple, now: float) -> bool:
 
 
 def forget_misses() -> None:
-    """Dimentica tutti i miss (i test; un'azione esplicita dell'utente)."""
+    """Dimentica tutti i miss. Oggi la usano solo i test: nessuna azione della
+    UI la chiama, nemmeno "Scansiona ora"."""
     with _misses_lock:
         _misses.clear()
 
