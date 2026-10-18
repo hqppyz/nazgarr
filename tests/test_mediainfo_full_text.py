@@ -1,3 +1,5 @@
+import pytest
+
 from nazgarr.library.mediainfo import extract_full_text
 
 
@@ -96,3 +98,44 @@ def test_the_parse_runs_in_a_child_and_its_crash_or_hang_is_only_an_error(tmp_pa
         assert "did not finish" in str(exc)
     else:
         raise AssertionError("un blocco deve scadere")
+
+
+def test_a_huge_report_from_the_child_is_cut_off_not_buffered(tmp_path, monkeypatch):
+    """Il tetto sull'uscita del figlio scattava dopo che subprocess.run
+    l'aveva tenuta tutta in memoria (audit 2026-10-18): un file costruito
+    per far scrivere a libmediainfo un report enorme arrivava intero nel
+    processo di Nazgarr. Ora si legge a pezzi e il figlio si ferma appena
+    passa il tetto."""
+    import tracemalloc
+
+    from nazgarr.library import mediainfo as mediainfo_util
+
+    mediainfo_util.clear_cache()
+    video = tmp_path / "x.mkv"
+    video.write_bytes(b"not a real video" * 50)
+    flood = "import sys\nfor _ in range(256):\n    sys.stdout.buffer.write(b'x' * 1048576)\n"  # 256 MB
+    monkeypatch.setattr(mediainfo_util, "_CHILD", flood)
+    monkeypatch.setattr(mediainfo_util, "MAX_OUTPUT_BYTES", 1024 * 1024)
+
+    tracemalloc.start()
+    try:
+        with pytest.raises(mediainfo_util.MediaInfoFailed, match="bigger than 1 MB"):
+            mediainfo_util.parse(str(video))
+        peak = tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+    assert peak < 8 * 1024 * 1024
+    assert mediainfo_util.extract_full_text(str(video)) is None  # per chi chiama è solo "niente MediaInfo"
+
+
+def test_only_the_last_lines_of_the_child_errors_are_kept(tmp_path, monkeypatch):
+    from nazgarr.library import mediainfo as mediainfo_util
+
+    mediainfo_util.clear_cache()
+    video = tmp_path / "x.mkv"
+    video.write_bytes(b"not a real video" * 50)
+    noisy = "import sys\nsys.stderr.write('noise\\n' * 1000000)\nsys.stderr.write('the real error\\n')\nsys.exit(3)\n"
+    monkeypatch.setattr(mediainfo_util, "_CHILD", noisy)
+
+    with pytest.raises(mediainfo_util.MediaInfoFailed, match=r"exit code 3\): the real error"):
+        mediainfo_util.parse(str(video))

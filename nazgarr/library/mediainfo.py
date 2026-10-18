@@ -35,6 +35,8 @@ logger = logging.getLogger(__name__)
 
 PARSE_TIMEOUT_SECONDS = 300.0  # un disco che si risveglia, un file grande su una share lenta
 MAX_OUTPUT_BYTES = 64 * 1024 * 1024
+_READ_CHUNK = 64 * 1024
+_STDERR_TAIL_BYTES = 4096  # le ultime righe, per il messaggio d'errore
 # Il figlio: solo pymediainfo, niente di Nazgarr. "-P": nessuna cartella di
 # lavoro nel percorso degli import (un pymediainfo.py lì non si carica).
 # OLDXML è quello che MediaInfo.parse usa da sé senza output (libmediainfo
@@ -58,20 +60,54 @@ class MediaInfoFailed(RuntimeError):
 
 def _run_isolated(file_path: str, kind: str) -> str:
     """Il testo che MediaInfo produce per il file (kind "text": il report;
-    altrimenti l'XML), letto in un processo figlio con un tempo massimo."""
+    altrimenti l'XML), letto in un processo figlio con un tempo massimo.
+
+    L'uscita si legge a pezzi mentre arriva, mai tutta in un buffer prima
+    di guardarla (subprocess.run la teneva intera in memoria, e il tetto
+    scattava dopo): oltre MAX_OUTPUT_BYTES il figlio si ferma subito. Di
+    stderr si tengono solo le ultime righe, per il messaggio d'errore. Un
+    thread per pipe, così nessuna delle due si riempie e blocca il figlio."""
+    child = subprocess.Popen(
+        [sys.executable, "-P", "-c", _CHILD, file_path, kind],
+        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    )
+    out = bytearray()
+    err_tail = bytearray()
+    too_big = threading.Event()
+
+    def read_out() -> None:
+        while chunk := child.stdout.read1(_READ_CHUNK):
+            out.extend(chunk)
+            if len(out) > MAX_OUTPUT_BYTES:
+                too_big.set()
+                child.kill()
+                return
+
+    def read_err() -> None:
+        while chunk := child.stderr.read1(_READ_CHUNK):
+            err_tail.extend(chunk)
+            del err_tail[:-_STDERR_TAIL_BYTES]
+
+    readers = [threading.Thread(target=read, daemon=True, name="mediainfo-pipe") for read in (read_out, read_err)]
+    for reader in readers:
+        reader.start()
     try:
-        done = subprocess.run(
-            [sys.executable, "-P", "-c", _CHILD, file_path, kind],
-            capture_output=True, timeout=PARSE_TIMEOUT_SECONDS, check=False, stdin=subprocess.DEVNULL,
-        )
-    except subprocess.TimeoutExpired as exc:  # run() ha già ucciso il figlio
+        returncode = child.wait(timeout=PARSE_TIMEOUT_SECONDS)  # una scadenza totale, dall'avvio
+    except subprocess.TimeoutExpired as exc:
+        child.kill()
+        child.wait()
         raise MediaInfoFailed(f"mediainfo did not finish within {PARSE_TIMEOUT_SECONDS:.0f}s") from exc
-    if done.returncode != 0:
-        lines = done.stderr.decode("utf-8", "replace").strip().splitlines()
-        raise MediaInfoFailed(f"mediainfo failed (exit code {done.returncode}): {lines[-1] if lines else 'no output'}")
-    if len(done.stdout) > MAX_OUTPUT_BYTES:
+    finally:
+        for reader in readers:
+            reader.join()  # il figlio è finito: le pipe arrivano alla fine
+        child.stdout.close()
+        child.stderr.close()
+    if too_big.is_set():
         raise MediaInfoFailed(f"mediainfo output bigger than {MAX_OUTPUT_BYTES // (1024 * 1024)} MB")
-    return done.stdout.decode("utf-8", "surrogateescape")
+    if returncode != 0:
+        lines = err_tail.decode("utf-8", "replace").strip().splitlines()
+        raise MediaInfoFailed(f"mediainfo failed (exit code {returncode}): {lines[-1] if lines else 'no output'}")
+    return out.decode("utf-8", "surrogateescape")
 
 _LEADING_TOKEN_RE = re.compile(r"^(\S+)")
 
