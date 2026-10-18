@@ -34,6 +34,7 @@ from nazgarr.adapters.tracker.base import (
 from nazgarr.core import settings_registry
 from nazgarr.core.db_utils import keep_loaded_on_commit
 from nazgarr.core.file_types import is_video
+from nazgarr.core.logs import safe_error
 from nazgarr.core.models import (
     Candidate,
     CandidateFile,
@@ -164,7 +165,11 @@ class MatchContext:
     def fetch_torrent(self, url: str | None) -> TorrentInfo | None:
         """Scarica e analizza un .torrent tramite l'adapter (rate limit del
         tracker), al massimo una volta per URL per run. None su qualunque
-        problema di rete/formato; TrackerRateLimitedError risale."""
+        problema, anche inatteso (un plugin, un errore di un altro tipo):
+        prima un'eccezione diversa usciva dal file in esame, ne annullava
+        tutti i candidati, non registrava la ricerca e lo stesso link si
+        riscaricava per ogni file della run che lo incontrava (audit
+        2026-10-18). TrackerRateLimitedError risale."""
         if not url:
             return None
         if url not in self._torrents:
@@ -175,7 +180,10 @@ class MatchContext:
             except TrackerRateLimitedError:
                 raise
             except (UploadError, NotSupportedError, TorrentMetainfoError):
-                logger.warning("Download/parsing del .torrent fallito: %s", url, exc_info=True)
+                logger.warning("Download/parsing del .torrent fallito: %s", safe_error(url), exc_info=True)
+                self._torrents[url] = None
+            except Exception:
+                logger.exception("Errore inatteso col .torrent %s: ignorato per questa run", safe_error(url))
                 self._torrents[url] = None
         return self._torrents[url]
 

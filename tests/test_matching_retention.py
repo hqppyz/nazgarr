@@ -153,3 +153,30 @@ def test_a_new_search_drops_what_no_longer_concerns_the_file(db_session, tmp_pat
     matching.run_media_to_torrent_matching(db_session, tracker, PackTracker([]))
 
     assert db_session.query(Candidate).count() == 0
+
+
+def test_an_unexpected_torrent_error_keeps_the_other_candidates_and_the_attempt(db_session, tmp_path, monkeypatch):
+    # Un errore di un tipo inatteso al download del .torrent usciva dal file:
+    # tutti i suoi candidati annullati, la ricerca non registrata, lo stesso
+    # link riscaricato per ogni file (audit 2026-10-18, finding 19).
+    from nazgarr.core.models import MatchAttempt
+
+    _no_mediainfo(monkeypatch)
+    _disk, tracker, (e01, _e02) = _library(db_session, tmp_path)
+    broken = _single("700", "Show.S01E01.1080p-BROKEN.mkv", len(E01))
+    broken.download_link = "https://t.example/torrent/download/700.k"
+    other = _single("701", "Show.S01E01.720p-OTHER.mkv", 999)
+
+    class Broken(PackTracker):
+        def download_torrent(self, url):
+            self.downloads.append(url)
+            raise AttributeError("plugin bug")
+
+    adapter = Broken([broken, other])
+    totals = matching.run_media_to_torrent_matching(db_session, tracker, adapter)
+
+    assert totals["failed"] == 0
+    assert {c.torrent_id_remote for c in db_session.query(Candidate).filter_by(media_item_id=e01.media_item_id)} \
+        == {"700", "701"}
+    assert db_session.query(MatchAttempt).filter_by(media_file_id=e01.id).count() == 1
+    assert adapter.downloads == [broken.download_link]  # una volta sola nella run
