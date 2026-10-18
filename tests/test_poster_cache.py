@@ -22,7 +22,7 @@ def test_downloads_and_caches_poster(tmp_path):
     with open(local_path, "rb") as f:
         assert f.read() == b"fake-jpeg-bytes"
     assert len(calls) == 1
-    assert calls[0].endswith("/t/p/w500/interstellar.jpg")
+    assert calls[0].endswith("/t/p/w342/interstellar.jpg")  # nessuna vista lo mostra più largo di ~200 px
 
 
 def test_does_not_redownload_if_already_cached(tmp_path):
@@ -39,3 +39,26 @@ def test_does_not_redownload_if_already_cached(tmp_path):
     download_poster(posters_dir, "movie", 157336, "/interstellar.jpg", client=client)
 
     assert len(calls) == 1
+
+
+def test_an_oversized_or_interrupted_download_leaves_no_poster_behind(tmp_path, monkeypatch):
+    """Letto con un tetto (audit 2026-10-18), e scritto solo a download
+    finito: un file troncato non si riscaricava mai più."""
+    import pytest
+
+    from nazgarr.library import poster_cache
+
+    monkeypatch.setattr(poster_cache, "MAX_POSTER_BYTES", 100)
+    client = httpx.Client(transport=httpx.MockTransport(lambda request: httpx.Response(200, content=b"x" * 101)))
+    posters_dir = str(tmp_path / "posters")
+
+    with pytest.raises(httpx.HTTPError, match="bigger than 100 bytes"):
+        download_poster(posters_dir, "movie", 1, "/big.jpg", client=client)
+    assert os.listdir(posters_dir) == []
+
+    def broken(request):
+        raise httpx.ReadError("connection reset")
+
+    with pytest.raises(httpx.ReadError):
+        download_poster(posters_dir, "movie", 1, "/x.jpg", client=httpx.Client(transport=httpx.MockTransport(broken)))
+    assert os.listdir(posters_dir) == []

@@ -67,3 +67,19 @@ def test_a_huge_icon_is_not_read_to_the_end(tmp_path):
     big = PNG + b"x" * (tracker_icons.MAX_BYTES + 10)
     client = _client({"https://t.example/favicon.ico": (big, "image/png")})
     assert tracker_icons.fetch_icon(str(tmp_path), 5, "https://t.example", client) is None
+
+
+def test_a_gzip_bomb_is_refused_before_it_is_expanded(tmp_path):
+    """iter_bytes di httpx decomprimeva un blocco di rete intero in una volta
+    (audit 2026-10-18): ora la lettura passa da http_limits, a passi."""
+    import gzip
+
+    bomb = gzip.compress(PNG + b"\0" * (50 * 1024 * 1024))
+    assert len(bomb) < 100 * 1024
+
+    def handler(request):
+        assert request.headers["Accept-Encoding"] == "gzip, deflate"
+        return httpx.Response(200, content=bomb, headers={"content-type": "image/png", "content-encoding": "gzip"})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    assert tracker_icons.fetch_icon(str(tmp_path), 6, "https://t.example", client) is None
