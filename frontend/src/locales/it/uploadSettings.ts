@@ -38,7 +38,7 @@ export const uploadSettings = {
   'uploadSettings.fileNamesReset': 'Torna al predefinito',
   'uploadSettings.releasesTitle': 'Le tue release',
   'uploadSettings.releasesDescription':
-    'Per quello che rilasci tu: mettilo nella cartella osservata di un disco (Impostazioni › Archiviazione) e l’upload parte da solo, fino alla decisione. Quando è in seed, viene spostato nella cartella delle release: la cartella osservata è solo un ingresso.',
+    'Per quello che rilasci tu: mettilo nella cartella osservata di un disco (Impostazioni › Archiviazione) e l’upload parte da solo, fino alla decisione. Quando è in seed su ogni tracker, viene spostato nella cartella delle release: la cartella osservata è solo un ingresso. Finché un tracker è fallito resta lì, così "Riprova" ha ancora i suoi file.',
   'uploadSettings.releaserLabel': 'Nome del releaser',
   'uploadSettings.releaserDescription': 'Il gruppo in fondo ai nomi degli upload dalla cartella osservata, e di ogni upload il cui nome non ha un gruppo (es. -NZG). Modificabile su ogni upload.',
   'uploadSettings.autoMatchLabel': 'Match TMDB automatico',

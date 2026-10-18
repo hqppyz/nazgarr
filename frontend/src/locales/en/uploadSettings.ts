@@ -38,7 +38,7 @@ export const uploadSettings = {
   'uploadSettings.fileNamesReset': 'Back to the default',
   'uploadSettings.releasesTitle': 'Your releases',
   'uploadSettings.releasesDescription':
-    'For what you release yourself: put it in the watched folder of a disk (Settings › Storage) and the upload starts on its own, up to the decision. Once it seeds, it is moved to the releases folder: the watched folder is only a way in.',
+    'For what you release yourself: put it in the watched folder of a disk (Settings › Storage) and the upload starts on its own, up to the decision. Once it seeds on every tracker, it is moved to the releases folder: the watched folder is only a way in. While a tracker has failed it stays there, so Retry still has its files.',
   'uploadSettings.releaserLabel': 'Releaser name',
   'uploadSettings.releaserDescription': 'The group at the end of the names of the uploads from the watched folder, and of every upload whose name has no group (e.g. -NZG). Editable on each upload.',
   'uploadSettings.splitIncompleteLabel': 'Incomplete seasons as episodes',

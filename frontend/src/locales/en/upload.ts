@@ -501,6 +501,7 @@ export const upload = {
   'upload.notice.ready': 'Upload ready for your decision',
   'upload.notice.open': 'Open',
   'upload.event.watch_source_moved': '{count} file(s) moved out of the watched folder: the release now lives where it seeds.',
+  'upload.event.watch_source_kept': 'Kept in the watched folder until {trackers} succeed too: Retry still has its files.',
   'upload.event.watch_source_leftovers': 'Left in the watched folder, not part of the torrent: {files}.',
   'upload.match.summaryAbove': 'Above the automatic match threshold ({threshold}): it is confirmed on its own.',
   'upload.match.summaryBelow': 'Below the automatic match threshold ({threshold}): you choose. Change it in Settings › Releases.',

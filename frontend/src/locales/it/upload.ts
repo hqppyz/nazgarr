@@ -501,6 +501,7 @@ export const upload = {
   'upload.notice.ready': 'Upload pronto per la tua decisione',
   'upload.notice.open': 'Apri',
   'upload.event.watch_source_moved': '{count} file spostati fuori dalla cartella osservata: ora la release sta dove è in seed.',
+  'upload.event.watch_source_kept': 'Resta nella cartella osservata finché non va anche {trackers}: "Riprova" ha ancora i suoi file.',
   'upload.event.watch_source_leftovers': 'Rimasti nella cartella osservata, fuori dal torrent: {files}.',
   'upload.match.summaryAbove': 'Sopra la soglia del match automatico ({threshold}): si conferma da solo.',
   'upload.match.summaryBelow': 'Sotto la soglia del match automatico ({threshold}): scegli tu. Si cambia in Impostazioni › Release.',
