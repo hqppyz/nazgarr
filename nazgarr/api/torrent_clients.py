@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session, object_session
 
-from nazgarr.api.types import HttpUrlStr, require_secrets_for_new_host
+from nazgarr.api.types import HttpUrlStr, check_destinations, require_secrets_for_new_host
 from nazgarr.core.errors import coded_detail, from_coded_error
 from nazgarr.core.fs_scope import ScopeViolation, resolve_scoped
 from nazgarr.core.logs import safe_error
@@ -154,6 +154,7 @@ def list_torrent_clients(session: Session = Depends(get_session)):
 
 @router.post("", response_model=TorrentClientResponse, status_code=201)
 def create_torrent_client(body: TorrentClientCreateRequest, session: Session = Depends(get_session)):
+    check_destinations(body.base_url)
     supported = REGISTRY.types("torrent_client")  # integrati e plugin (nazgarr/plugins)
     if body.adapter_type not in supported:
         raise HTTPException(
@@ -201,6 +202,7 @@ def qui_instances(body: QuiInstancesRequest, session: Session = Depends(get_sess
     stesso host: mai mandare un token salvato a un indirizzo nuovo."""
     from nazgarr.adapters.torrent_client.qui import QuiTorrentClientAdapter
 
+    check_destinations(body.base_url)
     token = (body.api_token or "").strip()
     if not token and body.torrent_client_id is not None:
         tc = _get_torrent_client_or_404(session, body.torrent_client_id)
@@ -287,6 +289,7 @@ def check_client_paths(torrent_client_id: int, live: bool = False, session: Sess
 def update_torrent_client(
     torrent_client_id: int, body: TorrentClientUpdateRequest, session: Session = Depends(get_session)
 ):
+    check_destinations(body.base_url)
     tc = _get_torrent_client_or_404(session, torrent_client_id)
     missing = [name for name, stored, sent in (
         ("password", tc.password, body.password), ("api_token", tc.api_token, body.api_token),

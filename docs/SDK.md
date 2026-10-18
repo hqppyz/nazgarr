@@ -471,7 +471,7 @@ curl -H "X-Api-Key: nzg_..." http://nazgarr:3019/api/dashboard
 - manage API keys: creating or revoking them requires the real login, so a stolen key cannot create more keys to stay in;
 - read or change secret settings (API keys, tokens, passwords) or the login's own settings;
 - change the safety settings (verification before executing, the client's recheck, automatic execution and its thresholds);
-- move a tracker, client or Radarr/Sonarr instance to another host without sending its secrets again in the same request, so a changed address can never receive the saved token.
+- move a tracker, client or Radarr/Sonarr instance to another host, or the same host from `https://` to `http://`, without sending its secrets again in the same request, so a changed address can never receive the saved token (nor read it in clear on the way).
 
 A wrong or revoked key always gets `401`; a read key gets `403` on anything but `GET`. Error messages returned by the API never contain credentials (download keys, passkeys, tokens in URLs).
 
