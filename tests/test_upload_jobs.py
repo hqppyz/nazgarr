@@ -201,6 +201,121 @@ def test_worker_does_not_fail_a_job_cancelled_while_running(db_session, tmp_path
     assert job.status == "cancelled"
 
 
+def _queued(db_session, tmp_path):
+    job = _job(db_session, tmp_path)
+    upload_jobs.transition(db_session, job, "identifying", "queued", queue_position=upload_jobs.next_queue_position(
+        db_session))
+    return job
+
+
+def _worker(db_session, tmp_path, handlers, heavy=None):
+    factory = lambda: db_session.__class__(bind=db_session.get_bind())  # noqa: E731
+    return UploadWorker(factory, str(tmp_path), handlers=handlers, light_executor=InlineExecutor(),
+                        heavy_executor=heavy or InlineExecutor())
+
+
+@pytest.mark.parametrize("error", [OSError(13, "Permission denied"), UploadJobError("upload_seed_folder_missing",
+                                                                                     path="/x")])
+def test_an_execution_that_fails_after_starting_keeps_its_real_error(db_session, tmp_path, caplog, error):
+    """Audit 2026-10-18: il passo d'esecuzione porta il job in 'running' prima
+    di lavorare, e il worker prendeva quel cambio per un annullamento: niente
+    log, e il job finiva con "passo non disponibile"."""
+    import logging
+
+    make_tracker(db_session)
+    job = _queued(db_session, tmp_path)
+
+    def start_then_crash(session, j, worker):
+        upload_jobs.transition(session, j, "queued", "running")
+        raise error
+
+    with caplog.at_level(logging.ERROR, logger="nazgarr.upload.worker"):
+        _worker(db_session, tmp_path, {"queued": start_then_crash}).kick(job.id, job.status)
+
+    db_session.refresh(job)
+    assert job.status == "failed"
+    if isinstance(error, UploadJobError):
+        assert job.error_message == "upload_seed_folder_missing"
+    else:
+        assert job.error_message == "upload_step_failed"
+        assert json.loads(job.events[-1].params_json) == {"step": "queued", "error": str(error)}
+    assert "passo 'queued' fallito" in caplog.text
+
+
+def test_a_kick_while_the_queue_goes_idle_is_not_lost(db_session, tmp_path):
+    make_tracker(db_session)
+    job = _queued(db_session, tmp_path)
+    ran = []
+
+    class Deferred:
+        def __init__(self):
+            self.calls = []
+
+        def submit(self, fn, *args):
+            self.calls.append((fn, args))
+
+        def shutdown(self, wait=True, cancel_futures=False):
+            pass
+
+    heavy = Deferred()
+    worker = _worker(db_session, tmp_path, {"queued": lambda s, j, w: (
+        ran.append(j.id), upload_jobs.transition(s, j, "queued", "done"))}, heavy=heavy)
+    real_next = worker._next_due
+    calls = []
+
+    def next_due():
+        calls.append(1)
+        if len(calls) == 1:
+            # La coda non ha trovato niente; prima che si fermi, un altro
+            # thread approva un upload e sveglia la coda.
+            worker.kick(job.id, "queued")
+            return None
+        return real_next()
+
+    worker._next_due = next_due
+    worker.kick(job.id, "queued")
+    fn, args = heavy.calls.pop(0)
+    fn(*args)
+
+    assert ran == [job.id] and heavy.calls == []
+    assert worker._heavy_scheduled is False
+
+
+def test_a_job_deleted_while_its_step_runs_does_not_stop_the_queue(db_session, tmp_path):
+    make_tracker(db_session)
+    first, second = _queued(db_session, tmp_path), _queued(db_session, tmp_path)
+    ran = []
+
+    def handler(session, j, worker):
+        ran.append(j.id)
+        if j.id == first.id:
+            other = db_session.__class__(bind=db_session.get_bind())
+            other.delete(other.get(UploadJob, j.id))
+            other.commit()
+            other.close()
+            raise RuntimeError("the row is gone")
+        upload_jobs.transition(session, j, "queued", "done")
+
+    _worker(db_session, tmp_path, {"queued": handler}).kick(first.id, "queued")
+
+    assert ran == [first.id, second.id]
+    db_session.expire_all()
+    assert db_session.get(UploadJob, second.id).status == "done"
+
+
+def test_the_queue_retries_later_when_even_the_failure_cannot_be_written(db_session, tmp_path, monkeypatch):
+    make_tracker(db_session)
+    job = _queued(db_session, tmp_path)
+    worker = _worker(db_session, tmp_path, {"queued": lambda s, j, w: (_ for _ in ()).throw(RuntimeError("x"))})
+    monkeypatch.setattr(worker, "_fail", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("database is locked")))
+    later = []
+    monkeypatch.setattr(worker, "_retry_later", lambda: later.append(1))
+
+    worker.kick(job.id, "queued")
+
+    assert later == [1] and worker._heavy_scheduled is False
+
+
 def test_migration_drops_the_phase6_upload_job(tmp_path):
     engine = db_module.make_engine(str(tmp_path / "legacy.db"))
     with engine.begin() as conn:
