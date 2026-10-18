@@ -120,7 +120,7 @@ def env(db_session, tmp_path, monkeypatch):
     monkeypatch.setattr(upload_execute.adapter_factory, "build_torrent_client_adapter", lambda row: client)
     monkeypatch.setattr(upload_execute.adapter_factory, "build_image_host_chain", lambda session: _Chain())
 
-    def fake_screenshots(video, out_dir, count=4, tonemap=False):
+    def fake_screenshots(video, out_dir, count=4, tonemap=False, should_stop=None):
         os.makedirs(out_dir, exist_ok=True)
         paths = [os.path.join(out_dir, f"{i}.png") for i in range(count)]
         for p in paths:
@@ -1057,6 +1057,33 @@ def test_a_cancel_while_hashing_removes_the_links_made_for_the_names(db_session,
     assert not (env["root"] / "torrents" / "The.Matrix.1999.mkv").exists()
     assert video.is_file()
     assert "file_links_removed" in [e.code for e in job.events]
+
+
+def test_a_cancel_during_the_screenshots_stops_them_and_sends_nothing(db_session, tmp_path, env, monkeypatch):
+    """Audit 2026-10-18 (finding 22): annullare durante gli screenshot
+    cambiava solo il DB, e le catture andavano avanti fino all'ultima."""
+    video = write_video(env["root"] / "media" / "The Matrix (1999).mkv", 300 * KB)
+    job = _approved(db_session, env, "media/" + video.name, {"a": _upload("Matrix A"), "b": {"action": "skip"}},
+                    file_naming="generated")
+    captured = []
+
+    def cancelled_midway(video, out_dir, count=4, tonemap=False, should_stop=None):
+        other = db_session.__class__(bind=db_session.get_bind())
+        upload_jobs.cancel_job(other, other.get(upload_jobs.UploadJob, job.id))
+        other.close()
+        for i in range(count):
+            if should_stop is not None and should_stop():
+                raise upload_execute.screenshots.ScreenshotsStopped(video)
+            captured.append(i)
+        return []
+
+    monkeypatch.setattr(upload_execute.screenshots, "generate_screenshots", cancelled_midway)
+    _run(db_session, tmp_path, job)
+
+    assert job.status == "cancelled"
+    assert captured == []
+    assert env["trackers"]["a"].uploads == []
+    assert not (env["root"] / "torrents" / "The.Matrix.1999.mkv").exists()  # i link per i nomi tolti
 
 
 @pytest.mark.parametrize("swap", ["another_file", "symlink"])

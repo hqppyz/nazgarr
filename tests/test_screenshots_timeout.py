@@ -50,3 +50,28 @@ def test_all_the_screenshots_together_have_a_time_limit(monkeypatch, tmp_path, v
 
     assert len(paths) == 1  # il primo (cattura e statistiche), poi il tempo è finito
     assert len(calls) == 2
+
+
+def test_a_stop_request_ends_the_screenshots_between_two_captures(monkeypatch, tmp_path, video):
+    """Audit 2026-10-18 (finding 22): un upload annullato ferma gli
+    screenshot prima della cattura dopo, non alla fine di tutti."""
+    calls = []
+
+    def run(argv, **kwargs):
+        calls.append(argv)
+        if any("signalstats" in str(a) for a in argv):
+            return subprocess.CompletedProcess(argv, 0, b"", b"lavfi.signalstats.YAVG=90 YMIN=10 YMAX=220")
+        with open(next(a for a in argv if str(a).endswith(".png")), "wb") as f:
+            f.write(b"png")
+        return subprocess.CompletedProcess(argv, 0, b"", b"")
+
+    monkeypatch.setattr(screenshots.subprocess, "run", run)
+    asked = []
+
+    def should_stop():
+        asked.append(1)
+        return len(asked) > 1  # annullato dopo il primo screenshot
+
+    with pytest.raises(screenshots.ScreenshotsStopped):
+        screenshots.generate_screenshots(video, str(tmp_path / "shots"), count=4, should_stop=should_stop)
+    assert len(calls) == 2  # la cattura e le statistiche del primo, nient'altro

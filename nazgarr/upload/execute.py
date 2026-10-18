@@ -371,14 +371,26 @@ def take_screenshots(session: Session, job: UploadJob, worker, count: int) -> li
         chain = adapter_factory.build_image_host_chain(session)
     except ImageHostConfigError as exc:
         raise UploadJobError(exc.code, **exc.params) from exc
+
+    def cancelled() -> bool:
+        # Come durante l'hash (hash_pieces): un annullamento ferma il
+        # lavoro fra una cattura e l'altra, non solo alla fine (audit 2026-10-18).
+        session.refresh(job)
+        return job.status == "cancelled"
+
     try:
         paths = screenshots.generate_screenshots(
-            main_video, os.path.join(_job_dir(worker, job), "screenshots"), count=count, tonemap=tonemap
+            main_video, os.path.join(_job_dir(worker, job), "screenshots"), count=count, tonemap=tonemap,
+            should_stop=cancelled,
         )
+    except screenshots.ScreenshotsStopped as exc:
+        raise _Cancelled() from exc
     except screenshots.ScreenshotError as exc:
         raise UploadJobError("upload_screenshots_failed", error=str(exc)) from exc
     urls = []
     for i, path in enumerate(paths, start=1):
+        if cancelled():
+            raise _Cancelled()
         try:
             urls.append(chain.upload(path))
         except ImageHostError:
