@@ -1447,10 +1447,11 @@ def test_a_watched_release_that_failed_everywhere_stays_and_leaves_after_a_retry
     assert (env["root"] / "torrents" / "My.Movie.2024.mkv").is_file()
 
 
-def test_a_watched_release_gone_after_one_tracker_cannot_be_retried(db_session, tmp_path, env):
-    """Uscita dalla cartella osservata dopo il primo tracker riuscito, la
-    cartella resta con il sample: prima un nuovo tentativo partiva lo stesso,
-    senza file, e il torrent nasceva dalla copia in seed dell'altro tracker."""
+def test_a_watched_release_stays_until_every_tracker_is_done(db_session, tmp_path, env):
+    """Decisione dell'utente, 2026-10-18: con un tracker fallito la release
+    resta nella cartella osservata, così "Riprova" ha i suoi file (prima se
+    ne andava dopo il primo tracker riuscito, e il nuovo tentativo era
+    rifiutato con upload_source_missing); se ne va con l'ultimo tracker."""
     env["disk"].watch_rel_path = "releases"
     db_session.commit()
     folder = env["root"] / "releases" / "My Movie 2024"
@@ -1464,11 +1465,160 @@ def test_a_watched_release_gone_after_one_tracker_cannot_be_retried(db_session, 
     _run(db_session, tmp_path, job)
 
     assert (job.status, [t.status for t in job.targets]) == ("partial", ["done", "failed"])
-    assert not video.exists() and (folder / "Sample" / "sample.mkv").is_file()
-    with pytest.raises(UploadJobError) as exc:
-        upload_jobs.retry_failed(db_session, job)
-    assert exc.value.code == "upload_source_missing"
+    seeding = env["root"] / "torrents" / "My Movie 2024" / video.name
+    assert video.is_file() and os.path.samefile(video, seeding)  # "a" seeda dal suo hardlink
+    kept = next(e for e in job.events if e.code == "watch_source_kept")
+    assert (kept.level, json.loads(kept.params_json)) == ("info", {"trackers": "b"})
+    assert "watch_source_moved" not in [e.code for e in job.events]
+
+    env["trackers"]["b"].error = None
+    assert [t.tracker.label for t in upload_jobs.retry_failed(db_session, job)] == ["b"]
+    _run(db_session, tmp_path, job)
+
+    assert (job.status, [t.status for t in job.targets]) == ("done", ["done", "done"]), [e.code for e in job.events]
+    assert len(env["trackers"]["a"].uploads) == 1 and len(env["trackers"]["b"].uploads) == 1
+    assert not video.exists() and seeding.is_file() and seeding.stat().st_nlink == 1
+    assert "watch_source_moved" in [e.code for e in job.events]
+    leftovers = next(e for e in job.events if e.code == "watch_source_leftovers")
+    assert json.loads(leftovers.params_json)["files"] == ["My Movie 2024/Sample/sample.mkv"]
+
+
+def test_a_retry_clears_the_files_only_the_first_runs_tracker_seeds(db_session, tmp_path, env):
+    """Le copie in seed di un tracker andato al primo giro contano anche al
+    nuovo tentativo (il file del job, _seeded_journal): "a" seeda film e nfo,
+    il reseed di "b" solo il film, e senza le copie di "a" l'nfo restava
+    nella cartella osservata."""
+    env["disk"].watch_rel_path = "releases"
+    db_session.commit()
+    folder = env["root"] / "releases" / "My Movie 2024"
+    video = write_video(folder / "My.Movie.2024.1080p.WEB-DL-NZG.mkv", 300 * KB)
+    (folder / "My.Movie.2024.nfo").write_text("nfo")
+    torrent_path, _ = torrent_create.create_torrent(str(video), "https://b/announce", str(tmp_path / "b.torrent"))
+    with open(torrent_path, "rb") as f:
+        good = f.read()
+    other = write_video(tmp_path / "other" / "Other.mkv", 10 * KB)
+    other_path, _ = torrent_create.create_torrent(str(other), "https://b/announce", str(tmp_path / "other.torrent"))
+    with open(other_path, "rb") as f:
+        env["trackers"]["b"].torrent_bytes = f.read()  # il tracker dà un altro torrent: il reseed fallisce
+    job = upload_jobs.create_job(db_session, env["disk"], "releases/My Movie 2024")
+    job.origin = "watch"
+    job.overrides_json = json.dumps({"file_naming": "original"})
+    b = next(t for t in job.targets if t.tracker.label == "b")
+    b.dupes_json = json.dumps([{"torrent_id_remote": "9", "verdict": "identical", "download_link": "https://b/dl/9",
+                                "verification": {"status": "passed", "info_hash": compute_info_hash(good)}}])
+    db_session.commit()
+    upload_jobs.transition(db_session, job, "identifying", "awaiting_decision", tmdb_id=603, title="My Movie",
+                           year=2024, content_type="movie", kind="movie", mediainfo_text="MI")
+    for target in job.targets:
+        target.status = "awaiting_decision"
+    db_session.commit()
+    decisions = {"a": _upload("Movie A"), "b": {"action": "reseed", "reseed_torrent_id": "9"}}
+    upload_decision.approve(db_session, job, [{"target_id": t.id, **decisions[t.tracker.label]} for t in job.targets])
+
+    _run(db_session, tmp_path, job)
+
+    a, b = job.targets
+    assert (job.status, a.status, b.status, b.error_message) == (
+        "partial", "done", "failed", "upload_reseed_torrent_changed")
+    assert video.is_file() and (folder / "My.Movie.2024.nfo").is_file()
+    assert os.path.isfile(upload_execute._seeded_journal(upload_jobs.job_folder(str(tmp_path / "data"), job.id),
+                                                         a.id))
+
+    env["trackers"]["b"].torrent_bytes = good
+    upload_jobs.retry_failed(db_session, job)
+    _run(db_session, tmp_path, job)
+
+    assert (job.status, b.status) == ("done", "done"), [e.code for e in job.events]
+    assert not folder.exists()  # anche l'nfo, che seeda solo per "a"
+    assert (env["root"] / "torrents" / "My Movie 2024" / "My.Movie.2024.nfo").read_text() == "nfo"
+    assert (env["root"] / "torrents" / video.name).is_file()  # il reseed di "b", con il nome del suo torrent
+    assert "watch_source_leftovers" not in [e.code for e in job.events]
+
+
+def test_a_journal_of_an_earlier_run_never_counts_for_a_tracker_that_runs_again(tmp_path):
+    from nazgarr.upload import execute
+
+    target = types.SimpleNamespace(id=7)
+    ctx = {"dir": str(tmp_path)}
+    copy = write_video(tmp_path / "copy.mkv", 10)
+    execute._remember_seeded(ctx, target, [str(copy)])
+    st = copy.stat()
+    assert execute._journaled_seeded(str(tmp_path), 7) == {(st.st_dev, st.st_ino): os.path.realpath(copy)}
+
+    execute._forget_seeded(ctx, target)  # il tracker riparte (es. dopo "Cambia match")
+    assert execute._journaled_seeded(str(tmp_path), 7) == {}
+    (tmp_path / "seeded-7.json").write_text("{not json")
+    assert execute._journaled_seeded(str(tmp_path), 7) == {}  # illeggibile: niente si toglie
+
+
+def test_the_episode_folder_stays_while_a_tracker_of_the_episode_failed(db_session, tmp_path, env):
+    """La cartella di un episodio di una stagione divisa si toglie solo a job
+    finito del tutto, come la sorgente (decisione dell'utente, 2026-10-18)."""
+    env["disk"].watch_rel_path = "releases"
+    db_session.commit()
+    folder = env["root"] / "releases" / "Show.S01"
+    episode = write_video(folder / "Show.S01E01.mkv", 300 * KB)
+    (folder / "Show.nfo").write_text("nfo")
+    job = _approved(db_session, env, "releases/Show.S01/Show.S01E01.mkv",
+                    {"a": _upload("Show A"), "b": _upload("Show B")})
+    job.origin, job.split_from_id = "watch", job.id
+    db_session.commit()
+    env["trackers"]["b"].error = _unreachable()
+
+    _run(db_session, tmp_path, job)
+
     assert job.status == "partial"
+    assert episode.is_file() and (folder / "Show.nfo").is_file()
+    assert "watch_folder_removed" not in [e.code for e in job.events]
+
+    env["trackers"]["b"].error = None
+    upload_jobs.retry_failed(db_session, job)
+    _run(db_session, tmp_path, job)
+
+    assert job.status == "done", [e.code for e in job.events]
+    assert not folder.exists()
+    assert "watch_folder_removed" in [e.code for e in job.events]
+
+
+def test_a_cancel_during_the_last_tracker_that_then_fails_can_still_be_retried(
+        db_session, tmp_path, env, monkeypatch):
+    """L'annullamento arriva mentre "b" invia, e "b" fallisce: l'esecuzione
+    aveva già fatto tutto, la release resta nella cartella osservata per
+    "Riprova", ma il job resta annullato. Prima né la ripresa (niente da
+    fare) né "Riprova" (non finito) lo accettavano, e la release restava lì
+    per sempre; la ripresa ora lo chiude 'partial', da cui "Riprova"."""
+    video = _watched_job(db_session, env, "My.Movie.2024.mkv", {"a": _upload("Movie A"), "b": _upload("Movie B")})
+    job = db_session.query(upload_jobs.UploadJob).one()
+    tracker_b = env["trackers"]["b"]
+    send = tracker_b.upload_torrent
+
+    def cancel_then_fail(fields, torrent_path):
+        monkeypatch.setattr(tracker_b, "upload_torrent", send)  # solo il primo invio
+        other = db_session.__class__(bind=db_session.get_bind())
+        upload_jobs.cancel_job(other, other.get(upload_jobs.UploadJob, job.id))
+        other.close()
+        raise _unreachable()
+
+    monkeypatch.setattr(tracker_b, "upload_torrent", cancel_then_fail)
+    _run(db_session, tmp_path, job)
+
+    assert (job.status, [t.status for t in job.targets]) == ("cancelled", ["done", "failed"])
+    assert video.is_file() and "watch_source_kept" in [e.code for e in job.events]
+    with pytest.raises(UploadJobError, match="upload_job_wrong_status"):
+        upload_jobs.retry_failed(db_session, job)
+
+    assert upload_jobs.resume_job(db_session, job) == "partial"
+    assert job.status == "partial" and job.finished_at is not None
+    assert [t.status for t in job.targets] == ["done", "failed"] and len(tracker_b.uploads) == 0  # niente rifatto
+    last = job.events[-1]
+    assert (last.code, json.loads(last.params_json)) == ("job_partial", {"after_cancel": True})
+
+    assert [t.tracker.label for t in upload_jobs.retry_failed(db_session, job)] == ["b"]
+    _run(db_session, tmp_path, job)
+
+    assert (job.status, [t.status for t in job.targets]) == ("done", ["done", "done"]), [e.code for e in job.events]
+    assert len(env["trackers"]["a"].uploads) == 1 and len(tracker_b.uploads) == 1
+    assert not video.exists() and (env["root"] / "torrents" / "My.Movie.2024.mkv").is_file()
 
 
 @pytest.mark.parametrize("cause, unsure", [

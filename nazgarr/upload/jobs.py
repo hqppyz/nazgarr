@@ -372,11 +372,13 @@ def _cancelled_from(job: UploadJob) -> str:
 
 def require_source(job: UploadJob) -> None:
     """La sorgente ha ancora quello che va nel torrent, non solo la sua
-    cartella (audit 2026-10-18): una release della cartella osservata, uscita
-    da lì dopo il primo tracker riuscito, lascia la cartella con un sample o
-    un nfo, e un nuovo tentativo partiva senza file da caricare (o con il
-    torrent fatto dalla copia in seed di un altro tracker). Un file solo
-    basta che ci sia; una cartella o un pack devono avere ancora un video."""
+    cartella (audit 2026-10-18): una release della cartella osservata uscita
+    da lì (prima del 2026-10-18 dopo il primo tracker riuscito, ora solo con
+    ogni tracker andato: execute._clear_watch_source; o tolta a mano) lascia
+    la cartella con un sample o un nfo, e un nuovo tentativo partiva senza
+    file da caricare (o con il torrent fatto dalla copia in seed di un altro
+    tracker). Un file solo basta che ci sia; una cartella o un pack devono
+    avere ancora un video."""
     try:
         files = upload_inventory.job_files(job)
     except (OSError, ScopeViolation):
@@ -389,7 +391,9 @@ def resume_job(session: Session, job: UploadJob, active: bool = False) -> str:
     """Riprende un job annullato da dove si era fermato: a un punto di
     approvazione ci torna con le scelte fatte, un passo del worker riparte,
     l'esecuzione torna in coda con i soli tracker non ancora fatti (uno già
-    pubblicato non si ricarica mai). Restituisce il nuovo stato."""
+    pubblicato non si ricarica mai). Con nessuno da fare ma uno fallito
+    accanto a uno andato, finisce 'partial' per "Riprova" (_settle_late_cancel).
+    Restituisce il nuovo stato."""
     if job.status != "cancelled":
         raise UploadJobError("upload_job_wrong_status", status=job.status)
     _refuse_if_busy(job, active)
@@ -402,6 +406,8 @@ def resume_job(session: Session, job: UploadJob, active: bool = False) -> str:
     if previous == "running":
         previous = "queued"
     if previous == "queued" and not any(t.status == "approved" for t in job.targets):
+        if any(t.status == "done" for t in job.targets) and retryable_targets(job):
+            return _settle_late_cancel(session, job)
         # Nessun tracker rimasto da fare: si torna alla decisione per quelli non pubblicati.
         previous = "analyzing"
     if previous == "analyzing" and any(t.status == "done" for t in job.targets):
@@ -414,6 +420,26 @@ def resume_job(session: Session, job: UploadJob, active: bool = False) -> str:
     log_event(session, job, "job_resumed_by_user", state=previous)
     session.commit()
     return previous
+
+
+def _settle_late_cancel(session: Session, job: UploadJob) -> str:
+    """Annullato mentre l'ultimo tracker era in invio, che poi è fallito:
+    l'annullamento non ha fermato niente, l'esecuzione aveva già fatto ogni
+    tracker. Qui non si rifà nulla: il job prende l'esito che avrebbe avuto
+    ('partial'), e da lì "Riprova" rifà il fallito, con il dupe check rifatto
+    e la conferma per un invio incerto (retry_failed). Prima né la ripresa
+    (niente da fare) né "Riprova" (non finito) lo accettavano, e una release
+    della cartella osservata, tenuta lì per "Riprova" finché un tracker è
+    fallito (execute._clear_watch_source), restava lì per sempre (audit
+    2026-10-18). Nessun job_resumed_by_user: aprirebbe un'esecuzione nuova
+    per la pagina, che rileggerebbe i passi fatti (hash, screenshot) come
+    mancanti."""
+    final = outcome(job)
+    if not transition(session, job, "cancelled", final, stage=None):
+        raise UploadJobError("upload_job_wrong_status", status=job.status)
+    log_event(session, job, f"job_{final}", level="warning", after_cancel=True)
+    session.commit()
+    return final
 
 
 def retryable_targets(job: UploadJob) -> list[UploadTarget]:
