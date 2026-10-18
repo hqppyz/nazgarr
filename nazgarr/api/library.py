@@ -324,7 +324,7 @@ def search_item_now(content_type: str, tmdb_id: int, session: Session = Depends(
         with exclusive.side_work(session):
             return _search_now(session, content_type, tmdb_id)
     except exclusive.Busy as exc:
-        raise HTTPException(status_code=409, detail=coded_detail("run_in_progress")) from exc
+        raise HTTPException(status_code=409, detail=coded_detail(exc.code)) from exc
 
 
 def _search_now(session: Session, content_type: str, tmdb_id: int) -> SearchNowResponse:

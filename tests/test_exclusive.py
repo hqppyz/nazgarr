@@ -63,8 +63,9 @@ def test_scan_now_waits_a_little_then_gives_up(db_session, factory):
     started, release = threading.Event(), threading.Event()
     holder = _hold_side_work(factory, started, release)
     try:
-        with pytest.raises(pipeline.RunInProgressError):
+        with pytest.raises(exclusive.Busy) as busy:  # nessuna run: il lavoro a lato non è finito
             exclusive.start_run(db_session, "bulk_import", wait_seconds=0.1)
+        assert busy.value.code == "side_work_in_progress"
     finally:
         release.set()
         holder.join(5)
@@ -76,17 +77,19 @@ def test_side_work_never_runs_with_a_run_or_another_side_work(db_session, factor
     started, release = threading.Event(), threading.Event()
     holder = _hold_side_work(factory, started, release)
     try:
-        with pytest.raises(exclusive.Busy):  # un altro lavoro a lato
+        with pytest.raises(exclusive.Busy) as busy:  # un altro lavoro a lato
             with exclusive.side_work(db_session):
                 pytest.fail("must not run")
+        assert busy.value.code == "side_work_in_progress"
     finally:
         release.set()
         holder.join(5)
 
     pipeline.start_run(db_session, "manual")
-    with pytest.raises(exclusive.Busy):  # una run in corso
+    with pytest.raises(exclusive.Busy) as busy:  # una run in corso
         with exclusive.side_work(db_session):
             pytest.fail("must not run")
+    assert busy.value.code == "run_in_progress"
 
 
 def test_webhook_events_wait_while_other_side_work_runs(db_session, factory):
@@ -108,17 +111,34 @@ def test_webhook_events_wait_while_other_side_work_runs(db_session, factory):
     assert db_session.query(RunLog).count() == 0
 
 
-def test_search_now_is_refused_while_side_work_runs(client):
+def test_search_now_is_refused_while_side_work_runs(client, monkeypatch):
+    """Il 409 dice che è il lavoro a lato, non una scansione (revisione
+    dell'audit 2026-10-18): prima diceva "C'è una scansione in corso" anche
+    senza nessuna run."""
+    monkeypatch.setattr(exclusive, "START_WAIT_SECONDS", 0.1)
     started, release = threading.Event(), threading.Event()
     holder = _hold_side_work(client.app.state.session_factory, started, release)
     try:
         response = client.post("/api/library/items/movie/603/search")
         refresh = client.post("/api/torrents/not-imported/refresh")
+        scan = client.post("/api/runs")
     finally:
         release.set()
         holder.join(5)
 
-    assert response.status_code == 409 and response.json()["detail"]["code"] == "run_in_progress"
-    assert refresh.status_code == 409
+    for refused in (response, refresh, scan):
+        assert refused.status_code == 409 and refused.json()["detail"]["code"] == "side_work_in_progress"
     # Finito il lavoro a lato, la ricerca risponde di nuovo (qui: nessun file di quel contenuto).
     assert client.post("/api/library/items/movie/603/search").status_code == 404
+
+
+def test_search_now_during_a_run_says_a_scan_is_in_progress(client):
+    session = client.app.state.session_factory()
+    try:
+        pipeline.start_run(session, "manual")
+    finally:
+        session.close()
+
+    response = client.post("/api/library/items/movie/603/search")
+
+    assert response.status_code == 409 and response.json()["detail"]["code"] == "run_in_progress"

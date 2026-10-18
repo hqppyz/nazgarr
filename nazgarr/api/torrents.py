@@ -273,7 +273,7 @@ def refresh_not_imported(session: Session = Depends(get_session)):
             not_imported.classify_not_imported(
                 session, arr_index if arr_index is not None and len(arr_index) else None)
     except exclusive.Busy as exc:
-        raise HTTPException(status_code=409, detail=coded_detail("run_in_progress")) from exc
+        raise HTTPException(status_code=409, detail=coded_detail(exc.code)) from exc
     return list_not_imported(session)
 
 

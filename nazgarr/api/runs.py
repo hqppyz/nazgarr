@@ -100,6 +100,8 @@ def trigger_bulk_import(
         run = exclusive.start_run(session, run_type="bulk_import")
     except pipeline.RunInProgressError as exc:
         raise HTTPException(status_code=409, detail=coded_detail("run_in_progress")) from exc
+    except exclusive.Busy as exc:  # nessuna run, ma il lavoro a lato non è finito in tempo
+        raise HTTPException(status_code=409, detail=coded_detail(exc.code)) from exc
     background_tasks.add_task(
         _run_bulk_import_bg, request.app.state.session_factory, run.id, request.app.state.settings.data_dir
     )

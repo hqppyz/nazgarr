@@ -20,6 +20,11 @@ parte (side_work):
 "Scan now" aspetta al massimo START_WAIT_SECONDS (start_run), poi 409: una
 richiesta HTTP non resta appesa per i minuti di un "Cerca ora".
 
+Il 409 dice cosa c'è in corso (Busy.code, revisione dell'audit 2026-10-18):
+run_in_progress per una run, side_work_in_progress per il lavoro a lato.
+Prima era sempre "C'è una scansione in corso", anche quando nessuna
+scansione girava e l'indicatore delle run non mostrava niente.
+
 Nessun lavoro a lato avvia una run né chiama un altro lavoro a lato: il lock
 non è rientrante, e non serve che lo sia.
 """
@@ -37,7 +42,16 @@ START_WAIT_SECONDS = 10.0
 
 
 class Busy(Exception):
-    """Una run in corso o un altro lavoro a lato: non adesso."""
+    """Una run in corso o un altro lavoro a lato: non adesso. `code` è il
+    codice dell'errore per l'API (nazgarr/core/errors.py)."""
+
+    def __init__(self, run: bool = False):
+        super().__init__("run in progress" if run else "other work in progress")
+        self.run = run
+
+    @property
+    def code(self) -> str:
+        return "run_in_progress" if self.run else "side_work_in_progress"
 
 
 def _lock() -> threading.Lock:
@@ -52,22 +66,25 @@ def side_work(session: Session) -> Iterator[None]:
     Solleva Busy prima di cominciare, se non è il momento."""
     lock = _lock()
     if not lock.acquire(blocking=False):
-        raise Busy()
+        # Preso da un altro lavoro a lato, o da una run che sta partendo.
+        raise Busy(run=pipeline.run_in_progress(session))
     try:
         if pipeline.run_in_progress(session):
-            raise Busy()
+            raise Busy(run=True)
         yield
     finally:
         lock.release()
 
 
-def start_run(session: Session, run_type: str, wait_seconds: float = START_WAIT_SECONDS) -> RunLog:
+def start_run(session: Session, run_type: str, wait_seconds: float | None = None) -> RunLog:
     """Come pipeline.try_start_run, ma aspetta il lavoro a lato in corso al
-    massimo wait_seconds: RunInProgressError se non basta, o se una run è già
-    in corso."""
+    massimo wait_seconds (START_WAIT_SECONDS): Busy se non basta,
+    RunInProgressError se una run è già in corso."""
     lock = _lock()
-    if not lock.acquire(timeout=wait_seconds):
-        raise pipeline.RunInProgressError()
+    if not lock.acquire(timeout=START_WAIT_SECONDS if wait_seconds is None else wait_seconds):
+        if pipeline.run_in_progress(session):
+            raise pipeline.RunInProgressError()
+        raise Busy()
     try:
         if pipeline.run_in_progress(session):
             raise pipeline.RunInProgressError()
