@@ -5,7 +5,9 @@ import { ReseedingPage } from '@/pages/reseeding/ReseedingPage'
 
 const approve = vi.fn()
 const reject = vi.fn()
+const fetchNextPage = vi.fn()
 let reviews: unknown[] = []
+let hasNextPage = false
 
 const review = (id: number, name: string) => ({
   id, candidate_name: name, direction: 'media_to_torrent', confidence: 0.97, ambiguity_reason: null,
@@ -15,7 +17,10 @@ const review = (id: number, name: string) => ({
 })
 
 vi.mock('@/api/hooks/reviews', () => ({
-  useReviews: () => ({ data: reviews, isPending: false }),
+  useReviewQueue: () => ({
+    data: { pages: [{ items: reviews, total: reviews.length, offset: 0, next_offset: hasNextPage ? reviews.length : null }] },
+    isPending: false, hasNextPage, isFetchingNextPage: false, fetchNextPage,
+  }),
   useApproveReview: () => ({ mutate: approve, isPending: false }),
   useRejectReview: () => ({ mutate: reject, isPending: false }),
   useDecideReviews: () => ({ mutate: vi.fn(), isPending: false }),
@@ -39,19 +44,29 @@ describe('ReseedingPage review queue', () => {
     expect(reject).toHaveBeenCalledWith(1)
   })
 
-  it('renders a long queue in blocks', () => {
+  it('asks the server for the next page when the end of the queue comes into view', () => {
+    const observed: IntersectionObserverCallback[] = []
     class FakeObserver {
+      constructor(callback: IntersectionObserverCallback) {
+        observed.push(callback)
+      }
       observe() {}
       disconnect() {}
     }
     const original = globalThis.IntersectionObserver
     globalThis.IntersectionObserver = FakeObserver as unknown as typeof IntersectionObserver
     try {
-      reviews = Array.from({ length: 120 }, (_, i) => review(i + 1, `Movie.${i}.mkv`))
+      reviews = Array.from({ length: 100 }, (_, i) => review(i + 1, `Movie.${i}.mkv`))
+      hasNextPage = true
       render(<ReseedingPage />)
-      expect(screen.getAllByRole('button', { name: 'Approve' })).toHaveLength(50)
+      // Tutta la pagina ricevuta, e il totale della coda in testa.
+      expect(screen.getAllByRole('button', { name: 'Approve' })).toHaveLength(100)
+      expect(screen.getByText('100 waiting for a decision')).toBeTruthy()
+      observed.at(-1)?.([{ isIntersecting: true } as IntersectionObserverEntry], {} as IntersectionObserver)
+      expect(fetchNextPage).toHaveBeenCalledTimes(1)
     } finally {
       globalThis.IntersectionObserver = original
+      hasNextPage = false
     }
   })
 })

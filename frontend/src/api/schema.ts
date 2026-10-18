@@ -1074,8 +1074,36 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Reviews */
+        /**
+         * List Reviews
+         * @description Tutta la coda, nell'ordine della pagina Reseeding (la CLI). La pagina
+         *     usa /queue, a pagine.
+         */
         get: operations["list_reviews_api_reviews_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/reviews/queue": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Review Queue
+         * @description La coda a pagine (audit 2026-10-18: prima sempre tutta, ricalcolata
+         *     dopo ogni decisione). Una pagina finisce sempre alla fine di un gruppo
+         *     (gli episodi singoli di una stagione, review.queue_groups), anche se
+         *     supera limit: la riga di una stagione non resta mai a metà fra due
+         *     pagine. La pagina dopo parte da next_offset.
+         */
+        get: operations["review_queue_api_reviews_queue_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1215,7 +1243,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Failed */
+        /**
+         * List Failed
+         * @description Le esecuzioni fallite (la CLI): prima ogni riga rileggeva tutti gli
+         *     info hash dei client.
+         */
         get: operations["list_failed_api_reviews_failed_get"];
         put?: never;
         post?: never;
@@ -1251,8 +1283,9 @@ export interface paths {
         };
         /**
          * List Candidates For Media Item
-         * @description Sola lettura, per audit: ogni candidate valutato per un media_item,
-         *     non solo quello scelto per la review (docs/SPEC.md sezione 6).
+         * @description Sola lettura, per audit: ogni torrent valutato per un media_item, non
+         *     solo quello scelto per la review (docs/SPEC.md sezione 6), con la sua
+         *     valutazione più recente, dal più plausibile.
          */
         get: operations["list_candidates_for_media_item_api_reviews_candidates__media_item_id__get"];
         put?: never;
@@ -4337,6 +4370,17 @@ export interface components {
             size_bytes: number;
             /** Quality */
             quality: string | null;
+        };
+        /** ReviewQueuePage */
+        ReviewQueuePage: {
+            /** Items */
+            items: components["schemas"]["ReviewResponse"][];
+            /** Total */
+            total: number;
+            /** Offset */
+            offset: number;
+            /** Next Offset */
+            next_offset: number | null;
         };
         /** ReviewResponse */
         ReviewResponse: {
@@ -7796,6 +7840,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ReviewResponse"][];
+                };
+            };
+        };
+    };
+    review_queue_api_reviews_queue_get: {
+        parameters: {
+            query?: {
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewQueuePage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

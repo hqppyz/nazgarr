@@ -1,14 +1,25 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { api, unwrap } from '@/api/client'
 import { pushActivity, updateActivity } from '@/lib/activity'
 import { trackVerification } from '@/lib/verification'
 import { t } from '@/lib/i18n'
 
-export function useReviews() {
-  return useQuery({
-    queryKey: ['reviews'],
-    queryFn: () => unwrap(api.GET('/api/reviews')),
+// Review per pagina della coda: il server chiude ogni pagina alla fine di un
+// gruppo (gli episodi di una stagione), quindi può darne qualcuna in più.
+export const REVIEW_QUEUE_PAGE = 100
+
+// La coda a pagine (audit 2026-10-18: prima sempre tutta, con il server che la
+// ricalcolava intera dopo ogni decisione). Dopo un'approvazione TanStack
+// ricarica le pagine già lette una dopo l'altra, ognuna da dove finisce la
+// precedente appena ricaricata: niente righe doppie o saltate.
+export function useReviewQueue() {
+  return useInfiniteQuery({
+    queryKey: ['reviews', 'queue'],
+    queryFn: ({ pageParam }) =>
+      unwrap(api.GET('/api/reviews/queue', { params: { query: { offset: pageParam, limit: REVIEW_QUEUE_PAGE } } })),
+    initialPageParam: 0,
+    getNextPageParam: (last) => last.next_offset ?? undefined,
   })
 }
 

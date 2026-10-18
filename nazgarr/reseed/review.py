@@ -24,8 +24,8 @@ default, mai un bypass "perché il file esiste già"."""
 import logging
 from datetime import UTC, datetime
 
-from sqlalchemy import exists
-from sqlalchemy.orm import Session
+from sqlalchemy import exists, func, select
+from sqlalchemy.orm import Session, selectinload
 
 from nazgarr.core import settings_registry
 from nazgarr.core.models import (
@@ -36,6 +36,7 @@ from nazgarr.core.models import (
     MatchAttempt,
     MatchReview,
     MediaFile,
+    MediaItem,
     SeedFile,
     SeedJob,
     TorrentClient,
@@ -793,12 +794,97 @@ def without_seed_job(query):
     return query.filter(~exists().where(SeedJob.candidate_id == MatchReview.candidate_id))
 
 
+def with_details(query):
+    """Le review con quello che la coda ne mostra (candidato, contenuto,
+    tracker, file del torrent coi file locali) caricato in blocco, non con
+    una query per review e per file (audit 2026-10-18)."""
+    candidate = selectinload(MatchReview.candidate)
+    return query.options(
+        candidate.selectinload(Candidate.files).joinedload(CandidateFile.media_file),
+        candidate.selectinload(Candidate.files).joinedload(CandidateFile.seed_file),
+        candidate.joinedload(Candidate.media_item),
+        candidate.joinedload(Candidate.tracker),
+    )
+
+
 def list_ready_for_review(session: Session) -> list[MatchReview]:
     """match_review in attesa di una decisione (pending o auto_approved) il
     cui candidate non ha ancora un seed_job — esclude quelle già eseguite
     (con successo o meno) in un tentativo precedente."""
     return without_seed_job(
         session.query(MatchReview).filter(MatchReview.status.in_(READY_FOR_DECISION_STATUSES))).all()
+
+
+def queue_groups(session: Session) -> list[list[int]]:
+    """Gli id delle review in coda, nell'ordine della coda e a gruppi come li
+    mostra la pagina Reseeding (frontend/src/lib/reviewGroups.ts): gli
+    episodi singoli della stessa stagione, dello stesso tracker e direzione,
+    insieme, in ordine di episodio; ogni altra review da sola. I gruppi
+    nell'ordine della loro prima review. Una query leggera per tutta la
+    coda: le pagine si tagliano fra un gruppo e l'altro, mai dentro."""
+    videos = (
+        select(func.count(CandidateFile.id))
+        .where(CandidateFile.candidate_id == Candidate.id, CandidateFile.is_video.is_(True))
+        .scalar_subquery()
+    )
+    rows = without_seed_job(
+        session.query(MatchReview.id, Candidate.direction, Candidate.tracker_id, MediaItem.tmdb_id,
+                      MediaItem.season_number, MediaItem.episode_number, videos)
+        .join(Candidate, Candidate.id == MatchReview.candidate_id)
+        .outerjoin(MediaItem, MediaItem.id == Candidate.media_item_id)
+        .filter(MatchReview.status.in_(READY_FOR_DECISION_STATUSES))
+    ).order_by(MatchReview.id).all()
+    seasons: dict[tuple, list[tuple[int, int]]] = {}
+    groups: list[list[tuple[int, int]]] = []
+    for review_id, direction, tracker_id, tmdb_id, season, episode, video_count in rows:
+        single_episode = (torrent_format(video_count or 0) == SINGLE and tmdb_id is not None
+                          and season is not None and episode is not None)
+        key = (direction, tracker_id, tmdb_id, season) if single_episode else None
+        if key is not None and key in seasons:
+            seasons[key].append((episode, review_id))
+            continue
+        group = [(episode or 0, review_id)]
+        if key is not None:
+            seasons[key] = group
+        groups.append(group)
+    return [[review_id for _episode, review_id in sorted(group, key=lambda e: e[0])] for group in groups]
+
+
+def one_per_torrent(session: Session, media_item_ids: list[int], *, limit: int, newest: bool,
+                    by_direction: bool) -> list[Candidate]:
+    """I candidati valutati per questi contenuti, uno per torrent (tracker e
+    id sul tracker, e direzione se by_direction): il più recente (newest) o
+    quello a confidence più alta, poi i migliori fino a limit. Scelti in SQL:
+    prima si caricavano tutti, con i loro file, e si tagliava dopo (audit
+    2026-10-18)."""
+    if not media_item_ids:
+        return []
+    partition = [Candidate.tracker_id, Candidate.torrent_id_remote] + ([Candidate.direction] if by_direction else [])
+    order = [Candidate.id.desc()] if newest else [Candidate.confidence.desc(), Candidate.id.desc()]
+    ranked = (
+        select(Candidate.id.label("id"),
+               func.row_number().over(partition_by=partition, order_by=order).label("position"))
+        .where(Candidate.media_item_id.in_(media_item_ids))
+        .subquery()
+    )
+    return (
+        session.query(Candidate)
+        .join(ranked, ranked.c.id == Candidate.id)
+        .filter(ranked.c.position == 1)
+        .options(selectinload(Candidate.files).joinedload(CandidateFile.media_file),
+                 selectinload(Candidate.files).joinedload(CandidateFile.seed_file))
+        .order_by(Candidate.confidence.desc(), Candidate.id.desc())
+        .limit(limit)
+        .all()
+    )
+
+
+def load_reviews(session: Session, review_ids: list[int]) -> list[MatchReview]:
+    """Quelle review, con with_details, nell'ordine dato."""
+    if not review_ids:
+        return []
+    by_id = {r.id: r for r in with_details(session.query(MatchReview).filter(MatchReview.id.in_(review_ids)))}
+    return [by_id[i] for i in review_ids if i in by_id]
 
 
 def count_ready_for_review(session: Session) -> int:

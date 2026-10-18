@@ -2,11 +2,14 @@
 rifiuto manuale dei match sotto soglia, retry delle esecuzioni fallite.
 """
 
+from bisect import bisect_left
+from dataclasses import dataclass
 from datetime import datetime
+from itertools import accumulate
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
-from sqlalchemy.orm import Session, object_session
+from sqlalchemy.orm import Session, object_session, selectinload
 
 from nazgarr.core.errors import coded_detail
 from nazgarr.core.models import Candidate, MatchReview, SeedJob, TorrentClient, Tracker
@@ -91,12 +94,19 @@ class SeedJobResponse(BaseModel):
     torrent_added_at: datetime | None = None
 
     @classmethod
-    def from_model(cls, sj: SeedJob, in_client: set[str] | None = None) -> "SeedJobResponse":
+    def from_model(cls, sj: SeedJob, in_client: set[str] | None = None,
+                   clients: dict[int, TorrentClient | None] | None = None) -> "SeedJobResponse":
+        """in_client e clients: gli info hash nei client e i client per id,
+        se il chiamante li ha già letti per tutto l'elenco (una lettura per
+        risposta, non per riga: audit 2026-10-18)."""
         candidate = sj.candidate
         session = object_session(sj)
         if in_client is None and session is not None:
             in_client = review.hashes_in_clients(session)
-        client = session.get(TorrentClient, sj.torrent_client_id) if session and sj.torrent_client_id else None
+        if clients is not None and sj.torrent_client_id is not None:
+            client = clients.get(sj.torrent_client_id)
+        else:
+            client = session.get(TorrentClient, sj.torrent_client_id) if session and sj.torrent_client_id else None
         return cls(
             id=sj.id, candidate_id=sj.candidate_id, candidate_name=candidate.name if candidate else None,
             direction=candidate.direction if candidate else None,
@@ -108,6 +118,54 @@ class SeedJobResponse(BaseModel):
             error_message=sj.error_message,
             hardlink_created_at=sj.hardlink_created_at, torrent_added_at=sj.torrent_added_at,
         )
+
+
+def seed_job_responses(session: Session, rows: list[SeedJob]) -> list[SeedJobResponse]:
+    """Un elenco di esecuzioni: info hash nei client e client letti una volta."""
+    in_client = review.hashes_in_clients(session)
+    clients = {c.id: c for c in session.query(TorrentClient)}
+    return [SeedJobResponse.from_model(sj, in_client, clients) for sj in rows]
+
+
+@dataclass
+class ReviewContext:
+    """Quello che ogni riga della coda legge oltre alla review stessa, letto
+    una volta per tutte le review di una risposta (audit 2026-10-18): prima
+    ogni ReviewResponse faceva una quindicina di query, fra cui seeding_on
+    con due GROUP BY su tutta la libreria, così 2000 review in coda erano
+    30 mila query e diversi secondi."""
+
+    formats_here: dict[tuple[int, int], set[str]]
+    seeding_on: dict[int, list[str]]
+    seed_jobs: dict[int, SeedJob]  # l'ultima esecuzione di ogni candidato
+    clients: dict[int, TorrentClient]  # i client abilitati per id
+    default_client: TorrentClient | None
+    in_client: set[str] | None = None
+
+    @classmethod
+    def build(cls, session: Session, rows: list[MatchReview]) -> "ReviewContext":
+        candidate_ids = [r.candidate_id for r in rows]
+        seed_jobs: dict[int, SeedJob] = {}
+        for sj in (session.query(SeedJob).filter(SeedJob.candidate_id.in_(candidate_ids)).order_by(SeedJob.id)
+                   if candidate_ids else []):
+            seed_jobs[sj.candidate_id] = sj
+        enabled = session.query(TorrentClient).filter_by(enabled=True)
+        return cls(
+            formats_here=_formats_here(session, rows),
+            seeding_on=seeding.seeding_on_many(session, sorted({r.media_file_id for r in rows if r.media_file_id})),
+            seed_jobs=seed_jobs,
+            clients={c.id: c for c in enabled},
+            # Come review.client_row_for_candidate: il primo client abilitato.
+            default_client=enabled.first() if rows else None,
+            in_client=review.hashes_in_clients(session) if seed_jobs else None,
+        )
+
+    def client_for(self, candidate: Candidate) -> TorrentClient | None:
+        """Dove andrà il reseed: il client del tracker se abilitato, sennò il primo abilitato."""
+        tracker = candidate.tracker
+        if tracker is not None and tracker.torrent_client_id in self.clients:
+            return self.clients[tracker.torrent_client_id]
+        return self.default_client
 
 
 class ReviewResponse(BaseModel):
@@ -155,20 +213,21 @@ class ReviewResponse(BaseModel):
     client_tags: str | None = None
 
     @classmethod
-    def from_model(cls, r: MatchReview, formats_here: dict[tuple[int, int], set[str]] | None = None
-                   ) -> "ReviewResponse":
-        """formats_here: (tracker, media_file) -> formati in seed lì, già letti
-        per tutta la coda (_formats_here); None = solo per questa review."""
-        session = object_session(r)
-        seed_job = (
-            session.query(SeedJob).filter_by(candidate_id=r.candidate_id).order_by(SeedJob.id.desc()).first()
-            if session is not None else None
-        )
-        client = review.client_row_for_candidate(session, r.candidate) if session is not None else None
+    def many(cls, session: Session, rows: list[MatchReview]) -> list["ReviewResponse"]:
+        """Un elenco di review con una lettura per tutto l'elenco (ReviewContext)."""
+        context = ReviewContext.build(session, rows)
+        return [cls.from_model(r, context) for r in rows]
+
+    @classmethod
+    def from_model(cls, r: MatchReview, context: ReviewContext | None = None) -> "ReviewResponse":
+        """context: quello che serve, già letto per tutto un elenco (many);
+        None = solo per questa review."""
+        if context is None:
+            context = ReviewContext.build(object_session(r), [r])
+        seed_job = context.seed_jobs.get(r.candidate_id)
+        client = context.client_for(r.candidate)
         item = r.candidate.media_item
-        if formats_here is None and session is not None:
-            formats_here = _formats_here(session, [r])
-        here = (formats_here or {}).get((r.candidate.tracker_id, r.media_file_id), set())
+        here = context.formats_here.get((r.candidate.tracker_id, r.media_file_id), set())
         return cls(
             torrent_client_id=client.id if client else None,
             default_client_category=client_labels.default_category(client, item.content_type if item else None),
@@ -179,9 +238,10 @@ class ReviewResponse(BaseModel):
             status=r.status, direction=r.candidate.direction, confidence=r.candidate.confidence,
             candidate_name=r.candidate.name, ambiguity_reason=r.candidate.ambiguity_reason,
             layout=_layout_summary(r.candidate),
-            seed_job=SeedJobResponse.from_model(seed_job) if seed_job is not None else None,
+            seed_job=(SeedJobResponse.from_model(seed_job, context.in_client, context.clients)
+                      if seed_job is not None else None),
             verify_status=r.verify_status, verify_detail=r.verify_detail, verify_check_id=r.verify_check_id,
-            seeding_on=seeding.seeding_on(session, r.media_file_id) if session is not None and r.media_file_id else [],
+            seeding_on=context.seeding_on.get(r.media_file_id, []) if r.media_file_id else [],
             tracker_id=r.candidate.tracker_id, tracker=r.candidate.tracker.label if r.candidate.tracker else None,
             format=review.candidate_format(r.candidate), seeding_here=sorted(here),
             content_type=item.content_type if item else None, tmdb_id=item.tmdb_id if item else None,
@@ -213,9 +273,40 @@ def _get_review_or_404(session: Session, review_id: int) -> MatchReview:
 
 @router.get("", response_model=list[ReviewResponse])
 def list_reviews(session: Session = Depends(get_session)):
-    rows = review.list_ready_for_review(session)
-    formats_here = _formats_here(session, rows)
-    return [ReviewResponse.from_model(r, formats_here) for r in rows]
+    """Tutta la coda, nell'ordine della pagina Reseeding (la CLI). La pagina
+    usa /queue, a pagine."""
+    ids = [review_id for group in review.queue_groups(session) for review_id in group]
+    return ReviewResponse.many(session, review.load_reviews(session, ids))
+
+
+class ReviewQueuePage(BaseModel):
+    items: list[ReviewResponse]
+    total: int  # review in coda, tutte
+    offset: int
+    next_offset: int | None  # None = finite
+
+
+QUEUE_PAGE_MAX = 500
+
+
+@router.get("/queue", response_model=ReviewQueuePage)
+def review_queue(offset: int = Query(0, ge=0), limit: int = Query(100, ge=1, le=QUEUE_PAGE_MAX),
+                 session: Session = Depends(get_session)):
+    """La coda a pagine (audit 2026-10-18: prima sempre tutta, ricalcolata
+    dopo ogni decisione). Una pagina finisce sempre alla fine di un gruppo
+    (gli episodi singoli di una stagione, review.queue_groups), anche se
+    supera limit: la riga di una stagione non resta mai a metà fra due
+    pagine. La pagina dopo parte da next_offset."""
+    groups = review.queue_groups(session)
+    ends = list(accumulate(len(group) for group in groups))
+    total = ends[-1] if ends else 0
+    ids = [review_id for group in groups for review_id in group]
+    wanted = min(offset + limit, total)
+    end = ends[bisect_left(ends, wanted)] if wanted > offset else offset
+    return ReviewQueuePage(
+        items=ReviewResponse.many(session, review.load_reviews(session, ids[offset:end])),
+        total=total, offset=offset, next_offset=end if end < total else None,
+    )
 
 
 @router.post("/{review_id}/approve", response_model=ReviewResponse)
@@ -270,9 +361,11 @@ class ReconcileResponse(BaseModel):
 def recent_seed_jobs(limit: int = 50, session: Session = Depends(get_session)):
     """Ultime esecuzioni, dalla più recente: l'interfaccia le osserva per
     avvisare quando un recheck in background finisce (seeding o fallito)."""
-    rows = session.query(SeedJob).order_by(SeedJob.id.desc()).limit(max(1, min(limit, 200))).all()
-    in_client = review.hashes_in_clients(session)
-    return [SeedJobResponse.from_model(sj, in_client) for sj in rows]
+    rows = (
+        session.query(SeedJob).options(selectinload(SeedJob.candidate).joinedload(Candidate.tracker))
+        .order_by(SeedJob.id.desc()).limit(max(1, min(limit, 200))).all()
+    )
+    return seed_job_responses(session, rows)
 
 
 @router.post("/seed-jobs/reconcile", response_model=ReconcileResponse)
@@ -302,7 +395,13 @@ def delete_seed_job(seed_job_id: int, session: Session = Depends(get_session)):
 
 @router.get("/failed", response_model=list[SeedJobResponse])
 def list_failed(session: Session = Depends(get_session)):
-    return [SeedJobResponse.from_model(sj) for sj in review.list_failed_seed_jobs(session)]
+    """Le esecuzioni fallite (la CLI): prima ogni riga rileggeva tutti gli
+    info hash dei client."""
+    rows = (
+        session.query(SeedJob).options(selectinload(SeedJob.candidate).joinedload(Candidate.tracker))
+        .filter(SeedJob.final_status == "failed").order_by(SeedJob.id).all()
+    )
+    return seed_job_responses(session, rows)
 
 
 @router.post("/failed/{seed_job_id}/retry", response_model=SeedJobResponse)
@@ -330,11 +429,18 @@ class CandidateAuditResponse(BaseModel):
     layout: LayoutSummary | None = None
 
 
+# Torrent mostrati nell'audit di un contenuto: abbastanza per vederne ogni
+# release su più tracker, mai migliaia di righe.
+MAX_AUDIT_CANDIDATES = 100
+
+
 @router.get("/candidates/{media_item_id}", response_model=list[CandidateAuditResponse])
 def list_candidates_for_media_item(media_item_id: int, session: Session = Depends(get_session)):
-    """Sola lettura, per audit: ogni candidate valutato per un media_item,
-    non solo quello scelto per la review (docs/SPEC.md sezione 6)."""
-    rows = session.query(Candidate).filter_by(media_item_id=media_item_id).order_by(Candidate.confidence.desc()).all()
+    """Sola lettura, per audit: ogni torrent valutato per un media_item, non
+    solo quello scelto per la review (docs/SPEC.md sezione 6), con la sua
+    valutazione più recente, dal più plausibile."""
+    rows = review.one_per_torrent(session, [media_item_id], limit=MAX_AUDIT_CANDIDATES, newest=True,
+                                  by_direction=True)
     return [
         CandidateAuditResponse(
             id=c.id, tracker_id=c.tracker_id, name=c.name, direction=c.direction,

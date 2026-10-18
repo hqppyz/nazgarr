@@ -8,6 +8,7 @@ export const reseeding = {
   'reseeding.verifyFailed': 'hash check failed',
   'reseeding.reject': 'Reject',
   'reseeding.noPendingReviews': 'No pending reviews.',
+  'reseeding.queueTotal': '{count} waiting for a decision',
   'reseeding.seasonPack': 'Season pack',
   'reseeding.withExtras': 'Torrent with extra files',
   'reseeding.videosVerified': '{matched}/{total} videos matched, {verified} verified by piece hash',
