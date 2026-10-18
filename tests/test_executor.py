@@ -702,3 +702,63 @@ def test_a_download_link_that_is_a_local_path_is_never_read_or_sent(db_session, 
 
     assert adapter.add_torrent_calls[0]["content"] == _movie_torrent()
     assert _tracker_torrent["links"] == [str(secret)]  # chiesto al tracker, mai aperto qui
+
+
+class _ClientDown(FakeAdapter):
+    def add_torrent(self, *a, **kw):
+        raise RuntimeError("client down")
+
+    def get_torrent_info(self, info_hash):
+        return None  # risponde: quel torrent non ce l'ha
+
+
+def test_a_single_file_add_that_fails_removes_only_the_hardlink_it_created(db_session, tmp_path):
+    # Prima il percorso a file singolo lasciava l'hardlink, quello dei pack
+    # lo toglieva: ora una regola sola.
+    root, disk, tracker, item, run = _base_setup(db_session, tmp_path)
+    media_file_path, review = _single_file_review(db_session, root, disk, tracker, item, run)
+
+    with pytest.raises(executor.ExecutionError, match="client down"):
+        executor.execute_review(db_session, review, _ClientDown())
+
+    assert not (root / "torrents" / "Movie.2024.mkv").exists()
+    assert media_file_path.read_bytes() == b"content"  # il file in libreria non si tocca mai
+
+
+def test_a_reused_hardlink_stays_when_the_add_fails(db_session, tmp_path):
+    root, disk, tracker, item, run = _base_setup(db_session, tmp_path)
+    media_file_path, review = _single_file_review(db_session, root, disk, tracker, item, run)
+    os.link(media_file_path, root / "torrents" / "Movie.2024.mkv")  # un cross-seed già in seed
+
+    with pytest.raises(executor.ExecutionError):
+        executor.execute_review(db_session, review, _ClientDown())
+
+    assert os.path.samefile(media_file_path, root / "torrents" / "Movie.2024.mkv")
+
+
+def test_a_seed_file_linked_outside_the_disk_is_refused_before_the_client(db_session, tmp_path):
+    root, disk, tracker, item, run = _base_setup(db_session, tmp_path)
+    outside = tmp_path / "elsewhere.mkv"
+    outside.write_bytes(b"content")
+    (root / "torrents" / "Standalone.2024.mkv").symlink_to(outside)
+    seed_file = SeedFile(
+        disk_id=disk.id, relative_path="torrents/Standalone.2024.mkv", size_bytes=7, st_dev=1, inode=2,
+        last_scan_id=run.id, last_seen_at=datetime.now(UTC),
+    )
+    db_session.add(seed_file)
+    db_session.commit()
+    candidate = Candidate(
+        media_item_id=item.id, tracker_id=tracker.id, torrent_id_remote="1", name="Standalone.2024.mkv",
+        size_bytes=7, source="catalog_search", direction="torrent_to_client", confidence=1.0,
+        download_link="https://t.example/dl/1",
+    )
+    db_session.add(candidate)
+    db_session.commit()
+    review = MatchReview(candidate_id=candidate.id, seed_file_id=seed_file.id, status="approved")
+    db_session.add(review)
+    db_session.commit()
+    adapter = FakeAdapter()
+
+    with pytest.raises(executor.ExecutionError, match="scope"):
+        executor.execute_review(db_session, review, adapter)
+    assert adapter.add_torrent_calls == []
