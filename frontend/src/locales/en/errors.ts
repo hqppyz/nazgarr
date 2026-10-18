@@ -135,6 +135,7 @@ export const errors = {
   'errors.upload_prepare_failed': 'Preparing the upload failed: {error}',
   'errors.upload_job_busy': 'This upload is still finishing a tracker: wait a moment, then try again.',
   'errors.upload_already_in_client': '{client} already has this torrent, in another folder ({path}): nothing was moved. Remove it there, or seed it by hand.',
+  'errors.upload_planned_files_missing': 'Some files of this upload are missing from its folder for uploads: {files}',
   'errors.upload_reseed_missing_video': "The tracker's torrent has a video Nazgarr can't find locally: {path}",
   'errors.upload_freeleech_not_allowed': '{tracker} does not allow a {value}% freeleech.',
   'errors.tracker_icon_not_available': 'This tracker has no usable icon.',

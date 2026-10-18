@@ -1246,3 +1246,58 @@ def test_a_retried_seed_uses_the_trackers_own_torrent(db_session, tmp_path, env,
         assert "seed_retry_own_torrent" not in codes
     else:
         assert added.source == "a" and "seed_retry_own_torrent" in codes
+
+
+# --- quello che entra nel torrent (audit 2026-10-18) ---------------------------
+
+
+def test_only_the_planned_files_enter_a_torrent_built_from_hardlinks(db_session, tmp_path, env, monkeypatch):
+    """La cartella con il nome del torrent nella cartella di seed aveva già
+    un file (un upload precedente, la promo di un altro tracker): finiva
+    pubblicato e in seed senza che la decisione lo mostrasse."""
+    from nazgarr.upload import file_names as upload_file_names
+
+    folder = env["root"] / "media" / "The Matrix (1999)"
+    write_video(folder / "The Matrix (1999).mkv", 300 * KB)
+    (folder / "The Matrix (1999).nfo").write_text("nfo")
+    job = _approved(db_session, env, "media/The Matrix (1999)", {"a": _upload("Matrix A"), "b": {"action": "skip"}},
+                    file_naming="generated")
+    name = upload_file_names.plan(db_session, job).content_name
+    stale = env["root"] / "torrents" / name / "Other.Tracker.Promo.txt"
+    stale.parent.mkdir(parents=True)
+    stale.write_text("promo")
+    threads = []
+    real_generate = torf.Torrent.generate
+
+    def generate(self, **kwargs):
+        threads.append(kwargs.get("threads"))
+        return real_generate(self, **kwargs)
+
+    monkeypatch.setattr(torf.Torrent, "generate", generate)
+    _run(db_session, tmp_path, job)
+
+    assert job.status == "done", [e.code for e in job.events]
+    files = sorted("/".join(f.parts) for f in torf.Torrent.read(job.targets[0].torrent_path).files)
+    assert files and all(not f.endswith("Promo.txt") for f in files)
+    event = next(e for e in job.events if e.code == "upload_extra_files_left_out")
+    assert json.loads(event.params_json)["files"] == [f"{name}/Other.Tracker.Promo.txt"]
+    assert stale.is_file()  # non è di questo job: resta dov'è
+    assert threads and 1 <= threads[0] <= upload_execute.HASH_THREADS
+
+
+def test_a_symlink_added_to_the_source_after_the_decision_stops_the_upload(db_session, tmp_path, env):
+    """Il controllo dei link simbolici si faceva solo alla creazione del job;
+    torf li segue, e il file a cui puntano finiva nel torrent pubblicato."""
+    folder = env["root"] / "media" / "Movie (2024)"
+    write_video(folder / "Movie.mkv", 300 * KB)
+    (folder / "Movie.nfo").write_text("nfo")
+    job = _approved(db_session, env, "media/Movie (2024)", {"a": _upload("Movie A"), "b": {"action": "skip"}})
+    secret = tmp_path / "secret.key"
+    secret.write_text("key")
+    (folder / "extra.txt").symlink_to(secret)
+
+    _run(db_session, tmp_path, job)
+
+    target = job.targets[0]
+    assert (target.status, target.error_message) == ("failed", "upload_source_has_symlinks")
+    assert env["trackers"]["a"].uploads == []

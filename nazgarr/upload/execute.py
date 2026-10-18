@@ -171,6 +171,8 @@ def prepare_content(session: Session, job: UploadJob, ctx: dict) -> str:
     pairs = [(source, os.path.join(base, *target.split("/"))) for source, target in plan.files]
     ctx["created_links"] = link_files(pairs, root)
     ctx["save_path"] = base
+    # Nel torrent solo questi: la cartella può avere già altro (hash_pieces).
+    ctx["planned"] = [target for _source, target in pairs]
     refresh_mediainfo(session, job, plan, base)
     return os.path.join(base, *plan.content_name.split("/"))
 
@@ -209,8 +211,42 @@ def refresh_mediainfo(session: Session, job: UploadJob, plan, root: str | None) 
     session.commit()
 
 
-def hash_pieces(session: Session, job: UploadJob, path: str | None = None) -> torf.Torrent:
+# Thread di hashing di torf: di default uno per core dell'host (in Docker
+# tutti, anche con --cpus), e ognuno tiene in memoria il suo piece da 16 MiB.
+# Quattro leggono già più veloce di qualunque disco (audit 2026-10-18).
+HASH_THREADS = 4
+
+
+def _only_planned(session: Session, job: UploadJob, torrent: torf.Torrent, root: str, planned: list[str]) -> None:
+    """Un torrent fatto dagli hardlink appena creati contiene esattamente
+    quei file (audit 2026-10-18): la cartella con quel nome nella cartella di
+    seed può avere già altro (la release originale con la promo di un altro
+    tracker, un upload precedente con un sottotitolo tolto da allora), che
+    finiva pubblicato e in seed senza che la decisione lo mostrasse. Quello
+    in più resta fuori, e il registro lo dice."""
+    parent = os.path.dirname(root.rstrip(os.sep))
+    expected = {os.path.relpath(path, parent).replace(os.sep, "/") for path in planned}
+    extras = sorted({"/".join(f.parts) for f in torrent.files} - expected)
+    if extras:
+        torrent.exclude_regexs = [*torrent.exclude_regexs, *("^" + re.escape(extra) + "$" for extra in extras)]
+        upload_jobs.log_event(session, job, "upload_extra_files_left_out", level="warning", count=len(extras),
+                              files=extras[:10])
+        session.commit()
+    missing = sorted(expected - {"/".join(f.parts) for f in torrent.files})
+    if missing:
+        raise UploadJobError("upload_planned_files_missing", files=", ".join(missing[:5]))
+
+
+def hash_pieces(session: Session, job: UploadJob, path: str | None = None,
+                planned: list[str] | None = None) -> torf.Torrent:
+    """planned: i file (assoluti) degli hardlink appena creati da
+    prepare_content, gli unici che entrano nel torrent."""
     root = path or job.source_path
+    if planned is None and (os.path.islink(root.rstrip(os.sep)) or upload_jobs.has_symlinks(root)):
+        # La sorgente stessa: torf segue i link simbolici, e il file a cui
+        # puntano finirebbe nel torrent pubblicato. Controllato alla
+        # creazione del job, e di nuovo qui: fra le due possono passare giorni.
+        raise UploadJobError("upload_source_has_symlinks", path=job.relative_path)
     # Fuori i file che la regola di analisi e nomi esclude
     # (nazgarr/upload/inventory.py), uno per uno: mai dei glob sul percorso,
     # che toglievano un film con "Sample" nel titolo. Per nome esatto nel
@@ -223,6 +259,8 @@ def hash_pieces(session: Session, job: UploadJob, path: str | None = None) -> to
         if not upload_inventory.in_torrent(f.relative, f.size)
     ]
     torrent = torf.Torrent(path=root, private=True, exclude_regexs=excluded, created_by=CREATED_BY)
+    if planned is not None:
+        _only_planned(session, job, torrent, root, planned)
     if not torrent.files:
         raise UploadJobError("no_video_files")
 
@@ -233,7 +271,8 @@ def hash_pieces(session: Session, job: UploadJob, path: str | None = None) -> to
         return True if job.status == "cancelled" else None
 
     _progress(session, job, "hashing", 0, None)
-    torrent.generate(callback=callback, interval=PROGRESS_EVERY_SECONDS)
+    torrent.generate(threads=min(HASH_THREADS, os.cpu_count() or 1), callback=callback,
+                     interval=PROGRESS_EVERY_SECONDS)
     session.refresh(job)
     if job.status == "cancelled":
         raise _Cancelled()
@@ -981,7 +1020,8 @@ def _prepare(session: Session, job: UploadJob, worker, ctx: dict, targets: list[
         return
     overrides = ctx["overrides"]
     try:
-        ctx["torrent"] = hash_pieces(session, job, prepare_content(session, job, ctx))
+        content = prepare_content(session, job, ctx)
+        ctx["torrent"] = hash_pieces(session, job, content, ctx.get("planned"))
         # Per la barra degli step (ProgressStep): i passaggi conclusi restano segnati.
         upload_jobs.log_event(session, job, "torrent_created")
         session.commit()
