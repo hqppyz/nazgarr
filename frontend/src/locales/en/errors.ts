@@ -139,6 +139,7 @@ export const errors = {
   'errors.upload_retry_nothing': 'Nothing to retry: no tracker of this upload failed before publishing. One published but not seeding is retried with Retry seeding.',
   'errors.upload_retry_needs_confirm': '{trackers}: the sending was interrupted, or failed after the request went out, and Nazgarr does not know whether the tracker received it. Check on the tracker that the torrent is not there, then confirm the retry.',
   'errors.upload_outcome_unknown': 'Sending to the tracker failed after the request went out ({error}): Nazgarr does not know whether the tracker received it. Check on the tracker before retrying.',
+  'errors.upload_torrent_files_mismatch': 'The torrent would not hold exactly the files of this upload ({files}): nothing was sent.',
   'errors.upload_reseed_missing_video': "The tracker's torrent has a video Nazgarr can't find locally: {path}",
   'errors.upload_freeleech_not_allowed': '{tracker} does not allow a {value}% freeleech.',
   'errors.tracker_icon_not_available': 'This tracker has no usable icon.',

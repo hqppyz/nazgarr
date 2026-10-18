@@ -139,6 +139,7 @@ export const errors = {
   'errors.upload_retry_nothing': 'Niente da riprovare: nessun tracker di questo upload è fallito prima di pubblicare. Uno pubblicato ma non in seed si riprova con Riprova il seed.',
   'errors.upload_retry_needs_confirm': "{trackers}: l'invio si è interrotto, o è fallito dopo che la richiesta era partita, e Nazgarr non sa se il tracker l'ha ricevuto. Controlla sul tracker che il torrent non ci sia, poi conferma il nuovo tentativo.",
   'errors.upload_outcome_unknown': "L'invio al tracker è fallito dopo che la richiesta era partita ({error}): Nazgarr non sa se il tracker l'ha ricevuto. Controlla sul tracker prima di riprovare.",
+  'errors.upload_torrent_files_mismatch': 'Il torrent non avrebbe esattamente i file di questo upload ({files}): non si è inviato niente.',
   'errors.upload_reseed_missing_video': 'Il torrent del tracker ha un video che Nazgarr non trova in locale: {path}',
   'errors.upload_freeleech_not_allowed': '{tracker} non permette un freeleech del {value}%.',
   'errors.tracker_icon_not_available': 'Questo tracker non ha un’icona utilizzabile.',

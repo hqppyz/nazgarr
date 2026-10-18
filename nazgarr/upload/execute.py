@@ -219,36 +219,62 @@ def refresh_mediainfo(session: Session, job: UploadJob, plan, root: str | None) 
 HASH_THREADS = 4
 
 
-def _only_planned(session: Session, job: UploadJob, torrent: torf.Torrent, root: str, planned: list[str]) -> None:
-    """Un torrent fatto dagli hardlink appena creati contiene esattamente
-    quei file (audit 2026-10-18): la cartella con quel nome nella cartella di
-    seed può avere già altro (la release originale con la promo di un altro
-    tracker, un upload precedente con un sottotitolo tolto da allora), che
-    finiva pubblicato e in seed senza che la decisione lo mostrasse. Quello
-    in più resta fuori, e il registro lo dice."""
+def _exclude_exact(relative: str) -> str:
+    """Il regex che toglie dal torrent proprio quel file ("Nome/percorso").
+    torf lo confronta con il percorso preceduto dalla cartella sopra quella
+    in comune fra tutti i file: con un file solo, o tutti nella stessa
+    sottocartella, "Nome/Nome/percorso" invece di "Nome/percorso", e un
+    "^Nome/percorso$" non toglieva niente (audit 2026-10-18). Per questo
+    l'inizio vale anche dopo una "/"; il controllo dei file del torrent in
+    hash_pieces ferma comunque un torrent diverso dal previsto."""
+    return "(?:^|/)" + re.escape(relative) + "$"
+
+
+def _torrent_files(torrent: torf.Torrent) -> set[str]:
+    return {"/".join(f.parts) for f in torrent.files}
+
+
+def _expected_files(root: str, planned: list[str] | None) -> set[str]:
+    """I file che il torrent deve avere, come "Nome/percorso": gli hardlink
+    appena creati (planned), o quelli della sorgente che la regola di
+    analisi e nomi fa entrare (nazgarr/upload/inventory.py). Mai un file
+    vuoto: torf non li mette, e non hanno dati da condividere."""
     parent = os.path.dirname(root.rstrip(os.sep))
-    expected = {os.path.relpath(path, parent).replace(os.sep, "/") for path in planned}
-    extras = sorted({"/".join(f.parts) for f in torrent.files} - expected)
-    if extras:
-        torrent.exclude_regexs = [*torrent.exclude_regexs, *("^" + re.escape(extra) + "$" for extra in extras)]
-        upload_jobs.log_event(session, job, "upload_extra_files_left_out", level="warning", count=len(extras),
-                              files=extras[:10])
-        session.commit()
-    missing = sorted(expected - {"/".join(f.parts) for f in torrent.files})
-    if missing:
-        raise UploadJobError("upload_planned_files_missing", files=", ".join(missing[:5]))
+    if planned is not None:
+        out = set()
+        for path in planned:
+            with contextlib.suppress(OSError):
+                if os.path.getsize(path) == 0:
+                    continue
+            out.add(os.path.relpath(path, parent).replace(os.sep, "/"))  # uno che manca resta: lo dice il controllo
+        return out
+    name = os.path.basename(root.rstrip(os.sep))
+    if not os.path.isdir(root):
+        return {name} if os.path.isfile(root) and os.path.getsize(root) > 0 else set()
+    return {f"{name}/{f.relative}" for f in upload_inventory.torrent_files(root) if f.size > 0}
 
 
 def hash_pieces(session: Session, job: UploadJob, path: str | None = None,
                 planned: list[str] | None = None) -> torf.Torrent:
     """planned: i file (assoluti) degli hardlink appena creati da
-    prepare_content, gli unici che entrano nel torrent."""
+    prepare_content, gli unici che entrano nel torrent.
+
+    Il torrent ha esattamente i file previsti (audit 2026-10-18): la
+    cartella con quel nome nella cartella di seed può avere già altro (la
+    release originale con la promo di un altro tracker, un upload precedente
+    con un sottotitolo tolto da allora), che finiva pubblicato e in seed
+    senza che la decisione lo mostrasse. Quello in più resta fuori, e il
+    registro lo dice; se torf non riesce a toglierlo, o manca un file
+    previsto, l'upload si ferma prima di arrivare al tracker."""
     root = path or job.source_path
     if planned is None and (os.path.islink(root.rstrip(os.sep)) or upload_jobs.has_symlinks(root)):
         # La sorgente stessa: torf segue i link simbolici, e il file a cui
         # puntano finirebbe nel torrent pubblicato. Controllato alla
         # creazione del job, e di nuovo qui: fra le due possono passare giorni.
         raise UploadJobError("upload_source_has_symlinks", path=job.relative_path)
+    expected = _expected_files(root, planned)
+    if not expected:
+        raise UploadJobError("no_video_files")
     # Fuori i file che la regola di analisi e nomi esclude
     # (nazgarr/upload/inventory.py), uno per uno: mai dei glob sul percorso,
     # che toglievano un film con "Sample" nel titolo. Per nome esatto nel
@@ -256,15 +282,27 @@ def hash_pieces(session: Session, job: UploadJob, path: str | None = None,
     # cartella anche se rimane un file solo.
     name = os.path.basename(root.rstrip(os.sep))
     excluded = [
-        "^" + re.escape(f"{name}/{f.relative}") + "$"
+        _exclude_exact(f"{name}/{f.relative}")
         for f in (upload_inventory.walk(root) if os.path.isdir(root) else [])
         if not upload_inventory.in_torrent(f.relative, f.size)
     ]
     torrent = torf.Torrent(path=root, private=True, exclude_regexs=excluded, created_by=CREATED_BY)
-    if planned is not None:
-        _only_planned(session, job, torrent, root, planned)
-    if not torrent.files:
-        raise UploadJobError("no_video_files")
+    extras = sorted(_torrent_files(torrent) - expected)
+    if extras:
+        # Un Torrent nuovo, con tutte le esclusioni: riassegnare
+        # exclude_regexs con quelle che ha già fallisce dentro torf.
+        torrent = torf.Torrent(path=root, private=True, exclude_regexs=[*excluded, *map(_exclude_exact, extras)],
+                               created_by=CREATED_BY)
+    actual = _torrent_files(torrent)
+    missing = sorted(expected - actual)
+    if missing and planned is not None:
+        raise UploadJobError("upload_planned_files_missing", files=", ".join(missing[:5]))
+    if actual != expected:
+        raise UploadJobError("upload_torrent_files_mismatch", files=", ".join(sorted(actual ^ expected)[:5]))
+    if extras and planned is not None:
+        upload_jobs.log_event(session, job, "upload_extra_files_left_out", level="warning", count=len(extras),
+                              files=extras[:10])
+        session.commit()
 
     def callback(_torrent, _path, done, total):
         _progress(session, job, "hashing", done, total)

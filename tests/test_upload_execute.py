@@ -1518,3 +1518,65 @@ def test_a_failure_before_sending_never_asks_for_a_confirmation(db_session, tmp_
     assert job.targets[0].error_message == "tracker_missing_announce_url"
     upload_jobs.retry_failed(db_session, job)
     assert job.status == "queued"
+
+
+# --- i file del torrent, come li conta torf (audit 2026-10-18) -----------------
+
+
+def _hash_job(db_session, env):
+    video = write_video(env["root"] / "media" / "Movie.2024.mkv", 100 * KB)
+    return _approved(db_session, env, "media/" + video.name, {"a": _upload("A"), "b": {"action": "skip"}})
+
+
+def test_a_folder_with_a_single_unrelated_file_never_becomes_the_torrent(db_session, env):
+    """torf confronta i regex con "Nome/Nome/file" quando la cartella ha un
+    file solo: "^Nome/file$" non lo toglieva, e il torrent era quel file."""
+    job = _hash_job(db_session, env)
+    root = env["root"] / "torrents" / "Movie.2024"
+    (root).mkdir()
+    (root / "Other.Release.mkv").write_bytes(b"y" * 4096)
+
+    with pytest.raises(UploadJobError) as exc:
+        upload_execute.hash_pieces(db_session, job, str(root), planned=[])
+    assert exc.value.code == "no_video_files"
+    with pytest.raises(UploadJobError) as exc:
+        upload_execute.hash_pieces(db_session, job, str(root), planned=[str(root / "Movie.2024.mkv")])
+    assert exc.value.code == "upload_planned_files_missing"
+    assert "upload_extra_files_left_out" not in [e.code for e in job.events]
+
+
+def test_extras_next_to_the_planned_files_in_one_subfolder_stay_out(db_session, env):
+    job = _hash_job(db_session, env)
+    root = env["root"] / "torrents" / "Show.S01"
+    planned = write_video(root / "Season 1" / "Show.S01E01.mkv", 64 * KB)
+    (root / "Season 1" / "Show.S01E01.en.srt").write_text("old subtitle")
+
+    torrent = upload_execute.hash_pieces(db_session, job, str(root), planned=[str(planned)])
+
+    assert ["/".join(f.parts) for f in torrent.files] == ["Show.S01/Season 1/Show.S01E01.mkv"]
+    event = next(e for e in job.events if e.code == "upload_extra_files_left_out")
+    assert json.loads(event.params_json)["files"] == ["Show.S01/Season 1/Show.S01E01.en.srt"]
+
+
+def test_a_torrent_that_differs_from_the_plan_never_reaches_the_tracker(db_session, tmp_path, env, monkeypatch):
+    """Se torf non toglie un file in più (qualunque sia il motivo), l'upload
+    si ferma: mai un torrent con file che la decisione non mostrava."""
+    from nazgarr.upload import file_names as upload_file_names
+
+    folder = env["root"] / "media" / "The Matrix (1999)"
+    write_video(folder / "The Matrix (1999).mkv", 300 * KB)
+    (folder / "The Matrix (1999).nfo").write_text("nfo")
+    job = _approved(db_session, env, "media/The Matrix (1999)", {"a": _upload("Matrix A"), "b": {"action": "skip"}},
+                    file_naming="generated")
+    name = upload_file_names.plan(db_session, job).content_name
+    stale = env["root"] / "torrents" / name / "Other.Tracker.Promo.txt"
+    stale.parent.mkdir(parents=True)
+    stale.write_text("promo")
+    monkeypatch.setattr(upload_execute, "_exclude_exact", lambda relative: "^never$")
+
+    _run(db_session, tmp_path, job)
+
+    target = job.targets[0]
+    assert (target.status, target.error_message) == ("failed", "upload_torrent_files_mismatch")
+    assert env["trackers"]["a"].uploads == []
+    assert "upload_extra_files_left_out" not in [e.code for e in job.events]
