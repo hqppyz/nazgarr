@@ -1,5 +1,5 @@
 import { FolderIcon, HardDriveIcon, InfoIcon, PencilIcon, PlusIcon, XIcon, ZapIcon } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { toast } from 'sonner'
 
 import {
@@ -46,15 +46,13 @@ function AddDiskDialog({ preset, onClose }: { preset?: DiskPreset | null; onClos
   const open = controlled ? preset !== null : openState
   const setOpen = (value: boolean) => (controlled ? !value && onClose?.() : setOpenState(value))
   const [label, setLabel] = useState(preset?.label ?? '')
-  const [rootPath, setRootPath] = useState(preset?.root ?? '')
+  // null finché nessuno l'ha toccato: allora root_path propone la prima
+  // cartella (il mount unico, caso comune, es. /data) così il campo non parte
+  // vuoto, e resta modificabile. Derivato al render, non copiato da un effetto.
+  const [rootPathDraft, setRootPath] = useState<string | null>(preset?.root ?? null)
   const { data: mounts } = useAvailableMounts()
   const createDisk = useCreateDisk()
-
-  // Precompila root_path con la prima cartella proposta (il mount unico, caso
-  // comune, es. /data) così il campo non parte vuoto — resta comunque modificabile.
-  useEffect(() => {
-    if (mounts?.scan_root && rootPath === '') setRootPath(mounts.mounts[0] ?? mounts.scan_root)
-  }, [mounts?.scan_root]) // eslint-disable-line react-hooks/exhaustive-deps
+  const rootPath = rootPathDraft ?? (mounts?.scan_root ? (mounts.mounts[0] ?? mounts.scan_root) : '')
 
   function submit() {
     createDisk.mutate(
@@ -97,7 +95,7 @@ function AddDiskDialog({ preset, onClose }: { preset?: DiskPreset | null; onClos
           {mounts?.mounts.length ? (
             <div className="grid gap-1.5">
               <Label>{t('disks.chooseSubfolder')}</Label>
-              <Select value={rootPath} onValueChange={setRootPath}>
+              <Select value={rootPath} onValueChange={(v) => v != null && setRootPath(v)}>
                 <SelectTrigger>
                   <SelectValue placeholder={t('disks.subfolderPlaceholder')} />
                 </SelectTrigger>

@@ -83,7 +83,8 @@ export function AppLayout() {
           <RemoteBar />
           {/* Sotto, spazio per i pannelli fissi in basso: sul telefono coprivano
               l'ultimo contenuto (es. il pulsante Approva di un upload). */}
-          <div className="flex-1 overflow-auto p-4 pb-28 md:p-6 md:pb-28 lg:pb-6">
+          {/* L'area che scorre: la radice degli IntersectionObserver (lib/scrollRoot). */}
+          <div data-scroll-root className="flex-1 overflow-auto p-4 pb-28 md:p-6 md:pb-28 lg:pb-6">
             <RemoteGate>
               {/* Una pagina che si rompe resta lì: menu, intestazione e pannelli
                   restano, e cambiare pagina riprova. */}

@@ -4,7 +4,7 @@ import { useLibraryDuplicates, useMediaFiles } from '@/api/hooks/library'
 import { FileBrowser } from '@/components/FileBrowser'
 import { LibraryViewSwitch } from '@/components/LibraryViewSwitch'
 import { useTreeMenu } from '@/components/useTreeMenu'
-import { useRingLoader } from '@/components/RingLoader'
+import { useRingLoader } from '@/hooks/use-ring-loader'
 import { t } from '@/lib/i18n'
 import { DUPLICATES_STATUS, fileKey, type StatusOption } from '@/lib/library-filters'
 

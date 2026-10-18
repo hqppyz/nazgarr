@@ -1,4 +1,4 @@
-import type { TreeFileEntry } from '@/components/FileTree'
+import type { TreeFileEntry } from '@/lib/fileTree'
 
 // Unica fonte di verità per i filtri delle viste ad albero (Media files /
 // Torrent files): toolbar, card riassuntive e tree leggono tutti da qui,

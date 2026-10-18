@@ -10,16 +10,6 @@ import { formatBytes } from '@/lib/library-filters'
 
 type Torrent = Schemas['NotImportedItem']
 
-// Quali avvisi impediscono la rimozione lo dice il server (blocking,
-// nazgarr/api/torrents.py BLOCKING_WARNINGS): gli altri, come "ultimo
-// seeder", si mostrano nella conferma ma non la bloccano.
-export function canRemove(torrent: Torrent): boolean {
-  return (
-    torrent.seed_requirement?.status === 'met' &&
-    !(torrent.removal_warnings ?? []).some((warning) => warning.blocking)
-  )
-}
-
 // La conferma: cosa succede (via dal client, file cancellati dal disco) e
 // gli avvisi che restano, prima del pulsante rosso.
 export function RemoveTorrentDialog({ torrent, onClose }: { torrent: Torrent | null; onClose: () => void }) {

@@ -59,6 +59,18 @@ describe('DisksSection', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Remove' }))
     expect(remove).toHaveBeenCalledWith({ diskId: 1, folderId: 12 }, expect.anything())
   })
+
+  it('proposes the mounted folder as root_path, and keeps what the user types (even empty)', () => {
+    render(<DisksSection />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add disk' }))
+    const root = screen.getByLabelText('root_path') as HTMLInputElement
+    expect(root.value).toBe('/data')
+    fireEvent.change(root, { target: { value: '/data/disk2' } })
+    expect(root.value).toBe('/data/disk2')
+    fireEvent.change(root, { target: { value: '' } })
+    expect(root.value).toBe('')
+  })
 })
 
 describe('deleting a disk', () => {

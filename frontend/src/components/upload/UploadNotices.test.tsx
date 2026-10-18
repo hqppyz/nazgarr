@@ -16,9 +16,9 @@ afterEach(() => {
   localStorage.clear()
 })
 
-const renderIt = () =>
+const renderIt = (client = new QueryClient()) =>
   render(
-    <QueryClientProvider client={new QueryClient()}>
+    <QueryClientProvider client={client}>
       <MemoryRouter>
         <UploadNotices />
       </MemoryRouter>
@@ -51,5 +51,39 @@ describe('UploadNotices', () => {
     expect(options.action.label).toBe('Open')
     expect(options.closeButton).toBe(true)
     expect(localStorage.getItem('nazgarr-upload-notice')).toBe('42')
+  })
+
+  it('asks the next poll from the last notice seen, without showing it again', async () => {
+    localStorage.setItem('nazgarr-upload-notice', '41')
+    const notice = { id: 42, upload_id: 7, kind: 'ready', title: 'My Movie', year: 2024, path: 'releases/My.Movie.mkv' }
+    get.mockResolvedValueOnce({ notices: [notice], latest_id: 42 })
+    get.mockResolvedValue({ notices: [notice], latest_id: 42 })
+    const client = new QueryClient()
+    renderIt(client)
+    await waitFor(() => expect(toast).toHaveBeenCalledTimes(1))
+    // Nessuna richiesta in più solo perché il cursore è avanzato.
+    expect(get).toHaveBeenCalledTimes(1)
+
+    await client.refetchQueries({ queryKey: ['uploads', 'notices'] })
+    expect(get).toHaveBeenCalledTimes(2)
+    expect(get.mock.calls[1][1]).toEqual({ params: { query: { after: 42 } } })
+    expect(toast).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not show again a notice still in the cache when it mounts again', async () => {
+    localStorage.setItem('nazgarr-upload-notice', '41')
+    const notice = { id: 42, upload_id: 7, kind: 'ready', title: 'My Movie', year: 2024, path: 'releases/My.Movie.mkv' }
+    get.mockResolvedValueOnce({ notices: [notice], latest_id: 42 })
+    get.mockResolvedValue({ notices: [], latest_id: 42 })
+    const client = new QueryClient()
+    const first = renderIt(client)
+    await waitFor(() => expect(toast).toHaveBeenCalledTimes(1))
+    first.unmount()
+
+    // Es. dopo una sessione scaduta: la risposta con l'avviso è ancora in cache.
+    renderIt(client)
+    await waitFor(() => expect(get).toHaveBeenCalledTimes(2))
+    expect(get.mock.calls[1][1]).toEqual({ params: { query: { after: 42 } } })
+    expect(toast).toHaveBeenCalledTimes(1)
   })
 })

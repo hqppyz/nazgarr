@@ -22,7 +22,7 @@ import { ScanHistoryCard } from '@/components/ScanHistoryCard'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { ToggleGroupItem, ToggleGroupSingle } from '@/components/ui/toggle-group'
-import { useRingLoader } from '@/components/RingLoader'
+import { useRingLoader } from '@/hooks/use-ring-loader'
 import { t } from '@/lib/i18n'
 import { formatBytes } from '@/lib/library-filters'
 import { healthLabel } from '@/lib/health'
@@ -199,7 +199,7 @@ function MetricCards({ data }: { data: Dashboard }) {
           seeding: formatBytes(num(data.seeding_media_size)),
           total: formatBytes(num(data.total_media_size)),
         })}
-        trend={data.total_media_size ? trendOf(num(data.health_pct), previous?.health_snapshot, false) : undefined}
+        trend={data.total_media_size ? trendOf(num(data.health_pct), previous?.health_snapshot, false) : null}
         description={t('dashboard.hardlinkedDescription')}
         action={{ label: t('dashboard.viewOrphanedMedia'), to: '/library/folder?status=orphan_media', icon: Link2Icon }}
       />

@@ -2,7 +2,7 @@ import { ExternalLinkIcon, TriangleAlertIcon, Undo2Icon } from 'lucide-react'
 import { useEffect } from 'react'
 
 import { useInstances, type Instance } from '@/api/hooks/instances'
-import { instanceDot } from '@/components/instances/InstanceSwitcher'
+import { instanceDot } from '@/components/instances/instanceStatus'
 import { Button } from '@/components/ui/button'
 import { t } from '@/lib/i18n'
 import { activeInstanceId, switchInstance } from '@/lib/instance'

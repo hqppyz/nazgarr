@@ -38,7 +38,15 @@ import { Switch } from '@/components/ui/switch'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { t } from '@/lib/i18n'
 import { autosaveFeedback } from '@/lib/autosave'
-import { arrConnectionBody, arrInstanceBody, emptyArrForm, type ArrInstanceForm } from '@/lib/arrInstanceForm'
+import {
+  arrConnectionBody,
+  arrInstanceBody,
+  emptyArrForm,
+  type ArrConnectionBody,
+  type ArrCreateBody,
+  type ArrInstanceForm,
+  type ArrUpdateBody,
+} from '@/lib/arrInstanceForm'
 import { InsecureUrlWarning } from '@/pages/config/InsecureUrlWarning'
 import { insecureUrlWarning } from '@/pages/config/insecureUrl'
 
@@ -49,53 +57,10 @@ import { insecureUrlWarning } from '@/pages/config/insecureUrl'
 // (nazgarr/integrations/arr_webhooks.py). La tabella è multi-istanza, stesso
 // pattern di Tracker/TorrentClient.
 // Test Connection usa l'endpoint Servarr /api/v3/system/status, uguale per i due.
-interface ArrInstance {
-  id: number
-  label: string
-  base_url: string
-  insecure_public_url?: boolean
-  enabled: boolean
-  priority: number
-  timeout_seconds: number
-  basic_auth_username: string | null
-  webhook_enabled?: boolean
-  webhook_last_event?: Schemas['ArrWebhookEventSummary'] | null
-}
-
-interface ArrInstanceWriteBody {
-  label: string
-  base_url: string
-  api_key: string
-  priority?: number
-  timeout_seconds?: number
-  basic_auth_username?: string
-  basic_auth_password?: string
-}
-
-interface ArrInstanceUpdateBody {
-  label?: string
-  base_url?: string
-  api_key?: string
-  enabled?: boolean
-  priority?: number
-  timeout_seconds?: number
-  basic_auth_username?: string
-  basic_auth_password?: string
-}
-
-interface ArrConnectionTestBody {
-  base_url: string
-  api_key: string
-  timeout_seconds?: number
-  basic_auth_username?: string
-  basic_auth_password?: string
-}
-
-interface ArrInstanceTestResult {
-  status: string
-  version?: string | null
-  error?: string | null
-}
+// I tipi vengono dallo schema OpenAPI (Radarr e Sonarr condividono i modelli,
+// src/lib/arrInstanceForm.ts): un campo che cambia nel backend rompe la build.
+type ArrInstance = Schemas['RadarrInstanceResponse']
+type ArrInstanceTestResult = Schemas['RadarrInstanceTestResponse']
 
 function toastTestResult(result: ArrInstanceTestResult) {
   if (result.status === 'ok') toast.success(t('integrations.connectedSuccess', { version: result.version ?? '?' }))
@@ -181,9 +146,9 @@ function ArrInstanceDialog({
   serviceName: string
   urlPlaceholder?: string
   instance?: ArrInstance
-  createMutation?: UseMutationResult<ArrInstance, Error, ArrInstanceWriteBody>
-  updateMutation?: UseMutationResult<ArrInstance, Error, { id: number; body: ArrInstanceUpdateBody }>
-  testConnectionMutation: UseMutationResult<ArrInstanceTestResult, Error, ArrConnectionTestBody>
+  createMutation?: UseMutationResult<ArrInstance, Error, ArrCreateBody>
+  updateMutation?: UseMutationResult<ArrInstance, Error, { id: number; body: ArrUpdateBody }>
+  testConnectionMutation: UseMutationResult<ArrInstanceTestResult, Error, ArrConnectionBody>
   testInstanceMutation?: UseMutationResult<ArrInstanceTestResult, Error, number>
 }) {
   const editing = instance != null
@@ -203,7 +168,7 @@ function ArrInstanceDialog({
         { onSuccess: () => { setOpen(false); setForm((f) => ({ ...f, apiKey: '', basicAuthPassword: '' })) }, onError },
       )
     } else if (createMutation) {
-      createMutation.mutate(arrInstanceBody(form, false) as ArrInstanceWriteBody, {
+      createMutation.mutate(arrInstanceBody(form, false), {
         onSuccess: () => { setOpen(false); setForm(emptyArrForm()) },
         onError,
       })
@@ -333,10 +298,10 @@ function ArrInstancesCard({
   urlPlaceholder: string
   instances: ArrInstance[] | undefined
   isPending: boolean
-  createMutation: UseMutationResult<ArrInstance, Error, ArrInstanceWriteBody>
-  updateMutation: UseMutationResult<ArrInstance, Error, { id: number; body: ArrInstanceUpdateBody }>
+  createMutation: UseMutationResult<ArrInstance, Error, ArrCreateBody>
+  updateMutation: UseMutationResult<ArrInstance, Error, { id: number; body: ArrUpdateBody }>
   deleteMutation: UseMutationResult<void, Error, number>
-  testConnectionMutation: UseMutationResult<ArrInstanceTestResult, Error, ArrConnectionTestBody>
+  testConnectionMutation: UseMutationResult<ArrInstanceTestResult, Error, ArrConnectionBody>
   testInstanceMutation: UseMutationResult<ArrInstanceTestResult, Error, number>
 }) {
   const actions = (instance: ArrInstance) => (

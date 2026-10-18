@@ -1,7 +1,8 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
-import { FileTree, type TreeFileEntry, type TreeRowActions } from '@/components/FileTree'
+import { FileTree, type TreeRowActions } from '@/components/FileTree'
+import type { TreeFileEntry } from '@/lib/fileTree'
 
 const file = (relative_path: string, overrides: Partial<TreeFileEntry> = {}): TreeFileEntry => ({
   relative_path, state: 'orphan_media', excluded: false, linked_paths: [], size_bytes: 1, ...overrides,

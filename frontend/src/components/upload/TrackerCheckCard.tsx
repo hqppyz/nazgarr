@@ -193,7 +193,10 @@ export function TrackerCheckCard({
                           {verifying ? t('upload.dupes.verifying') : t('upload.dupes.verify')}
                         </Button>
                       )}
-                      <span className="text-muted-foreground tabular-nums">{formatBytes(dupe.size_bytes)}</span>
+                      {/* Non tutti i tracker danno la dimensione: senza, niente "null B". */}
+                      {dupe.size_bytes != null && (
+                        <span className="text-muted-foreground tabular-nums">{formatBytes(dupe.size_bytes)}</span>
+                      )}
                     </div>
                   </li>
                 )

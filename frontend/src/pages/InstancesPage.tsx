@@ -2,7 +2,7 @@ import { ServerIcon } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
 import { useInstances, useInstanceSnapshot, type Instance } from '@/api/hooks/instances'
-import { instanceDot, useLocalName } from '@/components/instances/InstanceSwitcher'
+import { instanceDot, useLocalName } from '@/components/instances/instanceStatus'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { t } from '@/lib/i18n'

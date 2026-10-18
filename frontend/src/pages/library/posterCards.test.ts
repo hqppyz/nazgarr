@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { toCards } from '@/pages/library/PosterView'
+import { toCards } from '@/pages/library/posterCards'
 
 const file = (state: string, excluded = false) => ({
   media_file_id: 1, disk_id: 1, relative_path: 'x.mkv', size_bytes: 10, state, excluded, linked_paths: [],

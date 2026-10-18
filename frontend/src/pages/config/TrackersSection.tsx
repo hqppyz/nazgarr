@@ -22,13 +22,8 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useTorrentClients } from '@/api/hooks/torrentClients'
 import { usePlugins } from '@/api/hooks/plugins'
-import {
-  AdapterConfigFields,
-  configPayload,
-  initialConfigValues,
-  missingRequired,
-  type ConfigValues,
-} from '@/components/AdapterConfigFields'
+import { AdapterConfigFields } from '@/components/AdapterConfigFields'
+import { configPayload, initialConfigValues, missingRequired, type ConfigValues } from '@/lib/adapterConfig'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { t, uiLocale } from '@/lib/i18n'
@@ -239,7 +234,7 @@ function AddTrackerDialog() {
         <div className="grid gap-3">
           <div className="grid gap-1.5" data-tour="trackers.dialog.preset">
             <Label>{t('trackers.preset')}</Label>
-            <Select value={presetKey} onValueChange={applyPreset}>
+            <Select value={presetKey} onValueChange={(v) => v != null && applyPreset(v)}>
               <SelectTrigger>
                 <SelectValue placeholder={t('trackers.presetPlaceholder')}>
                   {(v: string | null) =>

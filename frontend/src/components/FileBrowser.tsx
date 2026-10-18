@@ -2,10 +2,11 @@ import { useCallback, useDeferredValue, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
 import { FileFilterBar } from '@/components/FileFilterBar'
-import { FileTree, packable, packFile, type TreeFileEntry, type TreeRowActions } from '@/components/FileTree'
+import { FileTree, type TreeRowActions } from '@/components/FileTree'
 import { LibrarySummaryCards } from '@/components/LibrarySummaryCards'
 import { PackBar, PackSelectButton } from '@/components/upload/PackBar'
 import { Card } from '@/components/ui/card'
+import { packable, packFile, type TreeFileEntry } from '@/lib/fileTree'
 import {
   DEFAULT_FILTERS,
   filterFiles,

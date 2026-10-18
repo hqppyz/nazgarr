@@ -11,7 +11,7 @@ import {
   useUpdateInstance,
   type Instance,
 } from '@/api/hooks/instances'
-import { instanceDot } from '@/components/instances/InstanceSwitcher'
+import { instanceDot } from '@/components/instances/instanceStatus'
 import { SettingsHeader } from '@/components/SettingsHeader'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'

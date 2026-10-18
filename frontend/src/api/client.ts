@@ -34,17 +34,34 @@ api.use({
     // Un'altra istanza: la stessa chiamata, attraverso il proxy di questa.
     const url = new URL(request.url)
     const path = instancePath(url.pathname)
-    if (path !== url.pathname) {
-      url.pathname = path
-      return new Request(url, request)
-    }
-    return request
+    if (path === url.pathname) return request
+    url.pathname = path
+    return rerouted(request, url)
   },
   async onResponse({ response }) {
     if (response.status === 401 && (await isSessionFailure(response))) clearToken()
     return response
   },
 })
+
+// La stessa richiesta verso un altro URL. Non `new Request(url, request)`:
+// con una Request al posto delle opzioni, metodo, header e corpo passano
+// solo dove le sue proprietà si leggono come un dizionario (non in undici),
+// e il corpo diventa uno stream, che vuole `duplex` e HTTP/2 in Chrome e che
+// Firefox e Safari non mandano. Il corpo si legge qui, una volta: sono JSON
+// piccoli (audit 2026-10-18).
+async function rerouted(request: Request, url: URL): Promise<Request> {
+  const buffer = request.method === 'GET' || request.method === 'HEAD' ? null : await request.arrayBuffer()
+  return new Request(url, {
+    method: request.method,
+    headers: request.headers,
+    body: buffer && buffer.byteLength > 0 ? buffer : undefined,
+    signal: request.signal,
+    credentials: request.credentials,
+    cache: request.cache,
+    redirect: request.redirect,
+  })
+}
 
 // Le due risposte di questa istanza a una sessione che non vale più
 // (nazgarr/web/auth.py::require_auth, nazgarr/api/auth.py::me).

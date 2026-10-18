@@ -23,7 +23,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { useRingLoader } from '@/components/RingLoader'
+import { useRingLoader } from '@/hooks/use-ring-loader'
 import { t } from '@/lib/i18n'
 import { formatWhen, isFuture } from '@/lib/schedule'
 import { sourceLabel } from '@/lib/upload'
@@ -48,6 +48,7 @@ function Poster({ job }: { job: UploadJobSummary }) {
       hasPoster
       url={posterUrl({ content_type: job.content_type as 'movie' | 'tv', tmdb_id: job.tmdb_id, poster_path: job.poster_path })}
       className="aspect-[2/3] w-11 shrink-0 overflow-hidden rounded"
+      release
     />
   )
 }

@@ -13,10 +13,6 @@ function localized(map: Record<string, string[]> | undefined): string[] {
   return map[currentLocale()] ?? map.en ?? []
 }
 
-export function hasBreaking(notes: Note[]): boolean {
-  return notes.some((note) => localized(note.breaking).length > 0)
-}
-
 export function ReleaseNotesList({ notes }: { notes: Note[] }) {
   return (
     <div className="grid gap-4">

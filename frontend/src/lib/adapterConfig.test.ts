@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { configPayload, initialConfigValues, missingRequired, type ConfigField } from '@/components/AdapterConfigFields'
+import { configPayload, initialConfigValues, missingRequired, type ConfigField } from '@/lib/adapterConfig'
 
 const fields: ConfigField[] = [
   { key: 'url', label: 'URL', type: 'url', required: true, choices: [] },
