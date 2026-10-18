@@ -44,6 +44,10 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY nazgarr nazgarr
+# Il server gira come PUID (supervisord) e non può scrivere __pycache__ in
+# /app/nazgarr, che è di root: senza i .pyc già compilati qui ricompilava in
+# memoria i suoi ~160 moduli a ogni avvio (audit 2026-10-18).
+RUN python -m compileall -q nazgarr
 COPY docs docs
 COPY docker docker
 COPY config.example.yaml .

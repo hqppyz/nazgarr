@@ -38,11 +38,17 @@ if [ ! -f /app/config/config.yaml ]; then
     cp /app/config.example.yaml /app/config/config.yaml
     echo "config/config.yaml not found: created from config.example.yaml with default values."
 fi
-chown -R "$PUID:$PGID" /app/config
 # DB, log e .torrent (con le passkey negli announce) solo per l'utente
 # dell'app: niente lettura per gli altri utenti dell'host. I file nuovi
 # nascono già così (umask di supervisord, docker/supervisord.conf).
-chmod -R go-rwx /app/config
+# Si toccano solo le voci che non lo sono già: chown -R e chmod -R su tutta
+# la cartella (una locandina per film, le cartelle degli upload, i plugin)
+# riscrivevano a ogni avvio i metadati di ogni file, secondi su un appdata
+# di Unraid (shfs) (audit 2026-10-18). Stesso risultato di prima: i link
+# simbolici cambiano proprietario loro (chown -h, come chown -R) e il chmod
+# li salta (come chmod -R), mai il file a cui puntano.
+find /app/config \( \! -user "$PUID" -o \! -group "$PGID" \) -exec chown -h "$PUID:$PGID" {} +
+find /app/config \! -type l -perm /077 -exec chmod go-rwx {} +
 
 export RUN_AS_USER="$USER_NAME"
 exec "$@"
