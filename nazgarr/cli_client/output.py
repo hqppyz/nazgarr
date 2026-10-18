@@ -22,7 +22,7 @@ class State:
     """Le opzioni globali (nazgarr --profile/--url/--json …)."""
 
     profile: str | None = None
-    url: str | None = None
+    url: str | None = None  # un --url scritto sul comando (NAZGARR_URL resta a profiles.resolve)
     json: bool = False
     extra: dict = field(default_factory=dict)
 

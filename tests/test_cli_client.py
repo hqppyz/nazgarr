@@ -202,6 +202,30 @@ def test_safety_settings_ask_before_changing(cli_env, client, capsys):
     assert code == 2 and "never passed as arguments" in err
 
 
+def test_a_secret_setting_is_only_said_to_be_set(cli_env, client, capsys, monkeypatch):
+    _login(capsys)
+    monkeypatch.setenv("NAZGARR_USERNAME", "admin")
+    code, out, err = run(capsys, "settings", "get", "tmdb_api_key", "--password-stdin", stdin="supersecret1\n")
+    assert code == 0, err
+    assert out.strip() == "(not set)"
+    client.put("/api/settings/tmdb_api_key", json={"value": "tmdb-SECRET"})
+    code, out, err = run(capsys, "settings", "get", "tmdb_api_key", "--password-stdin", stdin="supersecret1\n")
+    assert code == 0 and out.strip() == "(set)" and "tmdb-SECRET" not in out
+
+
+def test_keys_with_their_own_command_are_not_set_as_settings(cli_env, client, capsys):
+    """Un schedule_cron salvato da settings set saltava la validazione e
+    fermava l'avvio successivo (audit 2026-10-18)."""
+    _login(capsys)
+    code, _out, err = run(capsys, "settings", "set", "schedule_cron", "every night")
+    assert code == 2 and "nazgarr schedule set" in err
+    file = cli_env / "nazgarr.yaml"
+    file.write_text("version: 1\nsettings:\n  schedule_cron: '0 3 * * *'\n")
+    code, _out, err = run(capsys, "config", "import", str(file), "--yes")
+    assert code == 2 and "schedule:" in err
+    assert client.get("/api/schedule").json()["enabled"] is False
+
+
 def test_config_export_and_import(cli_env, client, capsys, monkeypatch):
     import yaml
 
@@ -365,3 +389,94 @@ def test_a_client_mounted_on_a_subfolder_from_the_command_line(cli_env, client, 
     assert code == 0 and "path mapping" in out
     link = json.loads(run(capsys, "--json", "client", "ls")[1])[0]["disks"][0]
     assert link["torrent_client_root_path"] == "/downloads"
+
+
+def test_setting_values_are_checked_like_the_server_does_without_rewriting_them():
+    """rematch_interval_days era un intero per il CLI: 1.5 (valido per il
+    server e la UI) falliva, e un config import di un export lo faceva con
+    un traceback; "0" diventava "0.0", un cambiamento inutile (audit 2026-10-18)."""
+    from nazgarr.cli_client.settings_catalog import normalize
+
+    assert normalize("rematch_interval_days", "1.5") == "1.5"
+    assert normalize("upload_auto_match_threshold", " 0 ") == "0"
+    assert normalize("upload_screenshot_count", "6") == "6"
+    assert normalize("upload_single_file_folder", "Remove") == "remove"
+    assert normalize("update_check_auto", "on") == "true"
+    for key, value in (("upload_screenshot_count", "1.5"), ("rematch_interval_days", "soon"),
+                       ("upload_single_file_folder", "delete"), ("arr_webhook_search", "maybe")):
+        with pytest.raises(ValueError):
+            normalize(key, value)
+
+
+def test_config_import_explains_a_bad_setting_value(cli_env, client, capsys):
+    _login(capsys)
+    file = cli_env / "nazgarr.yaml"
+    file.write_text("version: 1\nsettings:\n  upload_screenshot_count: many\n")
+    code, _out, err = run(capsys, "config", "import", str(file), "--yes")
+    assert code == 2 and "upload_screenshot_count is a whole number" in err
+    file.write_text("version: 1\nsettings:\n  rematch_interval_days: 1.5\n")
+    code, _out, err = run(capsys, "config", "import", str(file), "--yes")
+    assert code == 0, err
+    assert client.get("/api/settings/rematch_interval_days").json()["value"] == "1.5"
+
+
+def _profiles_file(cli_env):
+    profiles.save("default", {
+        "default": profiles.Profile("default", "http://nas:3019", api_key="KEY-FOR-NAS", key_id=1),
+        "seedbox": profiles.Profile("seedbox", "https://seedbox.example:3019", api_key="KEY-FOR-SEEDBOX", key_id=2),
+    })
+
+
+def test_a_profile_key_goes_only_to_its_own_address(cli_env, monkeypatch):
+    """--url (o NAZGARR_URL) cambiava l'indirizzo ma teneva la chiave del
+    profilo: `nazgarr --url http://evil.example status` la mandava lì
+    (audit 2026-10-18)."""
+    _profiles_file(cli_env)
+    resolved = profiles.resolve(None, "http://evil.example")
+    assert (resolved.url, resolved.api_key) == ("http://evil.example", None)
+    resolved = profiles.resolve(None, "https://SEEDBOX.example:3019/")  # l'indirizzo di un altro profilo
+    assert (resolved.url, resolved.api_key) == ("https://SEEDBOX.example:3019/", "KEY-FOR-SEEDBOX")
+    resolved = profiles.resolve(None, "http://nas:3019/")
+    assert resolved.api_key == "KEY-FOR-NAS"
+    monkeypatch.setenv("NAZGARR_API_KEY", "FROM-ENV")
+    assert profiles.resolve(None, "http://evil.example").api_key == "FROM-ENV"
+
+
+def test_a_chosen_profile_beats_an_inherited_url(cli_env, monkeypatch):
+    """Nel container NAZGARR_URL è sempre http://127.0.0.1:3019: `-P seedbox`
+    mandava la chiave della seedbox all'istanza locale."""
+    _profiles_file(cli_env)
+    monkeypatch.setenv("NAZGARR_URL", "http://127.0.0.1:3019")
+    resolved = profiles.resolve("seedbox", None)
+    assert (resolved.url, resolved.api_key) == ("https://seedbox.example:3019", "KEY-FOR-SEEDBOX")
+    monkeypatch.setenv("NAZGARR_PROFILE", "seedbox")
+    assert profiles.resolve(None, None).url == "https://seedbox.example:3019"
+    monkeypatch.delenv("NAZGARR_PROFILE")
+    # Senza un profilo scelto, NAZGARR_URL vale: senza la chiave di un altro indirizzo.
+    resolved = profiles.resolve(None, None)
+    assert (resolved.url, resolved.api_key) == ("http://127.0.0.1:3019", None)
+    # Un --url scritto sul comando vince anche su un profilo scelto.
+    assert profiles.resolve("seedbox", "http://nas:3019").api_key == "KEY-FOR-NAS"
+
+
+def test_the_environment_url_does_not_override_a_chosen_profile_on_the_command_line(cli_env, client, capsys,
+                                                                                    monkeypatch):
+    _login(capsys)
+    monkeypatch.setenv("NAZGARR_URL", "http://127.0.0.1:3019")
+    code, out, err = run(capsys, "-P", "default", "--json", "status")
+    assert code == 0, err
+    assert json.loads(out)["url"] == URL
+
+
+def test_plain_http_to_a_public_address_is_warned_about(cli_env, monkeypatch, capsys):
+    addresses = {"vps.example": "93.184.216.34", "nas.lan": "192.168.1.10", "box.ts.net": "100.101.102.103",
+                 "127.0.0.1": "127.0.0.1"}
+    monkeypatch.setattr(http.socket, "getaddrinfo", lambda host, *a: [(None, None, None, None, (addresses[host], 0))])
+    http._WARNED.clear()
+    for url in ("http://nas.lan:3019", "http://box.ts.net:3019", "https://vps.example", "http://127.0.0.1:3019"):
+        http.warn_if_insecure(url)
+    assert capsys.readouterr().err == ""
+    http.warn_if_insecure("http://vps.example:3019")
+    http.warn_if_insecure("http://vps.example:3019")  # una volta sola
+    err = capsys.readouterr().err
+    assert err.count("Warning:") == 1 and "public address" in err

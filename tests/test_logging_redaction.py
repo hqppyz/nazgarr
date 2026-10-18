@@ -61,3 +61,145 @@ def test_the_uvicorn_access_log_hides_a_webhook_token():
             logger = logging.getLogger(name)
             logger.handlers, logger.filters, logger.propagate = handlers, filters, propagate
             logger.setLevel(level)
+
+
+def test_secrets_in_the_url_path_and_userinfo_are_redacted():
+    """Il token del bot di Telegram e quello di un webhook di Discord stanno
+    nel percorso, e finivano in chiaro nel log a ogni notifica (audit 2026-10-18)."""
+    assert redact("POST https://api.telegram.org/bot123456:AAH-SECRETtoken_x/sendMessage") == (
+        "POST https://api.telegram.org/bot<redacted>/sendMessage")
+    assert redact("POST https://discord.com/api/webhooks/1234567890/abcDEF-secret_webhook 204") == (
+        "POST https://discord.com/api/webhooks/1234567890/<redacted> 204")
+    assert redact("http://admin:hunter2@qbit:8080/api") == "http://admin:<redacted>@qbit:8080/api"
+    assert redact("git+https://ghp_SECRETPAT@github.com/me/plugin.git") == (
+        "git+https://<redacted>@github.com/me/plugin.git")
+    assert redact('{"url": "https://u:p4ss@h/x"}') == '{"url": "https://u:<redacted>@h/x"}'
+    # Niente da togliere: resta com'era.
+    for text in ("https://example.com/@user/feed", "see https://t.example/api/torrents", "a: b@c"):
+        assert redact(text) == text
+
+
+def test_the_httpx_request_line_keeps_only_method_host_and_status():
+    import io
+
+    import httpx
+
+    from nazgarr.core.logs import HttpxRequestFilter, VerbosityFilter
+
+    httpx_logger = logging.getLogger("httpx")
+    stream = io.StringIO()
+    handler = logging.StreamHandler(stream)
+    handler.setFormatter(RedactingFormatter("%(levelname)s %(name)s: %(message)s"))
+    handler.addFilter(VerbosityFilter())
+    request_filter = HttpxRequestFilter()
+    saved_level = httpx_logger.level
+    httpx_logger.addHandler(handler)
+    httpx_logger.addFilter(request_filter)
+    httpx_logger.setLevel(logging.INFO)
+    try:
+        transport = httpx.MockTransport(lambda request: httpx.Response(200))
+        with httpx.Client(transport=transport) as client:
+            client.post("https://api.telegram.org/bot123456:AAH-SECRET/sendMessage?chat_id=5")
+            client.get("http://user:pw@[::1]:8080/x")
+    finally:
+        httpx_logger.removeHandler(handler)
+        httpx_logger.removeFilter(request_filter)
+        httpx_logger.setLevel(saved_level)
+    lines = stream.getvalue().splitlines()
+    assert lines[0] == 'DEBUG httpx: HTTP Request: POST https://api.telegram.org "HTTP/1.1 200 OK"'
+    assert lines[1] == 'DEBUG httpx: HTTP Request: GET http://[::1]:8080 "HTTP/1.1 200 OK"'
+
+
+def test_configure_logging_filters_the_httpx_logger_once():
+    from nazgarr.core.logs import HttpxRequestFilter, configure_logging
+
+    root = logging.getLogger()
+    saved_handlers, saved_root_level = root.handlers[:], root.level
+    httpx_logger = logging.getLogger("httpx")
+    saved_filters, saved_level = httpx_logger.filters[:], httpx_logger.level
+    try:
+        configure_logging()
+        configure_logging()
+        assert sum(isinstance(f, HttpxRequestFilter) for f in httpx_logger.filters) == 1
+    finally:
+        root.handlers = saved_handlers
+        root.setLevel(saved_root_level)
+        httpx_logger.filters = saved_filters
+        httpx_logger.setLevel(saved_level)
+
+
+def test_the_plugin_list_never_shows_a_token(client, monkeypatch):
+    from nazgarr.plugins import loader
+
+    monkeypatch.setattr(loader.STATE, "requested", ["git+https://ghp_SECRETPAT@github.com/me/plugin.git"])
+    monkeypatch.setattr(loader.STATE, "install_error", "fatal: https://ghp_SECRETPAT@github.com/me/plugin.git")
+    body = client.get("/api/plugins").json()
+    assert "SECRETPAT" not in str(body)
+    assert body["requested"] == ["git+https://<redacted>@github.com/me/plugin.git"]
+
+
+def test_every_error_and_detail_column_is_redacted_when_saved():
+    """errors_json (quello che /api/runs mostra) e detail sfuggivano alla
+    pulizia prima della scrittura (audit 2026-10-18)."""
+    from nazgarr.core import redaction
+    from nazgarr.core.models import Base
+
+    columns = {
+        column.name
+        for table in Base.metadata.tables.values()
+        for column in table.columns
+        if column.name.endswith(("_error", "_detail")) or column.name in ("errors_json", "detail", "error_message")
+    }
+    assert columns and columns <= redaction.COLUMNS
+
+
+def test_a_run_keeps_no_credential_in_its_error_list(db_session):
+    import json
+    from datetime import UTC, datetime
+
+    from nazgarr.core.models import RunLog
+
+    secret = "failed https://t.example/api/x?api_key=SUPERSECRET"
+    run = RunLog(run_type="manual", started_at=datetime.now(UTC), last_error=secret, errors_json=json.dumps([secret]))
+    db_session.add(run)
+    db_session.commit()
+    db_session.refresh(run)
+    assert "SUPERSECRET" not in run.errors_json and "SUPERSECRET" not in run.last_error
+    assert json.loads(run.errors_json) == ["failed https://t.example/api/x?api_key=<redacted>"]
+
+
+def test_a_json_error_list_stays_readable_after_redaction(db_session):
+    """Un errore che contiene a sua volta del JSON (la risposta di un
+    tracker): come testo, token=abc\\" perdeva la barra della virgoletta e
+    errors_json non si leggeva più (audit 2026-10-18)."""
+    import json
+    from datetime import UTC, datetime
+
+    from nazgarr.core.models import RunLog
+
+    errors = json.dumps(['bad {"x": "token=abc"}'])
+    run = RunLog(run_type="manual", started_at=datetime.now(UTC), errors_json=errors)
+    db_session.add(run)
+    db_session.commit()
+    db_session.refresh(run)
+    assert json.loads(run.errors_json) == ['bad {"x": "token=<redacted>"}']
+    assert "abc" not in run.errors_json
+
+
+def test_a_json_column_without_secrets_is_left_as_written(db_session):
+    from datetime import UTC, datetime
+
+    from nazgarr.core.models import RunLog
+
+    errors = '["sì, già"]'  # ensure_ascii=False: riscriverlo lo cambierebbe
+    run = RunLog(run_type="manual", started_at=datetime.now(UTC), errors_json=errors)
+    db_session.add(run)
+    db_session.commit()
+    db_session.refresh(run)
+    assert run.errors_json == errors
+
+
+def test_a_json_column_that_is_not_json_is_redacted_as_text():
+    from nazgarr.core.redaction import _redact_json
+
+    assert _redact_json("not json token=abc") == "not json token=<redacted>"

@@ -191,3 +191,38 @@ def test_logs_stop_reading_once_the_last_entries_are_found(tmp_path, monkeypatch
     entries = system.read_log_entries(log, "DEBUG", chunk_bytes=64 * 1024)
     assert len(entries) == 500
     assert read and sum(read) < log.stat().st_size / 4
+
+
+def test_a_malformed_stored_update_result_shows_no_banner(client):
+    """Prima un 500 a ogni pagina: last_check controllava solo il JSON."""
+    import json
+
+    from nazgarr.core import settings_repo
+    from nazgarr.core.version import __version__
+
+    stored = [json.dumps({"current_version": __version__, "checked_at": "yesterday"}),
+              "[1]", "5", '"x"']  # anche un valore che non è un oggetto JSON
+    for value in stored:
+        with client.app.state.session_factory() as session:
+            settings_repo.set_setting(session, updates.LAST_CHECK_KEY, value)
+        response = client.get("/api/system/update-status")
+        assert response.status_code == 200 and response.json() is None, value
+
+
+def test_old_log_lines_are_redacted_when_read(client, tmp_path):
+    """Le righe scritte prima degli schemi nuovi restano nel file finché
+    non ruota: la tab Logs le ripulisce in uscita (audit 2026-10-18)."""
+    log = tmp_path / "nazgarr.log"
+    log.write_text(
+        "2026-10-18 10:00:00 INFO     httpx: HTTP Request: POST "
+        "https://api.telegram.org/bot123456:AAH-SECRET/sendMessage\n"
+        "2026-10-18 10:00:01 ERROR    nazgarr.x: failed https://u:pw@h/x\n"
+        "  Traceback: https://discord.com/api/webhooks/42/HOOK-SECRET\n",
+        encoding="utf-8")
+    text = str([e.message for e in system.read_log_entries(log, "DEBUG")])
+    assert "AAH-SECRET" not in text and "pw@" not in text and "HOOK-SECRET" not in text
+    assert "/bot<redacted>/sendMessage" in text
+
+    logging.getLogger("tests.system").error("failed https://u:pw@h/x /bot123456:AAH-SECRET/sendMessage")
+    body = client.get("/api/system/logs", params={"min_level": "DEBUG"}).json()
+    assert body["available"] and "AAH-SECRET" not in str(body) and "pw@" not in str(body)

@@ -55,6 +55,8 @@ The CLI keeps only that key, in a file readable by you alone:
 - **Linux:** `~/.config/nazgarr/cli.toml`
 - **macOS:** `~/Library/Application Support/Nazgarr/cli.toml`
 
+Over `http://` the password and the key travel in clear: that is fine on your LAN, through a VPN (Tailscale, WireGuard) or on the same machine, but for an instance reached over the internet put it behind a reverse proxy with TLS and use `https://`. The CLI warns when an `http://` address is a public one.
+
 Passwords are always asked on screen, never passed as arguments. Arguments would end up in your shell history and in `ps`. In a script, pipe the password with `--password-stdin`:
 
 ```bash
@@ -71,6 +73,8 @@ nazgarr profile ls            # the saved instances, * marks the default
 nazgarr profile use seedbox   # make it the default
 nazgarr -P default status     # one command on another profile
 ```
+
+A profile's key only goes to its own address. With `--url` (or `NAZGARR_URL`) pointing elsewhere, the CLI uses the key of the profile saved for that address, if there is one, and otherwise none: run `nazgarr login` for it, or pass `NAZGARR_API_KEY`. A profile you choose (`--profile`, `NAZGARR_PROFILE`) goes to its own address even when `NAZGARR_URL` is set, as it is inside the container; a `--url` written on the command line always wins.
 
 ### Log out
 
@@ -94,7 +98,7 @@ It asks the new password twice; `--password-stdin` reads it from stdin instead, 
 
 ### Environment variables
 
-They override the saved profile. Useful for cron jobs and containers:
+They override the saved profile (except `NAZGARR_URL`, which gives way to a profile chosen with `--profile` or `NAZGARR_PROFILE`). Useful for cron jobs and containers:
 
 | Variable | Meaning |
 | --- | --- |
@@ -209,11 +213,13 @@ Two kinds of settings ask for your password, because an API key is not allowed t
 - **secrets**, such as `tmdb_api_key`;
 - **safety settings**, marked `[safety]` in `settings ls`: the full check before executing, the automatic execution, the thresholds and the client recheck.
 
-The CLI then logs in for that single change and does not keep the token. Safety settings also ask for confirmation.
+The CLI then logs in for that single change and does not keep the token. Safety settings also ask for confirmation. A secret is never read back, not even with the password: `settings get tmdb_api_key` only says whether it is set.
+
+Some keys are not settings of this command: `schedule_cron` is changed with `nazgarr schedule set`; the file naming rules of uploads, the instance name and the plugin switch from the web UI; Nazgarr's own state (the update check, the release notes seen) only by Nazgarr. `settings set` and `config import` refuse them and say where they are changed.
 
 ### Other instances
 
-The web UI of this instance can open other Nazgarr instances (Configuration › Instances). From the terminal:
+The web UI of this instance can open other Nazgarr instances (Settings › System › Instances). From the terminal:
 
 ```bash
 nazgarr instance add seedbox --url https://seedbox.example:3019   # its API key is asked

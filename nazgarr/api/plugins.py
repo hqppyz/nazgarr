@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from nazgarr.core.errors import coded_detail, from_coded_error
+from nazgarr.core.logs import redact
 from nazgarr.core.version import __version__
 from nazgarr.plugins import REGISTRY, switch
 from nazgarr.plugins import config as plugin_config
@@ -85,6 +86,8 @@ def _plugin(session: Session, off: set[str], **fields) -> PluginResponse:
     specs = switch.specs_of(owner)
     enabled = owner not in off
     status = fields.pop("status")
+    if fields.get("error"):
+        fields["error"] = redact(fields["error"])  # il testo di un'eccezione del plugin
     if status == "loaded" and not enabled:
         status = "disabled"
     return PluginResponse(
@@ -103,8 +106,12 @@ def list_plugins(session: Session = Depends(get_session)):
     off = switch.disabled(session)
     specs = sorted(REGISTRY.all(), key=lambda s: (s.kind, s.plugin is not None, s.label.lower()))
     return PluginsResponse(
-        sdk_version=SDK_VERSION, env_var=ENV_VAR, source=STATE.source, requested=STATE.requested,
-        install_error=STATE.install_error,
+        # Una voce della lista può avere un token dentro l'URL
+        # (git+https://<PAT>@github.com/...), e anche l'errore di pip che la
+        # ripete: mai in chiaro, nemmeno a una API key di sola lettura.
+        sdk_version=SDK_VERSION, env_var=ENV_VAR, source=STATE.source,
+        requested=[redact(item) for item in STATE.requested],
+        install_error=redact(STATE.install_error) if STATE.install_error else None,
         plugins=[
             *(_plugin(session, off, name=name, distribution=None, version=__version__, status="loaded", error=None,
                       requires_sdk=module.REQUIRES_SDK, bundled=True, description=module.DESCRIPTION)

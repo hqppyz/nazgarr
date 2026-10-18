@@ -133,3 +133,23 @@ def test_the_cli_and_the_api_agree_on_the_protected_settings():
     from nazgarr.core.settings_registry import SAFETY_KEYS
 
     assert {s.key for s in CATALOG if s.safety} == SAFETY_KEYS
+
+
+def test_the_cli_knows_which_settings_have_their_own_endpoint():
+    from nazgarr.cli_client.settings_catalog import MANAGED
+    from nazgarr.core.settings_registry import MANAGED_KEYS
+
+    assert set(MANAGED) == MANAGED_KEYS
+
+
+def test_the_cli_catalog_has_every_registered_setting_with_its_type():
+    """Prima il catalogo del CLI era una copia divergente: rematch_interval_days
+    intero (1.5 rifiutato), due chiavi mancanti (audit 2026-10-18)."""
+    from nazgarr.cli_client.settings_catalog import BY_KEY
+    from nazgarr.core.settings_registry import REGISTRY
+
+    for key, spec in REGISTRY.items():
+        assert key in BY_KEY, key
+        assert BY_KEY[key].kind == spec.kind, key
+        if spec.kind == "choice":
+            assert BY_KEY[key].choices == spec.choices, key

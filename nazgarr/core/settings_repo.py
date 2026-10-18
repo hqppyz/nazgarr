@@ -27,12 +27,19 @@ def is_secret(key: str) -> bool:
     return bool(SECRET_KEY.search(key)) and not key.startswith("auth_") and key not in _OWN_FORMAT
 
 
-def _decode(value: str) -> str:
-    return crypto.decrypt(value[len(ENCRYPTED_PREFIX):]) if value.startswith(ENCRYPTED_PREFIX) else value
+def _decode(key: str, value: str) -> str:
+    """Si decifra solo il valore di una chiave segreta: un "enc:..." salvato
+    su una chiave qualunque (es. exclusion_patterns) faceva fallire ogni sua
+    lettura, e con essa ogni vista della libreria (audit 2026-10-18)."""
+    if is_secret(key) and value.startswith(ENCRYPTED_PREFIX):
+        return crypto.decrypt(value[len(ENCRYPTED_PREFIX):])
+    return value
 
 
 def encode(key: str, value: str) -> str:
-    """Come si salva un valore: cifrato se la chiave è segreta."""
+    """Come si salva un valore già nel DB (la migrazione dei segreti in
+    chiaro, nazgarr/core/db.py): cifrato se la chiave è segreta e non lo è
+    già."""
     if is_secret(key) and value and not value.startswith(ENCRYPTED_PREFIX):
         return ENCRYPTED_PREFIX + crypto.encrypt(value)
     return value
@@ -40,11 +47,13 @@ def encode(key: str, value: str) -> str:
 
 def get_setting(session: Session, key: str) -> str | None:
     row = session.get(AppSetting, key)
-    return _decode(row.value) if row else None
+    return _decode(key, row.value) if row else None
 
 
 def set_setting(session: Session, key: str, value: str) -> None:
-    stored = encode(key, value)
+    # Un valore nuovo è sempre in chiaro: cifrato anche se comincia per
+    # "enc:", se no restava così e la lettura provava a decifrarlo.
+    stored = ENCRYPTED_PREFIX + crypto.encrypt(value) if is_secret(key) and value else value
     row = session.get(AppSetting, key)
     if row is None:
         session.add(AppSetting(key=key, value=stored))

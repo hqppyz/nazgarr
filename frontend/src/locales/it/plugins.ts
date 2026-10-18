@@ -1,7 +1,7 @@
 export const plugins = {
   'plugins.trustTitle': 'I plugin girano dentro Nazgarr',
   'plugins.trust':
-    'Hanno gli stessi permessi di Nazgarr: installa solo quelli di cui ti fidi. Un plugin non può mai cambiare file o client da solo: ogni modifica passa comunque dalla tua approvazione.',
+    'Hanno gli stessi permessi di Nazgarr: installa solo quelli di cui ti fidi. Attraverso Nazgarr un plugin propone soltanto modifiche a file e client, e queste aspettano la tua approvazione. Spegnere un plugin ne toglie gli adapter, ma il suo codice si carica comunque a ogni avvio: per non farlo più girare, toglilo dalla lista dei plugin e riavvia.',
   'plugins.howTo':
     'Elenca i pacchetti pip nella variabile d’ambiente {env} (separati da spazi), oppure uno per riga in plugins.txt nella cartella dei dati, poi riavvia il container. Vengono installati una volta e restano tra un riavvio e l’altro.',
   'plugins.source.env': 'Da {env}',

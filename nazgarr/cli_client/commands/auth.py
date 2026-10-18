@@ -77,7 +77,7 @@ def login(
     """
     current = state(ctx)
     name = current.profile or profiles.DEFAULT_PROFILE
-    url = url or current.url or (profiles.resolve(name, None) or profiles.Profile(name, "")).url
+    url = url or current.url or (profiles.resolve(current.profile, None) or profiles.Profile(name, "")).url
     if not url:
         raise fail("Which instance? Pass --url http://HOST:3019", EXIT_USAGE)
     username = username or typer.prompt("Username")

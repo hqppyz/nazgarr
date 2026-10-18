@@ -754,7 +754,12 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        /** Delete Tracker */
+        /**
+         * Delete Tracker
+         * @description Con il tracker se ne va quello che dipende da lui (candidati, review,
+         *     esecuzioni, tentativi, target e profilo di upload: docs/schema.sql), ma
+         *     non mentre un'esecuzione o un upload suo è in corso (audit 2026-10-18).
+         */
         delete: operations["delete_tracker_api_trackers__tracker_id__delete"];
         options?: never;
         head?: never;
@@ -4709,6 +4714,11 @@ export interface components {
             key: string;
             /** Value */
             value: string | null;
+            /**
+             * Is Set
+             * @default false
+             */
+            is_set: boolean;
         };
         /** SettingUpdateRequest */
         SettingUpdateRequest: {

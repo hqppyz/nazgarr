@@ -3,6 +3,7 @@ Configuration > Application (versione/runtime + controllo aggiornamenti)
 e Configuration > Logs (docs/SPEC.md non ne parla ancora: aggiunta su
 richiesta esplicita, non collegata a nessuna fase del roadmap)."""
 
+import logging
 import os
 import platform
 import re
@@ -10,14 +11,17 @@ from datetime import datetime
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from sqlalchemy.orm import Session
 
 from nazgarr.core import updates
 from nazgarr.core.config import Settings
+from nazgarr.core.logs import redact
 from nazgarr.core.version import __commit__, __version__
 from nazgarr.library import setup_status as setup_status_module
 from nazgarr.web.deps import get_session, get_settings
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/system", tags=["system"])
 
@@ -95,8 +99,23 @@ def update_check(session: Session = Depends(get_session)):
 def update_status(session: Session = Depends(get_session)):
     """L'ultimo esito salvato, senza chiamare GitHub: per l'avviso nella
     barra laterale. None se non c'è o riguardava un'altra versione."""
-    last = updates.last_check(session)
-    return UpdateCheckResponse(**last) if last else None
+    try:
+        # Anche last_check sta dentro: legge l'esito con .get(), e un valore
+        # salvato che non è un oggetto JSON (es. [1]) lo fa cadere.
+        last = updates.last_check(session)
+        if not last:
+            return None
+        if not isinstance(last, dict):
+            raise TypeError("not an object")
+        return UpdateCheckResponse(**last)
+    except (TypeError, ValidationError, AttributeError, KeyError):
+        # Un esito salvato che non ha la forma attesa (di una versione di
+        # prima, o scritto a mano): nessun avviso, invece di un 500 a ogni
+        # pagina (audit 2026-10-18). "Controlla aggiornamenti" lo riscrive;
+        # quello automatico ancora no, finché check_if_due in
+        # nazgarr/core/updates.py legge checked_at senza difendersi.
+        logger.warning("Esito salvato del controllo degli aggiornamenti illeggibile: ignorato")
+        return None
 
 
 class ReleaseNotesResponse(BaseModel):
@@ -177,7 +196,11 @@ def read_log_entries(path: Path, min_level: str, limit: int = _MAX_LOG_ENTRIES,
             message += "\n" + "\n".join(reversed(continuation))
             continuation.clear()
         if level in _LEVEL_ORDER and _LEVEL_ORDER.index(level) >= min_index:
-            entries.append(LogEntry(timestamp=timestamp, level=level, logger=logger_name, message=message))
+            # Ripulita anche in uscita: le righe scritte prima degli schemi
+            # nuovi (token di Telegram e Discord, utente:password@) restano
+            # nel file finché non ruota, e la tab Logs la legge anche una
+            # API key di sola lettura (audit 2026-10-18).
+            entries.append(LogEntry(timestamp=timestamp, level=level, logger=logger_name, message=redact(message)))
             if len(entries) >= limit:
                 break
     # Righe prima della prima voce del file: di nessuno, come prima.

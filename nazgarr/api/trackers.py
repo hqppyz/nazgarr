@@ -7,15 +7,19 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
+from sqlalchemy import or_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, object_session
 
 from nazgarr.api.types import HttpUrlStr, check_destinations, host_changed, require_secrets_for_new_host
 from nazgarr.core.errors import coded_detail, from_coded_error
-from nazgarr.core.models import Tracker, TrackerUploadProfile
+from nazgarr.core.models import Candidate, SeedJob, Tracker, TrackerUploadProfile, UploadJob, UploadTarget
 from nazgarr.plugins import REGISTRY
 from nazgarr.plugins import config as plugin_config
 from nazgarr.torrents import tracker_icons
 from nazgarr.upload import decision as upload_decision
+from nazgarr.upload import jobs as upload_jobs
+from nazgarr.upload import naming_rules
 from nazgarr.upload import profiles as upload_profiles
 from nazgarr.upload.naming import LANG3
 from nazgarr.web.deps import get_or_404, get_session
@@ -24,6 +28,11 @@ LANGUAGE_CODES = frozenset(LANG3)
 
 router = APIRouter(prefix="/api/trackers", tags=["trackers"])
 
+# Richieste al minuto verso l'API del tracker: 0 vale il default (30). Un
+# valore negativo faceva sollevare IndexError al limitatore a ogni chiamata,
+# e ogni ricerca e download di quel tracker falliva finché non si correggeva
+# (audit 2026-10-18).
+RATE_LIMIT_MAX = 600
 
 
 class TrackerCreateRequest(BaseModel):
@@ -32,7 +41,7 @@ class TrackerCreateRequest(BaseModel):
     base_url: HttpUrlStr
     api_token: str
     announce_url: HttpUrlStr | None = None  # necessario solo per creare un nuovo .torrent da caricare (Fase 6, §9)
-    rate_limit_per_min: int | None = None
+    rate_limit_per_min: int | None = Field(default=None, ge=0, le=RATE_LIMIT_MAX)
     rss_key: str | None = None  # facoltativa: appresa in automatico dall'API
     torrent_client_id: int | None = None  # client per i reseed di questo tracker, None = il primo abilitato
     language: str | None = None  # ISO 639-1, es. "it": per i nomi degli upload (nazgarr/upload/naming.py)
@@ -51,7 +60,7 @@ class TrackerUpdateRequest(BaseModel):
     base_url: HttpUrlStr | None = None
     api_token: str | None = None
     announce_url: HttpUrlStr | None = None
-    rate_limit_per_min: int | None = None
+    rate_limit_per_min: int | None = Field(default=None, ge=0, le=RATE_LIMIT_MAX)
     enabled: bool | None = None
     rss_key: str | None = None  # "" la cancella (torna al solo recupero automatico)
     torrent_client_id: int | None = None  # esplicitamente null = torna al primo client abilitato
@@ -191,7 +200,9 @@ def update_tracker(
     if body.announce_url is not None:
         tracker.announce_url = body.announce_url
     if body.rate_limit_per_min is not None:
-        tracker.rate_limit_per_min = body.rate_limit_per_min
+        # 0 vale il default anche qui, come alla creazione: un plugin legge
+        # la riga così com'è, e un limitatore a 0 non funziona.
+        tracker.rate_limit_per_min = body.rate_limit_per_min or 30
     if body.enabled is not None:
         tracker.enabled = body.enabled
     if body.rss_key is not None:
@@ -219,11 +230,56 @@ def tracker_icon(tracker_id: int, request: Request, session: Session = Depends(g
     return FileResponse(path, headers={"Cache-Control": "private, max-age=86400"})
 
 
+def _tracker_busy(session: Session, tracker_id: int) -> bool:
+    """Un'esecuzione di un suo candidato in corso, o un upload verso di lui
+    che il worker sta portando avanti (o un suo tracker in invio): la
+    cancellazione a cascata toglierebbe la riga su cui l'esecutore o il
+    worker scriveranno, lasciando un hardlink o un torrent nel client senza
+    traccia (docs/SPEC.md, "Deleting a tracker, a disk or a client")."""
+    executing = (
+        session.query(SeedJob.id).join(Candidate, SeedJob.candidate_id == Candidate.id)
+        .filter(Candidate.tracker_id == tracker_id, SeedJob.final_status == "in_progress")
+        .first()
+    )
+    if executing is not None:
+        return True
+    uploading = (
+        session.query(UploadTarget.id).join(UploadJob, UploadTarget.job_id == UploadJob.id)
+        .filter(UploadTarget.tracker_id == tracker_id,
+                or_(UploadJob.status.in_(upload_jobs.WORKER_STATES),
+                    UploadTarget.status.in_(upload_jobs.BUSY_TARGET_STATES)))
+        .first()
+    )
+    return uploading is not None
+
+
 @router.delete("/{tracker_id}", status_code=204)
 def delete_tracker(tracker_id: int, session: Session = Depends(get_session)):
+    """Con il tracker se ne va quello che dipende da lui (candidati, review,
+    esecuzioni, tentativi, target e profilo di upload: docs/schema.sql), ma
+    non mentre un'esecuzione o un upload suo è in corso (audit 2026-10-18)."""
     tracker = _get_tracker_or_404(session, tracker_id)
+    if _tracker_busy(session, tracker_id):
+        raise HTTPException(status_code=409, detail=coded_detail("tracker_busy", label=tracker.label))
     session.delete(tracker)
-    session.commit()
+    try:
+        session.commit()
+    except IntegrityError as exc:
+        # Una riga che lo riferisce senza un'azione per la cancellazione (un
+        # DB di prima della migrazione 10, o una riga nuova): un 409 col suo
+        # codice, non un 500 "FOREIGN KEY constraint failed".
+        session.rollback()
+        raise HTTPException(status_code=409, detail=coded_detail("tracker_in_use", label=tracker.label)) from exc
+
+
+def _check_naming_rules(rules: dict) -> None:
+    """Regole di naming con la forma che naming.py si aspetta, o un 400 che
+    dice quale chiave: salvate storte facevano fallire ogni upload verso il
+    tracker, e l'anteprima rispondeva 500 (audit 2026-10-18)."""
+    try:
+        naming_rules.validate(rules)
+    except naming_rules.NamingRulesError as exc:
+        raise HTTPException(status_code=400, detail=from_coded_error(exc)) from exc
 
 
 class UploadProfileCreateRequest(BaseModel):
@@ -334,6 +390,8 @@ def update_upload_profile(
         profile.resolution_id_map_json = json.dumps(body.resolution_id_map)
     if body.naming_convention is not None:
         profile.naming_convention = body.naming_convention
+    if body.naming_rules is not None:
+        _check_naming_rules(body.naming_rules)
     if body.naming_rules is not None and json.dumps(body.naming_rules) != profile.naming_rules_json:
         profile.naming_rules_json = json.dumps(body.naming_rules)
         profile.naming_customized = True
@@ -389,6 +447,7 @@ def preview_naming_rules(tracker_id: int, body: NamingPreviewRequest, session: S
     reale o a un esempio: un nome per template e il valore di ogni variabile."""
     _get_upload_profile_or_404(session, tracker_id)
     tracker = _get_tracker_or_404(session, tracker_id)
+    _check_naming_rules(body.naming_rules)
     return upload_decision.preview_names(session, body.naming_rules, tracker.language)
 
 

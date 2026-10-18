@@ -5,6 +5,13 @@ settings get/set: l'elenco serve a trovarle.
 secret: chiavi segrete, che una API key non legge né scrive; safety: le
 protezioni (verifica, esecuzione automatica, soglie), che una API key legge
 ma non cambia (nazgarr/api/settings.py). Per entrambe il CLI chiede la password.
+
+Ogni chiave di nazgarr/core/settings_registry.py è qui, con un tipo
+compatibile (tests/test_consistency.py): prima l'elenco era divergente
+(rematch_interval_days intero qui e decimale sul server, due chiavi
+mancanti) e il CLI rifiutava valori validi (audit 2026-10-18). I controlli
+veri li fa il server: qui solo quanto serve a dire subito un errore di
+battitura, senza riscrivere il valore ("7" resta "7", non "7.0").
 """
 
 from dataclasses import dataclass
@@ -14,8 +21,9 @@ from dataclasses import dataclass
 class Setting:
     key: str
     help: str
-    kind: str = "text"  # text | bool | int | float | lines | secret
+    kind: str = "text"  # text | bool | int | float | choice | lines | secret
     safety: bool = False
+    choices: tuple[str, ...] = ()
 
 
 CATALOG = [
@@ -29,7 +37,7 @@ CATALOG = [
     Setting("cross_seed_search", "Search files seeding on one tracker on the others too (true/false).", "bool"),
     Setting("reseed_pack_and_singles",
             "Seed an episode both in its season pack and alone on the same tracker (off by default).", "bool"),
-    Setting("rematch_interval_days", "Days before an unmatched file is searched again.", "int"),
+    Setting("rematch_interval_days", "Days before an unmatched file is searched again (e.g. 7, or 0.5).", "float"),
     Setting("confidence_threshold_auto_media_to_torrent",
             "Confidence (0-1) above which a library→torrent match is recommended.", "float", safety=True),
     Setting("confidence_threshold_auto_torrent_to_client",
@@ -46,7 +54,8 @@ CATALOG = [
             "float"),
     Setting("upload_auto_rename", "Rename files in new torrents automatically (true/false).", "bool"),
     Setting("upload_single_file", "A folder with one file becomes a single-file torrent (true/false).", "bool"),
-    Setting("upload_single_file_folder", "With upload_single_file: keep or remove the folder."),
+    Setting("upload_single_file_folder", "With upload_single_file: keep or remove the folder.", "choice",
+            choices=("keep", "remove")),
     Setting("upload_screenshot_count", "Screenshots per upload.", "int"),
     Setting("upload_tonemap_hdr", "Tone map HDR screenshots (true/false).", "bool"),
     Setting("upload_watch_split_seasons",
@@ -57,6 +66,11 @@ CATALOG = [
     Setting("upload_description_header", "BBCode added on top of every description.", "lines"),
     Setting("upload_description_signature", "BBCode added at the bottom of every description.", "lines"),
     Setting("image_host_priority", "Image hosts in order, comma separated (e.g. ptscreens,imgbb)."),
+    # Radarr/Sonarr e aggiornamenti
+    Setting("arr_webhook_search",
+            "Search the trackers for a file Radarr/Sonarr just imported, before the next scan (off by default).",
+            "bool"),
+    Setting("update_check_auto", "Check GitHub for a new version every 12 hours (off by default).", "bool"),
     # Interfaccia
     Setting("size_units", "decimal (GB) or binary (GiB)."),
     Setting("ui_timezone", "Time zone of the dates in the UI (e.g. Europe/Rome)."),
@@ -65,6 +79,21 @@ CATALOG = [
 ]
 
 BY_KEY = {s.key: s for s in CATALOG}
+
+# Le chiavi che PUT /api/settings/{key} non scrive mai (MANAGED_KEYS in
+# nazgarr/core/settings_registry.py, un test controlla che siano le stesse):
+# dove si cambiano invece.
+MANAGED = {
+    "schedule_cron": "nazgarr schedule set",
+    "upload_file_naming_rules": "Settings › Upload › Releases in the web UI",
+    "instance_name": "Settings › System › Instances in the web UI",
+    "plugins_disabled": "Settings › Extensions › Plugins in the web UI",
+    "app_secret_key_canary": "nothing: Nazgarr keeps it itself",
+    "release_notes_seen": "nothing: Nazgarr keeps it itself",
+    "update_check_last": "nothing: Nazgarr keeps it itself",
+    "identity_rules_version": "nothing: Nazgarr keeps it itself",
+    "not_imported_status": "nothing: Nazgarr keeps it itself",
+}
 SECRET_WORDS = ("api_key", "token", "password", "secret", "cookie")
 
 
@@ -77,18 +106,29 @@ def needs_login(key: str, writing: bool) -> bool:
 
 
 def normalize(key: str, value: str) -> str:
+    """Il valore da mandare, come lo normalizza anche il server
+    (nazgarr/core/settings_registry.py validate): ValueError con un
+    messaggio da mostrare se non è del tipo giusto."""
     entry = BY_KEY.get(key)
     if entry is None:
         return value
+    text = value.strip()
     if entry.kind == "bool":
-        lowered = value.strip().lower()
-        if lowered in ("true", "yes", "on", "1"):
+        if text.lower() in ("true", "yes", "on", "1"):
             return "true"
-        if lowered in ("false", "no", "off", "0"):
+        if text.lower() in ("false", "no", "off", "0"):
             return "false"
         raise ValueError(f"{key} is true or false")
-    if entry.kind == "int":
-        return str(int(value))
-    if entry.kind == "float":
-        return str(float(value))
+    if entry.kind == "choice":
+        if text.lower() in entry.choices:
+            return text.lower()
+        raise ValueError(f"{key} is one of: {', '.join(entry.choices)}")
+    if entry.kind in ("int", "float"):
+        if text == "":
+            return text  # mai impostata: vale il default
+        try:
+            int(text) if entry.kind == "int" else float(text)
+        except ValueError:
+            raise ValueError(f"{key} is a {'whole ' if entry.kind == 'int' else ''}number, not {value!r}") from None
+        return text
     return value

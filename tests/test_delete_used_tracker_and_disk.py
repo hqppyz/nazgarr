@@ -89,3 +89,50 @@ def test_a_disk_with_a_reseed_can_be_deleted(client):
         assert [f.media_file_id for f in session.query(CandidateFile)] == [None]
     finally:
         session.close()
+
+
+def test_a_tracker_with_an_execution_or_an_upload_in_progress_is_not_deleted(client):
+    """La cascata toglieva il seed_job su cui l'esecutore stava per
+    scrivere: un hardlink o un torrent nel client senza traccia (audit 2026-10-18)."""
+    from nazgarr.core.models import UploadJob, UploadTarget
+
+    _disk_id, tracker_id = _used_tracker_and_disk(client)
+    with client.app.state.session_factory() as session:
+        job = session.query(SeedJob).one()
+        job.final_status = "in_progress"
+        session.commit()
+    response = client.delete(f"/api/trackers/{tracker_id}")
+    assert response.status_code == 409
+    assert response.json()["detail"] == {"code": "tracker_busy", "params": {"label": "ITT"}}
+
+    with client.app.state.session_factory() as session:
+        session.query(SeedJob).one().final_status = "failed"
+        upload = UploadJob(relative_path="media/m.mkv", source_path="/x/media/m.mkv", status="queued", title="M")
+        upload.targets = [UploadTarget(tracker_id=tracker_id, status="approved", action="upload")]
+        session.add(upload)
+        session.commit()
+        upload_id = upload.id
+    assert client.delete(f"/api/trackers/{tracker_id}").json()["detail"]["code"] == "tracker_busy"
+
+    with client.app.state.session_factory() as session:
+        session.get(UploadJob, upload_id).status = "failed"
+        session.commit()
+    assert client.delete(f"/api/trackers/{tracker_id}").status_code == 204
+
+
+def test_a_row_without_a_delete_action_gives_a_409(client):
+    """Un DB con un riferimento senza ON DELETE (di prima della migrazione
+    10): un 409 col suo codice, non un 500."""
+    from sqlalchemy import text
+
+    tracker_id = client.post("/api/trackers", json={
+        "label": "Old", "adapter_type": "unit3d", "base_url": "https://old.example", "api_token": "secret",
+    }).json()["id"]
+    with client.app.state.session_factory() as session:
+        session.execute(text("CREATE TABLE legacy_ref (tracker_id INTEGER REFERENCES tracker(id))"))
+        session.execute(text("INSERT INTO legacy_ref VALUES (:id)"), {"id": tracker_id})
+        session.commit()
+    response = client.delete(f"/api/trackers/{tracker_id}")
+    assert response.status_code == 409
+    assert response.json()["detail"] == {"code": "tracker_in_use", "params": {"label": "Old"}}
+    assert [t["label"] for t in client.get("/api/trackers").json()] == ["Old"]

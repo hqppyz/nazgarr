@@ -37,7 +37,7 @@ Each line is a package (a name, `name==version`, or a `git+https://…` URL). Li
 - one card per plugin, like a browser's extensions: its name, an on/off switch, where it comes from (native, shipped with Nazgarr, or installed), its category and, for the image hosts and media resolvers that have no row of their own, a Settings button with their fields;
 - the plugins that failed to install or load, or that need another SDK version, with the error. They stay off and the rest of Nazgarr works as usual.
 
-Native plugins, one per image host (`nazgarr-ptscreens`, `nazgarr-passtheima`, `nazgarr-imageride`, `nazgarr-imgbb`), are written like any plugin but shipped in the image, without installing anything. Switching a plugin off, native or installed, takes effect at once, without a restart: its adapters leave the registry (an image host leaves the chain, a tracker or client type can no longer be used) and come back when it is switched on again, through its `setup()`. The choice survives restarts.
+Native plugins, one per image host (`nazgarr-ptscreens`, `nazgarr-passtheima`, `nazgarr-imageride`, `nazgarr-imgbb`), are written like any plugin but shipped in the image, without installing anything. Switching a plugin off, native or installed, takes effect at once, without a restart: its adapters leave the registry (an image host leaves the chain, a tracker or client type can no longer be used) and come back when it is switched on again, through its `setup()`. The choice survives restarts. Off is not uninstalled: a plugin that is off is still imported, and its `setup()` still runs, at every start (that is how its card can show its adapters and switch them back on without a restart). To stop its code from running at all, remove it from `NAZGARR_PLUGINS` or `plugins.txt` and restart: the install folder is rebuilt without it.
 
 Image hosts, bundled or from a plugin, are all configured in **Settings > Upload > Images**: one list in priority order, with an on/off switch and the API key of each.
 
@@ -112,6 +112,8 @@ Import only from `nazgarr.sdk`, never from the rest of `nazgarr`: `nazgarr.sdk` 
 | `choice` | select among `choices` | `str` |
 
 An adapter whose required fields are not all filled in is skipped, like an image host without its API key.
+
+Keep the address your adapter talks to in a `url` field, never in a `text` one: when a `url` field moves to another host (its default counts as the old value when none was saved), or from `https://` to `http://`, the saved `secret` fields must be sent again in the same request, or the change is refused (`secret_required_for_new_host`, `secret_required_for_insecure_scheme`). Your stored token can then never be pointed at a host chosen by someone holding a write API key.
 
 ### `AdapterContext`
 
@@ -491,7 +493,7 @@ curl -H "X-Api-Key: nzg_..." http://nazgarr:3019/api/dashboard
 - manage API keys: creating or revoking them requires the real login, so a stolen key cannot create more keys to stay in;
 - read or change secret settings (API keys, tokens, passwords) or the login's own settings;
 - change the safety settings (verification before executing, the client's recheck, automatic execution and its thresholds);
-- move a tracker, client or Radarr/Sonarr instance to another host, or the same host from `https://` to `http://`, without sending its secrets again in the same request, so a changed address can never receive the saved token (nor read it in clear on the way).
+- move a tracker, client, Radarr/Sonarr instance, notification service or plugin adapter (a `url` field of its settings) to another host, or the same host from `https://` to `http://`, without sending its secrets again in the same request, so a changed address can never receive the saved token (nor read it in clear on the way). The test of a saved notification service with other values follows the same rule.
 
 A wrong or revoked key always gets `401`; a read key gets `403` on anything but `GET`. Error messages returned by the API never contain credentials (download keys, passkeys, tokens in URLs).
 
