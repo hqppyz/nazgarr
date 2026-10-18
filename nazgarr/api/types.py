@@ -34,6 +34,10 @@ def _http_url(value: str) -> str:
     return value
 
 
+# Solo la forma dell'URL (e gli IP scritti per esteso): un endpoint che riceve
+# un HttpUrlStr deve chiamare check_destinations, se no un nome che punta ai
+# metadati del cloud passa. tests/test_api_url_types.py prova ogni route che
+# ne ha uno.
 HttpUrlStr = Annotated[str, AfterValidator(_http_url)]
 
 
