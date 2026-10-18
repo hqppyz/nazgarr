@@ -19,7 +19,7 @@ import shutil
 from datetime import UTC, datetime
 from enum import StrEnum
 
-from sqlalchemy import update
+from sqlalchemy import or_, update
 from sqlalchemy.orm import Session
 
 from nazgarr.core.errors import CodedError
@@ -528,8 +528,13 @@ def reset_interrupted(session: Session, data_dir: str | None = None) -> list[int
     target di un job annullato che il worker stava ancora finendo, o di uno
     finito con un errore che non ha potuto scrivere l'esito dei target (il
     DB non scrivibile)."""
-    for job in session.query(UploadJob).filter(UploadJob.status.in_(("running", *FINAL_STATES))).all():
-        if job.status != "running" and not any(t.status in BUSY_TARGET_STATES for t in job.targets):
+    # Solo i job che girano e quelli con un target ancora "in invio", non tutto lo storico.
+    busy = session.query(UploadTarget.job_id).filter(UploadTarget.status.in_(BUSY_TARGET_STATES))
+    interrupted = session.query(UploadJob).filter(
+        or_(UploadJob.status == "running", UploadJob.id.in_(busy.scalar_subquery()))
+    )
+    for job in interrupted.all():
+        if job.status in GATE_STATES or (job.status in WORKER_STATES and job.status != "running"):
             continue
         for target in job.targets:
             _reset_target(session, job, target, data_dir)
