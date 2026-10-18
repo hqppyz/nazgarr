@@ -179,3 +179,28 @@ def test_an_upload_profile_can_be_restored_from_the_bundled_one(client):
     assert missing.status_code == 400
     chosen = client.post(f"/api/trackers/{other}/upload-profile/restore", json={"profile_key": "itt"}).json()
     assert chosen["source_profile_key"] == "itt" and chosen["type_id_map"] == original["type_id_map"]
+
+
+def test_a_profile_key_is_never_a_path(client, tmp_path):
+    """Audit 2026-10-18: la chiave del profilo diventava un percorso così
+    com'era, e "../" o un percorso assoluto caricavano qualsiasi .yaml
+    leggibile sull'host."""
+    import os
+
+    from nazgarr.upload import profiles
+
+    outside = tmp_path / "secret.yaml"
+    outside.write_text("upload:\n  category_id: {movie: 99}\n")
+    absolute = str(outside)[: -len(".yaml")]
+    relative = os.path.relpath(absolute, profiles.PROFILES_DIR)
+    tracker_id = _create_tracker(client)
+
+    for key in (absolute, relative, "itt/../itt"):
+        response = client.post(f"/api/trackers/{tracker_id}/upload-profile", json={"profile_key": key})
+        assert response.status_code == 400, key
+
+    assert client.post(f"/api/trackers/{tracker_id}/upload-profile", json={}).status_code == 201
+    for key in (absolute, relative):
+        response = client.post(f"/api/trackers/{tracker_id}/upload-profile/restore", json={"profile_key": key})
+        assert response.status_code == 400, key
+    assert client.get(f"/api/trackers/{tracker_id}/upload-profile").json()["category_id_map"] == {}

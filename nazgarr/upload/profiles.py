@@ -49,11 +49,20 @@ def list_bundled_profiles() -> list[dict]:
 
 
 def _load_bundled_profile(key: str) -> dict:
+    """Solo un profilo bundlato, per chiave (audit 2026-10-18): la chiave
+    arriva dalle richieste (e da source_profile_key nel DB), e unita al
+    percorso così com'era caricava qualsiasi "<percorso>.yaml" leggibile
+    sull'host ("../../x", un percorso assoluto)."""
+    if not isinstance(key, str) or key not in {p["key"] for p in list_bundled_profiles()}:
+        raise ProfileNotFoundError("bundled_profile_not_found", key=key)
     path = os.path.join(PROFILES_DIR, f"{key}.yaml")
     if not os.path.isfile(path):
         raise ProfileNotFoundError("bundled_profile_not_found", key=key)
     with open(path) as f:
-        return yaml.safe_load(f)
+        data = yaml.safe_load(f)
+    if not isinstance(data, dict):
+        raise ProfileNotFoundError("bundled_profile_not_found", key=key)
+    return data
 
 
 def _host(url: str | None) -> str:
