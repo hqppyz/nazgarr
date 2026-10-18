@@ -657,16 +657,37 @@ def split_upload(
     details = _confirm(session, job, body)
     try:
         children = upload_split.split(session, job, details)
-    except (UploadJobError, ScopeViolation) as exc:
-        # Il match è confermato: se non si divide, va avanti come pack.
+    except Exception as exc:
+        # Il match è confermato: se non si divide, va avanti come pack. Un
+        # errore qualunque (audit 2026-10-18: un OSError leggendo un episodio
+        # dava un 500, e il pack restava fermo fino al riavvio), e nessun
+        # episodio creato fin lì resta vivo accanto al pack: li toglie la
+        # divisione (split._discard), e se non ci è riuscita qui.
         session.rollback()
+        session.refresh(job)
+        try:
+            upload_identify.drop_split_children(session, job)
+        except Exception:
+            session.rollback()
+            logger.warning("Upload %s: upload della divisione non tolti", job.id, exc_info=True)
         _worker(request).kick(job.id, job.status)
-        detail = from_coded_error(exc) if isinstance(exc, UploadJobError) else coded_detail("upload_split_not_a_pack")
-        raise HTTPException(status_code=400, detail=detail) from exc
+        raise _split_refused(job, exc) from exc
     for child in children:
         if child.status in upload_jobs.WORKER_STATES:
             _worker(request).kick(child.id, child.status)
     return UploadSplitResponse(job_ids=[child.id for child in children])
+
+
+def _split_refused(job: UploadJob, exc: Exception) -> HTTPException:
+    """La risposta a una divisione fallita, sempre con un codice."""
+    if isinstance(exc, UploadJobError):
+        return HTTPException(status_code=400, detail=from_coded_error(exc))
+    if isinstance(exc, ScopeViolation):
+        return HTTPException(status_code=400, detail=coded_detail("upload_split_not_a_pack"))
+    if isinstance(exc, OSError):
+        return HTTPException(status_code=400, detail=coded_detail("upload_source_unreadable", error=safe_error(exc)))
+    logger.error("Upload %s: divisione non riuscita", job.id, exc_info=exc)
+    return HTTPException(status_code=500, detail=coded_detail("upload_prepare_failed", error=safe_error(exc)))
 
 
 @router.get("/{upload_id}/episode-orders", response_model=EpisodeOrdersResponse)
