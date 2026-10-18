@@ -301,3 +301,28 @@ def test_the_full_check_reads_in_bounded_chunks_even_with_huge_pieces(db_session
 
     assert (result.ok, result.pieces) == (1, 1)
     assert sizes and max(sizes) <= 7
+
+
+def test_a_candidate_without_info_hash_learns_the_one_just_verified(db_session, tmp_path):
+    _, candidate = _setup(db_session, tmp_path, FILES)
+    assert candidate.info_hash is None
+
+    result = _check(db_session, candidate)
+
+    assert candidate.info_hash == result.info_hash  # l'esecuzione aggiungerà solo questo torrent
+    assert full_check.verdict(result) == (True, None)
+
+
+def test_a_torrent_other_than_the_matched_one_never_passes(db_session, tmp_path):
+    # Il tracker serve ora un .torrent diverso da quello del matching: i piece
+    # verificati sarebbero di un torrent che non è quello che si esegue.
+    _, candidate = _setup(db_session, tmp_path, FILES)
+    candidate.info_hash = "0" * 40
+    db_session.commit()
+
+    result = _check(db_session, candidate)
+
+    assert result.ok == result.pieces
+    passed, reason = full_check.verdict(result)
+    assert passed is False and "not the expected one" in reason
+    assert candidate.info_hash == "0" * 40  # mai sovrascritto

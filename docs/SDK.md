@@ -142,7 +142,7 @@ Methods marked **required** are abstract. The others have a default that raises 
 | Method | |
 |---|---|
 | `search_by_tmdb(tmdb_id) -> list[TorrentCandidate]` | **required**: the tracker's torrents for a movie or series |
-| `download_torrent(url) -> bytes` | a `.torrent` from a `download_link`, through the tracker's rate limit |
+| `download_torrent(url) -> bytes` | a `.torrent` from a `download_link`, through the tracker's rate limit. Needed for reseeds: Nazgarr downloads the `.torrent` itself, checks its info hash and sends the client those bytes, never the link |
 | `upload_torrent(fields: UploadFields, torrent_path) -> UploadedTorrent` | publish a new upload; return the tracker id and the link to download the `.torrent` **as the tracker stored it**, because trackers often rewrite it and the info hash changes |
 | `get_own_history() -> list[TorrentRecord]` | your history on the tracker, if it has one |
 
@@ -164,7 +164,7 @@ Raise `UploadError` when the tracker refuses an upload, and `TrackerRateLimitedE
 
 Raise `TorrentAddTimeoutError` if the torrent never shows up after adding it, and `TorrentAlreadyInClientError` if the client already has it.
 
-When `torrent_file_or_url` is a local file, send its **content** to the client, never its path: the client usually runs in another container and cannot see Nazgarr's data folder. Only real URLs (http, https, magnet) go to the client as URLs.
+When `torrent_file_or_url` is a local file, send its **content** to the client, never its path: the client usually runs in another container and cannot see Nazgarr's data folder. Only real URLs (http, https, magnet) go to the client as URLs. Uploads and reseeds always pass a local file.
 
 Set the class attribute `can_skip_recheck = False` if the client cannot add a torrent as already complete: Nazgarr then never records a skipped recheck for it, and `add_torrent` rechecks even when `skip_check_verified` is true.
 

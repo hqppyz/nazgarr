@@ -1,3 +1,4 @@
+import hashlib
 import os
 from datetime import UTC, datetime
 
@@ -16,6 +17,32 @@ from nazgarr.core.models import (
     Tracker,
 )
 from nazgarr.reseed import executor, pipeline
+from nazgarr.torrents.metainfo import compute_info_hash
+from tests.test_season_pack import _bencode
+
+
+def _movie_torrent(content: bytes = b"content", name: str = "Movie.2024.mkv") -> bytes:
+    return _bencode({"info": {"name": name, "piece length": 16, "length": len(content),
+                              "pieces": hashlib.sha1(content).digest()}})
+
+
+@pytest.fixture(autouse=True)
+def _tracker_torrent(monkeypatch):
+    """Il .torrent che l'esecutore scarica dal tracker (mai il link al
+    client): quello del film dei test, salvo dove un test lo cambia."""
+    served = {"content": _movie_torrent(), "links": []}
+
+    def download(candidate):
+        served["links"].append(candidate.download_link)
+        return served["content"]
+
+    monkeypatch.setattr(executor, "_download_torrent", download)
+    return served
+
+
+def _sent(path):
+    with open(path, "rb") as fh:
+        return fh.read()
 
 
 class FakeAdapter:
@@ -26,7 +53,8 @@ class FakeAdapter:
 
     def add_torrent(self, torrent_file_or_url, save_path, force_recheck=True, expected_info_hash=None):
         assert force_recheck is True
-        self.add_torrent_calls.append({"url": torrent_file_or_url, "save_path": save_path})
+        self.add_torrent_calls.append({"url": torrent_file_or_url, "save_path": save_path,
+                                       "content": _sent(torrent_file_or_url), "expected": expected_info_hash})
         return self.info_hash
 
     def get_torrent_status(self, info_hash):
@@ -152,8 +180,8 @@ def test_without_subfolders_the_root_folder_of_the_torrent_is_left_out(db_sessio
     executor.execute_review(db_session, review, adapter)
 
     assert (root / "torrents" / "Movie.2024.mkv").is_file()
-    assert adapter.add_torrent_calls[0] == {
-        "url": "https://t.example/dl/1", "save_path": str(root / "torrents"), "layout": "NoSubfolder"}
+    call = adapter.add_torrent_calls[0]
+    assert (call["save_path"], call["layout"]) == (str(root / "torrents"), "NoSubfolder")
 
 
 def test_a_torrent_with_its_own_folder_ignores_the_subfolder_preference(db_session, tmp_path):
@@ -457,9 +485,9 @@ def test_the_recheck_is_skipped_only_by_a_client_that_can(can_skip):
             return "h1"
 
     adapter, seed_job = Adapter(), SimpleNamespace(recheck_skipped=None)
-    candidate = SimpleNamespace(download_link="https://t.example/dl/1", info_hash="h1")
+    torrent = executor._CheckedTorrent(content=_movie_torrent(), info_hash="h1")
 
-    executor._add_to_client(adapter, candidate, "/torrents", seed_job, skip_recheck=True)
+    executor._add_to_client(adapter, torrent, "/torrents", seed_job, skip_recheck=True)
 
     # Transmission e rTorrent ricontrollano comunque: il seed job non lo registra come saltato.
     assert adapter.kwargs == ({"skip_check_verified": True} if can_skip else {})
@@ -607,3 +635,70 @@ def test_a_plugin_adapter_without_stop_keeps_the_safe_default():
 
     with pytest.raises(NotImplementedError):
         Plugin().stop("h")
+
+
+def test_the_client_gets_the_bytes_nazgarr_downloaded_never_the_tracker_link(db_session, tmp_path, _tracker_torrent):
+    # Con il link il client scaricava la sua copia: un tracker ostile poteva
+    # servire a Nazgarr il torrent giusto e al client un altro.
+    _root, review = _movie_review(db_session, tmp_path)
+    adapter = FakeAdapter()
+
+    executor.execute_review(db_session, review, adapter)
+
+    call = adapter.add_torrent_calls[0]
+    assert call["url"] != "https://t.example/dl/1" and call["content"] == _movie_torrent()
+    assert call["expected"] == compute_info_hash(_movie_torrent())
+    assert _tracker_torrent["links"] == ["https://t.example/dl/1"]
+    assert review.candidate.info_hash == compute_info_hash(_movie_torrent())  # per l'attesa e i retry
+    assert not os.path.exists(call["url"])  # il file temporaneo non resta
+
+
+def test_a_tracker_serving_another_torrent_than_the_matched_one_gets_nothing(db_session, tmp_path, _tracker_torrent):
+    root, review = _movie_review(db_session, tmp_path)
+    review.candidate.info_hash = compute_info_hash(_movie_torrent())  # letto dal matching o dal controllo
+    db_session.commit()
+    _tracker_torrent["content"] = _movie_torrent(b"CONTENT")  # stessi nomi, altri piece
+    adapter = FakeAdapter()
+
+    with pytest.raises(executor.ExecutionError, match="different .torrent"):
+        executor.execute_review(db_session, review, adapter)
+
+    assert adapter.add_torrent_calls == []
+    assert not (root / "torrents" / "Movie.2024.mkv").exists()  # nessun hardlink prima del controllo
+    from nazgarr.core.models import SeedJob
+    job = db_session.query(SeedJob).one()
+    assert job.final_status == "failed" and "different .torrent" in job.error_message
+
+
+def test_a_torrent_that_cannot_be_downloaded_is_a_failed_job_to_retry(db_session, tmp_path, monkeypatch):
+    root, review = _movie_review(db_session, tmp_path)
+
+    def down(candidate):
+        raise executor.ExecutionError("Could not download the .torrent from t: tracker down")
+
+    monkeypatch.setattr(executor, "_download_torrent", down)
+    adapter = FakeAdapter()
+
+    with pytest.raises(executor.ExecutionError, match="tracker down"):
+        executor.execute_review(db_session, review, adapter)
+
+    from nazgarr.core.models import SeedJob
+    job = db_session.query(SeedJob).one()
+    assert (job.final_status, job.info_hash) == ("failed", None)  # visibile fra le esecuzioni fallite
+    assert adapter.add_torrent_calls == [] and not (root / "torrents" / "Movie.2024.mkv").exists()
+
+
+def test_a_download_link_that_is_a_local_path_is_never_read_or_sent(db_session, tmp_path, _tracker_torrent):
+    # Gli adapter mandano per contenuto un file locale: un link del tracker come
+    # /proc/self/environ veniva letto e spedito al client.
+    _root, review = _movie_review(db_session, tmp_path)
+    secret = tmp_path / "secret.env"
+    secret.write_bytes(b"APP_SECRET_KEY=hunter2")
+    review.candidate.download_link = str(secret)
+    db_session.commit()
+    adapter = FakeAdapter()
+
+    executor.execute_review(db_session, review, adapter)
+
+    assert adapter.add_torrent_calls[0]["content"] == _movie_torrent()
+    assert _tracker_torrent["links"] == [str(secret)]  # chiesto al tracker, mai aperto qui

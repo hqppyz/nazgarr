@@ -261,6 +261,17 @@ def _sync_folder(session: Session, candidate: Candidate, parsed: TorrentInfo) ->
         session.commit()
 
 
+def _learn_info_hash(session: Session, candidate: Candidate, info_hash: str) -> None:
+    """Un candidato senza info hash (il matching non ha scaricato il suo
+    .torrent) prende quello del torrent appena verificato: l'esecuzione
+    aggiunge al client solo un .torrent con questo hash
+    (nazgarr/reseed/executor.py::_torrent_to_add), cioè quello controllato
+    qui, e il salto del recheck lo confronta sempre (audit 2026-10-18)."""
+    if not candidate.info_hash:
+        candidate.info_hash = info_hash
+        session.commit()
+
+
 def run_full_check(
     session: Session,
     candidate: Candidate,
@@ -275,7 +286,10 @@ def run_full_check(
         fetch_torrent = _download_torrent
     content = fetch_torrent(candidate)
     parsed = parse_torrent_info(content)
+    info_hash = compute_info_hash(content)
+    expected_info_hash = (seed_job.info_hash if seed_job is not None else None) or candidate.info_hash
     _sync_folder(session, candidate, parsed)
+    _learn_info_hash(session, candidate, info_hash)
     locate = build_locator(session, candidate, seed_job, media_file_id)
     on_start(parsed.total_length)
     files, bad = verify_all_pieces(parsed, locate, on_progress, cancelled)
@@ -287,8 +301,8 @@ def run_full_check(
     ok = len(parsed.pieces) - len(bad_set)
     return CheckResult(
         torrent_name=parsed.name,
-        info_hash=compute_info_hash(content),
-        expected_info_hash=(seed_job.info_hash if seed_job is not None else None) or candidate.info_hash,
+        info_hash=info_hash,
+        expected_info_hash=expected_info_hash,
         piece_length=parsed.piece_length,
         pieces=len(parsed.pieces),
         ok=ok,
@@ -304,7 +318,15 @@ def verdict(result: CheckResult) -> tuple[bool, str | None]:
     e ogni file ha la sua copia locale della dimensione giusta, tranne gli
     extra che mancano in locale (nfo, sample): quelli li scarica il client
     dopo il recheck, lo stesso margine di seed_job.expected_missing_bytes.
-    Un video mancante o di dimensione diversa non passa mai."""
+    Un video mancante o di dimensione diversa non passa mai, e nemmeno un
+    .torrent diverso da quello atteso (il matching ne aveva un altro, o il
+    client ne ha un altro): i piece verificati sarebbero di un torrent che
+    non è quello che si esegue."""
+    if result.expected_info_hash and result.expected_info_hash.lower() != result.info_hash.lower():
+        return False, (
+            f"The tracker's .torrent (info hash {result.info_hash}) is not the expected one "
+            f"({result.expected_info_hash})"
+        )
     if result.mismatched:
         return False, f"{result.mismatched} of {result.pieces} pieces differ from the torrent"
     for f in result.files:
