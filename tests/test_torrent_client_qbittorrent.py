@@ -353,3 +353,39 @@ def test_the_credentials_test_counts_torrents_without_their_files():
             raise AssertionError("file non richiesti per contare")
 
     assert _adapter(NoFiles(torrents=[FakeTorrent(hash="a"), FakeTorrent(hash="b")])).count_torrents() == 2
+
+
+def test_a_reseed_is_added_stopped_and_rechecked_never_started():
+    """Decisione dell'utente, 2026-10-18: un reseed entra fermo e parte solo
+    a recheck riuscito (nazgarr/reseed/executor.py::reconcile_seed_job); il
+    recheck c'è lo stesso, qBittorrent lo fa anche su un torrent fermo."""
+    client = FakeQbtClient()
+    adapter = _adapter(client)
+
+    info_hash = adapter.add_torrent("magnet:?xt=...", save_path="/torrents/movie", stopped=True)
+
+    assert QBittorrentAdapter.can_add_stopped is True
+    assert client.added_calls[0]["stopped"] is True and client.rechecked == [info_hash]
+    assert client.started == []
+    adapter.start(info_hash)
+    assert client.started == [info_hash]
+
+
+def test_the_live_path_check_asks_the_files_of_only_the_torrents_it_looks_at():
+    """Audit 2026-10-18: la verifica dei percorsi chiedeva i file di ogni
+    torrent (list_torrents) e ne guardava i primi 5000."""
+    asked = []
+
+    class Counting(FakeQbtClient):
+        def torrents_files(self, torrent_hash):
+            asked.append(torrent_hash)
+            return super().torrents_files(torrent_hash)
+
+    client = Counting(torrents=[FakeTorrent(hash=f"h{i}") for i in range(5)],
+                      files_by_hash={"h0": [FakeFile("Movie/a.nfo", 10), FakeFile("Movie/a.mkv", 900)]})
+
+    largest = _adapter(client).list_largest_files(limit=2)
+
+    assert sorted(asked) == ["h0", "h1"]
+    assert [(t.info_hash, [(f.path_in_torrent, f.size_bytes) for f in t.files]) for t in largest] == [
+        ("h0", [("Movie/a.mkv", 900)]), ("h1", [])]

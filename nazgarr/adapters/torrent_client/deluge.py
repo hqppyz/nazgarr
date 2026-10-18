@@ -22,15 +22,30 @@ Verificato contro un'istanza reale (lscr.io/linuxserver/deluge, Deluge
 - L'opzione `download_location` è la save path, passata così com'è.
 - Recheck: `core.force_recheck`. skip_check_verified usa `seed_mode` di
   libtorrent (Deluge 2): il torrent entra già completo, senza recheck.
+- stopped (un reseed): `add_paused`; force_recheck lo avvia per il
+  controllo e lo rimette in pausa dopo, `core.resume_torrent` lo avvia.
+  Subito dopo force_recheck lo `state` di Deluge resta "Paused" finché il
+  demone non elabora l'avvio del controllo: add_torrent e recheck aspettano
+  (al più CHECK_START_TIMEOUT) che la lettura non sia più quella di un
+  recheck fallito, "Paused" sotto il 100% (audit 2026-10-18).
 - Etichette: categoria = label del plugin Label, solo se il plugin è acceso
   (Nazgarr non accende plugin del client). Le label di Deluge sono in
   minuscolo ([a-z0-9_-]); una label che non c'è si crea. Deluge non ha tag:
   si ignorano. list_categories() sono le label (vuota senza il plugin).
 - Stato nativo: lo `state` di Deluge ("Checking", "Seeding", "Paused",
-  "Error"...). Il progresso di Deluge va da 0 a 100. Un torrent in coda in
-  libtorrent (paused + auto-managed) non ha ancora un esito: subito dopo
-  force_recheck Deluge lo mostra per un attimo "Seeding" o "Queued" al 0%,
-  prima di "Checking" (visto sull'istanza reale), quindi è "pending".
+  "Queued", "Error"...). Il progresso di Deluge va da 0 a 100. Lo `state` è
+  quello che Deluge tiene in memoria e aggiorna a ogni evento di
+  libtorrent, `paused` è il flag di libtorrent letto adesso. Non hanno
+  ancora un esito: "Queued" (Deluge lo calcola da paused e auto-managed di
+  libtorrent: in coda per il controllo o per un posto), un torrent in pausa
+  con un altro stato (subito dopo force_recheck Deluge lo mostra per un
+  attimo "Seeding" o "Queued" al 0%, visto sull'istanza reale) e uno
+  "Paused" che in libtorrent non lo è più (force_recheck l'ha avviato per
+  il controllo, e Deluge non l'ha ancora visto). "Paused" sotto il 100%,
+  col flag, è un recheck fallito: force_recheck rimette in pausa dopo il
+  controllo un torrent che lo era. Mai `is_auto_managed`: è l'opzione
+  salvata di Deluge, vera anche per un torrent in pausa (audit 2026-10-18:
+  un reseed fallito restava "pending" per sempre).
 """
 
 import base64
@@ -45,6 +60,7 @@ from nazgarr.adapters.torrent_client.base import (
     TorrentAlreadyInClientError,
     TorrentClientAdapter,
     TorrentStatus,
+    largest_file_only,
     local_torrent_bytes,
     number,
     require_recheck,
@@ -56,11 +72,19 @@ logger = logging.getLogger(__name__)
 
 CHECKING = {"Checking", "Allocating"}
 ERROR = {"Error"}
-STATUS_KEYS = ["hash", "state", "progress", "total_wanted", "total_done", "paused", "is_auto_managed"]
+STATUS_KEYS = ["hash", "state", "progress", "total_wanted", "total_done", "paused"]
+# Quanto si aspetta, dopo force_recheck su un torrent in pausa, che Deluge
+# mostri il controllo partito (_wait_for_check). Basta poco: il flag di
+# libtorrent cambia subito, lo stato all'evento dopo. Solo un controllo
+# fallito già finito prima della prima lettura (un torrent piccolo) lo
+# aspetta tutto, ed è comunque l'esito giusto.
+CHECK_START_TIMEOUT = 5.0
 INFO_KEYS = [
     "hash", "name", "save_path", "state", "label", "trackers", "files", "ratio", "seeding_time", "time_added",
     "total_seeds",
 ]
+# La verifica dei percorsi (list_largest_files): solo save path e file.
+LARGEST_KEYS = ["hash", "name", "save_path", "state", "files"]
 NOT_AUTHENTICATED = 1  # codice d'errore della Web UI senza sessione
 
 
@@ -69,6 +93,8 @@ class DelugeError(Exception):
 
 
 class DelugeAdapter(TorrentClientAdapter):
+    can_add_stopped = True
+
     def __init__(
         self,
         base_url: str,
@@ -142,6 +168,7 @@ class DelugeAdapter(TorrentClientAdapter):
         self, torrent_file_or_url: str, save_path: str, force_recheck: bool = True,
         expected_info_hash: str | None = None, skip_check_verified: bool = False,
         category: str | None = None, tags: list[str] | None = None, content_layout: str = "Original",
+        stopped: bool = False,
     ) -> str:
         require_recheck(force_recheck)
         before = self._hashes()
@@ -150,7 +177,11 @@ class DelugeAdapter(TorrentClientAdapter):
             raise TorrentAlreadyInClientError(
                 f"Torrent {expected} is already in the client (possibly with another save path): nothing added"
             )
-        options = {"download_location": save_path, "add_paused": False, "seed_mode": bool(skip_check_verified)}
+        # Fermo per un reseed: force_recheck di Deluge avvia il torrent per il
+        # controllo e lo rimette in pausa dopo, se lo era (core.resume_torrent
+        # lo fa partire al recheck riuscito).
+        options = {"download_location": save_path, "add_paused": bool(stopped),
+                   "seed_mode": bool(skip_check_verified)}
         content = local_torrent_bytes(torrent_file_or_url)
         try:
             if content is not None:
@@ -179,7 +210,30 @@ class DelugeAdapter(TorrentClientAdapter):
             logger.debug("Deluge non ha tag: ignorati %s", tags)
         if not skip_check_verified:
             self._call("core.force_recheck", [info_hash])
+            if stopped:
+                self._wait_for_check(info_hash)
         return info_hash
+
+    def _wait_for_check(self, info_hash: str) -> None:
+        """Dopo force_recheck su un torrent in pausa (un reseed, o il suo
+        retry): finché Deluge non vede il controllo partito, la sua lettura
+        può essere "Paused" sotto il 100%, cioè quella di un recheck fallito,
+        e un reconcile in quel momento lo darebbe per fallito. Si aspetta, al
+        più CHECK_START_TIMEOUT, che la lettura cambi: controllo in corso,
+        flag di pausa tolto, o completo. Il torrent intanto non scarica
+        niente (lo si controlla soltanto). Un torrent avviato non aspetta.
+        Un errore qui non annulla il recheck, già chiesto: lo si lascia."""
+        deadline = time.monotonic() + min(CHECK_START_TIMEOUT, self.poll_timeout)
+        while True:
+            try:
+                torrent = self._call("core.get_torrent_status", info_hash.lower(), STATUS_KEYS) or {}
+            except DelugeError:
+                logger.debug("Deluge: stato di %s non letto dopo force_recheck", info_hash, exc_info=True)
+                return
+            looks_failed = torrent.get("state") == "Paused" and _status(torrent) == "failed"
+            if not looks_failed or time.monotonic() >= deadline:
+                return
+            time.sleep(self.poll_interval)
 
     def _label_plugin(self) -> bool:
         return "Label" in (self._call("core.get_enabled_plugins") or [])
@@ -204,6 +258,12 @@ class DelugeAdapter(TorrentClientAdapter):
 
     def recheck(self, info_hash: str) -> None:
         self._call("core.force_recheck", [info_hash.lower()])
+        # Un torrent in pausa (il retry di un reseed fallito): come all'aggiunta.
+        self._wait_for_check(info_hash)
+
+    def start(self, info_hash: str) -> None:
+        # Una lista, come stop: Deluge 1.3 vuole una lista, il 2 accetta entrambi.
+        self._call("core.resume_torrent", [info_hash.lower()])
 
     def stop(self, info_hash: str) -> None:
         # Una lista, come force_recheck: Deluge 1.3 vuole una lista, il 2 accetta entrambi.
@@ -218,20 +278,7 @@ class DelugeAdapter(TorrentClientAdapter):
             raise ValueError(f"Torrent {info_hash} non trovato nel client")
         state = torrent.get("state") or ""
         progress = float(torrent.get("progress") or 0.0) / 100.0
-        if state in CHECKING:
-            recheck_status = "pending"
-        elif state in ERROR:
-            recheck_status = "failed"
-        elif progress >= 1.0:
-            recheck_status = "ok"
-        elif torrent.get("paused") and torrent.get("is_auto_managed"):
-            # In coda in libtorrent: per il controllo (subito dopo
-            # force_recheck Deluge riporta per un attimo "Seeding" o "Queued"
-            # al 0%, verificato sull'istanza reale) o per un posto libero.
-            # Il recheck non ha ancora detto niente.
-            recheck_status = "pending"
-        else:
-            recheck_status = "failed"
+        recheck_status = _status(torrent)
         wanted, done = torrent.get("total_wanted"), torrent.get("total_done")
         return TorrentStatus(
             info_hash=torrent.get("hash") or info_hash.lower(), state=state, recheck_status=recheck_status,
@@ -253,6 +300,11 @@ class DelugeAdapter(TorrentClientAdapter):
                 on_progress(i + 1, len(torrents))
         return result
 
+    def list_largest_files(self, limit: int | None = None) -> list[ClientTorrentInfo]:
+        torrents = self._call("core.get_torrents_status", {}, LARGEST_KEYS) or {}
+        return [largest_file_only(self._info(torrent_id, torrent))
+                for torrent_id, torrent in list(torrents.items())[:limit]]
+
     @staticmethod
     def _info(torrent_id: str, torrent: dict) -> ClientTorrentInfo:
         return ClientTorrentInfo(
@@ -271,3 +323,23 @@ class DelugeAdapter(TorrentClientAdapter):
             added_on=number(torrent.get("time_added"), int),
             swarm_seeders=seeders(torrent.get("total_seeds")),
         )
+
+
+def _status(torrent: dict) -> str:
+    """L'esito del recheck da una lettura di Deluge (la docstring del modulo):
+    "pending", "ok" o "failed"."""
+    state = torrent.get("state") or ""
+    paused = torrent.get("paused")
+    if state in CHECKING:
+        return "pending"
+    if state in ERROR:
+        return "failed"
+    if float(torrent.get("progress") or 0.0) >= 100.0:
+        return "ok"
+    if state == "Queued" or (paused is True and state != "Paused") or (paused is False and state == "Paused"):
+        # In coda in libtorrent, o uno stato che Deluge non ha ancora
+        # aggiornato dopo force_recheck: il recheck non ha ancora detto niente.
+        return "pending"
+    # "Paused" in pausa davvero (force_recheck l'ha rimesso in pausa dopo il
+    # controllo), o avviato e incompleto: dati che non corrispondono.
+    return "failed"

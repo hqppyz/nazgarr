@@ -4,7 +4,8 @@ già) — sempre con recheck forzato, mai skip_checking (docs/SPEC.md
 sezione 8). Ordine dei passi per media_to_torrent, mai bypassabile:
 1. verifica st_dev sorgente/destinazione (mai un cross-device silente)
 2. hardlink col nome esatto atteso dal tracker
-3. add_torrent sul client, sempre con force_recheck=True
+3. add_torrent sul client, sempre con force_recheck=True, fermo: parte solo
+   a recheck riuscito (reconcile_seed_job, decisione dell'utente 2026-10-18)
 
 Un candidato con righe candidate_file (nazgarr/torrents/layout.py: film con
 extra, season pack) si ricrea file per file: un hardlink per ogni file del
@@ -38,8 +39,10 @@ from nazgarr.adapters.torrent_client.base import (
     TorrentAddTimeoutError,
     TorrentAlreadyInClientError,
     TorrentClientAdapter,
+    TorrentStatus,
     is_stopped_state,
     layout_kwargs,
+    stopped_kwargs,
 )
 from nazgarr.core import settings_repo
 from nazgarr.core.errors import CodedError, english
@@ -50,6 +53,7 @@ from nazgarr.integrations import adapter_factory
 from nazgarr.library import hardlinks
 from nazgarr.library.tmdb_client import TMDBClient
 from nazgarr.reseed import download_links
+from nazgarr.reseed.placement import Placement, placement_for
 from nazgarr.torrents import client_labels, client_paths
 from nazgarr.torrents.layout import expected_missing_bytes
 from nazgarr.torrents.metainfo import TorrentMetainfoError, compute_info_hash, parse_torrent_info
@@ -224,13 +228,20 @@ def _add_to_client(
     scritto sul seed_job, così si vede quali esecuzioni sono passate così.
     labels: categoria e tag del client (_labels), solo se ce ne sono.
     Un client che non sa saltarlo (can_skip_recheck) lo fa comunque.
-    layout: sempre esplicito (_Placement), "Original" per file già al loro
+    layout: sempre esplicito (Placement), "Original" per file già al loro
     posto: la preferenza del client non li deve spostare.
+
+    Con il recheck del client il torrent entra fermo (decisione dell'utente,
+    2026-10-18; stopped_kwargs, ogni adapter incluso) e parte solo quando il
+    recheck è riuscito (reconcile_seed_job): avviato, con un recheck fallito
+    scaricava i piece mancanti dentro gli hardlink, cioè nei file della
+    libreria, fino al reconcile che lo fermava (minuti, o una run intera).
+    Senza recheck (verificato al 100% da Nazgarr) parte subito, come prima.
 
     Il .torrent va come file locale temporaneo, che ogni adapter manda al
     client col suo contenuto (docs/SDK.md): mai il link del tracker."""
     skip_recheck = skip_recheck and getattr(adapter, "can_skip_recheck", True)
-    extra = {"skip_check_verified": True} if skip_recheck else {}
+    extra = {"skip_check_verified": True} if skip_recheck else stopped_kwargs(adapter)
     with tempfile.TemporaryDirectory(prefix="nazgarr-reseed-") as folder:
         path = os.path.join(folder, f"{torrent.info_hash}.torrent")
         with open(path, "wb") as fh:
@@ -278,22 +289,6 @@ def _adopt_after_add_error(
     return "adopted"
 
 
-@dataclass(frozen=True)
-class _Placement:
-    """Dove vanno i nuovi hardlink perché il torrent li trovi rispettando
-    il layout del contenuto scelto dall'utente nel client (qBittorrent:
-    Opzioni › Download): save_dir è la cartella di save_path dentro la
-    cartella dei nuovi torrent, folder la cartella radice dei file dentro
-    save_dir, layout quello da mandare al client."""
-
-    save_dir: str | None
-    folder: str | None
-    layout: str
-
-    def rel_path(self, torrent_path: str) -> str:
-        return "/".join(p for p in (self.save_dir, self.folder, torrent_path) if p)
-
-
 def _client_layout(adapter: TorrentClientAdapter) -> str:
     try:
         layout = adapter.content_layout()
@@ -305,20 +300,12 @@ def _client_layout(adapter: TorrentClientAdapter) -> str:
     return layout if layout in CONTENT_LAYOUTS else "Original"
 
 
-def _placement(adapter: TorrentClientAdapter, candidate, single_file_name: str | None) -> _Placement:
-    """"Crea sottocartella" su un torrent a file singolo: la cartella col
-    nome del file senza estensione la crea Nazgarr, e il torrent arriva con
-    save_path lì dentro e layout Original, così non serve indovinare come
-    il client sceglie quel nome. "Non creare sottocartella" su un torrent
-    con la cartella radice: gli hardlink senza quella cartella, e il client
-    riceve lo stesso layout. Negli altri casi il layout non cambia niente."""
-    layout = _client_layout(adapter)
-    if layout == "Subfolder" and not candidate.folder and single_file_name:
-        stem = os.path.splitext(single_file_name)[0] or single_file_name
-        return _Placement(save_dir=stem, folder=None, layout="Original")
-    if layout == "NoSubfolder" and candidate.folder:
-        return _Placement(save_dir=None, folder=None, layout="NoSubfolder")
-    return _Placement(save_dir=None, folder=candidate.folder, layout="Original")
+def _placement(adapter: TorrentClientAdapter, candidate, single_file_name: str | None) -> Placement:
+    """Dove vanno i nuovi hardlink perché il torrent li trovi rispettando il
+    layout del contenuto scelto dall'utente nel client: la regola è in
+    nazgarr/reseed/placement.py, la stessa con cui seed_refresh e il
+    controllo completo li cercano dopo."""
+    return placement_for(_client_layout(adapter), candidate.folder, single_file_name)
 
 
 def _torrent_rel_path(candidate, torrent_path: str) -> str:
@@ -365,14 +352,18 @@ def _source_path(disk: Disk, relative_path: str) -> str:
     return path
 
 
-def _check_link(source_path: str, target_path: str, target_root: str) -> bool:
+def _check_link(source_path: str, target_path: str, target_root: str) -> str | None:
     """I controlli comuni (nazgarr/library/hardlinks.py::check_link) prima di creare
-    un hardlink. True se la destinazione è già lo stesso file (stesso inode):
-    un cross-seed della stessa release con lo stesso nome su un altro
-    tracker riusa quell'hardlink. Un altro file al suo posto resta un
-    errore: mai sovrascritto."""
+    un hardlink, sulla destinazione così come è scritta (target_root più il
+    percorso del torrent, mai già risolta): risolta, un link simbolico al
+    suo posto non si vedeva più, e l'hardlink nasceva dove puntava (audit
+    2026-10-18). Restituisce la destinazione risolta da passare a
+    create_links, o None se è già lo stesso file (stesso inode): un
+    cross-seed della stessa release con lo stesso nome su un altro tracker
+    riusa quell'hardlink. Un altro file al suo posto, o un link simbolico,
+    resta un errore: mai sovrascritto né seguito."""
     try:
-        return hardlinks.check_link(source_path, target_path, target_root) is None
+        return hardlinks.check_link(source_path, target_path, target_root)
     except hardlinks.LinkProblem as problem:
         if problem.code == "cross_device":
             raise ExecutionError(
@@ -513,8 +504,9 @@ def _execute_layout_media_to_torrent(
         if f.media_file.disk_id != disk.id:
             raise ExecutionError(f"'{f.media_file.relative_path}' is on another disk: a hardlink cannot cross disks")
         source_path = _source_path(disk, f.media_file.relative_path)
-        target_path = _in_scope(target_root, placement.rel_path(f.torrent_path))
-        if _check_link(source_path, target_path, target_root):
+        target_path = _check_link(source_path, os.path.join(target_root, placement.rel_path(f.torrent_path)),
+                                  target_root)
+        if target_path is None:
             continue  # già lì, stesso inode: niente da creare (e niente da togliere se fallisce)
         links.append((source_path, target_path))
     _require_download_link(candidate)
@@ -583,14 +575,16 @@ def _execute_media_to_torrent(
     # Un torrent a file singolo può comunque avere una cartella contenitore
     # (candidate.folder) — molte release la usano anche per i film.
     placement = _placement(adapter, candidate, expected_filename)
-    target_path = _in_scope(target_root, placement.rel_path(expected_filename))
+    # None: già lì, stesso inode (un cross-seed).
+    target_path = _check_link(source_path, os.path.join(target_root, placement.rel_path(expected_filename)),
+                              target_root)
     save_root = _in_scope(target_root, placement.save_dir) if placement.save_dir else target_root
-    reuse = _check_link(source_path, target_path, target_root)  # già lì, stesso inode: un cross-seed
     _require_download_link(candidate)
 
     seed_job = _new_seed_job(session, candidate, torrent_client_id, source_media_file_id=media_file.id)
     return _seed(session, seed_job, review, adapter, torrent_client_id, disk, save_root, skip_recheck,
-                 fetch_torrent, links=[] if reuse else [(source_path, target_path)], layout=placement.layout)
+                 fetch_torrent, links=[] if target_path is None else [(source_path, target_path)],
+                 layout=placement.layout)
 
 
 def _execute_torrent_to_client(
@@ -620,34 +614,43 @@ def _execute_torrent_to_client(
 def reconcile_seed_job(session: Session, seed_job: SeedJob, adapter: TorrentClientAdapter) -> SeedJob:
     """Aggiorna recheck_status/final_status interrogando lo stato reale nel
     client. Il recheck è asincrono lato client: va richiamata finché non
-    raggiunge uno stato definitivo (mai un'attesa bloccante qui dentro)."""
+    raggiunge uno stato definitivo (mai un'attesa bloccante qui dentro).
+
+    Un reseed entra fermo (_add_to_client): qui parte, con start(), solo a
+    recheck riuscito (al 100%, o con i soli extra che si sapeva mancanti);
+    con il recheck fallito resta fermo, e il seed job fallito lo dice."""
     if seed_job.info_hash is None:
         raise ExecutionError(f"SeedJob {seed_job.id} does not have an info_hash yet")
+    return _reconcile_with(session, seed_job, adapter, adapter.get_torrent_status(seed_job.info_hash))
 
-    status = adapter.get_torrent_status(seed_job.info_hash)
-    recheck_status = status.recheck_status
+
+def _recheck_outcome(seed_job: SeedJob, status: TorrentStatus) -> str:
+    """L'esito del recheck di un seed job: quello del client, salvo un
+    recheck finito a cui mancano solo i file extra che si sapeva di non
+    avere (nfo, sottotitoli, sample, expected_missing_bytes), che è "ok":
+    il client li scarica dopo l'avvio."""
     allowed = seed_job.expected_missing_bytes or 0
     if (
-        recheck_status == "failed" and status.incomplete and allowed > 0
+        status.recheck_status == "failed" and status.incomplete and allowed > 0
         and status.amount_left is not None and status.amount_left <= allowed
     ):
-        # Recheck finito e mancano solo i file extra che si sapeva di non
-        # avere (nfo, sottotitoli, sample): il client li sta scaricando.
-        recheck_status = "ok"
         logger.info(
             "Seed_job %s: recheck ok, il client scarica %d byte di file extra mancanti",
             seed_job.id, status.amount_left,
         )
+        return "ok"
+    return status.recheck_status
+
+
+def _reconcile_with(session: Session, seed_job: SeedJob, adapter: TorrentClientAdapter,
+                    status: TorrentStatus) -> SeedJob:
+    recheck_status = _recheck_outcome(seed_job, status)
     seed_job.recheck_status = recheck_status
-    if recheck_status == "ok" and is_stopped_state(status.state):
-        # Recheck riuscito ma fermo: la condizione di arresto "file
-        # controllati" del client (qui non la lascia cambiare all'aggiunta).
-        try:
-            adapter.start(seed_job.info_hash)
-            logger.info("Seed_job %s: torrent fermo dopo il recheck, avviato", seed_job.id)
-        except Exception:
-            logger.warning("Seed_job %s: torrent fermo dopo il recheck, avvio fallito", seed_job.id, exc_info=True)
     if recheck_status == "ok":
+        seed_job.error_message = None  # un retry riuscito: il fallimento di prima non vale più
+        if is_stopped_state(status.state) and not _start_after_recheck(adapter, seed_job):
+            session.commit()
+            return seed_job  # resta in corso: il prossimo reconcile riprova ad avviarlo
         seed_job.final_status = "seeding"
         logger.info("Recheck ok, seed_job %s in seeding (info_hash=%s)", seed_job.id, seed_job.info_hash)
     elif recheck_status == "failed":
@@ -659,15 +662,51 @@ def reconcile_seed_job(session: Session, seed_job: SeedJob, adapter: TorrentClie
     return seed_job
 
 
+STARTED_LATE = ("The recheck passed, but the client did not start the torrent: Nazgarr tries again at the "
+                "next check, or start it in the client")
+CANNOT_START = "The recheck passed, but this client cannot be told to start it: start it in the client"
+
+
+def _start_after_recheck(adapter: TorrentClientAdapter, seed_job: SeedJob) -> bool:
+    """Avvia un torrent fermo dopo un recheck riuscito: un reseed, che entra
+    sempre fermo (decisione dell'utente, 2026-10-18), o la condizione di
+    arresto "file controllati" di un client. False se il client non l'ha
+    avviato: il seed job resta in corso, col perché, e il reconcile dopo
+    riprova (prima diventava "seeding" con il torrent fermo per sempre).
+    Un adapter che start() non ce l'ha (un plugin senza la classe base) o
+    non lo implementa non lo farà mai: "seeding", col messaggio di avviarlo
+    nel client, invece di riprovare per sempre a ogni reconcile."""
+    start = getattr(adapter, "start", None)
+    try:
+        if not callable(start):
+            raise NotImplementedError
+        start(seed_job.info_hash)
+    except NotImplementedError:
+        logger.warning("Seed_job %s: recheck riuscito, il client non sa avviare %s", seed_job.id,
+                       seed_job.info_hash)
+        seed_job.error_message = CANNOT_START
+        return True
+    except Exception as exc:
+        logger.warning("Seed_job %s: recheck riuscito, avvio fallito", seed_job.id, exc_info=True)
+        seed_job.error_message = f"{STARTED_LATE} ({safe_error(exc)})"
+        return False
+    logger.info("Seed_job %s: recheck riuscito, torrent avviato", seed_job.id)
+    return True
+
+
 def _stop_after_failed_recheck(adapter: TorrentClientAdapter, seed_job: SeedJob, state: str | None) -> str:
-    """Un reseed col recheck fallito si ferma nel client (audit 2026-10-18):
-    avviato, scaricherebbe i piece che mancano scrivendoli nei file a
-    save_path, che sono hardlink dei file in libreria (gli stessi byte), o
-    i file già nella cartella dei torrent. Niente di approvato dall'utente.
-    Ritorna la coda del messaggio del seed job. Un retry che trova il
-    recheck riuscito lo riavvia (il ramo "fermo dopo il recheck" sopra)."""
+    """Un reseed col recheck fallito resta fermo nel client: entra fermo
+    (decisione dell'utente, 2026-10-18), e uno che non lo è (aggiunto da un
+    plugin senza can_add_stopped, o avviato a mano durante il recheck) si
+    ferma (audit 2026-10-18). Avviato, scaricherebbe i piece che mancano
+    scrivendoli nei file a save_path, che sono hardlink dei file in libreria
+    (gli stessi byte), o i file già nella cartella dei torrent. Niente di
+    approvato dall'utente. Ritorna la coda del messaggio del seed job. Un
+    retry lo fa ricontrollare (adopt_for_retry), e il reconcile dopo lo
+    avvia se il recheck riesce (_start_after_recheck)."""
     if is_stopped_state(state):
-        return ""
+        return ("; left stopped in the client, so it downloads nothing into the linked files: recheck it in the "
+                "client, or Retry once the files are right")
     try:
         adapter.stop(seed_job.info_hash)
     except NotImplementedError:
@@ -682,16 +721,27 @@ def _stop_after_failed_recheck(adapter: TorrentClientAdapter, seed_job: SeedJob,
 
 def adopt_for_retry(session: Session, seed_job: SeedJob, adapter: TorrentClientAdapter) -> SeedJob | None:
     """La parte di un retry che segue un torrent già nel client, senza
-    creare niente: con un info_hash il problema era probabilmente solo il
-    recheck mai confermato, e si reinterroga il client (un torrent fermato
-    dopo un recheck fallito riparte se ora il recheck è riuscito); senza, se
-    il client ha comunque il torrent del candidato (l'aggiunta fallita può
-    essere arrivata lo stesso), lo si segue. None = va rifatto da zero."""
+    creare niente: con un info_hash si reinterroga il client; senza, se il
+    client ha comunque il torrent del candidato (l'aggiunta fallita può
+    essere arrivata lo stesso), lo si segue. None = va rifatto da zero.
+
+    Con un info_hash e il torrent fermo col recheck fallito (un reseed entra
+    fermo e ci resta, decisione dell'utente del 2026-10-18) si chiede un
+    nuovo recheck: un torrent fermo il client non lo ricontrolla da solo, e
+    rileggerlo diceva di nuovo "failed" anche coi file ora giusti. Il retry
+    è l'approvazione dell'utente, ed è un controllo, mai un avvio: il seed
+    job torna in corso e il reconcile dopo lo avvia solo se riesce."""
     if seed_job.info_hash:
         logger.info("Retry seed_job %s: info_hash già presente, reinterrogo il client", seed_job.id)
+        status = adapter.get_torrent_status(seed_job.info_hash)
+        if _recheck_outcome(seed_job, status) == "failed" and is_stopped_state(status.state) and _recheck_for_retry(
+                adapter, seed_job):
+            seed_job.final_status, seed_job.recheck_status, seed_job.error_message = "in_progress", "pending", None
+            session.commit()
+            return seed_job
         seed_job.final_status = "in_progress"
         session.commit()
-        return reconcile_seed_job(session, seed_job, adapter)
+        return _reconcile_with(session, seed_job, adapter, status)
     candidate = session.get(Candidate, seed_job.candidate_id)
     if candidate is not None and candidate.info_hash:
         try:
@@ -707,6 +757,25 @@ def adopt_for_retry(session: Session, seed_job: SeedJob, adapter: TorrentClientA
             session.commit()
             return reconcile_seed_job(session, seed_job, adapter)
     return None
+
+
+def _recheck_for_retry(adapter: TorrentClientAdapter, seed_job: SeedJob) -> bool:
+    """Il recheck chiesto da un retry. False se l'adapter non lo sa fare (un
+    plugin senza recheck): il retry rilegge soltanto, come prima. Un errore
+    del client è un retry fallito, e il seed job resta com'era."""
+    recheck = getattr(adapter, "recheck", None)
+    try:
+        if not callable(recheck):
+            raise NotImplementedError
+        recheck(seed_job.info_hash)
+    except NotImplementedError:
+        logger.warning("Retry seed_job %s: il client non sa ricontrollare %s", seed_job.id, seed_job.info_hash)
+        return False
+    except Exception as exc:
+        raise ExecutionError(f"The client did not take the recheck ({safe_error(exc)}): try again, or recheck "
+                             "it in the client") from exc
+    logger.info("Retry seed_job %s: recheck chiesto al client, resta fermo fino all'esito", seed_job.id)
+    return True
 
 
 def review_of(session: Session, seed_job: SeedJob) -> MatchReview:

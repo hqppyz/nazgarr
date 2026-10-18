@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from nazgarr.core.errors import coded_detail, from_coded_error
 from nazgarr.reseed import full_check
 from nazgarr.web.deps import get_session
 
@@ -84,8 +85,9 @@ def start_full_check(body: FullCheckRequest, request: Request, session: Session 
         state = full_check.start_check(
             request.app.state.session_factory, session, body.candidate_id, body.seed_job_id, body.media_file_id
         )
-    except full_check.FullCheckError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except full_check.CheckNotStarted as exc:
+        status = 404 if exc.code == "full_check_candidate_not_found" else 400
+        raise HTTPException(status_code=status, detail=from_coded_error(exc)) from exc
     return _response(state)
 
 
@@ -98,7 +100,7 @@ def list_full_checks():
 def get_full_check(check_id: str):
     state = full_check.get_check(check_id)
     if state is None:
-        raise HTTPException(status_code=404, detail="Check not found")
+        raise HTTPException(status_code=404, detail=coded_detail("full_check_not_found", id=check_id))
     return _response(state)
 
 
@@ -106,5 +108,5 @@ def get_full_check(check_id: str):
 def cancel_full_check(check_id: str):
     state = full_check.cancel_check(check_id)
     if state is None:
-        raise HTTPException(status_code=404, detail="Check not found")
+        raise HTTPException(status_code=404, detail=coded_detail("full_check_not_found", id=check_id))
     return _response(state)

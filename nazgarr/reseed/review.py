@@ -31,6 +31,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from nazgarr.adapters.torrent_client.base import TorrentClientAdapter
 from nazgarr.core import settings_registry
+from nazgarr.core.errors import CodedError
 from nazgarr.core.logs import safe_error
 from nazgarr.core.models import (
     Candidate,
@@ -650,7 +651,12 @@ def verify_before_execute_enabled(session: Session) -> bool:
 
 
 class AlreadyVerifyingError(Exception):
-    pass
+    """Il controllo completo di questa review è già in corso: l'API lo dice
+    col codice review_already_verifying (prima un testo libero)."""
+
+    def __init__(self, review_id: int):
+        self.review_id = review_id
+        super().__init__(f"Review {review_id} is already being verified")
 
 
 class ReviewAlreadyDecidedError(Exception):
@@ -701,7 +707,7 @@ def request_approval(session: Session, review: MatchReview, session_factory, dec
     if not verify_before_execute_enabled(session):
         return approve(session, review, decided_by=decided_by)
     if review.verify_status == "verifying":
-        raise AlreadyVerifyingError(f"Review {review.id} is already being verified")
+        raise AlreadyVerifyingError(review.id)
     if not ready_for_decision(session, review):
         raise ReviewAlreadyDecidedError(review.id)
 
@@ -1080,6 +1086,16 @@ def list_failed_seed_jobs(session: Session) -> list[SeedJob]:
 DELETABLE_SEED_JOB_STATUSES = ("failed", "in_progress")
 
 
+class SeedJobNotDeletable(CodedError, ExecutionError):
+    """Un'esecuzione in seed (o in un altro stato finale che non è un
+    fallimento) non si elimina: l'API lo dice col codice
+    seed_job_not_deletable (audit 2026-10-18, prima un testo libero).
+    Resta un ExecutionError per chi lo chiama da Python."""
+
+    def __init__(self, seed_job: SeedJob):
+        super().__init__("seed_job_not_deletable", id=seed_job.id, status=seed_job.final_status)
+
+
 def delete_seed_job(session: Session, seed_job: SeedJob) -> None:
     """Toglie un'esecuzione fallita o rimasta in corso, così il prossimo scan
     ripropone il torrent per quel file: un candidato con un seed_job non
@@ -1091,7 +1107,7 @@ def delete_seed_job(session: Session, seed_job: SeedJob) -> None:
     esecuzione (stesso inode), un torrent ancora nel client va tolto dal
     client perché il candidato torni."""
     if seed_job.final_status not in DELETABLE_SEED_JOB_STATUSES:
-        raise ExecutionError(f"SeedJob {seed_job.id} is {seed_job.final_status}: only failed or running ones")
+        raise SeedJobNotDeletable(seed_job)
     candidate = session.get(Candidate, seed_job.candidate_id)
     file_filter = (
         {"media_file_id": seed_job.source_media_file_id} if seed_job.source_media_file_id is not None
@@ -1192,7 +1208,9 @@ def reconcile_pending_seed_jobs(session: Session, progress=NULL_PROGRESS) -> dic
     """Ricontrolla lo stato reale nel client per ogni seed_job ancora
     'in_progress' con un info_hash già noto — una sola interrogazione di
     stato per client (mai un hardlink o un add_torrent), quindi non viola
-    la regola "nessuna esecuzione senza conferma umana". Un seed appena
+    la regola "nessuna esecuzione senza conferma umana": al più avvia un
+    reseed approvato il cui recheck è riuscito (entra fermo, decisione
+    dell'utente del 2026-10-18) e ferma uno fallito che gira. Un seed appena
     passato a "seeding" viene reso subito visibile nelle viste
     (nazgarr/library/seed_refresh.py) invece di aspettare la run successiva. Chiamata a
     fine run e, fra una run e l'altra, dallo scheduler ogni pochi minuti."""

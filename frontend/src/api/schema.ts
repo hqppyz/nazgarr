@@ -1227,8 +1227,12 @@ export interface paths {
         /**
          * Reconcile Now
          * @description Controlla subito l'esito dei recheck in attesa (lo scheduler lo fa
-         *     comunque ogni 2 minuti). Sola lettura sul client: nessun torrent
-         *     aggiunto né file modificato.
+         *     comunque ogni 2 minuti). Nessun torrent aggiunto né file modificato:
+         *     avvia i reseed il cui recheck è riuscito (entrano fermi, decisione
+         *     dell'utente del 2026-10-18) e ferma quelli falliti che girano. Mai
+         *     insieme a una run o ad altro lavoro a lato (nazgarr/reseed/exclusive.py,
+         *     audit 2026-10-18): prima controllava solo che nessuna run fosse in
+         *     corso, e una run poteva partire a metà e riconciliare gli stessi job.
          */
         post: operations["reconcile_now_api_reviews_seed_jobs_reconcile_post"];
         delete?: never;
@@ -1250,7 +1254,9 @@ export interface paths {
         /**
          * Delete Seed Job
          * @description Elimina un'esecuzione fallita o rimasta in corso: il prossimo scan
-         *     ripropone il torrent. Niente cambia nel client né sul disco.
+         *     ripropone il torrent. Niente cambia nel client né sul disco. Mai
+         *     insieme a una run (che ricontrolla i job in corso) o ad altro lavoro a
+         *     lato (nazgarr/reseed/exclusive.py).
          */
         delete: operations["delete_seed_job_api_reviews_seed_jobs__seed_job_id__delete"];
         options?: never;

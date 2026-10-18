@@ -209,6 +209,19 @@ class _RateLimiter:
         self._timestamps: deque[float] = deque()
         self._lock = threading.Lock()
 
+    @property
+    def max_per_min(self) -> int:
+        return self._max_per_min
+
+    @max_per_min.setter
+    def max_per_min(self, value: int) -> None:
+        # Almeno 1 (audit 2026-10-18): con un valore negativo salvato sul
+        # tracker, wait() leggeva _timestamps[-max_per_min] su una coda vuota
+        # (IndexError a ogni chiamata, senza mai riprendersi) e ogni ricerca
+        # e download di quel tracker falliva. Vale anche per le righe già nel
+        # DB, che _shared_limiter riassegna a ogni adapter costruito.
+        self._max_per_min = max(1, int(value))
+
     def wait(self, sleep: Callable[[float], None] = time.sleep) -> None:
         with self._lock:
             now = time.monotonic()

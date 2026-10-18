@@ -6,8 +6,12 @@ import { ReseedingPage } from '@/pages/reseeding/ReseedingPage'
 const approve = vi.fn()
 const reject = vi.fn()
 const fetchNextPage = vi.fn()
+const retry = vi.fn()
 let reviews: unknown[] = []
+let seedJobs: unknown[] = []
 let hasNextPage = false
+const toast = vi.hoisted(() => ({ info: vi.fn(), success: vi.fn(), error: vi.fn() }))
+vi.mock('sonner', () => ({ toast }))
 
 const review = (id: number, name: string) => ({
   id, candidate_name: name, direction: 'media_to_torrent', confidence: 0.97, ambiguity_reason: null,
@@ -26,11 +30,15 @@ vi.mock('@/api/hooks/reviews', () => ({
   useDecideReviews: () => ({ mutate: vi.fn(), isPending: false }),
   useCandidateAudit: () => ({ data: [], isPending: false }),
   useSetReviewClientLabels: () => ({ mutate: vi.fn(), isPending: false }),
-  useRecentSeedJobs: () => ({ data: [], isPending: false }),
-  useRetryFailed: () => ({ mutate: vi.fn(), isPending: false }),
+  useRecentSeedJobs: () => ({ data: seedJobs, isPending: false }),
+  useRetryFailed: () => ({ mutate: retry, isPending: false }),
   useDeleteSeedJob: () => ({ mutate: vi.fn(), isPending: false }),
 }))
-vi.mock('@/api/hooks/fullChecks', () => ({ useFullCheck: () => ({ data: undefined }) }))
+vi.mock('@/api/hooks/fullChecks', () => ({
+  useFullCheck: () => ({ data: undefined }),
+  useStartFullCheck: () => ({ mutate: vi.fn(), isPending: false }),
+  useCancelFullCheck: () => ({ mutate: vi.fn(), isPending: false }),
+}))
 vi.mock('@/api/hooks/torrentClients', () => ({ useTorrentClientCategories: () => ({ data: undefined }) }))
 
 describe('ReseedingPage review queue', () => {
@@ -67,6 +75,30 @@ describe('ReseedingPage review queue', () => {
     } finally {
       globalThis.IntersectionObserver = original
       hasNextPage = false
+    }
+  })
+})
+
+describe('ReseedingPage executions', () => {
+  it('says a retry that asked for a recheck is waiting for it, not completed', () => {
+    reviews = []
+    seedJobs = [{
+      id: 7, candidate_id: 3, candidate_name: 'Movie.mkv', direction: 'media_to_torrent', tracker: 'T',
+      torrent_client: 'qb', final_status: 'failed', display_status: null, recheck_status: 'failed',
+      recheck_skipped: false, error_message: 'Recheck failed, client state: stoppedDL', hardlink_created_at: null,
+      torrent_added_at: null,
+    }]
+    try {
+      render(<ReseedingPage />)
+      fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+      expect(retry).toHaveBeenCalledWith(7, expect.anything())
+      const { onSuccess } = retry.mock.calls[0][1]
+      onSuccess({ final_status: 'in_progress', recheck_status: 'pending', verify_check_id: null })
+      expect(toast.info).toHaveBeenCalledWith('The client is checking it again: it starts only if the recheck passes.')
+      onSuccess({ final_status: 'seeding', recheck_status: 'ok', verify_check_id: null })
+      expect(toast.success).toHaveBeenCalledWith('Retry completed.')
+    } finally {
+      seedJobs = []
     }
   })
 })

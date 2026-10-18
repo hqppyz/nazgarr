@@ -473,11 +473,15 @@ function ExecutionRow({ job }: { job: SeedJob }) {
               onClick={() =>
                 retry.mutate(job.id, {
                   // Da zero, con il controllo completo acceso, parte prima quel
-                  // controllo: l'avanzamento lo segue la notifica in basso.
+                  // controllo: l'avanzamento lo segue la notifica in basso. Un
+                  // torrent rimasto fermo col recheck fallito il client lo
+                  // ricontrolla: in corso, parte solo se il recheck riesce.
                   onSuccess: (result) =>
                     result.verify_check_id
                       ? toast.info(t('reseeding.retryVerifying'))
-                      : toast.success(t('reseeding.retryCompleted')),
+                      : result.final_status === 'in_progress' && result.recheck_status === 'pending'
+                        ? toast.info(t('reseeding.retryRechecking'))
+                        : toast.success(t('reseeding.retryCompleted')),
                   onError: (error) => toast.error(t('reseeding.retryFailed', { message: error.message })),
                 })
               }

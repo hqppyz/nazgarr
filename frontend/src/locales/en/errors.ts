@@ -38,6 +38,11 @@ export const errors = {
 
   'errors.review_not_found': 'Review {id} not found.',
   'errors.seed_job_not_found': 'SeedJob {id} not found.',
+  'errors.seed_job_not_deletable': 'SeedJob {id} is {status}: only failed or in-progress executions can be deleted.',
+  'errors.review_already_verifying': 'Review {id} is already being verified: wait for its full hash check to finish.',
+  'errors.full_check_not_found': 'Full hash check {id} not found: it ended a while ago, or Nazgarr restarted.',
+  'errors.full_check_candidate_not_found': 'Torrent candidate {id} not found.',
+  'errors.full_check_seed_job_mismatch': 'Execution {seed_job_id} does not belong to torrent candidate {candidate_id}.',
 
   'errors.tracker_not_found': 'Tracker {id} not found.',
   'errors.tracker_busy': '{label} has an execution or an upload in progress: wait for it to finish, cancel the upload, or delete the stuck execution in Reseeding, then delete it',

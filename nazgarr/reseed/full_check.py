@@ -31,11 +31,13 @@ from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session, sessionmaker
 
+from nazgarr.core.errors import CodedError
 from nazgarr.core.file_types import is_video
 from nazgarr.core.fs_scope import ScopeViolation, resolve_scoped
 from nazgarr.core.logs import safe_error
 from nazgarr.core.models import Candidate, MatchReview, MediaFile, SeedFile, SeedJob
 from nazgarr.integrations import adapter_factory
+from nazgarr.library import seed_refresh
 from nazgarr.reseed import download_links
 from nazgarr.torrents import pieces as piece_hashing
 from nazgarr.torrents.metainfo import TorrentFileEntry, TorrentInfo, compute_info_hash, parse_torrent_info
@@ -48,6 +50,12 @@ MAX_KEPT_CHECKS = 20
 
 class FullCheckError(Exception):
     pass
+
+
+class CheckNotStarted(CodedError):
+    """Un controllo che non può partire (start_check): candidato che non
+    esiste, o un'esecuzione di un altro candidato. Un codice per l'API
+    (nazgarr/core/errors.py), non più il testo inglese di FullCheckError."""
 
 
 class CheckCancelled(Exception):
@@ -223,8 +231,12 @@ def build_locator(session: Session, candidate: Candidate, seed_job: SeedJob | No
     if seed_job is not None and candidate.direction == "media_to_torrent":
         source = session.get(MediaFile, seed_job.source_media_file_id) if seed_job.source_media_file_id else None
         if source is not None:
-            base = os.path.join(source.disk.effective_new_torrent_rel_path or "", candidate.folder or "")
-            seed_root = _abs(source.disk, base)
+            # Dove l'executor ha messo gli hardlink, col layout del contenuto
+            # del client (la stessa regola, nazgarr/reseed/placement.py):
+            # prima sempre la cartella del torrent, e con "Subfolder" o
+            # "NoSubfolder" i file del seed risultavano "library", come se
+            # gli hardlink mancassero (audit 2026-10-18).
+            seed_root = _abs(source.disk, seed_refresh.hardlink_folder(seed_job, source))
 
     def locate(entry: TorrentFileEntry) -> tuple[str | None, str | None]:
         if seed_root is not None:
@@ -474,11 +486,11 @@ def start_check(session_factory: sessionmaker, session: Session, candidate_id: i
                 review_id: int | None = None, after: AfterCheck | None = None) -> CheckState:
     candidate = session.get(Candidate, candidate_id)
     if candidate is None:
-        raise FullCheckError("Candidate not found")
+        raise CheckNotStarted("full_check_candidate_not_found", id=candidate_id)
     if seed_job_id is not None:
         seed_job = session.get(SeedJob, seed_job_id)
         if seed_job is None or seed_job.candidate_id != candidate_id:
-            raise FullCheckError("This execution doesn't belong to the candidate")
+            raise CheckNotStarted("full_check_seed_job_mismatch", seed_job_id=seed_job_id, candidate_id=candidate_id)
     state = CheckState(
         id=uuid.uuid4().hex[:12], candidate_id=candidate_id, seed_job_id=seed_job_id,
         media_file_id=media_file_id, label=candidate.name, purpose=purpose, review_id=review_id,

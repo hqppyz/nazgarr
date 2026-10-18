@@ -458,6 +458,41 @@ def test_another_file_at_the_destination_is_never_overwritten(db_session, tmp_pa
     assert (root / "torrents" / "Movie.2024.mkv").read_bytes() == b"something else"
 
 
+@pytest.mark.parametrize("points_to", ["nowhere", "hardlink"])
+def test_a_symlink_at_the_destination_is_never_followed(db_session, tmp_path, points_to):
+    # Audit 2026-10-18: l'esecutore risolveva la destinazione prima di
+    # check_link. Un link simbolico pendente faceva nascere l'hardlink dove
+    # puntava (il percorso approvato restava un link), uno verso un hardlink
+    # già lì passava per un cross-seed da riusare, e il client seedava
+    # attraverso un link che lo scanner salta.
+    root, disk, tracker, item, run = _base_setup(db_session, tmp_path)
+    media_file_path, match_review = _single_file_review(db_session, root, disk, tracker, item, run)
+    pointed = root / "torrents" / "other" / "elsewhere.mkv"
+    pointed.parent.mkdir()
+    if points_to == "hardlink":
+        os.link(media_file_path, pointed)
+    (root / "torrents" / "Movie.2024.mkv").symlink_to(pointed)
+
+    adapter = FakeAdapter()
+    with pytest.raises(executor.ExecutionError, match="already exists"):
+        executor.execute_review(db_session, match_review, adapter)
+    assert os.path.lexists(pointed) is (points_to == "hardlink")  # niente creato dove punta il link
+    assert adapter.add_torrent_calls == []
+
+
+def test_a_symlinked_folder_inside_the_torrent_is_out_of_scope(db_session, tmp_path):
+    # Anche una cartella del torrent che è un link (qui dentro la cartella
+    # dei torrent): il client vedrebbe i file da un'altra parte.
+    root, review = _movie_review(db_session, tmp_path, folder="Release.Name")
+    (root / "torrents" / "real").mkdir()
+    (root / "torrents" / "Release.Name").symlink_to(root / "torrents" / "real")
+
+    adapter = FakeAdapter()
+    with pytest.raises(executor.ExecutionError, match="outside the allowed scope"):
+        executor.execute_review(db_session, review, adapter)
+    assert os.listdir(root / "torrents" / "real") == [] and adapter.add_torrent_calls == []
+
+
 @pytest.mark.parametrize("target", ["outside", "inside"])
 def test_a_library_file_replaced_by_a_symlink_is_never_linked(db_session, tmp_path, target):
     # Fra la scansione e l'esecuzione il file in libreria è diventato un
@@ -593,9 +628,9 @@ class _IncompleteAfterRecheck(FakeAdapter):
 
 def test_a_failed_recheck_is_stopped_when_it_is_reconciled(db_session, tmp_path):
     # Avviato, il client scaricava i piece mancanti negli hardlink: gli stessi
-    # byte dei file in libreria, senza alcuna approvazione. Lo stop arriva al
-    # reconcile, non alla fine del recheck: fino ad allora il torrent gira
-    # (docs/SPEC.md §5, la finestra è una decisione aperta).
+    # byte dei file in libreria, senza alcuna approvazione. Un reseed entra
+    # fermo (decisione dell'utente, 2026-10-18); uno che gira lo stesso (un
+    # plugin senza can_add_stopped, o avviato a mano) si ferma al reconcile.
     seed_job = _failed_recheck_job(db_session, tmp_path)
     adapter = _IncompleteAfterRecheck()
 
@@ -612,6 +647,7 @@ def test_a_torrent_already_stopped_is_not_stopped_again(db_session, tmp_path):
     executor.reconcile_seed_job(db_session, seed_job, adapter)
 
     assert seed_job.final_status == "failed" and adapter.stopped == []
+    assert "left stopped in the client" in seed_job.error_message
 
 
 @pytest.mark.parametrize("error,expected", [
@@ -912,3 +948,200 @@ def test_an_execution_error_carries_the_english_text_never_the_bare_code(db_sess
 
     assert str(info.value).startswith("The client cannot see /data/torrents")
     assert str(info.value) == db_session.query(SeedJob).one().error_message
+
+
+class _StoppedAdds(FakeAdapter):
+    """Un client che aggiunge fermo (come ogni adapter incluso, decisione
+    dell'utente del 2026-10-18): resta fermo dopo il recheck, finché start()."""
+
+    can_add_stopped = True
+
+    def __init__(self, recheck_status="ok", progress=1.0, start_error=None):
+        super().__init__(recheck_status=recheck_status)
+        self.progress, self.start_error = progress, start_error
+        self.started, self.stopped, self.rechecked, self.kwargs = [], [], [], []
+
+    def add_torrent(self, torrent_file_or_url, save_path, force_recheck=True, expected_info_hash=None, **kwargs):
+        self.kwargs.append(kwargs)
+        return super().add_torrent(torrent_file_or_url, save_path, force_recheck, expected_info_hash)
+
+    def get_torrent_status(self, info_hash):
+        running = bool(self.started)
+        state = ("uploading" if self.progress >= 1.0 else "downloading") if running else (
+            "stoppedUP" if self.progress >= 1.0 else "stoppedDL")
+        return TorrentStatus(info_hash=info_hash, state=state, recheck_status=self.recheck_status,
+                             progress=self.progress, incomplete=self.progress < 1.0, amount_left=0)
+
+    def start(self, info_hash):
+        if self.start_error is not None:
+            raise self.start_error
+        self.started.append(info_hash)
+
+    def stop(self, info_hash):
+        self.stopped.append(info_hash)
+
+    def recheck(self, info_hash):
+        self.rechecked.append(info_hash)
+
+
+def test_a_reseed_enters_the_client_stopped_and_starts_only_after_a_good_recheck(db_session, tmp_path):
+    _root, review = _movie_review(db_session, tmp_path)
+    adapter = _StoppedAdds()
+
+    seed_job = executor.execute_review(db_session, review, adapter)
+
+    assert adapter.kwargs == [{"stopped": True}] and adapter.started == []
+    executor.reconcile_seed_job(db_session, seed_job, adapter)
+    assert seed_job.final_status == "seeding" and adapter.started == ["deadbeef"]
+
+
+def test_a_failed_recheck_never_starts_the_reseed(db_session, tmp_path):
+    # Fermo, il client non scarica niente dentro gli hardlink della libreria.
+    _root, review = _movie_review(db_session, tmp_path)
+    adapter = _StoppedAdds(recheck_status="failed", progress=0.97)
+
+    seed_job = executor.execute_review(db_session, review, adapter)
+    executor.reconcile_seed_job(db_session, seed_job, adapter)
+    executor.reconcile_seed_job(db_session, seed_job, adapter)  # il job fallito non si muove più
+
+    assert seed_job.final_status == "failed" and adapter.started == [] and adapter.stopped == []
+    assert "left stopped in the client" in seed_job.error_message
+    assert "Retry once the files are right" in seed_job.error_message
+
+
+def test_a_retry_of_a_stopped_failed_reseed_asks_for_a_recheck_never_a_start(db_session, tmp_path):
+    # Fermo, il client non lo ricontrolla da solo: rileggerlo diceva "failed"
+    # anche con i file sistemati. Il retry è l'approvazione di un recheck.
+    _root, review = _movie_review(db_session, tmp_path)
+    adapter = _StoppedAdds(recheck_status="failed", progress=0.97)
+    seed_job = executor.execute_review(db_session, review, adapter)
+    executor.reconcile_seed_job(db_session, seed_job, adapter)
+    assert seed_job.final_status == "failed"
+
+    executor.adopt_for_retry(db_session, seed_job, adapter)
+
+    assert adapter.rechecked == ["deadbeef"] and adapter.started == [] and adapter.stopped == []
+    assert (seed_job.final_status, seed_job.recheck_status, seed_job.error_message) == ("in_progress", "pending", None)
+    adapter.recheck_status, adapter.progress = "ok", 1.0  # i file ora sono giusti
+    executor.reconcile_seed_job(db_session, seed_job, adapter)
+    assert seed_job.final_status == "seeding" and adapter.started == ["deadbeef"]
+
+
+def test_a_retry_without_a_recheck_in_the_adapter_only_reads_it_again(db_session, tmp_path):
+    seed_job = _failed_recheck_job(db_session, tmp_path)
+    adapter = _StoppedAdds(recheck_status="failed", progress=0.97)
+    adapter.recheck = None  # un plugin senza recheck
+    executor.reconcile_seed_job(db_session, seed_job, adapter)
+
+    executor.adopt_for_retry(db_session, seed_job, adapter)
+
+    assert seed_job.final_status == "failed" and adapter.started == []
+
+
+def test_a_recheck_the_client_refuses_is_a_failed_retry(db_session, tmp_path):
+    seed_job = _failed_recheck_job(db_session, tmp_path)
+    adapter = _StoppedAdds(recheck_status="failed", progress=0.97)
+    executor.reconcile_seed_job(db_session, seed_job, adapter)
+
+    def refuse(info_hash):
+        raise RuntimeError("client down")
+
+    adapter.recheck = refuse
+    with pytest.raises(executor.ExecutionError, match="did not take the recheck"):
+        executor.adopt_for_retry(db_session, seed_job, adapter)
+    db_session.refresh(seed_job)
+    assert seed_job.final_status == "failed" and adapter.started == []
+
+
+def test_the_known_missing_extras_still_count_as_a_good_recheck(db_session, tmp_path):
+    seed_job = _failed_recheck_job(db_session, tmp_path)
+    seed_job.expected_missing_bytes = 10
+    adapter = _StoppedAdds(recheck_status="failed", progress=0.99)
+
+    executor.reconcile_seed_job(db_session, seed_job, adapter)
+
+    assert seed_job.final_status == "seeding" and adapter.started == ["deadbeef"]  # il client scarica gli extra
+
+
+def test_a_start_the_client_refuses_keeps_the_job_in_progress_and_is_tried_again(db_session, tmp_path):
+    # Prima diventava "seeding" con il torrent fermo per sempre.
+    seed_job = _failed_recheck_job(db_session, tmp_path)
+    adapter = _StoppedAdds(start_error=RuntimeError("refused"))
+
+    executor.reconcile_seed_job(db_session, seed_job, adapter)
+    assert seed_job.final_status == "in_progress" and seed_job.recheck_status == "ok"
+    assert "did not start the torrent" in seed_job.error_message
+
+    adapter.start_error = None
+    executor.reconcile_seed_job(db_session, seed_job, adapter)
+    assert seed_job.final_status == "seeding" and adapter.started == ["deadbeef"]
+    assert seed_job.error_message is None
+
+
+@pytest.mark.parametrize("missing", ["no method", "not implemented"])
+def test_a_client_that_cannot_start_it_ends_seeding_with_the_reason(db_session, tmp_path, missing):
+    # Un plugin senza la classe base, o con start() non implementato: prima
+    # restava in corso per sempre, con un avviso a ogni reconcile.
+    seed_job = _failed_recheck_job(db_session, tmp_path)
+    adapter = _StoppedAdds()
+    if missing == "no method":
+        adapter.start = None
+    else:
+        adapter.start_error = NotImplementedError()
+
+    executor.reconcile_seed_job(db_session, seed_job, adapter)
+
+    assert seed_job.final_status == "seeding"
+    assert seed_job.error_message == executor.CANNOT_START
+
+
+def test_a_deluge_reseed_missing_only_its_extras_starts_after_its_recheck(db_session, tmp_path):
+    # Come lo legge Deluge dopo force_recheck su un torrent in pausa: rimesso
+    # in pausa, al 99%, con is_auto_managed (l'opzione salvata) vero. Prima
+    # era "pending" per sempre: mai avviato, mai in seed.
+    from tests.test_torrent_client_deluge import _adapter as deluge_adapter
+    from tests.test_torrent_client_deluge import _DelugeMock
+
+    seed_job = _failed_recheck_job(db_session, tmp_path)
+    seed_job.expected_missing_bytes = 2000
+    mock = _DelugeMock(torrents={"deadbeef": {"state": "Paused", "progress": 99.0, "paused": True,
+                                              "is_auto_managed": True, "total_wanted": 100_000,
+                                              "total_done": 99_000}})
+
+    executor.reconcile_seed_job(db_session, seed_job, deluge_adapter(mock))
+
+    assert seed_job.final_status == "seeding"
+    assert mock.called("core.resume_torrent") == [[["deadbeef"]]]
+
+
+def test_a_reseed_verified_at_100_percent_starts_right_away():
+    # L'eccezione al recheck (decisione dell'utente, 2026-09-29): parte subito, come prima.
+    from types import SimpleNamespace
+
+    adapter = _StoppedAdds()
+    torrent = executor._CheckedTorrent(content=_movie_torrent(), info_hash="h1")
+
+    executor._add_to_client(adapter, torrent, "/torrents", SimpleNamespace(recheck_skipped=None), skip_recheck=True)
+
+    assert adapter.kwargs == [{"skip_check_verified": True}]
+
+
+def test_a_client_that_cannot_add_stopped_gets_the_add_of_before():
+    # Un plugin scritto prima di can_add_stopped, o che ridefinisce add_torrent
+    # senza il parametro: nessun argomento che non conosce.
+    from types import SimpleNamespace
+
+    from nazgarr.adapters.torrent_client.base import stopped_kwargs
+
+    class OldPlugin(FakeAdapter):
+        can_add_stopped = True  # ereditato da un adapter incluso
+
+        def add_torrent(self, torrent_file_or_url, save_path, force_recheck=True, expected_info_hash=None):
+            return super().add_torrent(torrent_file_or_url, save_path, force_recheck, expected_info_hash)
+
+    torrent = executor._CheckedTorrent(content=_movie_torrent(), info_hash="h1")
+    for adapter in (FakeAdapter(), OldPlugin()):
+        assert stopped_kwargs(adapter) == {}
+        executor._add_to_client(adapter, torrent, "/torrents", SimpleNamespace(recheck_skipped=None),
+                                skip_recheck=False)
+        assert len(adapter.add_torrent_calls) == 1

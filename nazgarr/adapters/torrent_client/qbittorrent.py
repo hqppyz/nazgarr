@@ -39,6 +39,7 @@ from nazgarr.adapters.torrent_client.base import (
     TorrentClientAdapter,
     TorrentStatus,
     expected_hash,
+    largest_file_only,
     local_torrent_bytes,
     number,
     require_recheck,
@@ -58,6 +59,8 @@ FILE_WORKERS = 4
 
 
 class QBittorrentAdapter(TorrentClientAdapter):
+    can_add_stopped = True
+
     def __init__(
         self,
         base_url: str,
@@ -95,6 +98,7 @@ class QBittorrentAdapter(TorrentClientAdapter):
         self, torrent_file_or_url: str, save_path: str, force_recheck: bool = True,
         expected_info_hash: str | None = None, skip_check_verified: bool = False,
         category: str | None = None, tags: list[str] | None = None, content_layout: str = "Original",
+        stopped: bool = False,
     ) -> str:
         require_recheck(force_recheck)
 
@@ -119,10 +123,15 @@ class QBittorrentAdapter(TorrentClientAdapter):
             is_skip_checking=skip_check_verified,
             use_auto_torrent_management=False,
             content_layout=content_layout,
-            # Avviato e senza condizione di arresto, qualunque cosa dicano le
-            # preferenze del client ("non avviare automaticamente", "fermati
-            # dopo il controllo dei file"): un reseed o un upload deve seedare.
-            is_stopped=False,
+            # Fermo solo se lo chiede il chiamante (un reseed, che parte dopo
+            # il recheck riuscito): il recheck di un torrent fermo qBittorrent
+            # lo fa lo stesso, avviandolo per il controllo e fermandolo dopo.
+            # Altrimenti avviato e senza condizione di arresto, qualunque
+            # cosa dicano le preferenze ("non avviare automaticamente",
+            # "fermati dopo il controllo dei file"): un upload deve seedare.
+            # qbittorrent-api manda sia "stopped" (WebUI API 2.11+) sia
+            # "paused" (qBittorrent 4).
+            is_stopped=stopped,
             stop_condition="None",
             **({"category": category} if category else {}),
             **({"tags": ",".join(tags)} if tags else {}),
@@ -131,7 +140,8 @@ class QBittorrentAdapter(TorrentClientAdapter):
                                   self.poll_timeout, "qBittorrent")
         if not skip_check_verified:
             self._client.torrents_recheck(torrent_hashes=info_hash)
-        self.start(info_hash)  # una versione che ignora "stopped" all'aggiunta
+        if not stopped:
+            self.start(info_hash)  # una versione che ignora "stopped" all'aggiunta
         return info_hash
 
     def start(self, info_hash: str) -> None:
@@ -201,6 +211,19 @@ class QBittorrentAdapter(TorrentClientAdapter):
         # L'elenco nel thread chiamante (anche il login, se serve), poi i
         # file FILE_WORKERS alla volta; ordine e avanzamento restano qui.
         torrents = list(self._client.torrents_info())
+        return [self._info(torrent, torrent_files)
+                for torrent, torrent_files in zip(torrents, self._files_of(torrents, on_progress), strict=True)]
+
+    def list_largest_files(self, limit: int | None = None) -> list[ClientTorrentInfo]:
+        # Nessun endpoint per i file di più torrent: le richieste restano una
+        # per torrent, ma solo per quelli che la verifica guarda.
+        torrents = list(self._client.torrents_info())[:limit]
+        return [largest_file_only(self._info(torrent, torrent_files))
+                for torrent, torrent_files in zip(torrents, self._files_of(torrents), strict=True)]
+
+    def _files_of(self, torrents, on_progress: Callable[[int, int], None] | None = None,
+                  ) -> list[list[ClientTorrentFileInfo]]:
+        """I file di ogni torrent, FILE_WORKERS richieste alla volta, nell'ordine dei torrent."""
         files: list[list[ClientTorrentFileInfo] | None] = [None] * len(torrents)
         pool = ThreadPoolExecutor(max_workers=FILE_WORKERS)
         try:
@@ -211,8 +234,7 @@ class QBittorrentAdapter(TorrentClientAdapter):
                     on_progress(done, len(torrents))
         finally:
             pool.shutdown(wait=True, cancel_futures=True)  # stop o errore: niente richieste rimaste in coda
-        return [self._info(torrent, torrent_files or [])
-                for torrent, torrent_files in zip(torrents, files, strict=True)]
+        return [f or [] for f in files]
 
     def _files(self, info_hash: str) -> list[ClientTorrentFileInfo]:
         return [

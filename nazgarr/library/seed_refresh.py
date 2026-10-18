@@ -31,6 +31,7 @@ from nazgarr.core.fs_scope import ScopeViolation, resolve_scoped
 from nazgarr.core.models import ClientTorrent, ClientTorrentFile, MediaFile, RunLog, SeedFile, SeedJob, TorrentClient
 from nazgarr.library import disk_folders, hardlinks
 from nazgarr.library.scan_state import latest_scan_by_disk
+from nazgarr.reseed.placement import possible_placements
 from nazgarr.torrents import client_paths
 from nazgarr.torrents.indexer import client_disks, store_client_torrents
 
@@ -78,50 +79,50 @@ def _same_file(a: os.stat_result | None, b: os.stat_result | None) -> bool:
     return a is not None and b is not None and (a.st_dev, a.st_ino) == (b.st_dev, b.st_ino)
 
 
-def _placements(candidate, names: list[str]) -> list[str]:
-    """Le cartelle in cui l'executor può aver messo i file del torrent
-    dentro la cartella dei nuovi hardlink, secondo il layout del contenuto
-    del client (nazgarr/reseed/executor.py::_placement): "Original" (la
-    cartella del torrent), "Subfolder" su un torrent a file singolo senza
-    cartella (il nome del file senza estensione), "NoSubfolder" su un
-    torrent con la cartella (nessuna cartella). Il seed_job non salva quale:
-    si riconosce da dove sta l'hardlink."""
-    out = [candidate.folder or ""]
-    if not candidate.folder and len(names) == 1:
-        out.append(os.path.splitext(names[0])[0] or names[0])
-    if candidate.folder:
-        out.append("")
-    return out
+def _entries(seed_job: SeedJob, mf: MediaFile) -> list[tuple[str, MediaFile | None]]:
+    """(percorso nel torrent, media_file) di ogni file del torrent; un
+    candidato a file singolo salvato prima di candidate_file è il file da
+    cui è partito il reseed, col nome del catalogo (come nell'executor)."""
+    candidate = seed_job.candidate
+    if candidate.files:
+        return [(f.torrent_path, f.media_file) for f in candidate.files]
+    names = json.loads(candidate.file_list_json) if candidate.file_list_json else []
+    return [(names[0] if names else os.path.basename(mf.relative_path), mf)]
+
+
+def hardlink_folder(seed_job: SeedJob, mf: MediaFile) -> str:
+    """La cartella del disco (relativa alla sua radice) in cui stanno i file
+    del torrent di questo seed_job, dove l'executor li ha messi: quella dei
+    nuovi hardlink più la disposizione del layout del contenuto del client
+    (nazgarr/reseed/placement.py, la stessa regola dell'executor). Il
+    seed_job non salva quale: vale quella in cui il file della libreria da
+    cui è partito il reseed (mf) ha il suo hardlink (stesso inode); se
+    nessuna, quella del torrent. La usano questo modulo e il controllo
+    completo di un'esecuzione (nazgarr/reseed/full_check.py::build_locator),
+    che prima ricostruiva sempre la cartella del torrent: con il layout
+    "Subfolder" o "NoSubfolder" di qBittorrent e qui (audit 2026-10-18) non
+    trovava gli hardlink, leggeva il file della libreria e diceva che
+    mancavano."""
+    disk = mf.disk
+    base = disk.effective_new_torrent_rel_path or ""
+    entries = _entries(seed_job, mf)
+    single = entries[0][0] if len(entries) == 1 else None
+    folders = [os.path.normpath(os.path.join(base, p.prefix))
+               for p in possible_placements(seed_job.candidate.folder, single)]
+    anchor = next((path for path, media in entries if media is not None and media.id == mf.id), None)
+    if anchor is None or len(folders) == 1:
+        return folders[0]
+    library = _library_stat(disk, mf)
+    return next((folder for folder in folders
+                 if _same_file(_stat(disk, os.path.join(folder, anchor), base), library)), folders[0])
 
 
 def _hardlink_paths(seed_job: SeedJob, mf: MediaFile) -> list[tuple[str, MediaFile | None]]:
     """(percorso relativo al disco, media_file) di ogni file del torrent
-    nella cartella dei nuovi hardlink, dove l'executor li ha messi. Prima si
-    ricostruiva sempre la cartella del torrent: con il layout "Subfolder" o
-    "NoSubfolder" di qBittorrent e qui (audit 2026-10-18) non si trovava
-    nessun hardlink, e l'elemento restava orfano fino alla scansione dopo.
-    Vale la disposizione in cui il file della libreria da cui è partito il
-    reseed ha il suo hardlink (stesso inode); se nessuna, quella del torrent."""
-    candidate = seed_job.candidate
-    disk = mf.disk
-    base = disk.effective_new_torrent_rel_path or ""
-    if candidate.files:
-        entries = [(f.torrent_path, f.media_file) for f in candidate.files]
-    else:
-        names = json.loads(candidate.file_list_json) if candidate.file_list_json else []
-        entries = [(names[0] if names else os.path.basename(mf.relative_path), mf)]
-    placements = _placements(candidate, [path for path, _ in entries])
-
-    def rel(prefix: str, torrent_path: str) -> str:
-        return os.path.normpath(os.path.join(base, prefix, torrent_path))
-
-    anchor = next(((path, media) for path, media in entries if media is not None and media.id == mf.id), None)
-    chosen = placements[0]
-    if anchor is not None and len(placements) > 1:
-        library = _library_stat(disk, mf)
-        chosen = next((prefix for prefix in placements
-                       if _same_file(_stat(disk, rel(prefix, anchor[0]), base), library)), placements[0])
-    return [(rel(chosen, path), media) for path, media in entries]
+    nella cartella dei nuovi hardlink, dove l'executor li ha messi
+    (hardlink_folder)."""
+    folder = hardlink_folder(seed_job, mf)
+    return [(os.path.normpath(os.path.join(folder, path)), media) for path, media in _entries(seed_job, mf)]
 
 
 def _register_hardlinks(session: Session, seed_job: SeedJob, scan_id: int) -> int:

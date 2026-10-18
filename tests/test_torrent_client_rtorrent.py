@@ -303,3 +303,65 @@ def test_a_torrent_gone_during_the_index_fails_it_instead_of_a_partial_list():
     mock._dispatch = dispatch
     with pytest.raises(xmlrpc.client.Fault):
         _adapter(mock).list_torrents()
+
+
+def test_a_reseed_is_loaded_stopped_and_hashed_without_d_start(tmp_path):
+    # Decisione dell'utente, 2026-10-18: d.start solo con start(), a recheck riuscito.
+    path, torrent = _torrent_file(tmp_path)
+    mock = _RTorrentMock()
+    mock.on_load = torrent.infohash.upper()
+    adapter = _adapter(mock)
+
+    info_hash = adapter.add_torrent(str(path), save_path="/downloads", stopped=True)
+
+    assert RTorrentAdapter.can_add_stopped is True
+    assert [m for m, _ in mock.calls if m.startswith("d.")] == ["d.check_hash"]
+    adapter.start(info_hash)
+    assert mock.calls[-1] == ("d.start", (torrent.infohash.upper(),))
+
+
+def test_the_live_path_check_asks_only_the_files_of_the_torrents_it_looks_at():
+    """Senza t.multicall, e solo per i torrent guardati (audit 2026-10-18)."""
+    from nazgarr.adapters.torrent_client import rtorrent
+
+    mock, hashes = _many(rtorrent.DETAIL_BATCH + 5)
+
+    largest = _adapter(mock).list_largest_files(limit=3)
+
+    assert [m for m, _ in mock.calls] == ["d.multicall2", "system.multicall"]
+    (multicall,) = mock.called("system.multicall")
+    assert {c["methodName"] for c in multicall[0]} == {"f.multicall"} and len(multicall[0]) == 3
+    assert [(t.info_hash, [f.path_in_torrent for f in t.files]) for t in largest] == [
+        (h.lower(), [f"M{i}.mkv"]) for i, h in enumerate(hashes[:3])]
+
+    mock.refuse_multicall = True  # l'endpoint che non accetta i gruppi: una richiesta per torrent, solo i file
+    mock.calls.clear()
+    _adapter(mock).list_largest_files(limit=2)
+    assert len(mock.called("f.multicall")) == 2 and not mock.called("t.multicall")
+
+
+@pytest.mark.parametrize("stopped", [False, True])
+def test_through_rutorrent_the_recheck_is_its_own_action(tmp_path, stopped):
+    # Un d.check_hash inoltrato da ruTorrent risponde 0 e non controlla
+    # niente su un torrent fermo (istanza reale, audit 2026-10-18): un
+    # reseed restava allo 0% e falliva sempre.
+    path, torrent = _torrent_file(tmp_path)
+    mock = _RTorrentMock()
+    mock.on_load = torrent.infohash.upper()
+    adapter = _adapter(mock, url="http://rutorrent:8080")
+
+    info_hash = adapter.add_torrent(str(path), save_path="/d", stopped=stopped)
+    adapter.recheck(info_hash)
+
+    target = torrent.infohash.upper()
+    assert mock.forms == [{"mode": "recheck", "hash": target}] * 2
+    assert not mock.called("d.check_hash")
+    assert mock.called("d.start") == ([] if stopped else [(target,)])
+
+
+def test_a_recheck_rutorrent_refuses_is_an_error():
+    client = httpx.Client(transport=httpx.MockTransport(lambda request: httpx.Response(200, text="false")))
+    adapter = RTorrentAdapter("http://rutorrent:8080", None, None, http_client=client)
+
+    with pytest.raises(RuntimeError, match="did not take the recheck"):
+        adapter.recheck(HASH.lower())
