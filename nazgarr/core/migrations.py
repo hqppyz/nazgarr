@@ -18,7 +18,10 @@ MIGRATIONS, col numero successivo. Mai rinumerare quelle già rilasciate.
 Un passo che rifà una tabella lavora dentro db.rebuilding_tables (foreign
 key spente fuori dalla transazione, tutto in una transazione, riaccese dopo
 il commit) e fa prima DROP TABLE IF EXISTS della sua tabella temporanea:
-così un avvio interrotto a metà si ripete senza danni.
+così un avvio interrotto a metà si ripete senza danni. Per cambiare solo
+le foreign key (un ON DELETE, una FK che manca) basta
+db.rebuild_tables_from_schema, che rifà la tabella com'è in schema.sql
+(passo 10).
 """
 
 import logging
