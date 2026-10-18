@@ -1,7 +1,7 @@
 export const plugins = {
   'plugins.trustTitle': 'Plugins run inside Nazgarr',
   'plugins.trust':
-    'They have the same permissions as Nazgarr itself: install only the ones you trust. A plugin can never change files or clients on its own: every change still goes through your approval.',
+    'They have the same permissions as Nazgarr itself: install only the ones you trust. Through Nazgarr a plugin only proposes changes to files and clients, and they wait for your approval. Switching a plugin off removes its adapters, but its code still loads at every start: to stop it from running, remove it from the plugin list and restart.',
   'plugins.howTo':
     'List the pip packages in the {env} environment variable (separated by spaces), or one per line in plugins.txt inside the data folder, then restart the container. They are installed once and kept across restarts.',
   'plugins.source.env': 'From {env}',
