@@ -202,6 +202,17 @@ def test_safety_settings_ask_before_changing(cli_env, client, capsys):
     assert code == 2 and "never passed as arguments" in err
 
 
+def test_a_secret_setting_is_only_said_to_be_set(cli_env, client, capsys, monkeypatch):
+    _login(capsys)
+    monkeypatch.setenv("NAZGARR_USERNAME", "admin")
+    code, out, err = run(capsys, "settings", "get", "tmdb_api_key", "--password-stdin", stdin="supersecret1\n")
+    assert code == 0, err
+    assert out.strip() == "(not set)"
+    client.put("/api/settings/tmdb_api_key", json={"value": "tmdb-SECRET"})
+    code, out, err = run(capsys, "settings", "get", "tmdb_api_key", "--password-stdin", stdin="supersecret1\n")
+    assert code == 0 and out.strip() == "(set)" and "tmdb-SECRET" not in out
+
+
 def test_keys_with_their_own_command_are_not_set_as_settings(cli_env, client, capsys):
     """Un schedule_cron salvato da settings set saltava la validazione e
     fermava l'avvio successivo (audit 2026-10-18)."""

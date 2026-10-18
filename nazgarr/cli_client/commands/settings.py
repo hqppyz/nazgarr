@@ -32,7 +32,7 @@ def list_settings(ctx: typer.Context):
     rows = []
     for entry in catalog.CATALOG:
         if entry.kind == "secret":
-            value = "(needs login to read)"
+            value = "(secret: settings get tells if it is set)"
         else:
             try:
                 value = client.get(f"/api/settings/{entry.key}").get("value")
@@ -51,10 +51,18 @@ def get_setting(
     key: str = typer.Argument(..., help="The setting key (see `nazgarr settings ls`)."),
     password_stdin: bool = typer.Option(False, "--password-stdin", help="For secrets: read your password from stdin."),
 ):
-    """Print one setting (secrets need your password)."""
-    client = login_api(ctx, password_stdin) if catalog.needs_login(key, writing=False) else api(ctx)
+    """Print one setting (a secret only as set or not set, with your password)."""
+    secret_key = catalog.needs_login(key, writing=False)
+    client = login_api(ctx, password_stdin) if secret_key else api(ctx)
     data = client.get(f"/api/settings/{key}")
-    emit(state(ctx), data, lambda d: typer.echo(d.get("value") if d.get("value") is not None else ""))
+
+    def show(d: dict) -> None:
+        if secret_key:  # l'API non rilegge mai un segreto: dice solo se c'è
+            typer.echo("(set)" if d.get("is_set") else "(not set)")
+        else:
+            typer.echo(d.get("value") if d.get("value") is not None else "")
+
+    emit(state(ctx), data, show)
 
 
 @app.command("set")

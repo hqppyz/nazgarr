@@ -24,7 +24,8 @@ class SettingUpdateRequest(BaseModel):
 
 class SettingResponse(BaseModel):
     key: str
-    value: str | None
+    value: str | None  # sempre None per una chiave segreta: si scrive, non si rilegge
+    is_set: bool = False  # per una chiave segreta: se ne è salvato un valore
 
 
 class ExclusionPresetResponse(BaseModel):
@@ -48,8 +49,16 @@ def list_exclusion_presets():
 # non si leggono né si scrivono, mai (l'hash della password, o sostituirlo).
 _AUTH = re.compile(r"^auth_")
 # Impostazioni segrete (chiavi API, token, password): la UI dopo il login le
-# usa, una API key no (nazgarr/web/api_keys.py).
+# scrive, una API key no (nazgarr/web/api_keys.py). Nessuno le rilegge:
+# come i segreti di tracker, client e plugin, l'API dice solo se ci sono
+# (audit 2026-10-18; prima tornavano in chiaro a ogni sessione del browser).
 _SECRET = settings_repo.SECRET_KEY
+
+
+def _response(key: str, value: str | None) -> SettingResponse:
+    if settings_repo.is_secret(key):
+        return SettingResponse(key=key, value=None, is_set=bool(value))
+    return SettingResponse(key=key, value=value, is_set=bool(value))
 
 
 def _check_access(request: Request, key: str) -> None:
@@ -71,7 +80,7 @@ def _check_access(request: Request, key: str) -> None:
 @router.get("/{key}", response_model=SettingResponse)
 def get_setting(key: str, request: Request, session: Session = Depends(get_session)):
     _check_access(request, key)
-    return SettingResponse(key=key, value=settings_repo.get_setting(session, key))
+    return _response(key, settings_repo.get_setting(session, key))
 
 
 @router.put("/{key}", response_model=SettingResponse)
@@ -82,4 +91,4 @@ def set_setting(key: str, body: SettingUpdateRequest, request: Request, session:
     except settings_registry.SettingValueError as exc:
         raise HTTPException(status_code=400, detail=coded_detail("setting_invalid_value", key=key)) from exc
     settings_repo.set_setting(session, key, value)
-    return SettingResponse(key=key, value=value)
+    return _response(key, value)

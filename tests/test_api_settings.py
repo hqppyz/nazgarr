@@ -2,24 +2,41 @@ def test_get_unset_setting_returns_null_value(client):
     response = client.get("/api/settings/tmdb_api_key")
 
     assert response.status_code == 200
-    assert response.json() == {"key": "tmdb_api_key", "value": None}
+    assert response.json() == {"key": "tmdb_api_key", "value": None, "is_set": False}
 
 
 def test_set_then_get_setting(client):
+    put = client.put("/api/settings/upload_releaser_name", json={"value": "GRP"})
+    assert put.status_code == 200
+    assert put.json() == {"key": "upload_releaser_name", "value": "GRP", "is_set": True}
+
+    get = client.get("/api/settings/upload_releaser_name")
+    assert get.json() == {"key": "upload_releaser_name", "value": "GRP", "is_set": True}
+
+
+def test_a_secret_setting_is_written_but_never_read_back(client):
+    """Come i segreti di tracker, client e plugin: prima la chiave TMDB/TVDB
+    tornava in chiaro a ogni sessione del browser (audit 2026-10-18)."""
     put = client.put("/api/settings/tmdb_api_key", json={"value": "abc123"})
     assert put.status_code == 200
-    assert put.json() == {"key": "tmdb_api_key", "value": "abc123"}
+    assert put.json() == {"key": "tmdb_api_key", "value": None, "is_set": True}
+    assert client.get("/api/settings/tmdb_api_key").json() == {"key": "tmdb_api_key", "value": None, "is_set": True}
+    assert "abc123" not in client.get("/api/settings/tmdb_api_key").text
+    with client.app.state.session_factory() as session:
+        from nazgarr.core import settings_repo
 
-    get = client.get("/api/settings/tmdb_api_key")
-    assert get.json() == {"key": "tmdb_api_key", "value": "abc123"}
+        assert settings_repo.get_setting(session, "tmdb_api_key") == "abc123"  # per chi la usa davvero
+    assert client.put("/api/settings/tmdb_api_key", json={"value": ""}).json()["is_set"] is False
 
 
 def test_set_overwrites_previous_value(client):
     client.put("/api/settings/tmdb_api_key", json={"value": "first"})
     client.put("/api/settings/tmdb_api_key", json={"value": "second"})
 
-    response = client.get("/api/settings/tmdb_api_key")
-    assert response.json()["value"] == "second"
+    with client.app.state.session_factory() as session:
+        from nazgarr.core import settings_repo
+
+        assert settings_repo.get_setting(session, "tmdb_api_key") == "second"
 
 
 def test_exclusion_presets_available_lists_known_presets(client):

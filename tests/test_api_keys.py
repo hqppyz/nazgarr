@@ -66,7 +66,9 @@ def test_keys_never_reach_secret_settings_and_nobody_reaches_the_login_ones(clie
     read, write = _key(client, auth, "read"), _key(client, auth, "write")
     client.put("/api/settings/tmdb_api_key", json={"value": "tmdb-secret"}, headers=auth)
 
-    assert client.get("/api/settings/tmdb_api_key", headers=auth).json()["value"] == "tmdb-secret"  # la UI sì
+    # La UI sa che c'è, ma non la rilegge (audit 2026-10-18).
+    assert client.get("/api/settings/tmdb_api_key", headers=auth).json() == {
+        "key": "tmdb_api_key", "value": None, "is_set": True}
     assert client.get("/api/settings/tmdb_api_key", headers={"X-Api-Key": read["key"]}).status_code == 403
     assert client.put("/api/settings/image_host_ptpimg_api_key", json={"value": "x"},
                       headers={"X-Api-Key": write["key"]}).status_code == 403
