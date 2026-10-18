@@ -368,7 +368,10 @@ def _plan_settings(plan: Planner, wanted: dict, schedule) -> None:
         hint = "put the cron under schedule:" if managed == ["schedule_cron"] else f"use {catalog.MANAGED[managed[0]]}"
         raise fail(f"settings: {', '.join(managed)} cannot be set here ({hint}).", EXIT_USAGE)
     for key, value in (wanted or {}).items():
-        value = catalog.normalize(key, str(value).lower() if isinstance(value, bool) else str(value))
+        try:
+            value = catalog.normalize(key, str(value).lower() if isinstance(value, bool) else str(value))
+        except ValueError as exc:
+            raise fail(f"settings: {exc}.", EXIT_USAGE) from exc
         privileged = catalog.needs_login(key, writing=True)
         if not privileged or not any(w in key for w in catalog.SECRET_WORDS):
             current = client.get(f"/api/settings/{key}").get("value")

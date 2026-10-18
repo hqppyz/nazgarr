@@ -389,3 +389,32 @@ def test_a_client_mounted_on_a_subfolder_from_the_command_line(cli_env, client, 
     assert code == 0 and "path mapping" in out
     link = json.loads(run(capsys, "--json", "client", "ls")[1])[0]["disks"][0]
     assert link["torrent_client_root_path"] == "/downloads"
+
+
+def test_setting_values_are_checked_like_the_server_does_without_rewriting_them():
+    """rematch_interval_days era un intero per il CLI: 1.5 (valido per il
+    server e la UI) falliva, e un config import di un export lo faceva con
+    un traceback; "0" diventava "0.0", un cambiamento inutile (audit 2026-10-18)."""
+    from nazgarr.cli_client.settings_catalog import normalize
+
+    assert normalize("rematch_interval_days", "1.5") == "1.5"
+    assert normalize("upload_auto_match_threshold", " 0 ") == "0"
+    assert normalize("upload_screenshot_count", "6") == "6"
+    assert normalize("upload_single_file_folder", "Remove") == "remove"
+    assert normalize("update_check_auto", "on") == "true"
+    for key, value in (("upload_screenshot_count", "1.5"), ("rematch_interval_days", "soon"),
+                       ("upload_single_file_folder", "delete"), ("arr_webhook_search", "maybe")):
+        with pytest.raises(ValueError):
+            normalize(key, value)
+
+
+def test_config_import_explains_a_bad_setting_value(cli_env, client, capsys):
+    _login(capsys)
+    file = cli_env / "nazgarr.yaml"
+    file.write_text("version: 1\nsettings:\n  upload_screenshot_count: many\n")
+    code, _out, err = run(capsys, "config", "import", str(file), "--yes")
+    assert code == 2 and "upload_screenshot_count is a whole number" in err
+    file.write_text("version: 1\nsettings:\n  rematch_interval_days: 1.5\n")
+    code, _out, err = run(capsys, "config", "import", str(file), "--yes")
+    assert code == 0, err
+    assert client.get("/api/settings/rematch_interval_days").json()["value"] == "1.5"
