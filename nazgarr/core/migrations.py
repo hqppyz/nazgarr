@@ -84,8 +84,12 @@ def upgrade(engine: Engine) -> int:
         logger.warning("Database alla versione %d, più nuova di questo Nazgarr (%d)", start, LATEST)
     pending = [m for m in MIGRATIONS if m.version > start]
     _run(engine, [m for m in pending if m.before_schema])
-    db.apply_schema(engine)
+    # Le colonne nuove prima dello schema: un indice di schema.sql può usare
+    # una colonna che un DB più vecchio riceve solo da migrate_schema (per
+    # esempio upload_job.split_from_id), e la sua CREATE INDEX fallirebbe.
+    # Le tabelle che mancano le crea poi apply_schema, già complete.
     db.migrate_schema(engine)
+    db.apply_schema(engine)
     _run(engine, [m for m in pending if not m.before_schema])
     db.encrypt_plaintext_secrets(engine)
     if start < LATEST:

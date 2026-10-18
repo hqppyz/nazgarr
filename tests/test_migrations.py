@@ -1,8 +1,127 @@
 """Le migrazioni con una versione (nazgarr/core/migrations.py)."""
 
+from pathlib import Path
+
 from sqlalchemy import inspect, text
 
 from nazgarr.core import db, migrations
+
+FIXTURES = Path(__file__).parent / "fixtures"
+
+# Una riga o due in ogni tabella con una foreign key, con lo schema della
+# 0.9.0 (la prima stabile con le versioni, ultima migrazione 9): solo colonne
+# che c'erano già allora.
+_V0_9_0_ROWS = """
+INSERT INTO run_log (id, run_type, started_at) VALUES (1, 'manual', '2026-10-01 10:00:00');
+INSERT INTO disk (id, label, root_path) VALUES (1, 'd1', '/data/d1'), (2, 'd2', '/data/d2');
+INSERT INTO disk_folder (disk_id, kind, relative_path) VALUES (1, 'media', 'media'), (1, 'seeding', 'torrents');
+INSERT INTO tracker (id, label, adapter_type, base_url, api_token)
+    VALUES (1, 'T1', 'unit3d', 'https://t1.example', 'enc:x'), (2, 'T2', 'unit3d', 'https://t2.example', 'enc:y');
+INSERT INTO torrent_client (id, label, adapter_type, base_url) VALUES (1, 'qb', 'qbittorrent', 'http://qb:8080');
+INSERT INTO disk_torrent_client (disk_id, torrent_client_id) VALUES (1, 1);
+INSERT INTO media_item (id, content_type, tmdb_id) VALUES (1, 'movie', 603);
+INSERT INTO media_file (id, disk_id, relative_path, size_bytes, st_dev, inode, media_item_id, last_scan_id,
+                        last_seen_at)
+    VALUES (1, 1, 'media/m.mkv', 100, 1, 10, 1, 1, '2026-10-01'), (2, 2, 'media/n.mkv', 200, 2, 20, 1, 1, '2026-10-01');
+INSERT INTO seed_file (id, disk_id, relative_path, size_bytes, st_dev, inode, media_file_id, last_scan_id, last_seen_at)
+    VALUES (1, 1, 'torrents/m.mkv', 100, 1, 10, 1, 1, '2026-10-01'),
+           (2, 1, 'torrents/o.mkv', 300, 1, 30, NULL, 1, '2026-10-01');
+INSERT INTO client_torrent (id, torrent_client_id, info_hash, name, save_path, state, last_polled_at)
+    VALUES (1, 1, 'aa', 'm', '/data/d1/torrents', 'uploading', '2026-10-01');
+INSERT INTO client_torrent_file (id, client_torrent_id, path_in_torrent, size_bytes, seed_file_id, last_scan_id)
+    VALUES (1, 1, 'm.mkv', 100, 1, 1);
+INSERT INTO candidate (id, media_item_id, tracker_id, torrent_id_remote, name, size_bytes, source, direction,
+                       confidence)
+    VALUES (1, 1, 1, '11', 'm', 100, 'history', 'media_to_torrent', 1.0),
+           (2, 1, 1, '12', 'o', 300, 'catalog_search', 'torrent_to_client', 1.0),
+           (3, 1, 2, '13', 'n', 200, 'history', 'media_to_torrent', 0.5);
+INSERT INTO candidate_file (id, candidate_id, torrent_path, is_video, media_file_id, seed_file_id)
+    VALUES (1, 1, 'm.mkv', 1, 1, NULL), (2, 2, 'o.mkv', 1, NULL, 2), (3, 3, 'n.mkv', 1, 2, NULL);
+INSERT INTO match_review (id, candidate_id, media_file_id, seed_file_id, status)
+    VALUES (1, 1, 1, NULL, 'approved'), (2, 2, NULL, 2, 'approved'), (3, 3, 2, NULL, 'pending');
+INSERT INTO match_attempt (id, tracker_id, media_file_id, seed_file_id, size_bytes, tmdb_id, attempted_at)
+    VALUES (1, 1, 1, NULL, 100, 603, '2026-10-01'), (2, 1, NULL, 2, 300, 603, '2026-10-01'),
+           (3, 2, 2, NULL, 200, 603, '2026-10-01');
+INSERT INTO seed_job (id, candidate_id, source_media_file_id, source_seed_file_id, result_seed_file_id,
+                      result_client_torrent_id, info_hash, final_status)
+    VALUES (1, 1, 1, NULL, 1, 1, 'aa', 'seeding'), (2, 2, NULL, 2, NULL, NULL, 'bb', 'failed'),
+           (3, 3, 2, NULL, NULL, NULL, 'cc', 'seeding');
+INSERT INTO not_imported_torrent (id, client_torrent_id, category, replaced_by_media_file_id, total_bytes, video_bytes,
+                                  file_count, run_id)
+    VALUES (1, 1, 'superseded', 1, 100, 100, 1, 1);
+INSERT INTO file_change (id, run_id, side, disk_id, relative_path, size_bytes, change)
+    VALUES (1, 1, 'media', 1, 'media/m.mkv', 100, 'added');
+INSERT INTO tracker_health_snapshot (id, run_id, scope) VALUES (1, 1, 'configured');
+INSERT INTO tracker_upload_profile (tracker_id) VALUES (1);
+INSERT INTO upload_job (id, disk_id, relative_path, source_path, status)
+    VALUES (1, 1, 'media/m.mkv', '/data/d1/media/m.mkv', 'done'), (2, 2, 'media/n.mkv', '/data/d2/media/n.mkv', 'done');
+INSERT INTO upload_target (id, job_id, tracker_id, torrent_client_id, status) VALUES (1, 1, 1, 1, 'done');
+INSERT INTO upload_event (id, job_id, target_id, code) VALUES (1, 1, 1, 'uploaded');
+INSERT INTO watch_entry (id, disk_id, relative_path, size_bytes, mtime, stable_since, job_id)
+    VALUES (1, 1, 'watch/m', 100, 1.0, '2026-10-01', 1);
+INSERT INTO event (id, name, payload_json) VALUES (1, 'run.finished', '{}');
+INSERT INTO webhook (id, name, url, secret, events_json) VALUES (1, 'w', 'https://hook.example', 'enc:s', '["*"]');
+INSERT INTO notification_service (id, name, adapter_type, events_json) VALUES (1, 'n', 'discord', '["*"]');
+INSERT INTO event_delivery (id, event_id, webhook_id, notification_id) VALUES (1, 1, 1, NULL), (2, 1, NULL, 1);
+PRAGMA user_version = 9;
+"""
+
+
+def _v0_9_0_database(tmp_path):
+    engine = db.make_engine(str(tmp_path / "v0.9.0.db"))
+    raw = engine.raw_connection()
+    try:
+        raw.executescript((FIXTURES / "schema_v0.9.0.sql").read_text() + _V0_9_0_ROWS)
+        raw.commit()
+    finally:
+        raw.close()
+    return engine
+
+
+def _tables(engine) -> list[str]:
+    with engine.connect() as conn:
+        return conn.execute(text(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
+        )).scalars().all()
+
+
+def _counts(engine) -> dict[str, int]:
+    with engine.connect() as conn:
+        return {t: conn.execute(text(f'SELECT count(*) FROM "{t}"')).scalar() for t in _tables(engine)}
+
+
+def _structure(engine) -> dict[str, tuple]:
+    """Colonne e indici di ogni tabella: quello che un aggiornamento e
+    un'installazione nuova devono avere uguale."""
+    with engine.connect() as conn:
+        def rows(pragma, table):
+            return conn.execute(text(f'PRAGMA {pragma}("{table}")')).all()
+
+        return {
+            t: (
+                {r[1] for r in rows("table_info", t)},
+                {r[1] for r in rows("index_list", t) if not r[1].startswith("sqlite_autoindex")},
+            )
+            for t in _tables(engine)
+        }
+
+
+def test_an_upgrade_from_0_9_0_keeps_every_row_and_ends_like_a_new_database(tmp_path):
+    """Un DB creato dalla 0.9.0, con dati: l'aggiornamento non perde righe,
+    non lascia riferimenti rotti e arriva alla forma di un DB nuovo (anche
+    gli indici su colonne arrivate dopo, come upload_job.split_from_id)."""
+    old = _v0_9_0_database(tmp_path)
+    before = _counts(old)
+
+    migrations.upgrade(old)
+
+    after = _counts(old)
+    assert {t: after[t] for t in before} == before
+    with old.connect() as conn:
+        assert conn.execute(text("PRAGMA foreign_key_check")).all() == []
+    new = db.make_engine(str(tmp_path / "new.db"))
+    migrations.upgrade(new)
+    assert _structure(old) == _structure(new)
 
 
 def test_a_new_database_ends_at_the_latest_version_with_every_table(tmp_path):

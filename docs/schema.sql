@@ -862,3 +862,27 @@ CREATE INDEX IF NOT EXISTS idx_upload_job_status ON upload_job(status);
 CREATE INDEX IF NOT EXISTS idx_upload_target_job_id ON upload_target(job_id);
 CREATE INDEX IF NOT EXISTS idx_upload_event_job_id ON upload_event(job_id);
 CREATE INDEX IF NOT EXISTS idx_file_change_run_id ON file_change(run_id);
+-- Every other foreign key column too (audit 2026-10-18): with PRAGMA foreign_keys=ON each
+-- deleted parent row looks up its children, a full scan of the child table when nothing
+-- indexes that column. Deleting a disk with 3000 files took 53 s against 200k
+-- candidate_file rows (0.3 s with these), holding the write lock the whole time.
+-- tests/test_consistency.py fails when a REFERENCES column is not the first column of an
+-- index; only the run_log references are left out (scans are never deleted, and
+-- last_scan_id changes at every scan).
+CREATE INDEX IF NOT EXISTS idx_candidate_file_media_file_id ON candidate_file(media_file_id);
+CREATE INDEX IF NOT EXISTS idx_candidate_file_seed_file_id ON candidate_file(seed_file_id);
+CREATE INDEX IF NOT EXISTS idx_match_attempt_media_file_id ON match_attempt(media_file_id);
+CREATE INDEX IF NOT EXISTS idx_match_attempt_seed_file_id ON match_attempt(seed_file_id);
+CREATE INDEX IF NOT EXISTS idx_not_imported_replaced_by ON not_imported_torrent(replaced_by_media_file_id);
+CREATE INDEX IF NOT EXISTS idx_seed_job_result_seed_file_id ON seed_job(result_seed_file_id);
+CREATE INDEX IF NOT EXISTS idx_seed_job_result_client_torrent_id ON seed_job(result_client_torrent_id);
+CREATE INDEX IF NOT EXISTS idx_event_delivery_event_id ON event_delivery(event_id);
+CREATE INDEX IF NOT EXISTS idx_event_delivery_webhook_id ON event_delivery(webhook_id);
+CREATE INDEX IF NOT EXISTS idx_event_delivery_notification_id ON event_delivery(notification_id);
+CREATE INDEX IF NOT EXISTS idx_disk_torrent_client_client_id ON disk_torrent_client(torrent_client_id);
+CREATE INDEX IF NOT EXISTS idx_upload_job_disk_id ON upload_job(disk_id);
+CREATE INDEX IF NOT EXISTS idx_upload_job_split_from_id ON upload_job(split_from_id);
+CREATE INDEX IF NOT EXISTS idx_watch_entry_job_id ON watch_entry(job_id);
+CREATE INDEX IF NOT EXISTS idx_upload_target_tracker_id ON upload_target(tracker_id);
+CREATE INDEX IF NOT EXISTS idx_upload_target_torrent_client_id ON upload_target(torrent_client_id);
+CREATE INDEX IF NOT EXISTS idx_upload_event_target_id ON upload_event(target_id);

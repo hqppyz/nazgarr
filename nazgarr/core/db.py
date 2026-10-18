@@ -440,8 +440,14 @@ def migrate_schema(engine: Engine) -> None:
     tipo di modifica che questo progetto si è finora impegnato a fare."""
     from nazgarr.core.models import Base  # import qui: evita un ciclo db<->models
 
-    inspector = inspect(engine)
     with engine.begin() as conn:
+        # PRAGMA table_info legge lo schema che la connessione ha in memoria,
+        # che non si aggiorna da solo se un'altra connessione del pool ha
+        # appena cambiato una tabella: una lettura vera lo ricarica. Senza,
+        # una colonna appena aggiunta altrove sembrava mancare ("duplicate
+        # column name" all'ALTER TABLE).
+        conn.execute(text("SELECT count(*) FROM sqlite_master"))
+        inspector = inspect(conn)
         for table in Base.metadata.sorted_tables:
             if not inspector.has_table(table.name):
                 continue  # tabella nuova: apply_schema l'ha già creata per intero
