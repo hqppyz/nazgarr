@@ -40,6 +40,7 @@ import os
 import threading
 from datetime import UTC, datetime
 
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from nazgarr.core import settings_repo
@@ -580,6 +581,7 @@ class _BulkRun:
             logger.exception("Run #%s: salvataggio finale fallito, chiudo la run con il minimo", self.run_id)
             session.rollback()
             self._close_anyway(finished_at)
+        self._refresh_statistics()
         totals = self.totals
         logger.info(
             "Run #%s completata: %d item scansionati, %d match, %d auto-eseguiti, %d errori",
@@ -587,6 +589,18 @@ class _BulkRun:
             totals["auto_executed"], self.errors,
         )
         return run
+
+    def _refresh_statistics(self) -> None:
+        """Le statistiche del planner dopo le scritture della run (candidati,
+        review, file): senza, SQLite poteva scegliere l'indice sbagliato per
+        le query del matching (audit 2026-10-18). PRAGMA optimize analizza
+        solo le tabelle cambiate molto, col limite di righe della
+        connessione: un di più, mai un errore della run."""
+        try:
+            self.session.execute(text("PRAGMA optimize"))
+        except Exception:
+            logger.debug("PRAGMA optimize non riuscita a fine run", exc_info=True)
+            self.session.rollback()
 
     def _close_anyway(self, finished_at: datetime) -> None:
         """Ultima rete: solo la fine e l'errore, con un UPDATE che non
