@@ -451,11 +451,14 @@ class Unit3dTrackerAdapter(TrackerAdapter):
                 "/api/torrents/upload",
                 data=data,
                 files=files,
-                headers={"Authorization": f"Bearer {self.api_token}", "Accept": "application/json"},
+                headers={"Authorization": f"Bearer {self.api_token}", "Accept": "application/json",
+                         "Accept-Encoding": http_limits.ACCEPT_ENCODING},
             ) as response:
                 response.raise_for_status()
                 response_data = json.loads(http_limits.read_limited(response, self.MAX_JSON_BYTES, self._deadline()))
-        except (httpx.HTTPError, ValueError, http_limits.ResponseLimitExceeded) as exc:
+        except http_limits.ResponseLimitExceeded as exc:
+            raise UploadError(f"UNIT3D upload failed: the tracker sent an answer {exc}") from exc
+        except (httpx.HTTPError, httpx.InvalidURL, ValueError) as exc:
             raise UploadError(f"UNIT3D upload failed: {exc}") from exc
 
         if not isinstance(response_data, dict):
@@ -562,7 +565,10 @@ class Unit3dTrackerAdapter(TrackerAdapter):
         decompressi (default MAX_JSON_BYTES) entro RESPONSE_DEADLINE_SECONDS:
         nazgarr/core/http_limits.py. Oltre il tetto _BodyTooLarge, che il
         chiamante traduce in un UploadError col suo messaggio."""
-        headers = {"Authorization": f"Bearer {self.api_token}"} if authenticated else None
+        # Solo le codifiche che read_limited decomprime con un tetto.
+        headers = {"Accept-Encoding": http_limits.ACCEPT_ENCODING}
+        if authenticated:
+            headers["Authorization"] = f"Bearer {self.api_token}"
         limit = self.MAX_JSON_BYTES if limit is None else limit
         self._check_destination(path)
         for attempt in range(self._MAX_429_RETRIES + 1):

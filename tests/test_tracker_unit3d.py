@@ -293,6 +293,100 @@ def test_a_gzip_bomb_torrent_is_refused_before_it_is_all_in_memory():
     assert len(sent) < total_chunks / 2  # fermato poco oltre il limite, non a fine corpo
 
 
+def _peak_bytes(call) -> int:
+    """Il picco di memoria allocata (tracemalloc) mentre gira call()."""
+    import tracemalloc
+
+    tracemalloc.start()
+    try:
+        call()
+    finally:
+        peak = tracemalloc.get_traced_memory()[1]
+        tracemalloc.stop()
+    return peak
+
+
+def _refused(call):
+    def run():
+        with pytest.raises(UploadError) as info:
+            call()
+        run.message = str(info.value)
+    return run
+
+
+def test_a_gzip_bomb_in_network_sized_chunks_never_fills_the_memory():
+    # httpx decomprime ogni blocco grezzo (fino a 64 KiB da httpcore) in una
+    # sola chiamata: 60 MB di zeri stanno in un blocco solo, e si espandevano
+    # tutti prima del primo conteggio. Ora si decomprime a passi limitati.
+    stream, _, _ = _gzip_bomb_chunks(60 * 1024 * 1024, chunk=64 * 1024)
+    adapter = _adapter(lambda r: httpx.Response(200, headers={"Content-Encoding": "gzip"}, content=stream()))
+
+    run = _refused(lambda: adapter.download_torrent("https://tracker.example/torrent/download/1.abc"))
+    assert _peak_bytes(run) < 2 * Unit3dTrackerAdapter.MAX_TORRENT_BYTES
+    assert "bigger than 20 MB" in run.message
+
+
+def _stacked_gzip(decoded_bytes: int) -> bytes:
+    import zlib
+
+    inner = zlib.compressobj(9, zlib.DEFLATED, 31)
+    block = b"\0" * (1024 * 1024)
+    once = b"".join(inner.compress(block) for _ in range(decoded_bytes // len(block))) + inner.flush()
+    outer = zlib.compressobj(9, zlib.DEFLATED, 31)
+    return outer.compress(once) + outer.flush()
+
+
+def test_stacked_content_encodings_are_refused_before_any_decoding():
+    # "gzip, gzip": httpx incatenava i decoder, e un paio di KB sul filo
+    # diventavano GB in memoria (2,4 GB misurati con 1.827 byte) prima che il
+    # tetto di 20 MB scattasse. Più di uno strato non si legge affatto.
+    body = _stacked_gzip(64 * 1024 * 1024)
+    assert len(body) < 4096
+    adapter = _adapter(lambda r: httpx.Response(200, headers={"Content-Encoding": "gzip, gzip"}, content=iter([body])))
+
+    run = _refused(lambda: adapter.download_torrent("https://tracker.example/torrent/download/1.abc"))
+    assert _peak_bytes(run) < 2 * Unit3dTrackerAdapter.MAX_TORRENT_BYTES
+    assert "unsupported Content-Encoding (gzip, gzip)" in run.message
+
+    with pytest.raises(UploadError, match="unsupported Content-Encoding"):
+        adapter.search_by_tmdb(1)
+    split = _adapter(lambda r: httpx.Response(
+        200, headers=[("Content-Encoding", "gzip"), ("Content-Encoding", "deflate")], content=iter([body])))
+    with pytest.raises(UploadError, match="unsupported Content-Encoding"):
+        split.search_by_tmdb(1)
+    brotli = _adapter(lambda r: httpx.Response(200, headers={"Content-Encoding": "br"}, content=iter([b"x"])))
+    with pytest.raises(UploadError, match="unsupported Content-Encoding"):
+        brotli.download_torrent("https://tracker.example/torrent/download/1.abc")
+
+
+def test_a_single_gzip_or_deflate_layer_is_still_read():
+    import json
+    import zlib
+
+    payload = json.dumps({"data": []}).encode()
+
+    def packed(wbits):
+        packer = zlib.compressobj(6, zlib.DEFLATED, wbits)
+        return packer.compress(payload) + packer.flush()
+
+    seen = []
+    for coding, wbits in (("gzip", 31), ("x-gzip", 31), ("deflate", 15), ("deflate", -15), ("identity", None)):
+        body = payload if wbits is None else packed(wbits)
+        chunks = [body[i:i + 3] for i in range(0, len(body), 3)]  # a pezzi, anche l'intestazione
+
+        def handler(request, coding=coding, chunks=chunks):
+            seen.append(request.headers.get("accept-encoding"))
+            return httpx.Response(200, headers={"Content-Encoding": coding}, content=iter(chunks))
+
+        assert list(_adapter(handler).search_by_tmdb(1)) == [], coding
+    # Il server non riceve mai l'offerta di una codifica che qui non si legge.
+    assert set(seen) == {"gzip, deflate"}
+
+    broken = _adapter(lambda r: httpx.Response(200, headers={"Content-Encoding": "gzip"}, content=iter([b"not gzip"])))
+    with pytest.raises(UploadError, match="cannot be decompressed"):
+        broken.search_by_tmdb(1)
+
+
 def test_a_declared_length_over_the_limit_is_refused_without_reading():
     read = []
 
