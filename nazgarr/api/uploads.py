@@ -639,7 +639,7 @@ def verify_target(
 
 
 @router.post("/{upload_id}/targets/{target_id}/retry-seed", response_model=UploadJobDetail)
-def retry_seed(upload_id: int, target_id: int, session: Session = Depends(get_session)):
+def retry_seed(upload_id: int, target_id: int, request: Request, session: Session = Depends(get_session)):
     """Di nuovo l'aggiunta al client di un upload pubblicato ma non in seed
     (seed_failed, no_client): il .torrent del tracker già salvato, nessun
     nuovo upload."""
@@ -648,7 +648,7 @@ def retry_seed(upload_id: int, target_id: int, session: Session = Depends(get_se
     if target is None:
         raise HTTPException(status_code=404, detail=coded_detail("upload_target_not_found", id=target_id))
     try:
-        upload_execute.retry_seed(session, job, target)
+        upload_execute.retry_seed(session, job, target, request.app.state.settings.data_dir)
     except UploadJobError as exc:
         raise HTTPException(status_code=400, detail=from_coded_error(exc)) from exc
     session.refresh(job)

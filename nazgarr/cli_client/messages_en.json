@@ -96,6 +96,7 @@
  "tracker_no_upload_profile": "Tracker {tracker} has no upload profile.",
  "tracker_not_found": "Tracker {id} not found.",
  "tracker_upload_profile_conflict": "Tracker {id} already has an upload profile.",
+ "upload_already_in_client": "{client} already has this torrent, in another folder ({path}): nothing was moved. Remove it there, or seed it by hand.",
  "upload_cross_device": "A hardlink cannot cross filesystems: {path} is on another device than the folder for uploads.",
  "upload_decision_missing": "{tracker} has no decision.",
  "upload_description_template_invalid": "The description template cannot be used: {error}",

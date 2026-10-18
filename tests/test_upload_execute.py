@@ -73,6 +73,9 @@ class _Client:
     def recheck(self, info_hash):
         self.rechecked.append(info_hash)
 
+    def start(self, info_hash):
+        self.started = [*getattr(self, "started", []), info_hash]
+
 
 class _Chain:
     def upload(self, path):
@@ -1141,3 +1144,105 @@ def test_a_database_error_on_one_tracker_is_recorded_with_its_message(db_session
     assert job.status == "failed" and target.status == "failed"
     assert "disk I/O error" in target.error_message and target.error_message != "e3q8"
     assert "reseed_failed" in [e.code for e in job.events]
+
+
+# --- l'aggiunta al client e il nuovo tentativo del seed (audit 2026-10-18) ------
+
+
+def test_the_client_waits_for_this_exact_torrent_and_one_already_there_is_kept(
+        db_session, tmp_path, env, monkeypatch):
+    """Senza l'info hash atteso qBittorrent prendeva per il nostro un torrent
+    qualunque comparso nel frattempo; con, un duplicato è un errore chiaro:
+    qui il primo tentativo era arrivato nel client prima di fallire."""
+    from nazgarr.adapters.torrent_client.base import TorrentAlreadyInClientError
+
+    video = write_video(env["root"] / "media" / "The.Matrix.1999.mkv", 300 * KB)
+    job = _approved(db_session, env, "media/" + video.name, {"a": _upload("A"), "b": {"action": "skip"}})
+    client = env["client"]
+    real_add, expected = client.add_torrent, []
+
+    def add(torrent_file, save_path, expected_info_hash=None, **kwargs):
+        expected.append(expected_info_hash)
+        if expected_info_hash in client.save_paths:
+            raise TorrentAlreadyInClientError("already there")
+        real_add(torrent_file, save_path, **kwargs)
+        raise RuntimeError("timed out waiting for the torrent")  # arrivato, ma l'attesa è scaduta
+
+    monkeypatch.setattr(client, "add_torrent", add)
+    _run(db_session, tmp_path, job)
+    target = job.targets[0]
+    assert (target.status, target.error_message) == ("done", "seed_failed")
+    with open(target.torrent_path, "rb") as f:
+        assert expected == [compute_info_hash(f.read())]
+
+    upload_execute.retry_seed(db_session, job, target)
+
+    assert target.error_message is None and client.rechecked == [expected[0]] and client.started == [expected[0]]
+    assert "already_in_client" in [e.code for e in job.events]
+
+
+def test_a_torrent_already_in_the_client_elsewhere_is_not_taken(db_session, tmp_path, env, monkeypatch):
+    from nazgarr.adapters.torrent_client.base import TorrentAlreadyInClientError
+
+    job, _video = _reseed_job(db_session, tmp_path, env)
+    client = env["client"]
+
+    def add(torrent_file, save_path, expected_info_hash=None, **kwargs):
+        client.save_paths[expected_info_hash] = "/somewhere/else"
+        raise TorrentAlreadyInClientError("already there")
+
+    monkeypatch.setattr(client, "add_torrent", add)
+    _run(db_session, tmp_path, job)
+
+    target = job.targets[0]
+    assert (target.status, target.error_message) == ("failed", "upload_already_in_client")
+    assert client.rechecked == []
+
+
+def test_a_retried_seed_relinks_into_the_seed_folder_never_the_library(db_session, tmp_path, env, monkeypatch):
+    """Prima un nuovo tentativo, senza più l'hardlink nella cartella di seed,
+    puntava il client direttamente alla cartella della libreria."""
+    video = write_video(env["root"] / "media" / "The.Matrix.1999.mkv", 300 * KB)
+    job = _approved(db_session, env, "media/" + video.name, {"a": _upload("A"), "b": {"action": "skip"}})
+    client = env["client"]
+    real_add = client.add_torrent
+    monkeypatch.setattr(client, "add_torrent", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("down")))
+    _run(db_session, tmp_path, job)
+    target = job.targets[0]
+    os.unlink(env["root"] / "torrents" / video.name)  # tolto come hardlink orfano
+    monkeypatch.setattr(client, "add_torrent", real_add)
+
+    upload_execute.retry_seed(db_session, job, target)
+
+    assert client.added == [(target.torrent_path, str(env["root"] / "torrents"))]
+    assert os.path.samefile(env["root"] / "torrents" / video.name, video)
+    assert "seed_files_linked" in [e.code for e in job.events]
+
+
+@pytest.mark.parametrize("tracker_can_give_it_back", [True, False])
+def test_a_retried_seed_uses_the_trackers_own_torrent(db_session, tmp_path, env, tracker_can_give_it_back):
+    """Il seed fallito prima di scaricare la copia del tracker: si riscarica
+    (UNIT3D riscrive il campo source, l'info hash del nostro .torrent non è
+    quello che conosce il tracker); solo se non si può, il nostro, e si dice."""
+    video = write_video(env["root"] / "media" / "Movie.2024.mkv", 100 * KB)
+    blocker = write_video(env["root"] / "torrents" / "Movie.2024.mkv", 50 * KB)  # un altro file con quel nome
+    job = _approved(db_session, env, "media/" + video.name, {"a": _upload("A"), "b": {"action": "skip"}})
+    _run(db_session, tmp_path, job)
+    target = job.targets[0]
+    assert target.error_message == "seed_failed"
+    assert os.path.basename(target.torrent_path) == f"tracker-{target.tracker_id}.torrent"
+    os.unlink(blocker)
+    tracker = env["trackers"]["a"]
+    if tracker_can_give_it_back:
+        tracker.get_torrent_detail = lambda torrent_id: types.SimpleNamespace(
+            download_link=f"https://tracker/torrent/download/{torrent_id}.key")
+
+    upload_execute.retry_seed(db_session, job, target, str(tmp_path / "data"))
+
+    added = torf.Torrent.read(env["client"].added[-1][0])
+    codes = [e.code for e in job.events]
+    if tracker_can_give_it_back:
+        assert added.source == "Tracker100" and target.torrent_path.endswith("-seed.torrent")
+        assert "seed_retry_own_torrent" not in codes
+    else:
+        assert added.source == "a" and "seed_retry_own_torrent" in codes
