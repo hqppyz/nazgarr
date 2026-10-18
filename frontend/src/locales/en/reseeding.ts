@@ -25,6 +25,7 @@ export const reseeding = {
   'reseeding.candidateHash': 'Candidate #{id}',
   'reseeding.retryCompleted': 'Retry completed.',
   'reseeding.retryVerifying': 'Checking every piece first: it is added again only if the check passes.',
+  'reseeding.retryRechecking': 'The client is checking it again: it starts only if the recheck passes.',
   'reseeding.retryFailed': 'Retry failed: {message}',
   'reseeding.executions': 'Executions',
   'reseeding.executionsHint': 'Every approved match: hardlinks created and torrent added to the client, stopped until its recheck passes, then the outcome.',
