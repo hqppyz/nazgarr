@@ -8,8 +8,12 @@
   Script e servizi (curl, API key) non mandano Origin: passano.
 - Header di sicurezza su ogni risposta: niente iframe altrui
   (clickjacking), niente sniffing del tipo, niente referrer verso altri
-  siti, e una Content-Security-Policy che permette script e connessioni
-  solo da Nazgarr stesso (un eventuale XSS non può mandare il token altrove).
+  siti, e una Content-Security-Policy che permette script solo da Nazgarr
+  stesso (niente inline, niente plugin, niente <base> altrui) e fetch, XHR e
+  WebSocket solo verso Nazgarr. Non è una garanzia che uno script iniettato
+  non possa portare fuori il token: le immagini arrivano anche da altri host
+  (img-src https:) e nessuna CSP limita la navigazione. Rende difficile far
+  girare lo script, non lo ferma una volta partito (audit 2026-10-18).
 """
 
 from urllib.parse import urlsplit
