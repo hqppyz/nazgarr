@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
-import { api, unwrap } from '@/api/client'
+import { api, ApiError, unwrap } from '@/api/client'
 import type { Schemas } from '@/api/client'
 
 export function useTrackers() {
@@ -45,13 +45,16 @@ export function useBundledUploadProfiles() {
 export function useUploadProfile(trackerId: number) {
   return useQuery({
     queryKey: ['trackers', trackerId, 'upload-profile'],
+    // 404 = il tracker non ha ancora un profilo: un valore, non un errore.
     queryFn: async () => {
-      const { data, error, response } = await api.GET('/api/trackers/{tracker_id}/upload-profile', {
-        params: { path: { tracker_id: trackerId } },
-      })
-      if (response.status === 404) return null
-      if (error) throw new Error(JSON.stringify(error))
-      return data ?? null
+      try {
+        return await unwrap(api.GET('/api/trackers/{tracker_id}/upload-profile', {
+          params: { path: { tracker_id: trackerId } },
+        }))
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 404) return null
+        throw error
+      }
     },
   })
 }
