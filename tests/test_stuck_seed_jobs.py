@@ -91,3 +91,21 @@ def test_an_execution_of_a_disabled_client_is_not_asked_to_another_client(db_ses
 
     assert asked == []
     assert job.final_status == "failed" and "disabled or deleted" in job.error_message
+
+
+def test_a_client_whose_adapter_cannot_look_up_one_torrent_is_never_called_missing(db_session, monkeypatch):
+    # Il get_torrent_info di default (un plugin che non lo implementa) dà
+    # None senza chiedere niente al client: un client irraggiungibile
+    # diventava "il torrent non c'è più".
+    from tests.fakes import FakeAdapter
+
+    class Unreachable(FakeAdapter):
+        def get_torrent_status(self, info_hash):
+            raise ConnectionError("connection refused")
+
+    client = _client(db_session)
+    job = _job(db_session, client=client, added_minutes_ago=60)
+    monkeypatch.setattr(review, "build_torrent_client_adapter", lambda row: Unreachable([]))
+
+    assert review.reconcile_pending_seed_jobs(db_session) == {"reconciled": 0, "errors": 1}
+    assert job.final_status == "in_progress"

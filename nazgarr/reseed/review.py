@@ -29,6 +29,7 @@ from typing import NamedTuple
 from sqlalchemy import exists, func, select
 from sqlalchemy.orm import Session, selectinload
 
+from nazgarr.adapters.torrent_client.base import TorrentClientAdapter
 from nazgarr.core import settings_registry
 from nazgarr.core.logs import safe_error
 from nazgarr.core.models import (
@@ -1270,7 +1271,13 @@ def _client_enabled(session: Session, torrent_client_id: int) -> bool:
 
 def _missing_from_client(adapter, seed_job: SeedJob) -> bool:
     """Il client risponde, e quel torrent non ce l'ha (get_torrent_info None,
-    il contratto degli adapter). Un client che non risponde non è "mancante"."""
+    il contratto degli adapter). Un client che non risponde non è "mancante",
+    e nemmeno uno il cui adapter non sa cercare un torrent solo: il None di
+    default di TorrentClientAdapter.get_torrent_info non chiede niente al
+    client (un plugin), e un client irraggiungibile diventava "il torrent non
+    c'è più", con l'esecuzione fallita e la notifica."""
+    if getattr(type(adapter), "get_torrent_info", None) is TorrentClientAdapter.get_torrent_info:
+        return False
     try:
         return adapter.get_torrent_info(seed_job.info_hash) is None
     except Exception:
