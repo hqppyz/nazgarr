@@ -17,15 +17,16 @@ def _pragmas(engine) -> dict[str, object]:
 
 
 def test_every_connection_is_configured(tmp_path):
+    """synchronous resta FULL (2): con NORMAL un'interruzione di corrente può
+    perdere il commit di 'uploading' fatto prima di chiamare il tracker, e il
+    worker rifarebbe l'upload (revisione dell'audit 2026-10-18)."""
     engine = db.make_engine(str(tmp_path / "db.db"))
     assert _pragmas(engine) == {
-        "foreign_keys": 1, "journal_mode": "wal", "synchronous": 1, "cache_size": -16384, "busy_timeout": 30000,
+        "foreign_keys": 1, "journal_mode": "wal", "synchronous": 2, "cache_size": -16384, "busy_timeout": 30000,
     }
 
 
-@pytest.mark.skipif(sqlite3.sqlite_version_info < (3, 46, 0),
-                    reason="PRAGMA optimize guarda tutte le tabelle solo da SQLite 3.46")
-def test_the_planner_gets_statistics_once_there_is_data(tmp_path):
+def _database_with_media_files(tmp_path):
     engine = db.make_engine(str(tmp_path / "db.db"))
     migrations.upgrade(engine)
     with engine.begin() as conn:
@@ -35,11 +36,38 @@ def test_the_planner_gets_statistics_once_there_is_data(tmp_path):
             conn.execute(text(
                 "INSERT INTO media_file (disk_id, relative_path, size_bytes, st_dev, inode, last_scan_id, "
                 "last_seen_at) VALUES (1, :p, 1, 1, :i, 1, '2026-10-18')"), {"p": f"m{i}", "i": i})
-    engine.dispose()  # come una connessione che il pool riapre
+    engine.dispose()
+    return engine
+
+
+def _media_file_rows_in_statistics(engine) -> str | None:
+    with engine.connect() as conn:
+        return conn.execute(text(
+            "SELECT stat FROM sqlite_stat1 WHERE tbl = 'media_file' AND idx = 'idx_media_file_media_item_id'"
+        )).scalar()
+
+
+@pytest.mark.skipif(sqlite3.sqlite_version_info < (3, 46, 0),
+                    reason="PRAGMA optimize guarda tutte le tabelle solo da SQLite 3.46")
+def test_the_planner_gets_statistics_once_there_is_data(tmp_path):
+    engine = _database_with_media_files(tmp_path)  # poi dispose: come una connessione che il pool riapre
 
     with engine.connect() as conn:
         tables = conn.execute(text("SELECT DISTINCT tbl FROM sqlite_stat1")).scalars().all()
     assert "media_file" in tables
+
+
+@pytest.mark.parametrize("checks_all_tables", [db.OPTIMIZE_CHECKS_ALL_TABLES, False],
+                         ids=["this-sqlite", "before-3.46"])
+def test_after_a_restart_the_planner_has_statistics(tmp_path, monkeypatch, checks_all_tables):
+    """Con qualsiasi SQLite: prima della 3.46 la PRAGMA optimize all'apertura
+    non vede nessuna tabella, e le statistiche le fa l'ANALYZE dell'avvio."""
+    monkeypatch.setattr(db, "OPTIMIZE_CHECKS_ALL_TABLES", checks_all_tables)
+    engine = _database_with_media_files(tmp_path)
+
+    migrations.upgrade(engine)  # il riavvio
+
+    assert (_media_file_rows_in_statistics(engine) or "").startswith("200 ")
 
 
 def test_a_new_connection_does_not_wait_for_another_writer(tmp_path):

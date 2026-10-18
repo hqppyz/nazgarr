@@ -106,6 +106,7 @@ def upgrade(engine: Engine) -> int:
     db.encrypt_plaintext_secrets(engine)
     if start < LATEST:
         _set_version(engine, LATEST)
+    db.refresh_planner_statistics(engine)  # solo con SQLite prima della 3.46
     # L'app parte con connessioni nuove, configurate da db._configure_sqlite
     # (foreign key accese), non con quelle passate per le migrazioni.
     engine.dispose()

@@ -67,6 +67,11 @@ logger = logging.getLogger(__name__)
 _REPO_SCHEMA = Path(__file__).resolve().parents[2] / "docs" / "schema.sql"
 SCHEMA_PATH = _REPO_SCHEMA if _REPO_SCHEMA.exists() else Path(__file__).resolve().parents[1] / "_assets" / "schema.sql"
 
+# PRAGMA optimize col bit 0x10000 (tutte le tabelle, non solo quelle usate
+# dalla connessione) c'è da SQLite 3.46. Il pacchetto pipx usa il SQLite del
+# sistema, che può essere più vecchio (Ubuntu 24.04: 3.45).
+OPTIMIZE_CHECKS_ALL_TABLES = sqlite3.sqlite_version_info >= (3, 46, 0)
+
 
 @event.listens_for(Engine, "connect")
 def _configure_sqlite(dbapi_connection, _connection_record):
@@ -76,12 +81,10 @@ def _configure_sqlite(dbapi_connection, _connection_record):
     # polling dello stato live di una run, a partire dalla Fase 5) non
     # vengono bloccati da uno scrittore concorrente (lo scan in corso).
     cursor.execute("PRAGMA journal_mode=WAL")
-    # Con WAL, NORMAL resta sicuro contro la corruzione: un'interruzione di
-    # corrente può perdere solo gli ultimi commit, non il DB, e la run dopo
-    # rilegge lo stato dai dischi e dai client. In cambio niente fsync a ogni
-    # commit, che su un HDD o un volume di un NAS costa 5-15 ms: minuti al
-    # primo import, che fa un commit per file (audit 2026-10-18).
-    cursor.execute("PRAGMA synchronous=NORMAL")
+    # synchronous resta FULL, il default: con NORMAL un'interruzione di
+    # corrente può perdere gli ultimi commit, e il worker degli upload conta
+    # su quello che scrive 'uploading' prima di chiamare il tracker per non
+    # caricare due volte lo stesso torrent (upload/jobs.py, reset_interrupted).
     # 16 MiB di cache per connessione invece di 2: libreria e dashboard
     # rileggono le stesse pagine. Si riempie solo quando serve.
     cursor.execute("PRAGMA cache_size=-16384")
@@ -90,13 +93,16 @@ def _configure_sqlite(dbapi_connection, _connection_record):
     # riapre ogni qualche ora (make_engine). Analizza solo le tabelle mai
     # viste o cambiate molto, con un limite di righe per indice: millisecondi.
     # Senza attesa (Python ne mette 5 secondi di suo): se un altro scrittore
-    # ha il lock, si salta subito (sarà per la prossima apertura).
+    # ha il lock, si salta subito (sarà per la prossima apertura). Prima di
+    # SQLite 3.46 la PRAGMA guarda solo le tabelle già usate dalla
+    # connessione, nessuna appena aperta: lì c'è refresh_planner_statistics.
     cursor.execute("PRAGMA analysis_limit=1000")
-    cursor.execute("PRAGMA busy_timeout=0")
-    try:
-        cursor.execute("PRAGMA optimize=0x10002")
-    except sqlite3.OperationalError:
-        pass
+    if OPTIMIZE_CHECKS_ALL_TABLES:
+        cursor.execute("PRAGMA busy_timeout=0")
+        try:
+            cursor.execute("PRAGMA optimize=0x10002")
+        except sqlite3.OperationalError:
+            pass
     # Scheduler, worker degli upload e controlli completi sono thread dello
     # stesso processo: uno scrittore aspetta l'altro fino a 30 secondi
     # invece di fallire subito con "database is locked".
@@ -107,6 +113,23 @@ def _configure_sqlite(dbapi_connection, _connection_record):
 # Ogni quante ore il pool riapre una connessione: la riapertura aggiorna le
 # statistiche del planner (PRAGMA optimize in _configure_sqlite).
 POOL_RECYCLE_SECONDS = 6 * 3600
+
+
+def refresh_planner_statistics(engine: Engine) -> None:
+    """Prima di SQLite 3.46 le statistiche del planner arrivano da qui, una
+    volta a ogni avvio (migrations.upgrade): un ANALYZE di tutte le tabelle,
+    con lo stesso limite di righe per indice di _configure_sqlite. Da 3.46
+    in poi ci pensa già ogni connessione che si apre."""
+    if OPTIMIZE_CHECKS_ALL_TABLES:
+        return
+    raw_conn = engine.raw_connection()
+    try:
+        raw_conn.cursor().execute("ANALYZE")
+        raw_conn.commit()
+    except sqlite3.OperationalError as exc:  # sono un di più: l'avvio continua
+        logger.warning("Statistiche del planner non aggiornate: %s", exc)
+    finally:
+        raw_conn.close()
 
 
 def migrate_legacy_db_filename(data_dir: str) -> str | None:
