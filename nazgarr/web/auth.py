@@ -8,7 +8,14 @@ nel log (o NAZGARR_SETUP_CODE).
 
 Il segreto di firma JWT riusa APP_SECRET_KEY (già l'unico segreto che
 questo progetto richiede via env, usato per cifrare le credenziali in
-nazgarr/core/crypto.py) invece di introdurne un secondo da gestire."""
+nazgarr/core/crypto.py) invece di introdurne un secondo da gestire.
+
+Audit 2026-10-18: la password si deriva con 600.000 iterazioni (OWASP), e un
+hash più debole si rifà al login riuscito successivo; i token portano "aud",
+un identificativo casuale di questa installazione, così due istanze con la
+stessa chiave e lo stesso utente non accettano i token l'una dell'altra. I
+token di prima (senza "aud") valgono fino alla loro scadenza naturale: un
+aggiornamento non butta fuori nessuno."""
 
 import hashlib
 import hmac
@@ -26,7 +33,7 @@ from nazgarr.core.errors import coded_detail
 from nazgarr.web import api_keys
 from nazgarr.web.deps import get_session
 
-_PBKDF2_ITERATIONS = 260_000
+_PBKDF2_ITERATIONS = 600_000  # OWASP per PBKDF2-HMAC-SHA256; prima 260.000
 _TOKEN_TTL_SECONDS = 60 * 60 * 24 * 30  # 30 giorni — self-hosted, nessun refresh flow per ora
 
 
@@ -43,6 +50,16 @@ def hash_password(password: str) -> str:
     salt = secrets.token_hex(16)
     digest = hashlib.pbkdf2_hmac("sha256", password.encode(), bytes.fromhex(salt), _PBKDF2_ITERATIONS).hex()
     return f"pbkdf2_sha256${_PBKDF2_ITERATIONS}${salt}${digest}"
+
+
+def needs_rehash(stored_hash: str | None) -> bool:
+    """Un hash valido ma con meno iterazioni di quelle di adesso: il login
+    riuscito lo rifà (nazgarr/api/auth.py), la password è lì in chiaro."""
+    try:
+        algo, iterations, _salt, _digest = (stored_hash or "").split("$")
+        return algo == "pbkdf2_sha256" and int(iterations) < _PBKDF2_ITERATIONS
+    except ValueError:
+        return False
 
 
 def verify_password(password: str, stored_hash: str) -> bool:
@@ -77,16 +94,56 @@ def revoke_all_tokens(session: Session) -> None:
     settings_repo.set_setting(session, _TOKEN_VERSION_KEY, str(current + 1))
 
 
-def create_access_token(username: str, version: str = "1") -> str:
-    payload = {"sub": username, "ver": version, "exp": int(time.time()) + _TOKEN_TTL_SECONDS}
+# Il claim "aud" dei token: casuale, uno per installazione, creato all'avvio
+# (nazgarr/main.py). Con lui la data fino a cui valgono ancora i token di
+# prima, che non l'hanno: la loro scadenza più lontana possibile.
+_AUDIENCE_KEY = "auth_token_audience"
+_LEGACY_UNTIL_KEY = "auth_legacy_tokens_until"
+
+
+def token_audience(session: Session) -> str:
+    audience = settings_repo.get_setting(session, _AUDIENCE_KEY)
+    if audience:
+        return audience
+    # Senza account non c'è nessun token di prima da lasciar valere.
+    legacy_until = int(time.time()) + _TOKEN_TTL_SECONDS if is_auth_configured(session) else 0
+    settings_repo.set_setting(session, _LEGACY_UNTIL_KEY, str(legacy_until))
+    audience = f"nazgarr:{secrets.token_urlsafe(16)}"
+    settings_repo.set_setting(session, _AUDIENCE_KEY, audience)
+    return audience
+
+
+def _legacy_tokens_until(session: Session) -> int:
+    value = settings_repo.get_setting(session, _LEGACY_UNTIL_KEY) or ""
+    return int(value) if value.isdigit() else 0
+
+
+def create_access_token(username: str, version: str = "1", audience: str | None = None) -> str:
+    now = int(time.time())
+    payload = {"sub": username, "ver": version, "iat": now, "exp": now + _TOKEN_TTL_SECONDS}
+    if audience is not None:
+        payload["aud"] = audience
     return jwt.encode(payload, _jwt_secret(), algorithm="HS256")
 
 
-def decode_access_claims(token: str) -> dict | None:
+def issue_token(session: Session, username: str) -> str:
+    return create_access_token(username, token_version(session), token_audience(session))
+
+
+def decode_access_claims(token: str, audience: str | None = None, legacy_until: int = 0) -> dict | None:
+    """I claim di un token valido, se no None. Con un audience, un token di
+    un'altra installazione non vale; uno senza "aud" (di prima) solo se scade
+    entro legacy_until."""
     try:
-        return jwt.decode(token, _jwt_secret(), algorithms=["HS256"])
+        claims = jwt.decode(token, _jwt_secret(), algorithms=["HS256"],
+                            options={"require": ["exp", "sub"], "verify_aud": False})
     except jwt.PyJWTError:
         return None
+    if "aud" in claims:
+        return claims if claims["aud"] == audience else None
+    if audience is not None and claims["exp"] > legacy_until:
+        return None
+    return claims
 
 
 def decode_access_token(token: str) -> str | None:
@@ -101,7 +158,8 @@ def authenticated_username(request: Request, session: Session) -> str | None:
     auth_header = request.headers.get("Authorization", "")
     if not auth_header.startswith("Bearer "):
         return None
-    claims = decode_access_claims(auth_header.removeprefix("Bearer ")) or {}
+    claims = decode_access_claims(auth_header.removeprefix("Bearer "), token_audience(session),
+                                  _legacy_tokens_until(session)) or {}
     username = claims.get("sub")
     stored_username = settings_repo.get_setting(session, "auth_username")
     if username is None or stored_username is None or username != stored_username:

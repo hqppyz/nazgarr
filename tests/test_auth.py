@@ -216,3 +216,74 @@ def test_a_too_short_new_password_is_not_a_wrong_attempt(anon_client):
     short = {"current_password": "supersecret1", "new_password": "short"}
     for _ in range(login_limiter.MAX_FAILURES + 1):
         assert anon_client.post("/api/auth/change-password", json=short, headers=headers).status_code == 400
+
+
+def _old_hash(password, iterations=260_000):
+    import hashlib
+
+    salt = "00" * 16
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode(), bytes.fromhex(salt), iterations).hex()
+    return f"pbkdf2_sha256${iterations}${salt}${digest}"
+
+
+def test_a_weaker_password_hash_is_redone_at_the_next_login(anon_client):
+    from nazgarr.core import settings_repo
+
+    token = _setup(anon_client).json()["access_token"]
+    with anon_client.app.state.session_factory() as session:
+        settings_repo.set_setting(session, "auth_password_hash", _old_hash("supersecret1"))
+    assert auth.needs_rehash(_old_hash("supersecret1"))
+
+    login = {"username": "admin", "password": "supersecret1"}
+    assert anon_client.post("/api/auth/login", json=login).status_code == 200
+    with anon_client.app.state.session_factory() as session:
+        stored = settings_repo.get_setting(session, "auth_password_hash")
+    assert stored.split("$")[1] == str(auth._PBKDF2_ITERATIONS) and not auth.needs_rehash(stored)
+    assert anon_client.post("/api/auth/login", json=login).status_code == 200
+    assert anon_client.get("/api/disks", headers=_bearer(token)).status_code == 200  # nessuno buttato fuori
+
+
+def _token(payload):
+    import os
+
+    import jwt
+
+    return jwt.encode(payload, os.environ["APP_SECRET_KEY"], algorithm="HS256")
+
+
+def test_a_token_of_another_installation_with_the_same_key_is_refused(anon_client):
+    import time
+
+    token = _setup(anon_client).json()["access_token"]
+    assert anon_client.get("/api/disks", headers=_bearer(token)).status_code == 200
+    other = _token({"sub": "admin", "ver": "1", "exp": int(time.time()) + 3600, "aud": "nazgarr:another-one"})
+    assert anon_client.get("/api/disks", headers=_bearer(other)).status_code == 401
+    no_expiry = _token({"sub": "admin", "ver": "1"})
+    assert anon_client.get("/api/disks", headers=_bearer(no_expiry)).status_code == 401
+
+
+def test_tokens_from_before_the_audience_last_until_they_expire(anon_client):
+    import time
+
+    from nazgarr.core import settings_repo
+
+    _setup(anon_client)
+    legacy = _token({"sub": "admin", "ver": "1", "exp": int(time.time()) + 3600})
+    # Installazione nuova: nessun token di prima da lasciar valere.
+    assert anon_client.get("/api/disks", headers=_bearer(legacy)).status_code == 401
+
+    with anon_client.app.state.session_factory() as session:  # come dopo l'aggiornamento
+        settings_repo.set_setting(session, "auth_legacy_tokens_until", str(int(time.time()) + 7200))
+    assert anon_client.get("/api/disks", headers=_bearer(legacy)).status_code == 200
+    too_long = _token({"sub": "admin", "ver": "1", "exp": int(time.time()) + 3 * 3600})
+    assert anon_client.get("/api/disks", headers=_bearer(too_long)).status_code == 401
+
+
+def test_an_upgrade_keeps_the_sessions_of_an_existing_account(db_session):
+    from nazgarr.core import settings_repo
+
+    settings_repo.set_setting(db_session, "auth_username", "admin")
+    settings_repo.set_setting(db_session, "auth_password_hash", _old_hash("supersecret1"))
+    audience = auth.token_audience(db_session)
+    assert audience.startswith("nazgarr:") and auth.token_audience(db_session) == audience
+    assert auth._legacy_tokens_until(db_session) > 0

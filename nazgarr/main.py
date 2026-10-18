@@ -68,6 +68,7 @@ async def lifespan(app: FastAPI):
         plugin_switch.apply_disabled(session)  # i plugin spenti dall'utente, inclusi o installati
         updates.init_seen(session)  # un'installazione nuova non mostra note di versioni mai usate
         startup_checks.verify_secret_key(session)
+        auth.token_audience(session)  # il claim "aud" dei token, prima di qualunque richiesta
         # Senza account: tutto chiuso finché non lo si crea con questo codice.
         app.state.setup_code = None
         if not auth.is_auth_configured(session):

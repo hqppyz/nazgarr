@@ -106,7 +106,7 @@ def setup(body: SetupRequest, request: Request, session: Session = Depends(get_s
         settings_repo.set_setting(session, "auth_password_hash", auth.hash_password(body.password))
         request.app.state.setup_code = None
     login_limiter.succeeded(attempt[0])
-    token = auth.create_access_token(body.username.strip(), auth.token_version(session))
+    token = auth.issue_token(session, body.username.strip())
     return TokenResponse(access_token=token, username=body.username.strip())
 
 
@@ -122,7 +122,11 @@ def login(body: LoginRequest, request: Request, session: Session = Depends(get_s
     if not (stored_hash and username_ok and password_ok):
         raise HTTPException(status_code=401, detail=coded_detail("auth_invalid_credentials"))
     login_limiter.succeeded(attempt[0])
-    token = auth.create_access_token(stored_username, auth.token_version(session))
+    if auth.needs_rehash(stored_hash):
+        # Un hash di prima (meno iterazioni): rifatto ora che la password è qui.
+        # Non revoca nessun token: la password è la stessa.
+        settings_repo.set_setting(session, "auth_password_hash", auth.hash_password(body.password))
+    token = auth.issue_token(session, stored_username)
     return TokenResponse(access_token=token, username=stored_username)
 
 
