@@ -1,13 +1,11 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import type { UploadJob, UploadTarget } from '@/api/hooks/uploads'
 import { TrackerCheckCard } from '@/components/upload/TrackerCheckCard'
 
 const verify = vi.fn()
 vi.mock('@/api/hooks/uploads', () => ({ useVerifyTarget: () => ({ mutate: verify, isPending: false }) }))
-
-afterEach(cleanup)
 
 const dupe = (id: string, verdict: string, extra = {}) => ({
   torrent_id_remote: id, name: `Release.${id}`, size_bytes: 1e9, verdict, reasons: [], verification: null, ...extra,

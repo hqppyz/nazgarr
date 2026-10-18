@@ -39,7 +39,7 @@ from sqlalchemy.orm import Session
 
 from nazgarr.adapters.image_host.base import ImageHostError
 from nazgarr.adapters.torrent_client.base import TorrentAlreadyInClientError
-from nazgarr.adapters.tracker.base import UploadFields
+from nazgarr.adapters.tracker.base import UploadFields, catalog_truncated
 from nazgarr.core import settings_registry
 from nazgarr.core.errors import CodedError
 from nazgarr.core.file_types import is_video
@@ -59,7 +59,7 @@ from nazgarr.core.models import (
 from nazgarr.core.version import CREATED_BY
 from nazgarr.integrations import adapter_factory
 from nazgarr.integrations.adapter_factory import ImageHostConfigError
-from nazgarr.library import disk_folders, hardlinks
+from nazgarr.library import disk_folders, hardlinks, seed_refresh
 from nazgarr.library import mediainfo as mediainfo_util
 from nazgarr.reseed.executor import client_visible_path
 from nazgarr.torrents import client_labels
@@ -73,7 +73,7 @@ from nazgarr.upload import watch as upload_watch
 from nazgarr.upload.decision import MAX_SCREENSHOTS
 from nazgarr.upload.description import render_description
 from nazgarr.upload.jobs import UploadJobError
-from nazgarr.upload.verify import build_locator
+from nazgarr.upload.verify import build_locator, dupe_torrent
 
 logger = logging.getLogger(__name__)
 
@@ -137,6 +137,33 @@ def link_files(pairs: list[tuple[str, str]], root: str) -> list[str]:
     return hardlinks.create_links(planned)
 
 
+def _link_identities(paths: list[str]) -> dict[str, tuple[int, int]]:
+    """(dispositivo, inode) di ogni hardlink appena creato, visto con lstat:
+    la pulizia toglie solo un file che è ancora quello (_cleanup_unused_links)."""
+    out = {}
+    for path in paths:
+        with contextlib.suppress(OSError):
+            st = os.lstat(path)
+            if stat.S_ISREG(st.st_mode):
+                out[path] = (st.st_dev, st.st_ino)
+    return out
+
+
+def _still_our_link(path: str, recorded: tuple[int, int] | None) -> bool | None:
+    """L'hardlink creato da questo job è ancora al suo posto: un file vero
+    (non un link simbolico), con il dispositivo e l'inode di quando è nato.
+    None se non c'è più (niente da togliere), False se al suo posto c'è
+    altro: un file con lo stesso nome messo lì da qualcun altro non si
+    tocca (audit 2026-10-18)."""
+    try:
+        st = os.lstat(path)
+    except FileNotFoundError:
+        return None
+    except OSError:
+        return False
+    return recorded is not None and stat.S_ISREG(st.st_mode) and (st.st_dev, st.st_ino) == recorded
+
+
 # --- una volta per job --------------------------------------------------------
 
 
@@ -185,6 +212,7 @@ def prepare_content(session: Session, job: UploadJob, ctx: dict) -> str:
     # Da qui un reseed del motore approvato nel frattempo può riusarli (_used_elsewhere).
     ctx["links_at"] = datetime.now(UTC)
     ctx["created_links"] = link_files(pairs, root)
+    ctx["created_ids"] = _link_identities(ctx["created_links"])
     ctx["save_path"] = base
     # Nel torrent solo questi: la cartella può avere già altro (hash_pieces).
     ctx["planned"] = [target for _source, target in pairs]
@@ -343,14 +371,26 @@ def take_screenshots(session: Session, job: UploadJob, worker, count: int) -> li
         chain = adapter_factory.build_image_host_chain(session)
     except ImageHostConfigError as exc:
         raise UploadJobError(exc.code, **exc.params) from exc
+
+    def cancelled() -> bool:
+        # Come durante l'hash (hash_pieces): un annullamento ferma il
+        # lavoro fra una cattura e l'altra, non solo alla fine (audit 2026-10-18).
+        session.refresh(job)
+        return job.status == "cancelled"
+
     try:
         paths = screenshots.generate_screenshots(
-            main_video, os.path.join(_job_dir(worker, job), "screenshots"), count=count, tonemap=tonemap
+            main_video, os.path.join(_job_dir(worker, job), "screenshots"), count=count, tonemap=tonemap,
+            should_stop=cancelled,
         )
+    except screenshots.ScreenshotsStopped as exc:
+        raise _Cancelled() from exc
     except screenshots.ScreenshotError as exc:
         raise UploadJobError("upload_screenshots_failed", error=str(exc)) from exc
     urls = []
     for i, path in enumerate(paths, start=1):
+        if cancelled():
+            raise _Cancelled()
         try:
             urls.append(chain.upload(path))
         except ImageHostError:
@@ -458,7 +498,10 @@ def _add_to_client(
                 skip_check_verified=skip, **client_labels.add_kwargs(target.client_category, target.client_tags),
             )
         except TorrentAlreadyInClientError:
-            return _keep_existing(session, job, target, adapter, expected, visible, client)
+            info_hash = _keep_existing(session, job, target, adapter, expected, visible, client)
+            _register_seed(session, job, target, adapter, info_hash)
+            return info_hash
+        info = None
         if skip:
             info = adapter.get_torrent_info(info_hash)
             seen = os.path.normpath(info.save_path) if info is not None and info.save_path else None
@@ -473,9 +516,40 @@ def _add_to_client(
         # Due codici, due messaggi: con il recheck del client o senza.
         upload_jobs.log_event(session, job, "added_to_client_verified" if skip else "added_to_client", target=target,
                               client=client)
+        _register_seed(session, job, target, adapter, info_hash, info)
         return info_hash
     finally:
         adapter_factory.close_adapter(adapter)
+
+
+def _register_seed(session: Session, job: UploadJob, target: UploadTarget, adapter, info_hash: str,
+                   info=None) -> None:
+    """Il torrent appena aggiunto, e i suoi file nelle cartelle di seeding,
+    subito fra quelli indicizzati (nazgarr/library/seed_refresh.py), come
+    fanno l'esecutore dopo un reseed e il webhook di Radarr/Sonarr (audit
+    2026-10-18). Prima restavano fuori fino alla run dopo: il file
+    dell'upload risultava non in seed in libreria, e "Cerca ora" poteva
+    trovare sul tracker l'upload stesso e proporlo come reseed. Un errore
+    qui si scrive solo nel log: il torrent è nel client, lo vedrà la
+    prossima indicizzazione. Anche il commit iniziale: con il DB occupato
+    oltre il busy_timeout (una run che indicizza) l'upload riuscito
+    risultava seed_failed, con il torrent già in seed."""
+    job_id = job.id  # dopo un rollback rileggerlo vorrebbe dire un'altra query
+    try:
+        session.commit()  # quello che l'aggiunta ha già scritto resta, qualunque cosa succeda dopo
+    except OperationalError:
+        session.rollback()
+        logger.warning("Upload %s: torrent %s nel client, il DB non si scrive: non registrato subito", job_id,
+                       info_hash, exc_info=True)
+        return
+    try:
+        info = info if getattr(info, "files", None) else adapter.get_torrent_info(info_hash)
+        if info is not None:
+            seed_refresh.register_client_torrent(session, target.torrent_client, info)
+    except Exception:
+        session.rollback()
+        logger.warning("Upload %s: torrent %s nel client ma non registrato subito", job_id, info_hash,
+                       exc_info=True)
 
 
 def _info_hash_of(torrent_file: str) -> str:
@@ -618,6 +692,10 @@ def retry_seed(session: Session, job: UploadJob, target: UploadTarget, data_dir:
     save_path = next((p for p in _seed_candidates(session, job) if files_in_place(torrent, p)), None)
     if save_path is None:
         save_path = _relink_for_seed(session, job, torrent)
+    # Il client scelto e il .torrent nel DB prima di toccare il client: se
+    # dopo l'aggiunta il DB non si scrive (_register_seed torna indietro),
+    # restano quelli, non il client di prima (magari nessuno).
+    session.commit()
     try:
         info_hash = _add_to_client(session, job, target, torrent_path, save_path)
     except Exception as exc:
@@ -776,7 +854,7 @@ def run_reseed(session: Session, job: UploadJob, target: UploadTarget, ctx: dict
     upload_jobs.set_target_status(target, upload_jobs.TargetStatus.PREPARING)
     session.commit()
     with adapter_factory.tracker(target.tracker) as adapter:
-        content = adapter.download_torrent(dupe["download_link"])
+        content = dupe_torrent(adapter, dupe)  # la chiave del tracker rimessa qui
     # Il controllo completo vale per il .torrent che ha letto: quello che si
     # aggiunge al client dev'essere lo stesso, non uno riscaricato e cambiato
     # nel frattempo sul tracker.
@@ -901,7 +979,14 @@ def _cleanup_unused_links(session: Session, job: UploadJob, ctx: dict, overrides
     Mai uno da cui seeda un altro tracker del job (audit 2026-10-18): un
     reseed con lo stesso nome e lo stesso layout riusa proprio quel link
     (hardlinks.check_link), e toglierlo lasciava il suo torrent senza dati;
-    dalla cartella osservata poi se ne andava anche l'originale."""
+    dalla cartella osservata poi se ne andava anche l'originale.
+
+    Ognuno si ricontrolla subito prima (audit 2026-10-18): deve essere
+    ancora un file vero con l'inode di quando è nato (_still_our_link), e
+    si toglie con hardlinks.remove_links, che non segue mai un link
+    simbolico nelle cartelle sopra. Prima un unlink per percorso: un altro
+    file messo con lo stesso nome nel frattempo, o una cartella diventata
+    un link simbolico, portavano a cancellare un file non nostro."""
     created = ctx.get("created_links") or []
     uploaded = any(t.action == "upload" and t.status == "done" for t in job.targets)
     if not created or (uploaded and not overrides.get("no_seed")):
@@ -914,17 +999,22 @@ def _cleanup_unused_links(session: Session, job: UploadJob, ctx: dict, overrides
     if not unused:
         return
     root = os.path.realpath(ctx["seed_root"]())
+    recorded = ctx.get("created_ids") or {}
+    removable, changed = [], []
     for path in unused:
-        with contextlib.suppress(OSError):
-            os.unlink(path)
-        parent = os.path.dirname(path)
-        while os.path.realpath(parent).startswith(root + os.sep):
-            try:
-                os.rmdir(parent)  # solo se vuota
-            except OSError:
-                break
-            parent = os.path.dirname(parent)
-    upload_jobs.log_event(session, job, "file_links_removed", count=len(unused))
+        ours = _still_our_link(path, recorded.get(path))
+        if ours:
+            removable.append(path)
+        elif ours is False:
+            changed.append(path)
+    hardlinks.remove_links(removable, prune_up_to=root)
+    # Quelli che remove_links non ha potuto togliere (lo scrive nel log) non contano.
+    removed = [path for path in removable if not os.path.lexists(path)]
+    if changed:
+        upload_jobs.log_event(session, job, "file_links_changed", level="warning", count=len(changed),
+                              files=[os.path.relpath(path, root) for path in changed[:10]])
+    if removed:
+        upload_jobs.log_event(session, job, "file_links_removed", count=len(removed))
     session.commit()
 
 
@@ -1178,13 +1268,20 @@ def _recheck_dupes(session: Session, job: UploadJob, targets: list[UploadTarget]
         try:
             with adapter_factory.tracker(target.tracker) as adapter:
                 _forget_search(adapter, job.tmdb_id)
-                results, _suggested = upload_dupes.check(adapter.search_by_tmdb(job.tmdb_id), summary)
+                found = adapter.search_by_tmdb(job.tmdb_id)
+                results, _suggested = upload_dupes.check(found, summary)
         except Exception as exc:
             logger.warning("Upload %s: dupe check prima dell'invio fallito su %s", job.id, target.tracker.label,
                            exc_info=True)
             upload_jobs.log_event(session, job, "dupe_recheck_failed", level="warning", target=target,
                                   error=safe_error(exc))
             continue
+        if catalog_truncated(found):
+            # Come alla decisione (analysis.py): il tracker ha più risultati di
+            # quelli letti, e un dupe oltre il limite non si vede (audit
+            # 2026-10-18). Si va avanti, ma il registro lo dice.
+            upload_jobs.log_event(session, job, "dupe_recheck_truncated", level="warning", target=target,
+                                  results=len(found))
         new = [r for r in results if r["verdict"] in ("identical", "same_slot") and r["torrent_id_remote"] not in known]
         if new:
             upload_jobs.set_target_status(target, upload_jobs.TargetStatus.FAILED)

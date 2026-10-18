@@ -35,6 +35,7 @@ from nazgarr.core.models import (
 )
 from nazgarr.integrations import adapter_factory, arr
 from nazgarr.library import mediainfo as mediainfo_util
+from nazgarr.reseed import download_links
 from nazgarr.upload import decision as upload_decision
 from nazgarr.upload import dovi_probe
 from nazgarr.upload import inventory as upload_inventory
@@ -276,7 +277,8 @@ def _drop_check(session: Session, job: UploadJob, target, previous: str | None) 
 def _remember_rss_key(target, adapter) -> None:
     """La chiave dei link di download imparata dalle risposte del tracker
     resta sul tracker (cifrata): il dupe check salva i link senza, e il full
-    hash check o il reseed li ricostruiscono con lei (nazgarr/upload/dupes.py)."""
+    hash check o il reseed li ricostruiscono con lei (verify.dupe_torrent,
+    nazgarr/reseed/download_links.py)."""
     learned = getattr(adapter, "rss_key", None)
     if learned and learned != target.tracker.rss_key:
         target.tracker.rss_key = learned
@@ -303,7 +305,10 @@ def _check_trackers(
             with adapter_factory.tracker(target.tracker) as adapter:
                 found = adapter.search_by_tmdb(job.tmdb_id)
                 _remember_rss_key(target, adapter)
-            results, suggested = check(found, summary)
+                results, suggested = check(found, summary)
+                for result in results:
+                    # Mai la chiave personale nel DB (audit 2026-10-18).
+                    result["download_link"] = download_links.stored_link(adapter, result["download_link"])
         except Exception as exc:
             failure = exc
         if not _still_mine(session, job, run_id):

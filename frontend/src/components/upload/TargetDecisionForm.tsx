@@ -118,9 +118,7 @@ export function TargetDecisionForm({
   missingSource?: boolean
   onSetSource?: () => void
 }) {
-  const identical = (target.dupes as unknown as { torrent_id_remote: string; name: string; verdict: string }[]).filter(
-    (d) => d.verdict === 'identical',
-  )
+  const identical = target.dupes.filter((d) => d.verdict === 'identical')
   const set = (patch: Partial<Omit<TargetDraft, 'touched'>>) => onChange(editDraft(draft, patch))
 
   return (

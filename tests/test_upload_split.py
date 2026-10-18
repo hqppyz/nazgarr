@@ -162,6 +162,53 @@ def test_split_from_the_match_by_hand(client, tmp_path, monkeypatch):
     assert client.get(f"/api/uploads/{job_id}").json()["status"] == "cancelled"
 
 
+@pytest.mark.parametrize("failure", ["io", "unexpected"])
+def test_a_split_by_hand_that_fails_leaves_only_the_pack_going(client, tmp_path, monkeypatch, failure):
+    """Audit 2026-10-18 (finding 154): fuori da UploadJobError e
+    ScopeViolation (un OSError leggendo un episodio, un errore del DB) la
+    divisione a mano rispondeva 500 senza codice, e il pack restava fermo
+    fino al riavvio. Ora un codice, il pack va avanti, e nessun episodio
+    resta, anche se la divisione non è riuscita a toglierli da sé."""
+    from nazgarr.upload.worker import UploadWorker
+    from tests.upload_helpers import InlineExecutor
+
+    session = client.app.state.session_factory()
+    disk = make_disk(session, tmp_path)
+    make_tracker(session)
+    settings_repo.set_setting(session, upload_identify.AUTO_MATCH_SETTING, "0")  # si ferma al match
+    _release(tmp_path)
+    _tmdb(monkeypatch, 8)
+    job = upload_jobs.create_job(session, disk, f"releases/{FOLDER}")
+    upload_identify.handle(session, job, None)
+    job_id = job.id
+    session.close()
+    kicked = []
+    client.app.state.upload_worker = UploadWorker(client.app.state.session_factory, str(tmp_path / "data"),
+                                                  light_executor=InlineExecutor(), heavy_executor=InlineExecutor())
+    monkeypatch.setattr(client.app.state.upload_worker, "kick", lambda job_id, status: kicked.append(job_id))
+    real_scan, calls = upload_split.scan_source, []
+
+    def scan_source(path, *args, **kwargs):
+        calls.append(path)
+        if len(calls) == 2:
+            raise OSError("disk gone") if failure == "io" else RuntimeError("database is locked")
+        return real_scan(path, *args, **kwargs)
+
+    monkeypatch.setattr(upload_split, "scan_source", scan_source)
+    if failure == "unexpected":
+        monkeypatch.setattr(upload_split, "_discard", lambda session, children: None)  # non è riuscita
+
+    response = client.post(f"/api/uploads/{job_id}/split",
+                           json={"content_type": "tv", "tmdb_id": 1399, "kind": "season_pack", "seasons": [1]})
+
+    assert response.status_code == (400 if failure == "io" else 500)
+    assert response.json()["detail"]["code"] == ("upload_source_unreadable" if failure == "io"
+                                                 else "upload_prepare_failed")
+    assert kicked == [job_id]
+    assert [j["id"] for j in client.get("/api/uploads").json()] == [job_id]
+    assert client.get(f"/api/uploads/{job_id}").json()["status"] == "analyzing"
+
+
 class _PartsTmdb:
     """Lupin come su TMDB: default 10 + 7, e il gruppo "Parts" 5 / 5 / 7."""
 

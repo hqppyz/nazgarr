@@ -4484,8 +4484,11 @@ export interface components {
         /**
          * RemovalWarning
          * @description Un motivo, oltre a seedtime e ratio, per pensarci prima di togliere il
-         *     torrent: code ("shared_files", "client_error", "checking", "downloading")
-         *     e i parametri del messaggio.
+         *     torrent: code ("last_seeder", "shared_files", "client_error", "checking",
+         *     "downloading"), i parametri del messaggio, e se impedisce la rimozione
+         *     (BLOCKING_WARNINGS). L'interfaccia legge blocking invece di tenere una
+         *     sua copia dell'elenco (audit 2026-10-18): due elenchi potevano non
+         *     essere d'accordo.
          */
         RemovalWarning: {
             /** Code */
@@ -4497,6 +4500,11 @@ export interface components {
             params: {
                 [key: string]: unknown;
             };
+            /**
+             * Blocking
+             * @default false
+             */
+            blocking: boolean;
         };
         /** RemoveRequest */
         RemoveRequest: {
@@ -5313,12 +5321,193 @@ export interface components {
              */
             notes: components["schemas"]["ReleaseNote"][];
         };
+        /**
+         * UploadAnalysisResponse
+         * @description Quello che l'analisi ha trovato (nazgarr/upload/analysis.py) e la
+         *     decisione vi ha aggiunto (nazgarr/upload/decision.py propose). Le chiavi
+         *     lette dal frontend sono tipizzate; le altre passano com'erano.
+         */
+        UploadAnalysisResponse: {
+            /** Total Size Bytes */
+            total_size_bytes?: number | null;
+            /** File Count */
+            file_count?: number | null;
+            /**
+             * Client Matches
+             * @default []
+             */
+            client_matches: components["schemas"]["UploadClientMatch"][];
+            /**
+             * Arr Grabs
+             * @default []
+             */
+            arr_grabs: components["schemas"]["UploadArrGrab"][];
+            /** Mediainfo */
+            mediainfo?: unknown;
+            name_source?: components["schemas"]["UploadNameSource"] | null;
+            /**
+             * Seeding Here
+             * @default {}
+             */
+            seeding_here: {
+                [key: string]: components["schemas"]["UploadSeedingHere"];
+            };
+            /**
+             * Dupes Truncated
+             * @default {}
+             */
+            dupes_truncated: {
+                [key: string]: number;
+            };
+            /**
+             * Languages
+             * @default {}
+             */
+            languages: {
+                [key: string]: components["schemas"]["UploadLanguageCheck"];
+            };
+            /**
+             * Detected
+             * @default {}
+             */
+            detected: {
+                [key: string]: unknown;
+            };
+            type_basis?: components["schemas"]["UploadTypeBasis"] | null;
+            /**
+             * Field Options
+             * @default {}
+             */
+            field_options: {
+                [key: string]: string[];
+            };
+        } & {
+            [key: string]: unknown;
+        };
         /** UploadApproveRequest */
         UploadApproveRequest: {
             /** Targets */
             targets: components["schemas"]["TargetDecision"][];
             /** Scheduled At */
             scheduled_at?: string | null;
+        };
+        /**
+         * UploadArrGrab
+         * @description Un grab di Radarr/Sonarr dei file della sorgente (analysis.py _arr_grabs).
+         */
+        UploadArrGrab: {
+            /** Tracker Host */
+            tracker_host?: string | null;
+            /** Torrent Id Remote */
+            torrent_id_remote?: string | null;
+            /** Info Hash */
+            info_hash?: string | null;
+            /** Indexer */
+            indexer?: string | null;
+        };
+        /**
+         * UploadCandidateParts
+         * @description Da cosa viene la confidence di un candidato (nazgarr/upload/match_score.py parts).
+         */
+        UploadCandidateParts: {
+            /**
+             * Basis
+             * @enum {string}
+             */
+            basis: "forced" | "arr" | "name";
+            /** Title */
+            title?: number;
+            /** Title Guess */
+            title_guess?: string | null;
+            /** Title Matched */
+            title_matched?: string | null;
+            /** Year */
+            year?: number;
+            /** Year Guess */
+            year_guess?: number | null;
+            /** Year Candidate */
+            year_candidate?: number | null;
+            /** Year Waived */
+            year_waived?: boolean;
+            /** Type */
+            type?: number;
+            /** Type Guess */
+            type_guess?: string;
+            /** Type Candidate */
+            type_candidate?: string;
+            /** Ambiguous */
+            ambiguous?: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * UploadCandidateResponse
+         * @description Un candidato TMDB dell'identificazione (nazgarr/upload/identify.py
+         *     find_candidates), con la sua confidence. Le altre chiavi salvate (i
+         *     titoli in altre lingue, i dettagli di un id forzato) restano nel job.
+         */
+        UploadCandidateResponse: {
+            /** Tmdb Id */
+            tmdb_id: number;
+            /**
+             * Content Type
+             * @enum {string}
+             */
+            content_type: "movie" | "tv";
+            /** Title */
+            title: string | null;
+            /** Original Title */
+            original_title?: string | null;
+            /** Year */
+            year: number | null;
+            /** Poster Path */
+            poster_path: string | null;
+            /** Overview */
+            overview?: string | null;
+            /** Source */
+            source?: string;
+            /** Confidence */
+            confidence?: number;
+            /** Ambiguous */
+            ambiguous?: boolean;
+            confidence_parts?: components["schemas"]["UploadCandidateParts"];
+        };
+        /**
+         * UploadClientMatch
+         * @description Un torrent dei client con gli stessi video (nazgarr/upload/analysis.py _client_matches).
+         */
+        UploadClientMatch: {
+            /** Client Id */
+            client_id?: number | null;
+            /** Client */
+            client?: string | null;
+            /** Name */
+            name: string;
+            /** Info Hash */
+            info_hash: string;
+            /** Tracker Host */
+            tracker_host?: string | null;
+            /** Category */
+            category?: string | null;
+            /** State */
+            state?: string | null;
+            /**
+             * Match
+             * @enum {string}
+             */
+            match: "hardlink" | "same_size";
+            /**
+             * Videos Matched
+             * @default 0
+             */
+            videos_matched: number;
+            /** Videos Hardlinked */
+            videos_hardlinked?: number | null;
+            /**
+             * Videos Total
+             * @default 0
+             */
+            videos_total: number;
         };
         /** UploadCreateRequest */
         UploadCreateRequest: {
@@ -5339,6 +5528,54 @@ export interface components {
             tracker_choices?: {
                 [key: string]: components["schemas"]["TrackerChoice"];
             } | null;
+        };
+        /**
+         * UploadDupeResponse
+         * @description Un torrent del tracker trovato dal dupe check, col suo verdetto
+         *     (nazgarr/upload/dupes.py classify). Mai il link di download.
+         */
+        UploadDupeResponse: {
+            /** Torrent Id Remote */
+            torrent_id_remote: string;
+            /**
+             * Name
+             * @default
+             */
+            name: string;
+            /** Size Bytes */
+            size_bytes?: number | null;
+            /**
+             * Verdict
+             * @enum {string}
+             */
+            verdict: "identical" | "same_slot" | "different";
+            /**
+             * Reasons
+             * @default []
+             */
+            reasons: string[];
+            verification?: components["schemas"]["UploadDupeVerification"] | null;
+        };
+        /**
+         * UploadDupeVerification
+         * @description Il full hash check di un dupe (nazgarr/upload/verify.py run_check).
+         */
+        UploadDupeVerification: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "passed" | "failed" | "error";
+            /** Reason */
+            reason?: string | null;
+            /** Pieces */
+            pieces?: number | null;
+            /** Ok */
+            ok?: number | null;
+            /** Mismatched */
+            mismatched?: number | null;
+            /** Unreadable */
+            unreadable?: number | null;
         };
         /** UploadEventResponse */
         UploadEventResponse: {
@@ -5440,18 +5677,10 @@ export interface components {
             overrides: {
                 [key: string]: unknown;
             };
-            /** Layout */
-            layout: {
-                [key: string]: unknown;
-            } | null;
+            layout: components["schemas"]["UploadLayoutResponse"] | null;
             /** Candidates */
-            candidates: {
-                [key: string]: unknown;
-            }[];
-            /** Analysis */
-            analysis: {
-                [key: string]: unknown;
-            } | null;
+            candidates: components["schemas"]["UploadCandidateResponse"][];
+            analysis: components["schemas"]["UploadAnalysisResponse"] | null;
             /** Mediainfo Text */
             mediainfo_text: string | null;
             /** Screenshot Urls */
@@ -5518,6 +5747,88 @@ export interface components {
             /** Scheduled At */
             scheduled_at?: string | null;
         };
+        /**
+         * UploadLanguageCheck
+         * @description La lingua del tracker nell'audio del file (naming.py audio_language_check).
+         */
+        UploadLanguageCheck: {
+            /** Language */
+            language: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "present" | "missing" | "unknown";
+        };
+        /**
+         * UploadLayoutResponse
+         * @description La sorgente come l'ha letta l'identificazione (nazgarr/upload/source.py
+         *     SourceLayout, o quella di un pack in nazgarr/upload/pack.py).
+         */
+        UploadLayoutResponse: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "movie" | "episode" | "season_pack" | "complete_pack";
+            /**
+             * Content Type
+             * @enum {string}
+             */
+            content_type: "movie" | "tv";
+            /**
+             * Videos
+             * @default []
+             */
+            videos: components["schemas"]["UploadLayoutVideo"][];
+            /**
+             * Other Files
+             * @default 0
+             */
+            other_files: number;
+            /**
+             * Total Size Bytes
+             * @default 0
+             */
+            total_size_bytes: number;
+            /** Main Video */
+            main_video?: string | null;
+            /** Title */
+            title?: string | null;
+            /** Year */
+            year?: number | null;
+            /**
+             * Seasons
+             * @default []
+             */
+            seasons: number[];
+            /**
+             * Episodes By Season
+             * @default {}
+             */
+            episodes_by_season: {
+                [key: string]: number[];
+            };
+            /** Release Group */
+            release_group?: string | null;
+        };
+        /** UploadLayoutVideo */
+        UploadLayoutVideo: {
+            /** Relative Path */
+            relative_path: string;
+            /**
+             * Size Bytes
+             * @default 0
+             */
+            size_bytes: number;
+            /** Season */
+            season?: number | null;
+            /**
+             * Episodes
+             * @default []
+             */
+            episodes: number[];
+        };
         /** UploadMatchRequest */
         UploadMatchRequest: {
             /** Content Type */
@@ -5535,6 +5846,18 @@ export interface components {
             episode?: number | null;
             /** Episode Order */
             episode_order?: string | null;
+        };
+        /**
+         * UploadNameSource
+         * @description Da dove si leggono i valori del nome (analysis.py name_source).
+         */
+        UploadNameSource: {
+            /** Name */
+            name: string;
+            /** Origin */
+            origin: string;
+            /** Fallback */
+            fallback?: string | null;
         };
         /** UploadNotice */
         UploadNotice: {
@@ -5666,6 +5989,13 @@ export interface components {
             /** Scheduled At */
             scheduled_at?: string | null;
         };
+        /** UploadSeedingHere */
+        UploadSeedingHere: {
+            /** Name */
+            name: string;
+            /** Client */
+            client?: string | null;
+        };
         /** UploadSplitResponse */
         UploadSplitResponse: {
             /** Job Ids */
@@ -5692,9 +6022,7 @@ export interface components {
             /** Action */
             action: string | null;
             /** Dupes */
-            dupes: {
-                [key: string]: unknown;
-            }[];
+            dupes: components["schemas"]["UploadDupeResponse"][];
             /** Reseed Torrent Id */
             reseed_torrent_id: string | null;
             /** Proposed Name */
@@ -5761,6 +6089,23 @@ export interface components {
             freeleech_options: number[];
             /** Default Freeleech */
             default_freeleech: number | null;
+        };
+        /**
+         * UploadTypeBasis
+         * @description Perché tipo e sorgente sono quelli rilevati (naming.py release_values).
+         */
+        UploadTypeBasis: {
+            /** Type */
+            type: string;
+            /** Source */
+            source?: string | null;
+            /**
+             * Evidence
+             * @default []
+             */
+            evidence: string[];
+            /** Encoder */
+            encoder?: string | null;
         };
         /** UploadVerifyRequest */
         UploadVerifyRequest: {

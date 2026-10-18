@@ -2,7 +2,7 @@ import { RotateCcwIcon, TriangleAlertIcon, XIcon } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
 
-import { useUpdateOverrides, type UploadJob } from '@/api/hooks/uploads'
+import { useUpdateOverrides, type UploadAnalysis, type UploadJob } from '@/api/hooks/uploads'
 import { InfoPopover } from '@/components/InfoPopover'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -33,7 +33,7 @@ function toDraft(overrides: Record<string, unknown>): Draft {
 
 const clearable = (key: string) => (CLEARABLE_FIELDS as readonly string[]).includes(key)
 
-type TypeBasis = { type: string; source: string | null; evidence: string[]; encoder: string | null }
+type TypeBasis = NonNullable<UploadAnalysis['type_basis']>
 
 // Perché il tipo (REMUX, ENCODE...) e la sorgente sono quelli rilevati
 // (nazgarr/upload/naming.py release_values): nel popover del tag del tipo,
@@ -77,13 +77,13 @@ export function OverridesPanel({
   open?: boolean
   onOpenChange?: (open: boolean) => void
 }) {
-  const analysis = (job.analysis ?? {}) as Record<string, unknown>
-  const detected = (analysis.detected ?? {}) as Record<string, string | null>
+  const analysis = job.analysis
+  const detected = (analysis?.detected ?? {}) as Record<string, string | null>
   // I valori che i tracker del job accettano (nazgarr/upload/decision.py
   // field_options): un menu nel campo, che resta libero.
-  const options = (analysis.field_options ?? {}) as Record<string, string[]>
-  const nameSource = analysis.name_source as { name: string; origin: string } | undefined
-  const typeBasis = analysis.type_basis as TypeBasis | undefined
+  const options = analysis?.field_options ?? {}
+  const nameSource = analysis?.name_source ?? undefined
+  const typeBasis = analysis?.type_basis ?? undefined
   const [draft, setDraft] = useState<Draft>(() => toDraft(job.overrides))
   const [openState, setOpenState] = useState(false)
   const open = openProp ?? openState

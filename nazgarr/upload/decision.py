@@ -20,7 +20,7 @@ from nazgarr.integrations.adapter_factory import TmdbApiKeyMissingError
 from nazgarr.torrents import client_labels
 from nazgarr.upload import file_names as upload_file_names
 from nazgarr.upload import jobs as upload_jobs
-from nazgarr.upload import streaming_services
+from nazgarr.upload import naming_rules, streaming_services
 from nazgarr.upload.jobs import UploadJobError
 from nazgarr.upload.naming import (
     CLEARABLE_FIELDS,
@@ -106,10 +106,18 @@ def field_options(session: Session, job: UploadJob) -> dict[str, list[str]]:
 
 
 def profile_rules(profile: TrackerUploadProfile | None) -> dict | None:
+    """Le regole di naming del profilo; quelle della sua convenzione se non
+    ne ha, o se quelle salvate non hanno più la forma attesa
+    (nazgarr/upload/naming_rules.py): prima ogni upload verso quel tracker
+    falliva con un TypeError (audit 2026-10-18)."""
     if profile is None:
         return None
     if profile.naming_rules_json:
-        return json.loads(profile.naming_rules_json)
+        try:
+            return naming_rules.validate(json.loads(profile.naming_rules_json))
+        except (ValueError, naming_rules.NamingRulesError) as exc:
+            logger.warning("Regole di naming del profilo %s non valide (%s): si usano quelle della convenzione",
+                           profile.tracker_id, getattr(exc, "params", None) or exc)
     return rules_from_convention(profile.naming_convention)
 
 

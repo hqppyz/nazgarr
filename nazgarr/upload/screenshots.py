@@ -27,6 +27,10 @@ class ScreenshotError(Exception):
     pass
 
 
+class ScreenshotsStopped(Exception):
+    """Fermati da chi li ha chiesti (should_stop): un upload annullato."""
+
+
 # Un comando di ffmpeg (un fotogramma, le statistiche, un JPEG) non arriva
 # mai a minuti su un file sano; tutti gli screenshot di un upload insieme
 # (4 x 5 tentativi, più il tonemap) hanno un tetto a parte.
@@ -175,7 +179,8 @@ def _fit_size(path: str, timeout: float = COMMAND_TIMEOUT_SECONDS) -> str:
     return jpeg
 
 
-def generate_screenshots(video_path: str, output_dir: str, count: int = 4, tonemap: bool = False) -> list[str]:
+def generate_screenshots(video_path: str, output_dir: str, count: int = 4, tonemap: bool = False,
+                         should_stop=None) -> list[str]:
     """Cattura `count` frame equidistanti, escludendo il primo/ultimo 5%
     della durata (titoli/loghi/nero in apertura o coda). Un frame singolo
     che fallisce viene saltato, non blocca gli altri — solleva
@@ -186,7 +191,12 @@ def generate_screenshots(video_path: str, output_dir: str, count: int = 4, tonem
 
     Un frame nero o piatto (is_blank) si riprova qualche istante più in là
     (RETRY_OFFSETS); se lo sono tutti si tiene quello con più contrasto,
-    meglio di uno screenshot in meno."""
+    meglio di uno screenshot in meno.
+
+    should_stop: chiamata prima di ogni cattura; se dice di sì,
+    ScreenshotsStopped (audit 2026-10-18). Annullare un upload durante gli
+    screenshot cambiava solo il DB: le catture andavano avanti fino
+    all'ultima, e l'unico thread dell'esecuzione restava occupato."""
     os.makedirs(output_dir, exist_ok=True)
     duration = _get_duration_seconds(video_path)
 
@@ -206,6 +216,10 @@ def generate_screenshots(video_path: str, output_dir: str, count: int = 4, tonem
     def left() -> float:
         return min(COMMAND_TIMEOUT_SECONDS, deadline - time.monotonic())
 
+    def check_stop() -> None:
+        if should_stop is not None and should_stop():
+            raise ScreenshotsStopped(video_path)
+
     paths = []
     for i in range(count):
         if left() <= 0:
@@ -215,6 +229,7 @@ def generate_screenshots(video_path: str, output_dir: str, count: int = 4, tonem
         output_path = os.path.join(output_dir, f"screenshot_{i}.png")
         best: tuple[float, str] | None = None  # (escursione, file) del tentativo migliore
         for attempt, offset in enumerate((0.0, *RETRY_OFFSETS)):
+            check_stop()
             if left() <= 0:
                 break  # si tiene il tentativo migliore fin qui
             timestamp = min(max(base + offset * step, margin), margin + usable)

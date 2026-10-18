@@ -17,9 +17,7 @@ nessun risultato viene scartato in silenzio: si mostra tutto con il suo
 verdetto e l'utente decide.
 """
 
-import re
 from dataclasses import dataclass, replace
-from urllib.parse import urlsplit
 
 from nazgarr.adapters.tracker.base import TorrentCandidate
 from nazgarr.core.file_types import is_video
@@ -152,54 +150,12 @@ def classify(candidate: TorrentCandidate, source: SourceSummary, mine: ReleaseTr
         "size_bytes": candidate.size_bytes,
         "verdict": verdict,
         "reasons": reasons,
-        # Ancora con la chiave: il reseed e il full hash check (execute.py,
-        # verify.py) lo scaricano così com'è. Quando passano da
-        # download_link(), qui va stored_link() (audit 2026-10-18).
+        # Come lo dà il tracker: chi lo salva (analysis.py) toglie la chiave
+        # personale, e il full hash check o il reseed la rimettono
+        # (verify.dupe_torrent, audit 2026-10-18).
         "download_link": candidate.download_link,
         "verification": None,
     }
-
-
-# Il link di download di UNIT3D ha la chiave personale (rsskey) nel percorso:
-# /torrent/download/<id>.<chiave>. Con quella si scaricano .torrent col
-# passkey dell'utente: è un segreto, e va nel DB solo cifrato, sul tracker
-# (audit 2026-10-18). stored_link() è il link da salvare, con un segnaposto
-# della stessa forma al posto della chiave, e download_link() lo ricostruisce
-# con la chiave attuale (rewrite_download_link) quando serve scaricarlo.
-_KEYED_LINK = re.compile(r"(/torrent/download/\d+\.)([A-Za-z0-9]+)$")
-KEY_PLACEHOLDER = "rsskey"
-
-
-def stored_link(link: str | None) -> str | None:
-    """Il link di un dupe come si salva: senza la chiave personale."""
-    if not link:
-        return link
-    parts = urlsplit(link)
-    if not _KEYED_LINK.search(parts.path):
-        return link
-    return parts._replace(path=_KEYED_LINK.sub(rf"\g<1>{KEY_PLACEHOLDER}", parts.path)).geturl()
-
-
-def download_link(adapter, dupe: dict) -> str | None:
-    """Il link per scaricare il .torrent di un dupe, con la chiave attuale
-    del tracker (quella salvata, o imparata dalle sue risposte): per il full
-    hash check e il reseed. Senza una chiave nota, quello del dettaglio del
-    torrent sul tracker. Un link salvato prima, con la chiave dentro, o di
-    un tracker che non la usa, resta com'è."""
-    link = dupe.get("download_link")
-    keyless = bool(link) and urlsplit(link).path.endswith(f".{KEY_PLACEHOLDER}") \
-        and bool(_KEYED_LINK.search(urlsplit(link).path))
-    if not keyless:
-        return link
-    rewrite = getattr(adapter, "rewrite_download_link", None)
-    if getattr(adapter, "rss_key", None) and callable(rewrite):
-        rebuilt = rewrite(link)
-        if rebuilt != link:
-            return rebuilt
-    detail = getattr(adapter, "get_torrent_detail", None)
-    if callable(detail) and dupe.get("torrent_id_remote"):
-        return detail(dupe["torrent_id_remote"]).download_link
-    return None
 
 
 _VERDICT_ORDER = {"identical": 0, "same_slot": 1, "different": 2}

@@ -8,6 +8,7 @@ import httpx
 import pytest
 import torf
 
+from nazgarr.adapters.torrent_client.base import ClientTorrentFileInfo, ClientTorrentInfo
 from nazgarr.adapters.tracker.base import UploadedTorrent, UploadError
 from nazgarr.core.models import Disk, TrackerUploadProfile
 from nazgarr.torrents import create as torrent_create
@@ -74,18 +75,25 @@ class _Client:
         self.save_paths = {}
         self.reported_path = None  # il percorso che il client dice di usare, se diverso
         self.labels = []  # (categoria, tag) di ogni aggiunta
+        self.files = {}  # info hash -> (nome, file del torrent)
 
     def add_torrent(self, torrent_file, save_path, force_recheck=True, skip_check_verified=False, **kwargs):
         assert force_recheck is True
         self.added.append((torrent_file, save_path))
         self.labels.append((kwargs.get("category"), kwargs.get("tags")))
         self.skipped.append(skip_check_verified)
-        info_hash = torf.Torrent.read(torrent_file).infohash
+        torrent = torf.Torrent.read(torrent_file)
+        info_hash = torrent.infohash
         self.save_paths[info_hash] = save_path
+        self.files[info_hash] = (torrent.name,
+                                 [ClientTorrentFileInfo("/".join(f.parts), f.size) for f in torrent.files])
         return info_hash
 
     def get_torrent_info(self, info_hash):
-        return types.SimpleNamespace(save_path=self.reported_path or self.save_paths[info_hash])
+        name, files = self.files.get(info_hash, ("?", []))
+        save_path = self.reported_path or self.save_paths[info_hash]
+        return ClientTorrentInfo(info_hash=info_hash, name=name, save_path=save_path, state="uploading",
+                                 tracker_url="https://tracker/announce", files=files)
 
     def recheck(self, info_hash):
         self.rechecked.append(info_hash)
@@ -120,7 +128,7 @@ def env(db_session, tmp_path, monkeypatch):
     monkeypatch.setattr(upload_execute.adapter_factory, "build_torrent_client_adapter", lambda row: client)
     monkeypatch.setattr(upload_execute.adapter_factory, "build_image_host_chain", lambda session: _Chain())
 
-    def fake_screenshots(video, out_dir, count=4, tonemap=False):
+    def fake_screenshots(video, out_dir, count=4, tonemap=False, should_stop=None):
         os.makedirs(out_dir, exist_ok=True)
         paths = [os.path.join(out_dir, f"{i}.png") for i in range(count)]
         for p in paths:
@@ -194,6 +202,108 @@ def test_uploads_to_every_tracker_and_seeds_from_hardlinks(db_session, tmp_path,
     assert json.loads(job.screenshot_urls_json) == [f"https://img.example/{i}.png" for i in range(4)]
 
 
+def test_the_uploaded_torrent_and_its_files_are_registered_right_away(db_session, tmp_path, env):
+    """Audit 2026-10-18 (finding 171): il flusso degli upload aggiungeva il
+    torrent al client senza registrarlo. Fino alla run dopo il file
+    risultava non in seed, e "Cerca ora" poteva proporre l'upload stesso
+    come reseed."""
+    from nazgarr.core.models import ClientTorrent, ClientTorrentFile, MediaFile, RunLog, SeedFile
+    from nazgarr.library import hardlinks
+
+    video = write_video(env["root"] / "media" / "The.Matrix.1999.1080p.WEB-DL.H.264-GRP.mkv", 300 * KB)
+    run = RunLog(run_type="manual", started_at=datetime.now(UTC), finished_at=datetime.now(UTC))
+    db_session.add(run)
+    db_session.commit()
+    st = video.stat()
+    media = MediaFile(disk_id=env["disk"].id, relative_path="media/" + video.name, size_bytes=st.st_size,
+                      st_dev=st.st_dev, inode=st.st_ino, last_scan_id=run.id, last_seen_at=datetime.now(UTC))
+    env["disk"].media_scan_id = env["disk"].seed_scan_id = run.id
+    db_session.add(media)
+    db_session.commit()
+    job = _approved(db_session, env, "media/" + video.name, {"a": _upload("Matrix A"), "b": {"action": "skip"}})
+
+    _run(db_session, tmp_path, job)
+
+    assert job.status == "done", [e.code for e in job.events]
+    target = job.targets[0]
+    torrent = db_session.query(ClientTorrent).filter_by(info_hash=target.info_hash).one()
+    seed = db_session.query(SeedFile).filter_by(relative_path="torrents/" + video.name).one()
+    assert seed.media_file_id == media.id
+    assert db_session.query(ClientTorrentFile).filter_by(client_torrent_id=torrent.id).one().seed_file_id == seed.id
+    assert hardlinks.media_links(db_session, [media.id]) == {media.id: [(seed.id, seed.relative_path)]}
+
+
+def test_a_failed_registration_never_fails_the_upload(db_session, tmp_path, env, monkeypatch):
+    def broken(*args, **kwargs):
+        raise RuntimeError("database is locked")
+
+    monkeypatch.setattr(upload_execute.seed_refresh, "register_client_torrent", broken)
+    video = write_video(env["root"] / "media" / "The.Matrix.1999.1080p.WEB-DL.H.264-GRP.mkv", 300 * KB)
+    job = _approved(db_session, env, "media/" + video.name, {"a": _upload("Matrix A"), "b": {"action": "skip"}})
+
+    _run(db_session, tmp_path, job)
+
+    assert job.status == "done"
+    assert (job.targets[0].status, job.targets[0].error_message) == ("done", None)
+    assert "added_to_client_verified" in [e.code for e in job.events]
+
+
+def _locked_after_the_add(monkeypatch):
+    """Il primo commit di _register_seed fallisce come con il DB occupato
+    oltre il busy_timeout (una run che indicizza nello stesso momento)."""
+    from sqlalchemy.exc import OperationalError
+
+    original = upload_execute._register_seed
+
+    def register(session, *args, **kwargs):
+        def locked():
+            del session.commit  # solo questa volta
+            raise OperationalError("COMMIT", {}, Exception("database is locked"))
+
+        session.commit = locked
+        return original(session, *args, **kwargs)
+
+    monkeypatch.setattr(upload_execute, "_register_seed", register)
+
+
+def test_a_locked_db_right_after_the_add_never_fails_the_upload(db_session, tmp_path, env, monkeypatch):
+    """Prima il commit iniziale di _register_seed era fuori dal suo try: il
+    torrent in seed nel client e il target seed_failed."""
+    _locked_after_the_add(monkeypatch)
+    video = write_video(env["root"] / "media" / "The.Matrix.1999.1080p.WEB-DL.H.264-GRP.mkv", 300 * KB)
+    job = _approved(db_session, env, "media/" + video.name, {"a": _upload("Matrix A"), "b": {"action": "skip"}})
+
+    _run(db_session, tmp_path, job)
+
+    target = job.targets[0]
+    assert job.status == "done"
+    assert (target.status, target.error_message) == ("done", None)
+    assert env["client"].added == [(target.torrent_path, str(env["root"] / "torrents"))]
+
+
+def test_a_locked_db_right_after_a_retried_add_keeps_the_chosen_client(db_session, tmp_path, env, monkeypatch):
+    """Un nuovo tentativo senza client all'upload sceglie quello di oggi: si
+    scrive prima dell'aggiunta, così il rollback dopo non lo perde."""
+    video = write_video(env["root"] / "media" / "Movie.2024.mkv", 100 * KB)
+    job = _approved(db_session, env, "media/" + video.name, {"a": _upload("A"), "b": {"action": "skip"}})
+    client = env["client"]
+    real_add = client.add_torrent
+    monkeypatch.setattr(client, "add_torrent", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("down")))
+    _run(db_session, tmp_path, job)
+    target = job.targets[0]
+    target.torrent_client_id, target.error_message = None, "no_client"
+    db_session.commit()
+    monkeypatch.setattr(client, "add_torrent", real_add)
+    _locked_after_the_add(monkeypatch)
+
+    upload_execute.retry_seed(db_session, job, target)
+
+    db_session.expire_all()
+    assert (target.torrent_client_id, target.error_message) == (env["client_row"].id, None)
+    assert client.added == [(target.torrent_path, str(env["root"] / "torrents"))]
+    assert "seed_retried" in [e.code for e in job.events]
+
+
 def test_a_source_inside_the_seeding_folder_seeds_in_place(db_session, tmp_path, env):
     folder = env["root"] / "torrents" / "Show.S01.1080p-GRP"
     for e in (1, 2):
@@ -253,6 +363,28 @@ def test_reseed_links_the_files_with_the_tracker_names(db_session, tmp_path, env
     assert env["client"].added == [(job.targets[0].torrent_path, str(env["root"] / "torrents"))]
     assert env["client"].skipped == [False]  # il .torrent è del tracker: recheck del client
     assert env["trackers"]["a"].uploads == []  # un reseed non pubblica niente
+
+
+def test_a_reseed_puts_the_trackers_key_back_into_the_stored_link(db_session, tmp_path, env):
+    """Audit 2026-10-18 (finding 55): i link dei dupe si salvano senza la
+    chiave personale del tracker; il reseed la rimette solo per scaricare."""
+    job, _video = _reseed_job(db_session, tmp_path, env)
+    target = job.targets[0]
+    dupes = json.loads(target.dupes_json)
+    dupes[0]["download_link"] = "https://a.example/torrent/download/7.rsskey"
+    target.dupes_json = json.dumps(dupes)
+    db_session.commit()
+    tracker = env["trackers"]["a"]
+    tracker.rss_key = "CurrentKey"
+    tracker.rewrite_download_link = lambda url: url.replace(".rsskey", ".CurrentKey")
+    seen, download = [], tracker.download_torrent
+    tracker.download_torrent = lambda url: (seen.append(url), download(url))[1]
+
+    _run(db_session, tmp_path, job)
+
+    assert job.status == "done", [e.code for e in job.events]
+    assert seen == ["https://a.example/torrent/download/7.CurrentKey"]
+    assert "CurrentKey" not in job.targets[0].dupes_json
 
 
 def test_a_reseed_refuses_a_torrent_other_than_the_verified_one(db_session, tmp_path, env):
@@ -1014,6 +1146,31 @@ def test_a_dupe_that_appeared_after_the_decision_stops_that_tracker(db_session, 
     assert job.status == "partial"
 
 
+def test_a_truncated_catalogue_before_sending_is_said(db_session, tmp_path, env):
+    """Audit 2026-10-18 (finding 51): il dupe check prima dell'invio non
+    diceva che il tracker aveva più risultati di quelli letti."""
+    from datetime import timedelta
+
+    from nazgarr.adapters.tracker.base import CatalogResults, TorrentCandidate
+
+    video = write_video(env["root"] / "media" / "The.Matrix.1999.1080p.WEB-DL.H.264-GRP.mkv", 300 * KB)
+    job = _approved(db_session, env, "media/" + video.name, {"a": _upload("Matrix A"), "b": {"action": "skip"}},
+                    scheduled_at=datetime.now(UTC) + timedelta(hours=1))
+    other = TorrentCandidate(torrent_id_remote="5", info_hash=None, name="The.Matrix.1999.2160p.BluRay-X",
+                             size_bytes=1, file_list=None, mediainfo_unique_id=None)
+    catalog = CatalogResults([other])
+    catalog.truncated = True
+    env["trackers"]["a"].catalog = catalog
+    job.scheduled_at = datetime.now(UTC) - timedelta(seconds=1)
+    db_session.commit()
+
+    _run(db_session, tmp_path, job)
+
+    assert job.status == "done"  # si va avanti
+    event = next(e for e in job.events if e.code == "dupe_recheck_truncated")
+    assert (event.level, json.loads(event.params_json)) == ("warning", {"results": 1})
+
+
 # --- errori a metà esecuzione (audit 2026-10-18) -------------------------------
 
 
@@ -1057,6 +1214,85 @@ def test_a_cancel_while_hashing_removes_the_links_made_for_the_names(db_session,
     assert not (env["root"] / "torrents" / "The.Matrix.1999.mkv").exists()
     assert video.is_file()
     assert "file_links_removed" in [e.code for e in job.events]
+
+
+def test_a_cancel_during_the_screenshots_stops_them_and_sends_nothing(db_session, tmp_path, env, monkeypatch):
+    """Audit 2026-10-18 (finding 22): annullare durante gli screenshot
+    cambiava solo il DB, e le catture andavano avanti fino all'ultima."""
+    video = write_video(env["root"] / "media" / "The Matrix (1999).mkv", 300 * KB)
+    job = _approved(db_session, env, "media/" + video.name, {"a": _upload("Matrix A"), "b": {"action": "skip"}},
+                    file_naming="generated")
+    captured = []
+
+    def cancelled_midway(video, out_dir, count=4, tonemap=False, should_stop=None):
+        other = db_session.__class__(bind=db_session.get_bind())
+        upload_jobs.cancel_job(other, other.get(upload_jobs.UploadJob, job.id))
+        other.close()
+        for i in range(count):
+            if should_stop is not None and should_stop():
+                raise upload_execute.screenshots.ScreenshotsStopped(video)
+            captured.append(i)
+        return []
+
+    monkeypatch.setattr(upload_execute.screenshots, "generate_screenshots", cancelled_midway)
+    _run(db_session, tmp_path, job)
+
+    assert job.status == "cancelled"
+    assert captured == []
+    assert env["trackers"]["a"].uploads == []
+    assert not (env["root"] / "torrents" / "The.Matrix.1999.mkv").exists()  # i link per i nomi tolti
+
+
+@pytest.mark.parametrize("swap", ["another_file", "symlink"])
+def test_the_cleanup_never_removes_what_took_the_place_of_a_link(db_session, tmp_path, env, monkeypatch, swap):
+    """Audit 2026-10-18 (finding 75): la pulizia toglieva per percorso. Un
+    altro file messo al posto dell'hardlink dopo la sua creazione (o un link
+    simbolico) si cancellava al posto suo."""
+    video = write_video(env["root"] / "media" / "The Matrix (1999).mkv", 300 * KB)
+    job = _approved(db_session, env, "media/" + video.name, {"a": _upload("Matrix A"), "b": {"action": "skip"}},
+                    file_naming="generated")
+    job.overrides_json = json.dumps({**json.loads(job.overrides_json), "no_seed": True})
+    db_session.commit()
+    link = env["root"] / "torrents" / "The.Matrix.1999.mkv"
+    check = upload_execute._used_elsewhere
+
+    def swap_then_check(session, job, paths, since):
+        link.unlink()
+        if swap == "another_file":
+            link.write_bytes(b"not ours")
+        else:
+            link.symlink_to(video)
+        return check(session, job, paths, since)
+
+    monkeypatch.setattr(upload_execute, "_used_elsewhere", swap_then_check)
+    _run(db_session, tmp_path, job)
+
+    assert job.status == "done"
+    assert os.path.lexists(link)
+    assert video.is_file()
+    codes = [e.code for e in job.events]
+    assert "file_links_changed" in codes and "file_links_removed" not in codes
+
+
+def test_the_cleanup_never_follows_a_folder_turned_into_a_symlink(db_session, tmp_path, env):
+    """Audit 2026-10-18 (finding 75): una cartella sopra l'hardlink diventata
+    un link simbolico dopo la creazione portava l'unlink fuori dalla
+    cartella di seed."""
+    video = write_video(env["root"] / "media" / "The Matrix (1999).mkv", 300 * KB)
+    job = _approved(db_session, env, "media/" + video.name, {"a": _upload("Matrix A"), "b": {"action": "skip"}})
+    seed = env["root"] / "torrents"
+    folder = seed / "The.Matrix.1999"
+    [link] = upload_execute.link_files([(str(video), str(folder / "The.Matrix.1999.mkv"))], str(seed))
+    ctx = {"created_links": [link], "created_ids": upload_execute._link_identities([link]),
+           "seed_root": lambda: str(seed)}
+    elsewhere = env["root"] / "elsewhere"
+    os.rename(folder, elsewhere)
+    folder.symlink_to(elsewhere, target_is_directory=True)
+
+    upload_execute._cleanup_unused_links(db_session, job, ctx, {})
+
+    assert (elsewhere / "The.Matrix.1999.mkv").is_file()  # mai seguito il link simbolico
+    assert "file_links_removed" not in [e.code for e in job.events]
 
 
 def test_a_cleanup_error_never_changes_the_outcome(db_session, tmp_path, env, monkeypatch):

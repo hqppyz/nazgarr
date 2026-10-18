@@ -14,12 +14,14 @@ e, se passa, target.suggested_action diventa 'reseed' con quel torrent.
 import json
 import logging
 import os
+from types import SimpleNamespace
 
 from sqlalchemy.orm import Session
 
 from nazgarr.core.fs_scope import ScopeViolation, resolve_scoped
 from nazgarr.core.models import UploadJob, UploadTarget
 from nazgarr.integrations import adapter_factory
+from nazgarr.reseed import download_links
 from nazgarr.reseed.full_check import CheckResult, unreadable_pieces, verdict, verify_all_pieces
 from nazgarr.torrents.metainfo import TorrentFileEntry, TorrentInfo, compute_info_hash, parse_torrent_info
 from nazgarr.upload import jobs as upload_jobs
@@ -71,6 +73,20 @@ def build_locator(job: UploadJob, parsed: TorrentInfo):
     return locate
 
 
+def dupe_torrent(adapter, dupe: dict) -> bytes:
+    """I byte del .torrent di un dupe dal suo tracker, per il full hash
+    check e per il reseed (nazgarr/upload/execute.py). Il link è salvato
+    senza la chiave personale del tracker (analysis.py, audit 2026-10-18):
+    la chiave torna solo qui, quella attuale dell'adapter, o il link del
+    dettaglio del torrent, come per i candidati del reseeding
+    (nazgarr/reseed/download_links.py). Un link salvato prima, con la
+    chiave dentro, si scarica com'è."""
+    if not dupe.get("download_link"):
+        raise upload_jobs.UploadJobError("upload_dupe_no_download_link")
+    return download_links.download(adapter, SimpleNamespace(
+        download_link=dupe["download_link"], torrent_id_remote=dupe.get("torrent_id_remote")))
+
+
 def run_check(job: UploadJob, torrent_bytes: bytes, on_progress=lambda _: None) -> dict:
     parsed = parse_torrent_info(torrent_bytes)
     files, bad = verify_all_pieces(parsed, build_locator(job, parsed), on_progress)
@@ -115,10 +131,10 @@ def execute(session: Session, target_id: int, torrent_id_remote: str) -> None:
     dupes = json.loads(target.dupes_json or "[]")
     dupe = next((d for d in dupes if d["torrent_id_remote"] == torrent_id_remote), None)
     try:
-        if dupe is None or not dupe.get("download_link"):
+        if dupe is None:
             raise upload_jobs.UploadJobError("upload_dupe_no_download_link")
         with adapter_factory.tracker(target.tracker) as adapter:
-            torrent_bytes = adapter.download_torrent(dupe["download_link"])
+            torrent_bytes = dupe_torrent(adapter, dupe)
         verification = run_check(job, torrent_bytes)
     except Exception as exc:
         logger.warning("Full hash check di %s su %s fallito", torrent_id_remote, target.tracker.label, exc_info=True)

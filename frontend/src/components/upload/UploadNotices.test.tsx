@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { cleanup, render, waitFor } from '@testing-library/react'
+import { render, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -11,7 +11,6 @@ const get = vi.fn()
 vi.mock('@/api/client', () => ({ api: { GET: (...args: unknown[]) => get(...args) }, unwrap: (p: Promise<unknown>) => p }))
 
 afterEach(() => {
-  cleanup()
   toast.mockReset()
   get.mockReset()
   localStorage.clear()

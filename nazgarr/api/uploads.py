@@ -7,11 +7,11 @@ mostra e registra le decisioni dell'utente ai due punti di approvazione."""
 import json
 import logging
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal, NotRequired, TypedDict
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, with_config
 from sqlalchemy import func
 from sqlalchemy.orm import Session, defer, joinedload, object_session, selectinload
 
@@ -29,6 +29,7 @@ from nazgarr.upload import file_names as upload_file_names
 from nazgarr.upload import identify as upload_identify
 from nazgarr.upload import jobs as upload_jobs
 from nazgarr.upload import match_score as upload_match_score
+from nazgarr.upload import naming_rules
 from nazgarr.upload import pack as upload_pack
 from nazgarr.upload import profiles as upload_profiles
 from nazgarr.upload import split as upload_split
@@ -159,6 +160,182 @@ class UploadRetryRequest(BaseModel):
     confirm_interrupted: bool = False
 
 
+# I campi a forma fissa del flusso di upload, tipizzati (audit 2026-10-18):
+# erano dict liberi, e il frontend ne riscriveva a mano la forma in più
+# posti; un nome cambiato qui non lo vedeva nessun controllo. Tolleranti con
+# le righe salvate da versioni precedenti (default per le chiavi aggiunte
+# dopo): una risposta che non si valida sarebbe un 500 per tutta la pagina.
+
+
+class UploadDupeVerification(BaseModel):
+    """Il full hash check di un dupe (nazgarr/upload/verify.py run_check)."""
+
+    status: Literal["passed", "failed", "error"]
+    reason: str | None = None
+    pieces: int | None = None
+    ok: int | None = None
+    mismatched: int | None = None
+    unreadable: int | None = None
+
+
+class UploadDupeResponse(BaseModel):
+    """Un torrent del tracker trovato dal dupe check, col suo verdetto
+    (nazgarr/upload/dupes.py classify). Mai il link di download."""
+
+    model_config = ConfigDict(coerce_numbers_to_str=True)
+
+    torrent_id_remote: str
+    name: str = ""
+    size_bytes: int | None = None
+    verdict: Literal["identical", "same_slot", "different"]
+    reasons: list[str] = []
+    verification: UploadDupeVerification | None = None
+
+
+class UploadLayoutVideo(BaseModel):
+    relative_path: str
+    size_bytes: int = 0
+    season: int | None = None
+    episodes: list[int] = []
+
+
+class UploadLayoutResponse(BaseModel):
+    """La sorgente come l'ha letta l'identificazione (nazgarr/upload/source.py
+    SourceLayout, o quella di un pack in nazgarr/upload/pack.py)."""
+
+    kind: Literal["movie", "episode", "season_pack", "complete_pack"]
+    content_type: Literal["movie", "tv"]
+    videos: list[UploadLayoutVideo] = []
+    other_files: int = 0
+    total_size_bytes: int = 0
+    main_video: str | None = None
+    title: str | None = None
+    year: int | None = None
+    seasons: list[int] = []
+    episodes_by_season: dict[int, list[int]] = {}  # stagione -> episodi trovati nei nomi
+    release_group: str | None = None
+
+
+class UploadClientMatch(BaseModel):
+    """Un torrent dei client con gli stessi video (nazgarr/upload/analysis.py _client_matches)."""
+
+    model_config = ConfigDict(coerce_numbers_to_str=True)
+
+    client_id: int | None = None
+    client: str | None = None
+    name: str
+    info_hash: str
+    tracker_host: str | None = None
+    category: str | None = None
+    state: str | None = None
+    match: Literal["hardlink", "same_size"]
+    videos_matched: int = 0
+    videos_hardlinked: int | None = None
+    videos_total: int = 0
+
+
+class UploadArrGrab(BaseModel):
+    """Un grab di Radarr/Sonarr dei file della sorgente (analysis.py _arr_grabs)."""
+
+    model_config = ConfigDict(coerce_numbers_to_str=True)
+
+    tracker_host: str | None = None
+    torrent_id_remote: str | None = None
+    info_hash: str | None = None
+    indexer: str | None = None
+
+
+class UploadNameSource(BaseModel):
+    """Da dove si leggono i valori del nome (analysis.py name_source)."""
+
+    name: str
+    origin: str
+    fallback: str | None = None
+
+
+class UploadSeedingHere(BaseModel):
+    name: str
+    client: str | None = None
+
+
+class UploadLanguageCheck(BaseModel):
+    """La lingua del tracker nell'audio del file (naming.py audio_language_check)."""
+
+    language: str
+    status: Literal["present", "missing", "unknown"]
+
+
+class UploadTypeBasis(BaseModel):
+    """Perché tipo e sorgente sono quelli rilevati (naming.py release_values)."""
+
+    type: str
+    source: str | None = None
+    evidence: list[str] = []
+    encoder: str | None = None
+
+
+class UploadAnalysisResponse(BaseModel):
+    """Quello che l'analisi ha trovato (nazgarr/upload/analysis.py) e la
+    decisione vi ha aggiunto (nazgarr/upload/decision.py propose). Le chiavi
+    lette dal frontend sono tipizzate; le altre passano com'erano."""
+
+    model_config = ConfigDict(extra="allow")
+
+    total_size_bytes: int | None = None
+    file_count: int | None = None
+    client_matches: list[UploadClientMatch] = []
+    arr_grabs: list[UploadArrGrab] = []
+    # nazgarr/library/mediainfo.py extract_summary; la sua forma la descrive
+    # frontend/src/lib/mediainfo.ts (MediaInfoSummary).
+    mediainfo: Any = None
+    name_source: UploadNameSource | None = None
+    seeding_here: dict[str, UploadSeedingHere] = {}  # id del target -> il torrent che già seeda quei byte
+    dupes_truncated: dict[str, int] = {}  # id del target -> risultati letti da un catalogo tagliato
+    languages: dict[str, UploadLanguageCheck] = {}  # id del tracker -> la sua lingua nell'audio
+    detected: dict[str, Any] = {}  # i valori rilevati per il nome, senza override
+    type_basis: UploadTypeBasis | None = None
+    field_options: dict[str, list[str]] = {}  # i valori che i tracker del job accettano
+
+
+# I candidati TMDB come TypedDict, non BaseModel: una chiave che un job di
+# prima non ha (confidence, source) resta assente invece di diventare null,
+# come la legge la schermata di match (MetadataCandidate).
+@with_config(ConfigDict(extra="allow"))
+class UploadCandidateParts(TypedDict):
+    """Da cosa viene la confidence di un candidato (nazgarr/upload/match_score.py parts)."""
+
+    basis: Literal["forced", "arr", "name"]
+    title: NotRequired[float]
+    title_guess: NotRequired[str | None]
+    title_matched: NotRequired[str | None]
+    year: NotRequired[float]
+    year_guess: NotRequired[int | None]
+    year_candidate: NotRequired[int | None]
+    year_waived: NotRequired[bool]
+    type: NotRequired[float]
+    type_guess: NotRequired[str]
+    type_candidate: NotRequired[str]
+    ambiguous: NotRequired[float]
+
+
+class UploadCandidateResponse(TypedDict):
+    """Un candidato TMDB dell'identificazione (nazgarr/upload/identify.py
+    find_candidates), con la sua confidence. Le altre chiavi salvate (i
+    titoli in altre lingue, i dettagli di un id forzato) restano nel job."""
+
+    tmdb_id: int
+    content_type: Literal["movie", "tv"]
+    title: str | None
+    original_title: NotRequired[str | None]
+    year: int | None
+    poster_path: str | None
+    overview: NotRequired[str | None]
+    source: NotRequired[str]
+    confidence: NotRequired[float]
+    ambiguous: NotRequired[bool]
+    confidence_parts: NotRequired[UploadCandidateParts]
+
+
 class UploadTargetResponse(BaseModel):
     id: int
     tracker_id: int
@@ -169,7 +346,7 @@ class UploadTargetResponse(BaseModel):
     status: str
     suggested_action: str | None
     action: str | None
-    dupes: list[dict]
+    dupes: list[UploadDupeResponse]
     reseed_torrent_id: str | None
     proposed_name: str | None
     approved_name: str | None
@@ -206,7 +383,11 @@ class UploadTargetResponse(BaseModel):
             torrent_client_id=t.torrent_client_id,
             torrent_client_label=t.torrent_client.label if t.torrent_client else None,
             status=t.status, suggested_action=t.suggested_action, action=t.action,
-            dupes=_loads(t.dupes_json, []), reseed_torrent_id=t.reseed_torrent_id,
+            # Mai il link di download (UploadDupeResponse non l'ha): nessuno lo
+            # usa da qui, e quelli salvati prima avevano la chiave personale
+            # del tracker (audit 2026-10-18).
+            dupes=[UploadDupeResponse.model_validate(d) for d in _loads(t.dupes_json, [])],
+            reseed_torrent_id=t.reseed_torrent_id,
             proposed_name=t.proposed_name, approved_name=t.approved_name,
             flags=_loads(t.flags_json, {}), freeleech_options=upload_profiles.freeleech_options(profile),
             category_id=t.category_id, type_id=t.type_id,
@@ -289,9 +470,9 @@ class UploadJobDetail(UploadJobSummary):
     mal_id: int | None
     forced_ids: dict
     overrides: dict
-    layout: dict | None
-    candidates: list[dict]
-    analysis: dict | None
+    layout: UploadLayoutResponse | None
+    candidates: list[UploadCandidateResponse]
+    analysis: UploadAnalysisResponse | None
     mediainfo_text: str | None
     screenshot_urls: list[str]
     descriptions: dict[int, str]  # target_id -> descrizione inviata, solo nel dettaglio (è lunga)
@@ -494,8 +675,20 @@ def get_file_naming(session: Session = Depends(get_session)) -> dict:
     return {"rules": upload_file_names.rules(session), "default": upload_file_names.DEFAULT_RULES}
 
 
+def _check_naming_rules(rules: dict) -> None:
+    """Regole con la forma che naming.py si aspetta, o un 400 che dice quale
+    chiave (audit 2026-10-18): salvate storte facevano fallire l'analisi di
+    ogni upload, e l'anteprima rispondeva 500. Come per i profili
+    (nazgarr/api/trackers.py)."""
+    try:
+        naming_rules.validate(rules)
+    except naming_rules.NamingRulesError as exc:
+        raise HTTPException(status_code=400, detail=from_coded_error(exc)) from exc
+
+
 @router.put("/file-naming")
 def put_file_naming(body: FileNamingRequest, session: Session = Depends(get_session)) -> dict:
+    _check_naming_rules(body.rules)
     settings_repo.set_setting(session, upload_file_names.SETTING, json.dumps(body.rules))
     return get_file_naming(session)
 
@@ -504,6 +697,7 @@ def put_file_naming(body: FileNamingRequest, session: Session = Depends(get_sess
 def preview_file_naming(body: FileNamingRequest, session: Session = Depends(get_session)) -> dict:
     """Le regole in modifica sugli esempi (e sull'ultimo upload), con i nomi
     puliti come diventano i file: niente ":" né accenti, un punto alla volta."""
+    _check_naming_rules(body.rules)
     preview = upload_decision.preview_names(session, body.rules)
     preview["names"] = {key: upload_file_names.sanitize(name) + ".mkv" for key, name in preview["names"].items()}
     for example in preview.get("examples", []):
@@ -654,16 +848,37 @@ def split_upload(
     details = _confirm(session, job, body)
     try:
         children = upload_split.split(session, job, details)
-    except (UploadJobError, ScopeViolation) as exc:
-        # Il match è confermato: se non si divide, va avanti come pack.
+    except Exception as exc:
+        # Il match è confermato: se non si divide, va avanti come pack. Un
+        # errore qualunque (audit 2026-10-18: un OSError leggendo un episodio
+        # dava un 500, e il pack restava fermo fino al riavvio), e nessun
+        # episodio creato fin lì resta vivo accanto al pack: li toglie la
+        # divisione (split._discard), e se non ci è riuscita qui.
         session.rollback()
+        session.refresh(job)
+        try:
+            upload_identify.drop_split_children(session, job)
+        except Exception:
+            session.rollback()
+            logger.warning("Upload %s: upload della divisione non tolti", job.id, exc_info=True)
         _worker(request).kick(job.id, job.status)
-        detail = from_coded_error(exc) if isinstance(exc, UploadJobError) else coded_detail("upload_split_not_a_pack")
-        raise HTTPException(status_code=400, detail=detail) from exc
+        raise _split_refused(job, exc) from exc
     for child in children:
         if child.status in upload_jobs.WORKER_STATES:
             _worker(request).kick(child.id, child.status)
     return UploadSplitResponse(job_ids=[child.id for child in children])
+
+
+def _split_refused(job: UploadJob, exc: Exception) -> HTTPException:
+    """La risposta a una divisione fallita, sempre con un codice."""
+    if isinstance(exc, UploadJobError):
+        return HTTPException(status_code=400, detail=from_coded_error(exc))
+    if isinstance(exc, ScopeViolation):
+        return HTTPException(status_code=400, detail=coded_detail("upload_split_not_a_pack"))
+    if isinstance(exc, OSError):
+        return HTTPException(status_code=400, detail=coded_detail("upload_source_unreadable", error=safe_error(exc)))
+    logger.error("Upload %s: divisione non riuscita", job.id, exc_info=exc)
+    return HTTPException(status_code=500, detail=coded_detail("upload_prepare_failed", error=safe_error(exc)))
 
 
 @router.get("/{upload_id}/episode-orders", response_model=EpisodeOrdersResponse)

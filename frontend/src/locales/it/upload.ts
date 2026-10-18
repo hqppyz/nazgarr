@@ -340,6 +340,7 @@ export const upload = {
   'upload.event.job_start_now': 'Avviato subito, senza aspettare l’ora programmata.',
   'upload.event.upload_dupe_appeared': 'Non inviato: nel frattempo sul tracker è comparsa la stessa release ({names}).',
   'upload.event.dupe_recheck_failed': 'Dupe check prima dell’invio non riuscito ({error}): si va avanti.',
+  'upload.event.dupe_recheck_truncated': 'Dupe check prima dell’invio incompleto: il tracker ha più risultati dei {results} letti. Si va avanti.',
   'upload.event.job_split': 'Stagione incompleta: divisa in {count} upload, uno per episodio (upload {jobs}).',
   'upload.event.split_from': 'Episodio della stagione incompleta dell’upload #{upload}.',
   'upload.event.split_failed': 'Divisione in episodi non riuscita: va avanti come season pack.',
@@ -436,6 +437,7 @@ export const upload = {
   'upload.fileNames.help.original': 'I nomi che i file hanno nelle tue cartelle (nella libreria, quelli di Plex/Radarr/Sonarr).',
   'upload.event.file_names': 'Nomi dei file nel torrent: {mode} ({name}).',
   'upload.event.file_links_removed': '{count} file collegati per il torrent rimossi: nessuno li ha in seed.',
+  'upload.event.file_links_changed': '{count} file collegati per il torrent lasciati dove sono: al loro posto ora c’è un altro file ({files}).',
   'upload.overrides.missingSource':
     'Sorgente non trovata: nessun torrent in hardlink o nome di release dice da dove viene (BluRay, WEB-DL, HDTV…), quindi il nome non ce l’ha. Scrivila nel campo Sorgente.',
   'upload.overrides.setSource': 'Impostala',

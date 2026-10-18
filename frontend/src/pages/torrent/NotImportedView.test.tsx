@@ -44,7 +44,7 @@ vi.mock('@/api/hooks/library', () => ({
         // Requisito soddisfatto, ma i file li usa anche un altro torrent.
         torrent(4, 'never_imported', 'Shared.Files.mkv', {
           seed_requirement: { status: 'met', tracker_label: 'T', min_seed_time_seconds: 86_400, min_ratio: null, rule: 'any', remaining: {} },
-          removal_warnings: [{ code: 'shared_files', params: { count: 1, torrents: 'Twin' } }],
+          removal_warnings: [{ code: 'shared_files', params: { count: 1, torrents: 'Twin' }, blocking: true }],
         }),
         // Da una cache di prima del campo: senza seed_requirement non deve rompersi.
         torrent(3, 'never_imported', 'Excluded.Sample.mkv', { excluded: true, seed_requirement: undefined }),

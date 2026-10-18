@@ -126,6 +126,11 @@ def _resolver_candidates(session: Session, main_video: str) -> list[dict]:
         return []
     if resolved is None:
         return []
+    if resolved.content_type not in ("movie", "tv"):
+        # Un resolver di un plugin con un altro tipo: un candidato così non
+        # si potrebbe né confermare né mostrare (UploadCandidateResponse).
+        logger.warning("Resolver: tipo %r per %r ignorato", resolved.content_type, main_video)
+        return []
     return [{
         "tmdb_id": resolved.tmdb_id,
         "content_type": resolved.content_type,
@@ -422,6 +427,17 @@ def drop_split_orphan(session: Session, job: UploadJob) -> bool:
     return True
 
 
+def drop_split_children(session: Session, job: UploadJob) -> int:
+    """Gli upload creati da una divisione di questo job che non l'ha chiuso,
+    ancora fermi prima della decisione (non hanno fatto niente fuori da
+    Nazgarr), si tolgono con quelli nati da loro. Restituisce quanti."""
+    orphans = _split_orphans(session, job) if not _closed_by_split(job) else []
+    if orphans:
+        session.execute(delete(UploadJob).where(UploadJob.id.in_(orphans), UploadJob.status.in_(_UNSTARTED)))
+        session.commit()
+    return len(orphans)
+
+
 def resume_split(session: Session, job: UploadJob, worker) -> bool:
     """Prima dell'analisi di un pack: gli upload rimasti di una sua
     divisione fermata a metà si tolgono, e se la divisione della cartella
@@ -429,10 +445,9 @@ def resume_split(session: Session, job: UploadJob, worker) -> bool:
     2026-10-18: dopo un riavvio il pack veniva analizzato intero, accanto
     agli episodi o alle stagioni già creati). True se il job è stato diviso
     (niente analisi da fare: ci pensano i nuovi, già svegliati)."""
-    orphans = _split_orphans(session, job) if not _closed_by_split(job) else []
-    if orphans:
-        session.execute(delete(UploadJob).where(UploadJob.id.in_(orphans), UploadJob.status.in_(_UNSTARTED)))
-        upload_jobs.log_event(session, job, "split_orphans_removed", level="warning", count=len(orphans))
+    removed = drop_split_children(session, job)
+    if removed:
+        upload_jobs.log_event(session, job, "split_orphans_removed", level="warning", count=removed)
         session.commit()
     if job.stage != SPLIT_PENDING or job.status != "analyzing":
         return False

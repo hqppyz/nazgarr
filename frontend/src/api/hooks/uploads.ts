@@ -8,6 +8,11 @@ import type { NamingPreview } from '@/api/hooks/trackers'
 export type UploadJob = Schemas['UploadJobDetail']
 export type UploadJobSummary = Schemas['UploadJobSummary']
 export type UploadTarget = Schemas['UploadTargetResponse']
+// Le forme fisse dentro un upload, dall'OpenAPI (audit 2026-10-18): prima
+// ogni componente le riscriveva a mano.
+export type UploadDupe = Schemas['UploadDupeResponse']
+export type UploadAnalysis = Schemas['UploadAnalysisResponse']
+export type UploadLayout = Schemas['UploadLayoutResponse']
 
 // Stati in cui il worker sta lavorando (nazgarr/upload/jobs.py WORKER_STATES):
 // solo lì serve il polling, a un punto di approvazione o a job finito no.

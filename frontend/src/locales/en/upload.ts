@@ -351,6 +351,7 @@ export const upload = {
   'upload.event.job_start_now': 'Started right away, without waiting for the scheduled time.',
   'upload.event.upload_dupe_appeared': 'Not sent: the same release showed up on the tracker in the meantime ({names}).',
   'upload.event.dupe_recheck_failed': 'Dupe check before sending failed ({error}): going on.',
+  'upload.event.dupe_recheck_truncated': 'Dupe check before sending incomplete: the tracker has more results than the {results} read. Going on.',
   'upload.event.job_cancelled': 'Upload cancelled.',
   'upload.event.job_resumed_by_user': "Resumed.",
   'upload.event.job_retried': 'Retried: {trackers} back in the queue, with the choices already made.',
@@ -436,6 +437,7 @@ export const upload = {
   'upload.fileNames.help.original': 'The names the files have in your folders (in the library, the Plex/Radarr/Sonarr ones).',
   'upload.event.file_names': 'File names in the torrent: {mode} ({name}).',
   'upload.event.file_links_removed': '{count} file(s) linked for the torrent removed: nothing seeds them.',
+  'upload.event.file_links_changed': '{count} file(s) linked for the torrent left in place: another file took their place since ({files}).',
   'upload.overrides.missingSource':
     'Source not found: no hardlinked torrent or release name says where this comes from (BluRay, WEB-DL, HDTV…), so the name has none. Write it in the Source field.',
   'upload.overrides.setSource': 'Set it',

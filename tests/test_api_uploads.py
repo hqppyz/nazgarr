@@ -1,3 +1,4 @@
+import json
 import os
 
 import pytest
@@ -241,6 +242,17 @@ def test_resolver_error_does_not_block_identification(client, tmp_path, setup):
     assert detail["candidates"] == []
 
 
+
+def test_a_resolver_result_of_an_unknown_type_is_not_a_candidate(client, tmp_path, setup):
+    """Un resolver di un plugin che risponde con un tipo né film né serie: il
+    candidato non si può confermare, e il dettaglio del job non deve fallire."""
+    write_video(tmp_path / "Movie.2024.mkv")
+    setup["resolver"].resolved = ResolvedMedia(tmdb_id=603, content_type="anime", title="Movie", year=2024)
+    resp = client.post("/api/uploads", json={"disk_id": setup["disk_id"], "relative_path": "Movie.2024.mkv"})
+
+    detail = client.get(f"/api/uploads/{resp.json()['id']}")
+    assert detail.status_code == 200 and detail.json()["candidates"] == []
+
 def _awaiting_match(client, tmp_path, setup, relative_path, files):
     for f in files:
         write_video(tmp_path / f)
@@ -432,6 +444,41 @@ def test_the_file_naming_pattern_is_editable_and_previewed(client):
     assert client.put("/api/uploads/file-naming", json={"rules": mine}).json()["rules"] == mine
 
 
+@pytest.mark.parametrize("bad", [{"templates": 5}, {"separator": 3}, {"audio_languages": "all"},
+                                 {"audio_codecs": "x"}, {"audio_languages": {"multi_from": "4"}}])
+def test_file_naming_rules_without_the_expected_form_are_refused(client, bad):
+    """Audit 2026-10-18 (finding 50): si salvavano senza controllo, e poi
+    ogni analisi di un upload falliva con un TypeError."""
+    rules = {**client.get("/api/uploads/file-naming").json()["rules"], **bad}
+    for response in (client.put("/api/uploads/file-naming", json={"rules": rules}),
+                     client.post("/api/uploads/file-naming/preview", json={"rules": rules})):
+        assert response.status_code == 400
+        assert response.json()["detail"]["code"] == "upload_invalid_naming_rules"
+    assert client.get("/api/uploads/file-naming").json()["rules"]["separator"] == "."
+
+
+def test_stored_naming_rules_that_no_longer_fit_fall_back_to_the_defaults(client, caplog):
+    """Regole storte già salvate (prima del controllo, o a mano nel DB): le
+    regole di default con un avviso, mai un errore per ogni upload."""
+    from nazgarr.core.models import Tracker, TrackerUploadProfile
+    from nazgarr.upload import decision as upload_decision
+    from nazgarr.upload import file_names as upload_file_names
+
+    session = client.app.state.session_factory()
+    settings_repo.set_setting(session, upload_file_names.SETTING, json.dumps({"templates": 5}))
+    session.commit()
+    assert upload_file_names.rules(session) == upload_file_names.DEFAULT_RULES
+    assert "non valide" in caplog.text
+    tracker = Tracker(label="t", adapter_type="unit3d", base_url="https://t.example", api_token="x")
+    session.add(tracker)
+    session.commit()
+    profile = TrackerUploadProfile(tracker_id=tracker.id, naming_convention="scene",
+                                   naming_rules_json=json.dumps({"separator": 3}))
+    assert upload_decision.profile_rules(profile) == upload_decision.rules_from_convention("scene")
+    session.close()
+    assert client.get("/api/uploads/file-naming").json()["rules"] == upload_file_names.DEFAULT_RULES
+
+
 
 def test_a_sure_match_confirms_itself_in_the_classic_flow_too(client, tmp_path, setup):
     session = client.app.state.session_factory()
@@ -616,3 +663,55 @@ def test_active_jobs_and_the_history_in_pages(client):
     # Il riordino della coda risponde con la stessa lista della coda.
     reordered = client.put("/api/uploads/queue", json={"job_ids": [active[0]]}).json()
     assert [j["id"] for j in reordered] == active[::-1]
+
+
+def test_the_fixed_shapes_of_an_upload_are_typed_and_tolerate_older_rows():
+    """Audit 2026-10-18 (finding 61): dupe, layout e analisi erano dict
+    liberi, e il frontend ne riscriveva la forma a mano. Ora modelli, che
+    accettano le righe salvate prima (chiavi aggiunte dopo, un id numerico)
+    e lasciano passare le chiavi dell'analisi che non descrivono."""
+    from nazgarr.api.uploads import UploadAnalysisResponse, UploadDupeResponse, UploadLayoutResponse
+
+    dupe = UploadDupeResponse.model_validate({
+        "torrent_id_remote": 77, "verdict": "identical", "download_link": "https://t/torrent/download/77.k",
+        "verification": {"status": "passed", "info_hash": "ab", "pieces": 3, "ok": 3},
+    })
+    assert dupe.model_dump() == {
+        "torrent_id_remote": "77", "name": "", "size_bytes": None, "verdict": "identical", "reasons": [],
+        "verification": {"status": "passed", "reason": None, "pieces": 3, "ok": 3, "mismatched": None,
+                         "unreadable": None},
+    }  # mai il link di download
+    layout = UploadLayoutResponse.model_validate({
+        "kind": "season_pack", "content_type": "tv", "videos": [{"relative_path": "a.mkv", "size_bytes": 1,
+                                                                   "season": 1, "episodes": [1]}],
+        "episodes_by_season": {"1": [1]}, "seasons": [1], "main_video": "/d/a.mkv", "title": "Show", "year": None,
+        "other_files": 0, "total_size_bytes": 1,
+    })
+    assert layout.episodes_by_season == {1: [1]} and layout.release_group is None
+    analysis = UploadAnalysisResponse.model_validate({
+        "total_size_bytes": 1, "file_count": 1, "client_matches": [{
+            "client": "qbit", "name": "x", "info_hash": "aa", "tracker_host": None, "state": "uploading",
+            "match": "hardlink", "videos_matched": 1, "videos_total": 1}],
+        "pack_mixed": {"resolution": ["1080p", "720p"]}, "file_names": {"available": []},
+    }).model_dump()
+    assert analysis["pack_mixed"] == {"resolution": ["1080p", "720p"]}
+    assert analysis["client_matches"][0]["videos_hardlinked"] is None and analysis["seeding_here"] == {}
+
+
+def test_the_tmdb_candidates_are_typed_and_an_older_row_keeps_its_missing_keys():
+    """Anche i candidati TMDB del dettaglio (finding 61, dopo la review): una
+    chiave che un job di prima non ha resta assente, mai null (la schermata
+    di match legge confidence?: number), e i dettagli di un id forzato
+    restano nel job."""
+    from pydantic import TypeAdapter
+
+    from nazgarr.api.uploads import UploadCandidateResponse
+
+    candidates = TypeAdapter(list[UploadCandidateResponse])
+    forced = {"tmdb_id": 603, "content_type": "movie", "title": "The Matrix", "original_title": "The Matrix",
+              "year": 1999, "poster_path": "/p.jpg", "overview": "x", "source": "forced_tmdb", "confidence": 1.0,
+              "confidence_parts": {"basis": "forced"}, "genres": ["Action"], "cast": ["Keanu"], "titles": ["Matrix"]}
+    older = {"tmdb_id": "1399", "content_type": "tv", "title": None, "year": None, "poster_path": None}
+    out = candidates.dump_python(candidates.validate_python([forced, older]), mode="json")
+    assert out[0] == {key: value for key, value in forced.items() if key not in ("genres", "cast", "titles")}
+    assert out[1] == {"tmdb_id": 1399, "content_type": "tv", "title": None, "year": None, "poster_path": None}
