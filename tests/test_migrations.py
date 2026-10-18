@@ -169,6 +169,29 @@ def test_a_failed_step_does_not_move_the_version(tmp_path, monkeypatch):
     assert migrations.current_version(engine) == 0
 
 
+def test_the_app_starts_on_fresh_connections_after_the_upgrade(tmp_path, monkeypatch):
+    """Un passo che lascia una connessione senza foreign key (come facevano i
+    passi 2 e 3, audit 2026-10-18) non la passa all'app: le sessioni
+    successive le hanno tutte accese."""
+
+    def leaves_foreign_keys_off(engine):
+        raw = engine.raw_connection()
+        raw.cursor().execute("PRAGMA foreign_keys=OFF")
+        raw.close()
+
+    steps = (*migrations.MIGRATIONS[:-1], migrations.Migration(migrations.LATEST, "x", leaves_foreign_keys_off, False))
+    monkeypatch.setattr(migrations, "MIGRATIONS", steps)
+    engine = db.make_engine(str(tmp_path / "db.db"))
+    migrations.upgrade(engine)
+
+    sessions = [db.make_session_factory(engine)() for _ in range(3)]
+    try:
+        assert [s.execute(text("PRAGMA foreign_keys")).scalar() for s in sessions] == [1, 1, 1]
+    finally:
+        for s in sessions:
+            s.close()
+
+
 def test_notification_services_become_instances(tmp_path):
     """Migrazione 6: la configurazione per tipo (adapter_config) diventa una
     riga di notification_service e le consegne puntano all'istanza."""

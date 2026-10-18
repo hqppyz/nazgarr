@@ -52,6 +52,8 @@ della prima versione."""
 import json
 import logging
 import os
+import sqlite3
+from contextlib import contextmanager
 from pathlib import Path
 
 from sqlalchemy import create_engine, event, inspect, text
@@ -112,6 +114,81 @@ def make_engine(db_path: str) -> Engine:
     return create_engine(f"sqlite:///{db_path}", connect_args={"check_same_thread": False})
 
 
+def _broken_references(cursor) -> set[tuple] | None:
+    """Ogni riga che punta a una riga che non c'è, come (tabella, rowid,
+    colonne della FK): il numero della FK in foreign_key_check cambia quando
+    una tabella si rifà, le colonne no. None se SQLite non sa controllare."""
+    try:
+        rows = cursor.execute("PRAGMA foreign_key_check").fetchall()
+        columns: dict[str, dict[int, tuple[str, ...]]] = {}
+        broken = set()
+        for table, rowid, _parent, fk_id in rows:
+            if table not in columns:
+                by_id: dict[int, list[str]] = {}
+                for fk in cursor.execute(f'PRAGMA foreign_key_list("{table}")').fetchall():
+                    by_id.setdefault(fk[0], []).append(fk[3])
+                columns[table] = {k: tuple(v) for k, v in by_id.items()}
+            broken.add((table, rowid, columns[table].get(fk_id)))
+        return broken
+    except sqlite3.DatabaseError as exc:
+        logger.warning("Controllo delle foreign key non riuscito, salto il confronto: %s", exc)
+        return None
+
+
+@contextmanager
+def rebuilding_tables(engine: Engine):
+    """La transazione in cui un passo di migrazione rifà una o più tabelle,
+    nel modo che SQLite documenta (lang_altertable.html, "other kinds of
+    table schema changes"). Restituisce il cursore su cui lavorare.
+
+    - Foreign key spente PRIMA della transazione: dentro, la PRAGMA non ha
+      effetto (era il caso dei passi 2 e 3, che le riaccendevano prima del
+      commit: la connessione tornava nel pool senza FK, e metà delle sessioni
+      dell'app giravano senza ON DELETE; audit 2026-10-18).
+    - Tutto in BEGIN IMMEDIATE ... COMMIT: un avvio interrotto a metà non
+      lascia niente a metà. Prima ogni istruzione faceva commit da sola, e un
+      crash fra il DROP e il RENAME lasciava una media_file vuota.
+    - Prima del commit, nessuna riga che puntava a qualcosa di esistente
+      deve restare senza (quelle già rotte prima restano com'erano).
+    - Foreign key riaccese dopo il commit o il rollback.
+
+    Chi rifà una tabella fa prima DROP TABLE IF EXISTS "<tabella>__rebuild":
+    un avanzo di una versione precedente non deve bloccare ogni avvio."""
+    raw_conn = engine.raw_connection()
+    try:
+        cursor = raw_conn.cursor()
+        cursor.execute("PRAGMA foreign_keys=OFF")
+        try:
+            if cursor.execute("PRAGMA foreign_keys").fetchone()[0]:
+                raise RuntimeError("PRAGMA foreign_keys=OFF ignorata: una transazione era già aperta")
+            cursor.execute("BEGIN IMMEDIATE")
+            before = _broken_references(cursor)
+            yield cursor
+            after = _broken_references(cursor) if before is not None else None
+            if after is not None and after - before:
+                new = sorted(after - before, key=repr)
+                raise RuntimeError(f"La migrazione lascerebbe {len(new)} riferimenti rotti, per esempio {new[:5]}")
+            raw_conn.commit()
+        except BaseException:
+            raw_conn.rollback()
+            raise
+        finally:
+            try:
+                cursor.execute("PRAGMA foreign_keys=ON")
+            except sqlite3.Error:
+                raw_conn.invalidate()  # mai di nuovo nel pool senza foreign key
+    finally:
+        raw_conn.close()
+
+
+# Gli indici di media_file com'erano quando la migrazione qui sotto è stata
+# scritta (apply_schema, subito dopo, aggiunge quelli venuti in seguito).
+_LEGACY_MEDIA_FILE_INDEXES = (
+    "CREATE INDEX IF NOT EXISTS idx_media_file_media_item_id ON media_file(media_item_id)",
+    "CREATE INDEX IF NOT EXISTS idx_media_file_hardlink ON media_file(disk_id, st_dev, inode)",
+)
+
+
 def migrate_legacy_media_path_id(engine: Engine) -> None:
     """Ricostruisce media_file senza la colonna legacy media_path_id, se
     presente — vedi la nota in cima al file. Va chiamata PRIMA di
@@ -124,9 +201,21 @@ def migrate_legacy_media_path_id(engine: Engine) -> None:
     giusta, si copiano i dati (stessi id delle righe originali: le FK di
     seed_file/match_review/seed_job/upload_job restano valide), si fa DROP
     (non RENAME) dell'originale, e solo allora si rinomina
-    media_file__rebuild in media_file."""
+    media_file__rebuild in media_file.
+
+    Tutto in una transazione (rebuilding_tables). La prima versione faceva
+    commit a ogni istruzione: un avvio interrotto fra il DROP e il RENAME
+    lasciava i dati solo in media_file__rebuild, e apply_schema creava una
+    media_file vuota. Quello stato si completa qui, col RENAME mancante."""
     inspector = inspect(engine)
     if not inspector.has_table("media_file"):
+        if inspector.has_table("media_file__rebuild"):
+            logger.warning("Migrazione legacy: completo la ricostruzione di media_file interrotta a metà")
+            with rebuilding_tables(engine) as cursor:
+                cursor.execute("ALTER TABLE media_file__rebuild RENAME TO media_file")
+                cursor.execute("DROP TABLE IF EXISTS media_path")
+                for index_sql in _LEGACY_MEDIA_FILE_INDEXES:
+                    cursor.execute(index_sql)
         return
     existing_columns = {col["name"] for col in inspector.get_columns("media_file")}
     if "media_path_id" not in existing_columns:
@@ -136,10 +225,9 @@ def migrate_legacy_media_path_id(engine: Engine) -> None:
         "Migrazione legacy: media_file.media_path_id (pre-5fd42fc) rimosso, "
         "dati preservati con gli stessi id"
     )
-    raw_conn = engine.raw_connection()
-    try:
-        raw_conn.executescript("""
-            PRAGMA foreign_keys=OFF;
+    with rebuilding_tables(engine) as cursor:
+        cursor.execute("DROP TABLE IF EXISTS media_file__rebuild")
+        cursor.execute("""
             CREATE TABLE media_file__rebuild (
                 id                      INTEGER PRIMARY KEY,
                 disk_id                 INTEGER NOT NULL REFERENCES disk(id) ON DELETE CASCADE,
@@ -155,7 +243,9 @@ def migrate_legacy_media_path_id(engine: Engine) -> None:
                 last_scan_id            INTEGER NOT NULL REFERENCES run_log(id),
                 last_seen_at            TIMESTAMP NOT NULL,
                 UNIQUE(disk_id, relative_path)
-            );
+            )
+        """)
+        cursor.execute("""
             INSERT INTO media_file__rebuild (
                 id, disk_id, relative_path, size_bytes, st_dev, inode, nlink,
                 content_hash, media_item_id, resolver_source, mediainfo_unique_id,
@@ -165,17 +255,13 @@ def migrate_legacy_media_path_id(engine: Engine) -> None:
                 id, disk_id, relative_path, size_bytes, st_dev, inode, nlink,
                 content_hash, media_item_id, resolver_source, mediainfo_unique_id,
                 last_scan_id, last_seen_at
-            FROM media_file;
-            DROP TABLE media_file;
-            ALTER TABLE media_file__rebuild RENAME TO media_file;
-            DROP TABLE IF EXISTS media_path;
-            CREATE INDEX IF NOT EXISTS idx_media_file_media_item_id ON media_file(media_item_id);
-            CREATE INDEX IF NOT EXISTS idx_media_file_hardlink ON media_file(disk_id, st_dev, inode);
-            PRAGMA foreign_keys=ON;
+            FROM media_file
         """)
-        raw_conn.commit()
-    finally:
-        raw_conn.close()
+        cursor.execute("DROP TABLE media_file")
+        cursor.execute("ALTER TABLE media_file__rebuild RENAME TO media_file")
+        cursor.execute("DROP TABLE IF EXISTS media_path")
+        for index_sql in _LEGACY_MEDIA_FILE_INDEXES:
+            cursor.execute(index_sql)
 
 
 # Le uniche 4 tabelle con una FK diretta verso media_file(id) — vedi
@@ -309,26 +395,25 @@ def repair_dangling_media_file_legacy_fk(engine: Engine) -> None:
             )
         if not broken_tables:
             return
+    finally:
+        raw_conn.close()
 
-        logger.warning(
-            "Riparo %d tabell%s con una FK ancora agganciata a media_file_legacy: %s",
-            len(broken_tables), "a" if len(broken_tables) == 1 else "e", broken_tables,
-        )
-        cursor.execute("PRAGMA foreign_keys=OFF")
+    logger.warning(
+        "Riparo %d tabell%s con una FK ancora agganciata a media_file_legacy: %s",
+        len(broken_tables), "a" if len(broken_tables) == 1 else "e", broken_tables,
+    )
+    with rebuilding_tables(engine) as cursor:
         for table in broken_tables:
             create_sql, index_sqls = _LEGACY_MEDIA_FILE_FK_REBUILD[table]
             columns = [col[1] for col in cursor.execute(f'PRAGMA table_info("{table}")').fetchall()]
             column_list = ", ".join(f'"{c}"' for c in columns)
+            cursor.execute(f'DROP TABLE IF EXISTS "{table}__rebuild"')
             cursor.execute(create_sql)
             cursor.execute(f'INSERT INTO "{table}__rebuild" ({column_list}) SELECT {column_list} FROM "{table}"')
             cursor.execute(f'DROP TABLE "{table}"')
             cursor.execute(f'ALTER TABLE "{table}__rebuild" RENAME TO "{table}"')
             for index_sql in index_sqls:
                 cursor.execute(index_sql)
-        cursor.execute("PRAGMA foreign_keys=ON")
-        raw_conn.commit()
-    finally:
-        raw_conn.close()
 
 
 def migrate_legacy_run_log_phase_check(engine: Engine) -> None:
@@ -369,11 +454,9 @@ def migrate_legacy_run_log_phase_check(engine: Engine) -> None:
         "Migrazione legacy: run_log.current_phase esteso a 'resolving'/'indexing'/'reconciling' "
         "(pre-1149b94), dati preservati con gli stessi id"
     )
-    raw_conn = engine.raw_connection()
-    try:
-        cursor = raw_conn.cursor()
-        cursor.execute("PRAGMA foreign_keys=OFF")
+    with rebuilding_tables(engine) as cursor:
         source_columns = [row[1] for row in cursor.execute("PRAGMA table_info(run_log)").fetchall()]
+        cursor.execute("DROP TABLE IF EXISTS run_log__rebuild")
         cursor.execute("""
             CREATE TABLE run_log__rebuild (
                 id                  INTEGER PRIMARY KEY,
@@ -400,10 +483,6 @@ def migrate_legacy_run_log_phase_check(engine: Engine) -> None:
         cursor.execute(f'INSERT INTO run_log__rebuild ({column_list}) SELECT {column_list} FROM run_log')
         cursor.execute("DROP TABLE run_log")
         cursor.execute("ALTER TABLE run_log__rebuild RENAME TO run_log")
-        cursor.execute("PRAGMA foreign_keys=ON")
-        raw_conn.commit()
-    finally:
-        raw_conn.close()
 
 
 def migrate_legacy_upload_job(engine: Engine) -> None:
@@ -502,10 +581,7 @@ def migrate_notification_services(engine: Engine) -> int:
     config_columns = ({c["name"] for c in inspector.get_columns("adapter_config")}
                       if inspector.has_table("adapter_config") else set())
     created = 0
-    raw_conn = engine.raw_connection()
-    try:
-        cursor = raw_conn.cursor()
-        cursor.execute("PRAGMA foreign_keys=OFF")
+    with rebuilding_tables(engine) as cursor:
         if config_columns:
             events = "events_json" if "events_json" in config_columns else "NULL"
             rows = cursor.execute(
@@ -521,6 +597,7 @@ def migrate_notification_services(engine: Engine) -> int:
                 created += 1
             cursor.execute("DELETE FROM adapter_config WHERE kind = 'notification'")
         if "notification_type" in delivery_columns:
+            cursor.execute("DROP TABLE IF EXISTS event_delivery__rebuild")
             cursor.execute("""
                 CREATE TABLE event_delivery__rebuild (
                     id              INTEGER PRIMARY KEY,
@@ -555,10 +632,6 @@ def migrate_notification_services(engine: Engine) -> int:
             cursor.execute(
                 "CREATE INDEX IF NOT EXISTS ix_event_delivery_due ON event_delivery(status, next_attempt_at)"
             )
-        raw_conn.commit()
-        cursor.execute("PRAGMA foreign_keys=ON")
-    finally:
-        raw_conn.close()
     return created
 
 

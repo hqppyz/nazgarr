@@ -15,6 +15,10 @@ Per un cambiamento che apply_schema e migrate_schema non sanno fare
 (rinominare o togliere una colonna, cambiare un vincolo, spostare dati):
 una funzione idempotente in nazgarr/core/db.py e una riga nuova in fondo a
 MIGRATIONS, col numero successivo. Mai rinumerare quelle già rilasciate.
+Un passo che rifà una tabella lavora dentro db.rebuilding_tables (foreign
+key spente fuori dalla transazione, tutto in una transazione, riaccese dopo
+il commit) e fa prima DROP TABLE IF EXISTS della sua tabella temporanea:
+così un avvio interrotto a metà si ripete senza danni.
 """
 
 import logging
@@ -90,8 +94,14 @@ def upgrade(engine: Engine) -> int:
     # Le tabelle che mancano le crea poi apply_schema, già complete.
     db.migrate_schema(engine)
     db.apply_schema(engine)
-    _run(engine, [m for m in pending if not m.before_schema])
+    after = [m for m in pending if not m.before_schema]
+    _run(engine, after)
+    if after:
+        db.apply_schema(engine)  # una tabella rifatta perde i suoi indici: schema.sql li rimette
     db.encrypt_plaintext_secrets(engine)
     if start < LATEST:
         _set_version(engine, LATEST)
+    # L'app parte con connessioni nuove, configurate da db._configure_sqlite
+    # (foreign key accese), non con quelle passate per le migrazioni.
+    engine.dispose()
     return start
