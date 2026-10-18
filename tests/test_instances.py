@@ -1,3 +1,7 @@
+import gzip
+import zlib
+
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
@@ -121,8 +125,6 @@ def test_an_api_key_of_this_instance_cannot_use_the_others(client, remote):
 
 def test_an_older_instance_without_whoami_is_still_connected(monkeypatch):
     # Una 0.7.x non ha /api/system/whoami: la sua pagina risponde con HTML.
-    import httpx
-
     def handler(request):
         if request.url.path == "/api/health":
             return httpx.Response(200, json={"status": "ok", "version": "0.7.5"})
@@ -155,54 +157,74 @@ def test_a_revoked_key_on_the_other_instance_is_not_this_sessions_401(client, re
     assert client.get("/api/instances", params={"probe": True}).json()["instances"][0]["status"]["status"] == "bad_key"
 
 
-def _gzip_bomb(size: int) -> bytes:
-    import gzip
+class _GzipBomb(httpx.SyncByteStream):
+    """Un unico stream gzip servito a pezzi, generati solo quando qualcuno
+    li chiede: ogni pezzo sul filo è qualche decina di byte e diventa 64 KB
+    decompresso, 120 MB in tutto. Con content=<bytes> httpx legge e
+    decomprime la risposta già alla costruzione, e il test passava anche col
+    codice di prima (audit 2026-10-18): così si vede quanti pezzi il lettore
+    ha davvero chiesto."""
 
-    return gzip.compress(b"0" * size)
+    RAW_CHUNK = 64 * 1024
+    TOTAL_CHUNKS = 120 * 16  # 120 MB decompressi
+
+    def __init__(self):
+        self.served = 0
+
+    def __iter__(self):
+        compressor = zlib.compressobj(wbits=31)  # 31: con l'intestazione gzip
+        raw = b"0" * self.RAW_CHUNK
+        for _ in range(self.TOTAL_CHUNKS):
+            self.served += 1
+            yield compressor.compress(raw) + compressor.flush(zlib.Z_SYNC_FLUSH)
+        self.served += 1
+        yield compressor.flush()
+
+
+def _bomb_handler(streams: list, accept: list | None = None):
+    def handler(request):
+        if accept is not None:
+            accept.append(request.headers["accept-encoding"])
+        stream = _GzipBomb()
+        streams.append(stream)
+        return httpx.Response(200, stream=stream, headers={"content-encoding": "gzip",
+                                                           "content-type": "application/json"})
+    return handler
 
 
 def test_the_proxy_stops_reading_past_its_limit(client, remote, monkeypatch):
     """Prima httpx caricava e decomprimeva tutta la risposta prima del
     controllo: pochi KB di gzip diventavano centinaia di MB in memoria."""
-    import httpx
-
     from nazgarr.api import instances as instances_api
 
     instance = remote()
-    read = []
-
-    def handler(request):
-        assert request.headers["accept-encoding"] == "gzip, deflate"
-        body = _gzip_bomb(50 * 1024 * 1024)
-        read.append(len(body))
-        return httpx.Response(200, content=body, headers={"content-encoding": "gzip",
-                                                          "content-type": "application/json"})
-
+    streams, accept = [], []
     monkeypatch.setattr(instances, "CLIENT_FACTORY", lambda base_url, key: httpx.Client(
-        base_url=base_url, transport=httpx.MockTransport(handler)))
+        base_url=base_url, transport=httpx.MockTransport(_bomb_handler(streams, accept))))
     monkeypatch.setattr(instances_api, "MAX_RESPONSE_BYTES", 1024 * 1024)
     response = client.get(f"/api/remote/{instance['id']}/api/library/items")
     assert response.status_code == 502
     assert response.json()["detail"]["code"] == "instance_response_too_large"
-    assert read and read[0] < 1024 * 1024  # sul filo erano pochi KB
+    assert accept == ["gzip, deflate"]
+    # 1 MB sono 16 pezzi da 64 KB: il lettore si ferma al diciassettesimo,
+    # il codice di prima li leggeva tutti e 1921.
+    assert len(streams) == 1 and streams[0].served <= 20 < _GzipBomb.TOTAL_CHUNKS
 
     small = b'{"ok": true}'
     monkeypatch.setattr(instances, "CLIENT_FACTORY", lambda base_url, key: httpx.Client(
         base_url=base_url, transport=httpx.MockTransport(lambda r: httpx.Response(
-            200, content=__import__("gzip").compress(small), headers={"content-encoding": "gzip",
-                                                                      "content-type": "application/json"}))))
+            200, content=gzip.compress(small), headers={"content-encoding": "gzip",
+                                                        "content-type": "application/json"}))))
     ok = client.get(f"/api/remote/{instance['id']}/api/disks")
     assert ok.status_code == 200 and ok.json() == {"ok": True}
     assert "content-encoding" not in ok.headers
 
 
 def test_the_probe_reads_only_small_answers(monkeypatch):
-    import httpx
-
-    def handler(request):
-        return httpx.Response(200, content=_gzip_bomb(10 * 1024 * 1024), headers={"content-encoding": "gzip"})
-
+    streams = []
     monkeypatch.setattr(instances, "CLIENT_FACTORY", lambda base_url, key: httpx.Client(
-        base_url=base_url, transport=httpx.MockTransport(handler)))
+        base_url=base_url, transport=httpx.MockTransport(_bomb_handler(streams))))
     result = instances.probe("http://hostile.lan", "nzg_x")
     assert result["status"] == "unreachable" and "bigger than" in result["error"]
+    # PROBE_MAX_BYTES è un pezzo solo: il lettore si ferma al secondo.
+    assert streams and all(stream.served <= 3 for stream in streams)
