@@ -107,6 +107,8 @@ export interface paths {
         /**
          * Logout Everywhere
          * @description Esce da tutti i dispositivi: ogni token emesso finora smette di valere.
+         *     Solo col login: una API key di scrittura rubata, in un ciclo, avrebbe
+         *     buttato fuori l'amministratore a ogni nuovo accesso.
          */
         post: operations["logout_everywhere_api_auth_logout_everywhere_post"];
         delete?: never;
@@ -2458,7 +2460,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Health */
+        /**
+         * Health
+         * @description Senza login: l'HEALTHCHECK del container (Dockerfile) ha solo bisogno
+         *     di una risposta, e senza credenziali non legge nemmeno il DB.
+         */
         get: operations["health_api_health_get"];
         put?: never;
         post?: never;
@@ -3398,7 +3404,7 @@ export interface components {
             /** Status */
             status: string;
             /** Version */
-            version: string;
+            version?: string | null;
             /** Commit */
             commit?: string | null;
         };

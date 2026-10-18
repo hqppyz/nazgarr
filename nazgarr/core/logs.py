@@ -71,6 +71,27 @@ class RedactingFormatter(logging.Formatter):
         return redact(super().format(record))
 
 
+class RedactingFilter(logging.Filter):
+    """Per i logger di uvicorn, che non passano dagli handler di root: il log
+    degli accessi ha il suo handler su stdout e propagate=False, e scriveva in
+    chiaro un ?token= nell'URL (la password dei webhook di Radarr/Sonarr,
+    audit 2026-10-18). Ripulisce messaggio e argomenti prima di ogni
+    formatter; gli argomenti restano una tupla, perché l'AccessFormatter di
+    uvicorn li spacchetta."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if isinstance(record.msg, str):
+            record.msg = redact(record.msg)
+        if isinstance(record.args, tuple):
+            record.args = tuple(redact(arg) if isinstance(arg, str) else arg for arg in record.args)
+        return True
+
+
+# Configurati da uvicorn (dictConfig) prima di importare l'app: un filtro sul
+# logger resta anche se uvicorn ne rifà gli handler.
+_UVICORN_LOGGERS = ("uvicorn.access", "uvicorn.error")
+
+
 def configure_logging() -> None:
     level_name = os.environ.get("LOG_LEVEL", "INFO").upper()
     level = getattr(logging, level_name, logging.INFO)
@@ -82,6 +103,10 @@ def configure_logging() -> None:
     handler.setFormatter(RedactingFormatter(LOG_FORMAT, LOG_DATEFMT))
     handler.addFilter(_verbosity())
     root.handlers = [handler]
+    for name in _UVICORN_LOGGERS:
+        logger = logging.getLogger(name)
+        if not any(isinstance(existing, RedactingFilter) for existing in logger.filters):
+            logger.addFilter(RedactingFilter())
 
     # httpx/httpcore a DEBUG loggerebbero ogni singola richiesta/risposta
     # HTTP per esteso (comprese le chiamate a TMDB/tracker): mai più

@@ -86,3 +86,18 @@ def test_a_key_cannot_switch_off_the_safety_settings(client):
         assert client.get(f"/api/settings/{key}", headers=write).status_code == 200
     assert client.put("/api/settings/verify_before_execute", json={"value": "true"}, headers=auth).status_code == 200
     assert client.put("/api/settings/upload_screenshot_count", json={"value": "6"}, headers=write).status_code == 200
+
+
+def test_a_key_cannot_touch_the_login(client):
+    # Prima una chiave di scrittura poteva buttare fuori l'amministratore
+    # (logout-everywhere) e cambiargli la password (audit 2026-10-18).
+    auth = _login(client)
+    write = _key(client, auth, "write")
+    headers = {"X-Api-Key": write["key"], **NO_LOGIN}
+
+    assert client.post("/api/auth/logout-everywhere", headers=headers).status_code == 403
+    change = {"current_password": "supersecret1", "new_password": "newsecret123"}
+    assert client.post("/api/auth/change-password", json=change, headers=headers).status_code == 403
+    assert client.get("/api/auth/me", headers=auth).status_code == 200  # la sessione è ancora buona
+    login = {"username": "admin", "password": "supersecret1"}
+    assert client.post("/api/auth/login", json=login, headers=NO_LOGIN).status_code == 200

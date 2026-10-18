@@ -72,7 +72,9 @@ def instance_for_token(session: Session, source: str, instance_id: int, token: s
     instance = session.get(model, instance_id) if model is not None else None
     if instance is None or not instance.webhook_token or not token:
         return None
-    return instance if secrets.compare_digest(instance.webhook_token, token) else None
+    # In byte: con due str, un carattere non ASCII nella password mandata
+    # faceva sollevare TypeError a compare_digest (un 500, non un 401).
+    return instance if secrets.compare_digest(instance.webhook_token.encode(), token.encode()) else None
 
 
 def receive(session: Session, source: str, instance, payload: dict) -> ArrWebhookEvent:

@@ -4,9 +4,12 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+from sqlalchemy.orm import Session
 
 from nazgarr import scheduler
 from nazgarr.api.api_keys import router as api_keys_router
@@ -43,6 +46,8 @@ from nazgarr.reseed import pipeline, review
 from nazgarr.upload import profiles as upload_profiles
 from nazgarr.upload.worker import UploadWorker
 from nazgarr.web import auth
+from nazgarr.web.body_limit import BodyLimitMiddleware
+from nazgarr.web.deps import get_session
 from nazgarr.web.frontend import mount_frontend
 from nazgarr.web.security_headers import SecurityMiddleware
 
@@ -51,22 +56,43 @@ configure_logging()
 
 logger = logging.getLogger(__name__)
 
+
+def _keep_private(*paths_and_modes: tuple[str, int]) -> None:
+    """DB, log e .torrent (con le passkey negli announce) solo per l'utente
+    dell'app, anche fuori dal container. Prima lo faceva una umask 077 su
+    tutto il processo, che però valeva anche per le cartelle create sui dischi
+    dei media: nascevano 0700, e un client torrent con un altro utente non ci
+    entrava (audit 2026-10-18). Ora i permessi stretti stanno solo dove ci
+    sono i segreti: la cartella dei dati (tutto quello che c'è dentro resta
+    privato, qualunque sia il modo dei file) e il database."""
+    for path, mode in paths_and_modes:
+        if not os.path.exists(path):
+            continue
+        try:
+            os.chmod(path, mode)
+        except OSError as exc:
+            logger.warning("Impossibile rendere %s privato (%o): %s", path, mode, exc)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = load_settings()
-    # Anche fuori dal container: DB, log e .torrent solo per questo utente.
-    os.umask(0o077)
+    os.makedirs(settings.data_dir, mode=0o700, exist_ok=True)
+    _keep_private((settings.data_dir, 0o700))
     add_file_handler(Path(settings.data_dir) / "logs")
     # Prima di tutto il resto: gli adapter dei plugin servono già allo startup.
     plugin_loader.load(settings.data_dir)
     db.migrate_legacy_db_filename(settings.data_dir)
     engine = db.make_engine(settings.db_path)
     migrations.upgrade(engine)  # schema, colonne nuove e passi una tantum (nazgarr/core/migrations.py)
+    # SQLite dà a -wal e -shm i permessi del database quando li ricrea.
+    _keep_private(*((settings.db_path + suffix, 0o600) for suffix in ("", "-wal", "-shm")))
     session_factory = db.make_session_factory(engine)
     with session_factory() as session:
         plugin_switch.apply_disabled(session)  # i plugin spenti dall'utente, inclusi o installati
         updates.init_seen(session)  # un'installazione nuova non mostra note di versioni mai usate
         startup_checks.verify_secret_key(session)
+        auth.token_audience(session)  # il claim "aud" dei token, prima di qualunque richiesta
         # Senza account: tutto chiuso finché non lo si crea con questo codice.
         app.state.setup_code = None
         if not auth.is_auth_configured(session):
@@ -97,14 +123,40 @@ async def lifespan(app: FastAPI):
         app.state.upload_worker.shutdown()
 
 
-app = FastAPI(title="Nazgarr", lifespan=lifespan)
+# Niente /docs e /redoc: caricano Swagger UI e ReDoc da un CDN con uno script
+# inline, che la CSP dell'app (nazgarr/web/security_headers.py) blocca, quindi
+# nel browser erano pagine vuote. Lo schema resta in /openapi.json (audit
+# 2026-10-18).
+app = FastAPI(title="Nazgarr", lifespan=lifespan, docs_url=None, redoc_url=None)
+
+_MAX_VALIDATION_ERRORS = 50
+
+
+@app.exception_handler(RequestValidationError)
+async def _validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
+    """Il 422 di FastAPI, ma senza "input" e "ctx": quello di default rimandava
+    indietro il valore sbagliato, cioè anche un corpo intero, passato da
+    jsonable_encoder sul loop. Con un corpo di 2 MB fatto apposta, prima del
+    login, era quasi un secondo di loop e oltre 100 MB a richiesta (audit
+    2026-10-18). Tipo, posizione e messaggio bastano all'interfaccia e al CLI;
+    oltre i primi 50 errori nessuno legge."""
+    errors = [{"type": error["type"], "loc": error["loc"], "msg": error["msg"]}
+              for error in exc.errors()[:_MAX_VALIDATION_ERRORS]]
+    return JSONResponse(status_code=422, content={"detail": errors})
+
 
 # /api/auth/* è l'unico router mai protetto da require_auth (altrimenti
 # nessuno potrebbe mai autenticarsi la prima volta) — vedi nazgarr/api/auth.py.
 # Le viste della libreria restituiscono JSON da diversi MB (decine di
-# migliaia di file): compressi in gzip pesano una frazione in rete.
-app.add_middleware(GZipMiddleware, minimum_size=1024)
+# migliaia di file): compressi in gzip pesano una frazione in rete. Livello 6,
+# non il 9 di Starlette: su 3,7 MB 15 ms invece di 54, per un file appena più
+# grande (audit 2026-10-18).
+app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=6)
 app.add_middleware(SecurityMiddleware)
+# Per ultimo, quindi il più esterno: un corpo troppo grande si ferma prima di
+# qualunque altra cosa, login compreso, e fuori da /api/auth/* nessun corpo
+# passa prima delle credenziali (nazgarr/web/body_limit.py).
+app.add_middleware(BodyLimitMiddleware)
 app.include_router(auth_router)
 # I webhook di Radarr/Sonarr: fuori dal login, con la password del webhook di
 # ogni istanza (nazgarr/api/arr_hooks.py).
@@ -143,12 +195,19 @@ app.include_router(remote_router, dependencies=[Depends(auth.require_login)])
 
 class HealthResponse(BaseModel):
     status: str
-    version: str
-    commit: str | None = None  # commit dell'immagine, per riconoscere a colpo d'occhio la build in uso
+    # Versione e commit dell'immagine, per riconoscere a colpo d'occhio la build
+    # in uso: solo a chi è entrato (login o API key). A un visitatore anonimo
+    # direbbero quale build attaccare (audit 2026-10-18).
+    version: str | None = None
+    commit: str | None = None
 
 
 @app.get("/api/health", response_model=HealthResponse)
-def health():
+def health(request: Request, session: Session = Depends(get_session)):
+    """Senza login: l'HEALTHCHECK del container (Dockerfile) ha solo bisogno
+    di una risposta, e senza credenziali non legge nemmeno il DB."""
+    if auth.optional_identity(request, session) is None:
+        return HealthResponse(status="ok")
     return HealthResponse(status="ok", version=__version__, commit=__commit__)
 
 

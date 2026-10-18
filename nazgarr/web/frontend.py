@@ -21,6 +21,23 @@ _PACKAGE = os.path.dirname(os.path.dirname(__file__))
 _REPO_DIST = os.path.join(_PACKAGE, "..", "frontend", "dist")
 FRONTEND_DIST = _REPO_DIST if os.path.isdir(_REPO_DIST) else os.path.join(_PACKAGE, "_assets", "web")
 
+# Cache del browser (audit 2026-10-18). Senza Cache-Control il browser
+# indovinava da Last-Modified (l'ora della build dell'immagine): dopo un
+# aggiornamento poteva riusare per giorni l'index.html vecchio, cioè il
+# frontend vecchio contro le API nuove, e i chunk che quello chiedeva non
+# esistevano più (404, pagina bianca). index.html e gli altri file senza hash
+# si riconvalidano sempre (un 304 se non sono cambiati); i file di /assets
+# hanno l'hash del contenuto nel nome (Vite) e non cambiano mai.
+_REVALIDATE = {"Cache-Control": "no-cache"}
+_IMMUTABLE = "public, max-age=31536000, immutable"
+
+
+class _HashedAssets(StaticFiles):
+    def file_response(self, *args, **kwargs):
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = _IMMUTABLE
+        return response
+
 
 def mount_frontend(app: FastAPI, dist_dir: str = FRONTEND_DIST) -> bool:
     if not os.path.isdir(dist_dir):
@@ -28,14 +45,14 @@ def mount_frontend(app: FastAPI, dist_dir: str = FRONTEND_DIST) -> bool:
 
     assets_dir = os.path.join(dist_dir, "assets")
     if os.path.isdir(assets_dir):
-        app.mount("/assets", StaticFiles(directory=assets_dir), name="frontend-assets")
+        app.mount("/assets", _HashedAssets(directory=assets_dir), name="frontend-assets")
 
     index_path = os.path.join(dist_dir, "index.html")
 
     # Catch-all registrato PER ULTIMO (in nazgarr/main.py, dopo ogni
     # app.include_router di /api/*): Starlette fa match delle route
-    # nell'ordine in cui sono aggiunte, quindi non intercetta mai /api/*,
-    # /docs, /redoc, /openapi.json — già tutte registrate prima di questa.
+    # nell'ordine in cui sono aggiunte, quindi non intercetta mai /api/* né
+    # /openapi.json — già registrate prima di questa.
     @app.get("/{full_path:path}")
     def serve_spa(full_path: str):
         # Un /api/… che non esiste è un 404 in JSON, non la pagina: chi chiama
@@ -49,12 +66,12 @@ def mount_frontend(app: FastAPI, dist_dir: str = FRONTEND_DIST) -> bool:
         try:
             candidate = resolve_scoped(dist_dir, full_path)
         except ScopeViolation:
-            return FileResponse(index_path)
+            return FileResponse(index_path, headers=_REVALIDATE)
         if full_path and os.path.isfile(candidate):
-            return FileResponse(candidate)
+            return FileResponse(candidate, headers=_REVALIDATE)
         # Route lato client di React Router (es. /reseeding/dashboard):
         # nessun file corrispondente, si serve sempre index.html e ci
         # pensa React Router a risolvere il path reale lato browser.
-        return FileResponse(index_path)
+        return FileResponse(index_path, headers=_REVALIDATE)
 
     return True

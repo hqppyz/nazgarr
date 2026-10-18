@@ -155,8 +155,12 @@ Nazgarr needs very little up front. Disks, folders, clients, trackers and thresh
 | --- | --- |
 | `APP_SECRET_KEY` | **Required.** Encrypts the stored credentials. Keep it with your backups. |
 | `PUID` / `PGID` | The user and group the app runs as. They need write access to your folders, because hardlinks are created there. Default `1000`. |
+| `UMASK` | Optional, default `022`: the permissions of what the app creates. Folders on your disks copy the permissions and group of the folder they are created in, so it rarely matters there; `002` if your torrent client runs as another user of the same group. The database stays private (its folder is `0700`) whatever the value. |
 | `TZ` | Time zone for the schedule and the logs. |
 | `NAZGARR_SETUP_CODE` | Optional: your own one-time code to create the account (otherwise one is generated and printed in the log). |
+| `FORWARDED_ALLOW_IPS` | Only behind a reverse proxy: the proxy's address or network (say `172.18.0.0/16` for its Docker network). See below. |
+
+**Behind a reverse proxy** (nginx, Caddy, Traefik, Nginx Proxy Manager), set `FORWARDED_ALLOW_IPS` to the proxy's address, on the container or before `nazgarr serve`. Nazgarr then reads each visitor's real address from `X-Forwarded-For`. Without it every visitor seems to come from the proxy, and the login limit (5 wrong attempts in 15 minutes per address) becomes one for everybody: anyone who reaches the proxy can keep the login closed to you too. Never use `*` while port 3019 is also reachable without the proxy, because then anyone can pick the address they claim.
 
 **`config/config.yaml`** is created on the first start. It holds the only settings that need a restart:
 
@@ -223,7 +227,7 @@ Besides running the server, the `nazgarr` command talks to a running instance: l
 
 ## API and automation
 
-Everything the UI does goes through a JSON API under `/api`. The interactive reference is at `http://<host>:3019/docs`. Scripts authenticate with an API key created in Configuration › API keys. See [docs/SDK.md](docs/SDK.md) for plugins, webhooks and API keys, and [examples/nazgarr-ntfy](examples/nazgarr-ntfy) for a complete plugin.
+Everything the UI does goes through a JSON API under `/api`. Its OpenAPI schema is at `http://<host>:3019/openapi.json`, for any OpenAPI viewer or client generator. Scripts authenticate with an API key created in Configuration › API keys. See [docs/SDK.md](docs/SDK.md) for plugins, webhooks and API keys, and [examples/nazgarr-ntfy](examples/nazgarr-ntfy) for a complete plugin.
 
 ## Development
 

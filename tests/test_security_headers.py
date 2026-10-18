@@ -74,3 +74,21 @@ def test_credentials_never_reach_the_error_messages_stored_in_the_db(db_session)
 def test_a_service_url_pointing_at_the_cloud_metadata_is_refused(client):
     body = {"label": "t", "adapter_type": "unit3d", "base_url": "http://169.254.169.254", "api_token": "x"}
     assert client.post("/api/trackers", json=body).status_code == 422
+
+
+def test_the_content_security_policy_is_exactly_the_intended_one(client):
+    # Ogni direttiva, non solo script-src: un allentamento per sbaglio fallisce qui.
+    header = client.get("/api/disks").headers["Content-Security-Policy"]
+    directives = dict(part.strip().split(" ", 1) for part in header.split(";"))
+    assert directives == {
+        "default-src": "'self'",
+        "script-src": "'self'",
+        "style-src": "'self' 'unsafe-inline'",
+        "img-src": "'self' data: blob: https:",  # poster, icone, anteprime degli screenshot
+        "font-src": "'self' data:",
+        "connect-src": "'self'",
+        "object-src": "'none'",
+        "base-uri": "'self'",
+        "frame-ancestors": "'none'",
+        "form-action": "'self'",
+    }

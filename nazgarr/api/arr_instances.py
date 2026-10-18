@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session, object_session
 
-from nazgarr.api.types import HttpUrlStr, require_secrets_for_new_host
+from nazgarr.api.types import HttpUrlStr, check_destinations, require_secrets_for_new_host
 from nazgarr.core.errors import coded_detail
 from nazgarr.core.logs import safe_error
 from nazgarr.integrations import arr_webhooks
@@ -142,6 +142,7 @@ def make_router(
 
     @router.post("", response_model=response, status_code=201, name=f"create_{kind}_instance")
     def create_instance(body: create_request, session: Session = Depends(get_session)):  # type: ignore[valid-type]
+        check_destinations(body.base_url)
         instance = model(
             label=body.label, base_url=body.base_url, api_key=body.api_key,
             priority=body.priority, timeout_seconds=body.timeout_seconds,
@@ -153,6 +154,7 @@ def make_router(
 
     @router.post("/test", response_model=test_response, name=f"test_{kind}_connection")
     def test_new_connection(body: connection_request):  # type: ignore[valid-type]
+        check_destinations(body.base_url)
         return test_connection(
             body.base_url, body.api_key, body.timeout_seconds, body.basic_auth_username, body.basic_auth_password
         )
@@ -170,6 +172,7 @@ def make_router(
 
     @router.patch("/{instance_id}", response_model=response, name=f"update_{kind}_instance")
     def update_instance(instance_id: int, body: update_request, session: Session = Depends(get_session)):  # type: ignore[valid-type]
+        check_destinations(body.base_url)
         instance = get_or_404(session, instance_id)
         missing = [name for name, stored, sent in (
             ("api_key", instance.api_key, body.api_key),

@@ -156,3 +156,19 @@ def test_a_folder_where_a_client_downloads_is_never_watched(client):
     response = client.patch(f"/api/disks/{created['id']}", json={"watch_rel_path": "torrents/movies"})
 
     assert response.json()["detail"]["code"] == "watch_folder_used_by_client"
+
+
+def test_a_folder_made_from_the_ui_copies_the_permissions_of_the_one_above(client):
+    import os
+
+    disk_dir = client.scan_root / "disk1"
+    disk_dir.mkdir()
+    os.chmod(disk_dir, 0o775)
+    disk_id = client.post("/api/disks", json={"label": "Disk 1", "root_path": str(disk_dir)}).json()["id"]
+    previous = os.umask(0o077)  # come la umask di prima (audit 2026-10-18)
+    try:
+        assert client.post(f"/api/disks/{disk_id}/mkdir", json={"path": "torrents/uploads"}).status_code == 201
+    finally:
+        os.umask(previous)
+    for folder in (disk_dir / "torrents", disk_dir / "torrents" / "uploads"):
+        assert os.stat(folder).st_mode & 0o777 == 0o775

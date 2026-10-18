@@ -183,6 +183,10 @@ def test_the_endpoint_wants_the_password_of_that_instance(client):
 
     assert client.post(setup["path"], json={"eventType": "Test"}, headers=anonymous).status_code == 401
     assert client.post(setup["path"], json={"eventType": "Test"}, headers=_basic("wrong")).status_code == 401
+    # Non ASCII: un 401 come un'altra password sbagliata, non un 500 (audit 2026-10-18).
+    assert client.post(setup["path"], json={"eventType": "Test"}, headers=_basic("città")).status_code == 401
+    assert client.post(f"{setup['path']}?token=%C3%A9", json={"eventType": "Test"},
+                       headers=anonymous).status_code == 401
     assert client.post(setup["path"], json={"eventType": "Test"}, headers=_basic(setup["token"])).json() == {
         "status": "accepted"}
     assert client.post(f"{setup['path']}?token={setup['token']}", json={"eventType": "Grab"},
@@ -273,3 +277,81 @@ def test_the_torrent_it_was_imported_from_counts_as_seeding_right_away(db_sessio
     from nazgarr.integrations import arr_webhooks as hooks
     assert hooks._register_download(db_session, {"downloadId": info_hash.upper()}) is None
     assert asked == [info_hash]
+
+
+def _hook(client):
+    created = client.post("/api/radarr-instances", json={
+        "label": "r", "base_url": "http://radarr:7878", "api_key": "k"}).json()
+    return client.post(f"/api/radarr-instances/{created['id']}/webhook").json()
+
+
+def test_a_webhook_waiting_for_the_database_does_not_stop_the_other_requests(client):
+    # Prima le query giravano sul loop: un commit che aspettava il lock di
+    # SQLite (una scansione che scrive) fermava ogni richiesta (audit 2026-10-18).
+    import sqlite3
+    import threading
+    import time
+
+    setup = _hook(client)
+    writer = sqlite3.connect(client.scan_root.parent / "data" / "nazgarr.db", check_same_thread=False)
+    writer.execute("BEGIN IMMEDIATE")  # il lock di scrittura, come una scansione a metà commit
+    results = []
+    hook = threading.Thread(target=lambda: results.append(client.post(
+        setup["path"], json={"eventType": "Test"}, headers=_basic(setup["token"]))))
+    hook.start()
+    try:
+        time.sleep(0.5)  # il webhook ora aspetta il lock
+        started = time.monotonic()
+        assert client.get("/api/health", headers={"Authorization": ""}).status_code == 200
+        assert time.monotonic() - started < 2
+        assert results == []  # ancora in attesa: il test ha misurato davvero il caso
+    finally:
+        writer.rollback()
+        writer.close()
+        hook.join(timeout=30)
+    assert results[0].json() == {"status": "accepted"}
+
+
+def test_an_oversized_event_is_refused_before_it_is_read(client):
+    from nazgarr.api.arr_hooks import MAX_BODY
+
+    setup = _hook(client)
+    big = json.dumps({"eventType": "Test", "x": "a" * MAX_BODY})
+    assert client.post(setup["path"], content=big, headers=_basic(setup["token"])).status_code == 413
+    assert client.post(setup["path"], content=b"not json", headers=_basic(setup["token"])).status_code == 400
+    assert client.post(setup["path"], content=b"[1]", headers=_basic(setup["token"])).status_code == 400
+
+
+def test_a_large_event_still_arrives_with_the_webhook_password(client):
+    # Il tetto sui corpi senza login di Nazgarr (nazgarr/web/body_limit.py) non
+    # vale qui: il webhook legge il corpo da sé, dopo la sua password.
+    setup = _hook(client)
+    event = json.dumps({"eventType": "Test", "episodes": [{"title": "e" * 500}] * 400})
+    assert len(event) > 128 * 1024
+    response = client.post(setup["path"], content=event, headers=_basic(setup["token"]))
+    assert response.json() == {"status": "accepted"}
+
+
+def test_the_webhook_runs_no_query_on_the_event_loop(client):
+    import asyncio
+
+    from sqlalchemy import event
+    from sqlalchemy.engine import Engine
+
+    setup = _hook(client)
+    on_loop = []
+
+    def record(conn, cursor, statement, params, context, executemany):
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return  # un thread del threadpool: nessun loop qui
+        on_loop.append(statement)
+
+    event.listen(Engine, "before_cursor_execute", record)
+    try:
+        response = client.post(setup["path"], json={"eventType": "Test"}, headers=_basic(setup["token"]))
+    finally:
+        event.remove(Engine, "before_cursor_execute", record)
+    assert response.json() == {"status": "accepted"}
+    assert on_loop == []

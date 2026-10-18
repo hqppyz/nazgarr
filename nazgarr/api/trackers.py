@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session, object_session
 
-from nazgarr.api.types import HttpUrlStr, host_changed, require_secrets_for_new_host
+from nazgarr.api.types import HttpUrlStr, check_destinations, host_changed, require_secrets_for_new_host
 from nazgarr.core.errors import coded_detail, from_coded_error
 from nazgarr.core.models import Tracker, TrackerUploadProfile
 from nazgarr.plugins import REGISTRY
@@ -137,6 +137,7 @@ def list_trackers(session: Session = Depends(get_session)):
 
 @router.post("", response_model=TrackerResponse, status_code=201)
 def create_tracker(body: TrackerCreateRequest, session: Session = Depends(get_session)):
+    check_destinations(body.base_url, body.announce_url)
     supported = REGISTRY.types("tracker")  # integrati e plugin (nazgarr/plugins)
     if body.adapter_type not in supported:
         raise HTTPException(
@@ -171,6 +172,7 @@ def create_tracker(body: TrackerCreateRequest, session: Session = Depends(get_se
 def update_tracker(
     tracker_id: int, body: TrackerUpdateRequest, request: Request, session: Session = Depends(get_session)
 ):
+    check_destinations(body.base_url, body.announce_url)
     tracker = _get_tracker_or_404(session, tracker_id)
     missing = [name for name, stored, sent in (
         ("api_token", tracker.api_token, body.api_token),

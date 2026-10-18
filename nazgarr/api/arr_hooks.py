@@ -5,14 +5,21 @@ ha la sua password del webhook, che Radarr/Sonarr mandano come password della
 connessione (HTTP Basic, il nome utente non conta) o, per altri strumenti,
 come ?token=. Senza la password giusta: 401, e niente si salva. La risposta
 arriva subito, il lavoro lo fa lo scheduler.
+
+L'endpoint è async solo per leggere il corpo dopo la password (chi non la sa
+non fa leggere niente); le query e la scrittura vanno nel threadpool. Sul
+loop, un commit che aspettava il lock di SQLite (una scansione che scrive)
+fermava ogni altra richiesta del processo (audit 2026-10-18).
 """
 
 import base64
 import binascii
+import json
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from nazgarr.core.errors import coded_detail
 from nazgarr.integrations import arr_webhooks
@@ -38,19 +45,38 @@ def _password(request: Request) -> str | None:
     return request.query_params.get("token")
 
 
-@router.post("/{source}/{instance_id}", response_model=ArrHookResponse)
-async def receive(source: str, instance_id: int, request: Request, session: Session = Depends(get_session)):
-    instance = arr_webhooks.instance_for_token(session, source, instance_id, _password(request))
-    if instance is None:
-        raise HTTPException(status_code=401, detail=coded_detail("arr_hook_unauthorized"))
-    body = await request.body()
-    if len(body) > MAX_BODY:
-        raise HTTPException(status_code=413, detail=coded_detail("arr_hook_too_large"))
+def _too_large() -> HTTPException:
+    return HTTPException(status_code=413, detail=coded_detail("arr_hook_too_large"))
+
+
+async def _payload(request: Request) -> dict:
+    """Il JSON dell'evento, letto al massimo fino a MAX_BODY: un Content-Length
+    più grande si rifiuta senza leggere niente."""
+    declared = request.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > MAX_BODY:
+        raise _too_large()
+    body = bytearray()
+    async for chunk in request.stream():
+        body += chunk
+        if len(body) > MAX_BODY:
+            raise _too_large()
     try:
-        payload = await request.json()
+        payload = json.loads(body)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=coded_detail("arr_hook_invalid")) from exc
     if not isinstance(payload, dict):
         raise HTTPException(status_code=400, detail=coded_detail("arr_hook_invalid"))
-    event = arr_webhooks.receive(session, source, instance, payload)
-    return ArrHookResponse(status="accepted" if event.status == "pending" else "ignored")
+    return payload
+
+
+@router.post("/{source}/{instance_id}", response_model=ArrHookResponse)
+async def receive(source: str, instance_id: int, request: Request, session: Session = Depends(get_session)):
+    instance = await run_in_threadpool(arr_webhooks.instance_for_token, session, source, instance_id,
+                                       _password(request))
+    if instance is None:
+        raise HTTPException(status_code=401, detail=coded_detail("arr_hook_unauthorized"))
+    payload = await _payload(request)
+    # Lo stato si legge nel threadpool: dopo il commit la riga è scaduta, e
+    # leggerla qui sarebbe un'altra SELECT sul loop.
+    status = await run_in_threadpool(lambda: arr_webhooks.receive(session, source, instance, payload).status)
+    return ArrHookResponse(status="accepted" if status == "pending" else "ignored")
