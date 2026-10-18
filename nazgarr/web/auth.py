@@ -119,8 +119,9 @@ def _legacy_tokens_until(session: Session) -> int:
 
 
 def create_access_token(username: str, version: str = "1", audience: str | None = None) -> str:
-    now = int(time.time())
-    payload = {"sub": username, "ver": version, "iat": now, "exp": now + _TOKEN_TTL_SECONDS}
+    # Niente "iat": PyJWT rifiuta un token emesso "nel futuro", e un orologio
+    # che torna indietro (una correzione NTP su un NAS) buttava fuori tutti.
+    payload = {"sub": username, "ver": version, "exp": int(time.time()) + _TOKEN_TTL_SECONDS}
     if audience is not None:
         payload["aud"] = audience
     return jwt.encode(payload, _jwt_secret(), algorithm="HS256")
@@ -144,11 +145,6 @@ def decode_access_claims(token: str, audience: str | None = None, legacy_until: 
     if audience is not None and claims["exp"] > legacy_until:
         return None
     return claims
-
-
-def decode_access_token(token: str) -> str | None:
-    claims = decode_access_claims(token)
-    return claims.get("sub") if claims else None
 
 
 def authenticated_username(request: Request, session: Session) -> str | None:

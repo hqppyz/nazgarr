@@ -12,14 +12,27 @@ def test_verify_password_rejects_malformed_hash():
 
 
 def test_create_and_decode_access_token_roundtrip(monkeypatch):
-    monkeypatch.setenv("APP_SECRET_KEY", "test-secret")
-    token = auth.create_access_token("admin")
-    assert auth.decode_access_token(token) == "admin"
+    monkeypatch.setenv("APP_SECRET_KEY", "test-secret-of-at-least-32-bytes!")
+    token = auth.create_access_token("admin", audience="nazgarr:here")
+    assert auth.decode_access_claims(token, "nazgarr:here")["sub"] == "admin"
+    assert auth.decode_access_claims(token, "nazgarr:elsewhere") is None
 
 
 def test_decode_access_token_rejects_garbage(monkeypatch):
-    monkeypatch.setenv("APP_SECRET_KEY", "test-secret")
-    assert auth.decode_access_token("not-a-jwt") is None
+    monkeypatch.setenv("APP_SECRET_KEY", "test-secret-of-at-least-32-bytes!")
+    assert auth.decode_access_claims("not-a-jwt", "nazgarr:here") is None
+
+
+def test_a_clock_that_goes_back_does_not_log_anyone_out(monkeypatch):
+    # Con "iat" PyJWT rifiutava un token emesso "nel futuro": dopo una
+    # correzione NTP all'indietro, 401 e logout finché l'orologio non tornava
+    # al momento del login.
+    monkeypatch.setenv("APP_SECRET_KEY", "test-secret-of-at-least-32-bytes!")
+    now = auth.time.time()
+    monkeypatch.setattr(auth.time, "time", lambda: now + 3600)
+    token = auth.create_access_token("admin", audience="nazgarr:here")
+    monkeypatch.setattr(auth.time, "time", lambda: now)
+    assert auth.decode_access_claims(token, "nazgarr:here")["sub"] == "admin"
 
 
 def _setup(client, **extra):
