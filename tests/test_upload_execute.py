@@ -1645,3 +1645,24 @@ def test_links_another_torrent_uses_survive_a_failed_upload(db_session, tmp_path
     assert link.exists() is kept
     assert video.is_file()
     assert ("file_links_kept" in [e.code for e in job.events]) is kept
+
+
+def test_a_published_upload_left_in_flight_ends_published_not_step_not_available(db_session, tmp_path, env):
+    """Il worker non ha potuto registrare l'errore dopo un invio riuscito: il
+    job resta 'running' con il target in 'uploading'. La coda, alla ripresa,
+    lo rimette in coda con il target sistemato, e l'esecuzione lo chiude."""
+    video = write_video(env["root"] / "media" / "Movie.2024.mkv", 100 * KB)
+    job = _approved(db_session, env, "media/" + video.name, {"a": _upload("A"), "b": {"action": "skip"}})
+    upload_jobs.transition(db_session, job, "queued", "running")
+    a = job.targets[0]
+    a.status = "uploading"
+    db_session.commit()
+    folder = tmp_path / "data" / "uploads" / str(job.id)
+    folder.mkdir(parents=True)
+    (folder / f"published-{a.id}.json").write_text('{"torrent_id_remote": "100"}')
+
+    _run(db_session, tmp_path, job)
+
+    assert (job.status, a.status, a.error_message, a.torrent_id_remote) == ("done", "done", "seed_failed", "100")
+    assert "upload_step_not_available" not in [e.code for e in job.events]
+    assert env["trackers"]["a"].uploads == []  # mai un secondo invio

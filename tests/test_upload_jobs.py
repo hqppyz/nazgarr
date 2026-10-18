@@ -380,6 +380,91 @@ def test_the_queue_retries_later_when_even_the_failure_cannot_be_written(db_sess
     assert later == [1] and worker._heavy_scheduled is False
 
 
+def test_the_queue_retries_later_when_it_cannot_read_the_next_job(db_session, tmp_path, monkeypatch):
+    make_tracker(db_session)
+    job = _queued(db_session, tmp_path)
+    worker = _worker(db_session, tmp_path, {})
+    monkeypatch.setattr(worker, "_next_due", lambda: (_ for _ in ()).throw(RuntimeError("disk I/O error")))
+    later = []
+    monkeypatch.setattr(worker, "_retry_later", lambda: later.append(1))
+
+    worker.kick(job.id, "queued")
+
+    assert later == [1] and worker._heavy_scheduled is False
+    # Dopo lo spegnimento il timer non sottomette più niente a un esecutore chiuso.
+    worker.shutdown()
+    worker._schedule_queue()
+    assert worker._heavy_scheduled is False
+
+
+def _published_but_stuck(db_session, tmp_path):
+    """Un job 'running' con un upload pubblicato (l'id nel file del job) ma
+    rimasto 'uploading': il commit dopo l'invio non è andato."""
+    make_tracker(db_session, "a")
+    make_tracker(db_session, "b")
+    job = _queued(db_session, tmp_path)
+    published, waiting = job.targets
+    published.action, published.status = "upload", "uploading"
+    waiting.action, waiting.status = "upload", "approved"
+    db_session.commit()
+    folder = tmp_path / "uploads" / str(job.id)
+    folder.mkdir(parents=True)
+    (folder / f"published-{published.id}.json").write_text('{"torrent_id_remote": "100"}')
+    return job
+
+
+def test_a_running_job_nobody_runs_goes_back_to_the_queue(db_session, tmp_path):
+    """Audit 2026-10-18: un job rimasto 'running' (un errore che il worker non
+    ha potuto registrare) finiva "passo non disponibile" alla ripresa della
+    coda, con i target bloccati in invio fino al riavvio."""
+    job = _published_but_stuck(db_session, tmp_path)
+    upload_jobs.transition(db_session, job, "queued", "running")
+    seen = []
+
+    def execute(session, j, worker):
+        seen.append([(t.status, t.error_message) for t in j.targets])
+        upload_jobs.transition(session, j, "queued", "running")
+        for target in j.targets:
+            if target.status == "approved":
+                target.status = "done"
+        session.commit()
+        upload_jobs.transition(session, j, "running", upload_jobs.outcome(j))
+
+    worker = _worker(db_session, tmp_path, {"queued": execute})
+    worker._run_job(job.id)  # un kick vecchio dell'esecutore "light": non lo tocca
+    db_session.refresh(job)
+    assert job.status == "running" and seen == []
+
+    worker.kick(job.id, "running")
+
+    db_session.refresh(job)
+    assert seen == [[("done", "seed_failed"), ("approved", None)]]
+    assert job.status == "done", [e.code for e in job.events]
+    assert job.targets[0].torrent_id_remote == "100"
+    assert "job_resumed" in [e.code for e in job.events]
+    assert job.error_message is None
+
+
+def test_a_failed_execution_leaves_no_tracker_in_flight(db_session, tmp_path):
+    """L'esecuzione esce con un errore dopo un upload pubblicato: prima il
+    job finiva 'failed' con quel target in 'uploading' (né eliminabile né
+    riprovabile fino al riavvio) e gli altri 'approved' per sempre."""
+    job = _published_but_stuck(db_session, tmp_path)
+
+    def start_then_crash(session, j, worker):
+        upload_jobs.transition(session, j, "queued", "running")
+        raise RuntimeError("database is locked")
+
+    _worker(db_session, tmp_path, {"queued": start_then_crash}).kick(job.id, "queued")
+
+    db_session.refresh(job)
+    published, waiting = job.targets
+    assert job.status == "partial" and job.error_message == "upload_step_failed"
+    assert (published.status, published.error_message, published.torrent_id_remote) == ("done", "seed_failed", "100")
+    assert (waiting.status, waiting.error_message) == ("failed", "upload_step_failed")
+    assert upload_jobs.retryable_targets(job) == [waiting]
+
+
 def test_migration_drops_the_phase6_upload_job(tmp_path):
     engine = db_module.make_engine(str(tmp_path / "legacy.db"))
     with engine.begin() as conn:

@@ -136,6 +136,8 @@ class UploadWorker:
             future.add_done_callback(_log_failure)
 
     def _schedule_queue(self) -> None:
+        if self._closed:
+            return  # es. il timer di _retry_later dopo lo spegnimento: l'esecutore è chiuso
         with self._lock:
             if self._heavy_scheduled:
                 self._rescan = True
@@ -170,7 +172,14 @@ class UploadWorker:
         idle = False
         try:
             while True:
-                job_id = self._next_due()
+                try:
+                    job_id = self._next_due()
+                except Exception:
+                    # Il DB non si legge (un errore di I/O, una pagina
+                    # rovinata): senza, la coda si fermava fino al prossimo kick.
+                    logger.exception("La coda degli upload non riesce a leggere il prossimo job")
+                    self._retry_later()
+                    return
                 if job_id is None:
                     with self._lock:
                         if self._rescan:
@@ -180,7 +189,7 @@ class UploadWorker:
                         idle = True
                     return
                 try:
-                    self._run_job(job_id)
+                    self._run_job(job_id, from_queue=True)
                 except Exception:
                     # _run_job registra già i passi falliti: qui arriva solo
                     # quello che non è riuscito a registrare (es. il DB non
@@ -201,7 +210,9 @@ class UploadWorker:
         timer.daemon = True
         timer.start()
 
-    def _run_job(self, job_id: int) -> None:
+    def _run_job(self, job_id: int, from_queue: bool = False) -> None:
+        """from_queue: dalla coda "heavy" (_drain_queue), l'unica che esegue
+        i job approvati, uno alla volta."""
         session = self.session_factory()
         with self._lock:
             self._active.add(job_id)
@@ -211,7 +222,16 @@ class UploadWorker:
                 return
             handler = self.handlers.get(job.status)
             if handler is None:
-                if job.status in upload_jobs.WORKER_STATES:
+                if job.status == "running":
+                    # Dalla coda: nessun'altra esecuzione può girare, quindi è
+                    # rimasto 'running' da un errore che non si è potuto
+                    # registrare. Torna in coda con i target sistemati, e la
+                    # coda lo finisce (audit 2026-10-18; prima "passo non
+                    # disponibile", con i target bloccati in invio). Un kick
+                    # vecchio dell'esecutore "light" non lo tocca.
+                    if from_queue and upload_jobs.requeue_orphan(session, job, self.data_dir):
+                        logger.warning("Upload %s: rimasto in esecuzione senza un passo, torna in coda", job_id)
+                elif job.status in upload_jobs.WORKER_STATES:
                     # Uno stato senza handler non deve restare in coda per sempre.
                     self._fail(session, job, "upload_step_not_available", status=job.status)
                 return
@@ -253,9 +273,20 @@ class UploadWorker:
             return
         logger.error("Upload %s: passo %r fallito", job_id, step, exc_info=exc)
         if isinstance(exc, CodedError):
-            self._fail(session, job, exc.code, **exc.params)
+            code, params = exc.code, dict(exc.params)
         else:
-            self._fail(session, job, "upload_step_failed", step=step, error=upload_jobs.error_text(exc))
+            code, params = "upload_step_failed", {"step": step, "error": upload_jobs.error_text(exc)}
+        status = "failed"
+        if step == "queued":
+            # L'esecuzione: nessun target resta "in invio" (un upload già
+            # pubblicato torna 'done' con seed_failed), quelli da fare
+            # falliscono con l'errore (così "Riprova" li rifà), e con un
+            # tracker già fatto l'esito viene dai target; tutto nello stesso
+            # commit dello stato del job (audit 2026-10-18).
+            upload_jobs.settle_failed_execution(session, job, self.data_dir, code)
+            if any(t.status == "done" and t.action != "skip" for t in job.targets):
+                status = upload_jobs.outcome(job)
+        self._fail(session, job, code, final=status, **params)
 
     def _run_verify(self, target_id: int, torrent_id_remote: str) -> None:
         from nazgarr.upload import verify as upload_verify
@@ -268,7 +299,12 @@ class UploadWorker:
         finally:
             session.close()
 
-    def _fail(self, session: Session, job: UploadJob, code: str, **params) -> None:
-        if upload_jobs.transition(session, job, job.status, "failed", error_message=code, stage=None):
+    def _fail(self, session: Session, job: UploadJob, code: str, final: str = "failed", **params) -> None:
+        """Il job finisce (di solito 'failed') con l'errore nel registro.
+        params sono i parametri dell'evento: "final" è un nome a parte perché
+        un parametro può chiamarsi anche "status"."""
+        values = {"error_message": code} if final != "done" else {}
+        if upload_jobs.transition(session, job, job.status, final, stage=None, progress_done=None,
+                                  progress_total=None, **values):
             upload_jobs.log_event(session, job, code, level="error", **params)
             session.commit()

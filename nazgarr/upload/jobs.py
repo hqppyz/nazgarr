@@ -559,7 +559,7 @@ def reset_interrupted(session: Session, data_dir: str | None = None) -> list[int
         if job.status in GATE_STATES or (job.status in WORKER_STATES and job.status != "running"):
             continue
         for target in job.targets:
-            _reset_target(session, job, target, data_dir)
+            reset_target(session, job, target, data_dir)
         if job.status == "running":
             job.status = "queued"
             job.stage = None
@@ -584,7 +584,51 @@ def reset_interrupted(session: Session, data_dir: str | None = None) -> list[int
     ]
 
 
-def _reset_target(session: Session, job: UploadJob, target: UploadTarget, data_dir: str | None) -> None:
+def requeue_orphan(session: Session, job: UploadJob, data_dir: str | None) -> bool:
+    """Un job 'running' che nessuno esegue più, mentre l'app gira: il passo
+    è uscito con un errore che il worker non ha potuto nemmeno registrare
+    (il DB non scrivibile). Come al riavvio (reset_interrupted): i target
+    in invio si sistemano e il job torna in coda, dove l'esecuzione finisce
+    i tracker rimasti e calcola l'esito. Prima finiva 'failed' con "passo
+    non disponibile", i target bloccati in invio fino al riavvio (audit
+    2026-10-18). False se nel frattempo lo stato è cambiato (annullato)."""
+    if not transition(session, job, "running", "queued", commit=False, stage=None):
+        session.rollback()
+        return False
+    for target in job.targets:
+        reset_target(session, job, target, data_dir)
+    log_event(session, job, "job_resumed", level="warning")
+    session.commit()
+    return True
+
+
+def settle_failed_execution(session: Session, job: UploadJob, data_dir: str | None, code: str) -> None:
+    """L'esecuzione è uscita con un errore: nessun target resta "in invio"
+    (reset_target, come al riavvio), e quelli ancora da fare falliscono con
+    lo stesso errore, così "Riprova" li rifà. Il commit lo fa il chiamante,
+    insieme allo stato del job."""
+    for target in job.targets:
+        reset_target(session, job, target, data_dir)
+        if target.status == TargetStatus.APPROVED:
+            set_target_status(target, TargetStatus.FAILED)
+            target.error_message = code
+            target.finished_at = datetime.now(UTC)
+
+
+def outcome(job: UploadJob) -> str:
+    """L'esito di un'esecuzione dai suoi target (gli skip non contano)."""
+    outcomes = [t.status for t in job.targets if t.action != "skip"]
+    if all(s == "done" for s in outcomes):
+        return "done"
+    if all(s == "failed" for s in outcomes):
+        return "failed"
+    return "partial"
+
+
+def reset_target(session: Session, job: UploadJob, target: UploadTarget, data_dir: str | None) -> None:
+    """Un target che l'esecuzione ha lasciato in invio (un riavvio, un
+    errore): pubblicato -> 'done' con seed_failed, un invio senza esito
+    -> 'failed' interrupted, uno appena iniziato torna da fare."""
     published = target.torrent_id_remote or _journaled_id(data_dir, job, target)
     if target.action == "upload" and (target.status == "seeding" or (target.status == "uploading" and published)):
         target.torrent_id_remote = published

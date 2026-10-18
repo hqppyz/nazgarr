@@ -1336,13 +1336,7 @@ def handle(session: Session, job: UploadJob, worker) -> None:
             _housekeeping(session, job, ctx, overrides, cancelled=True)
             return
         _housekeeping(session, job, ctx, overrides)
-    outcomes = [t.status for t in job.targets if t.action != "skip"]
-    if all(s == "done" for s in outcomes):
-        final = "done"
-    elif all(s == "failed" for s in outcomes):
-        final = "failed"
-    else:
-        final = "partial"
+    final = upload_jobs.outcome(job)
     if upload_jobs.transition(session, job, "running", final, stage=None, progress_done=None, progress_total=None):
         upload_jobs.log_event(session, job, f"job_{final}", level="info" if final == "done" else "warning")
         session.commit()
