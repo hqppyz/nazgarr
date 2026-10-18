@@ -2,6 +2,7 @@
 dell'utente, 2026-10-05)."""
 
 import base64
+import threading
 
 import httpx
 
@@ -11,11 +12,27 @@ PLUGIN_NAME = "nazgarr-imgbb"
 DESCRIPTION = "Screenshots on ImgBB (https://imgbb.com), with your free API key."
 REQUIRES_SDK = ">=1.0,<2"
 
+_shared: httpx.Client | None = None
+_shared_lock = threading.Lock()
+
+
+def _shared_client() -> httpx.Client:
+    """Un client per tutto il processo, come per gli host Chevereto (audit
+    2026-10-18): la catena degli host si costruisce a ogni upload, e ogni
+    adapter apriva il suo httpx.Client senza chiuderlo mai, con le
+    connessioni lasciate al garbage collector. La chiave viaggia in ogni
+    richiesta, mai nel client."""
+    global _shared
+    with _shared_lock:
+        if _shared is None or _shared.is_closed:
+            _shared = httpx.Client(timeout=60.0)
+        return _shared
+
 
 class ImgbbAdapter(ImageHostAdapter):
     def __init__(self, api_key: str, client: httpx.Client | None = None):
         self.api_key = api_key
-        self._client = client or httpx.Client(timeout=60.0)
+        self._client = client or _shared_client()
 
     def upload(self, image_path: str) -> str:
         try:

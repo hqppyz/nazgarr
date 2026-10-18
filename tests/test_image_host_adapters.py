@@ -134,3 +134,19 @@ def test_a_chevereto_answer_without_an_url_is_an_error(tmp_path):
 
     with pytest.raises(ImageHostError, match="PTScreens"):
         host.upload(_image(tmp_path))
+
+
+def test_image_hosts_built_at_every_upload_share_one_http_client():
+    """Audit 2026-10-18: la catena degli host si costruisce a ogni upload, e
+    ImgBB apriva un httpx.Client per adapter senza chiuderlo mai. Come per
+    gli host Chevereto, uno solo per il processo (chiave in ogni
+    richiesta), rifatto se qualcuno lo ha chiuso."""
+    first, second = ImgbbAdapter(api_key="a"), ImgbbAdapter(api_key="b")
+    assert first._client is second._client
+
+    first._client.close()
+    assert ImgbbAdapter(api_key="c")._client is not first._client
+    assert not ImgbbAdapter(api_key="c")._client.is_closed
+
+    chevereto = [CheveretoImageHost("k", endpoint=f"https://{h}/api/1/upload", name=h) for h in ("a.ex", "b.ex")]
+    assert chevereto[0]._client is chevereto[1]._client
