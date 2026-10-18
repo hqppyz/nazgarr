@@ -19,7 +19,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from email.utils import parsedate_to_datetime
 from typing import Literal
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import parse_qs, urljoin, urlsplit
 
 import httpx
 
@@ -142,7 +142,9 @@ class TrackerAdapter(ABC):
     def search_by_tmdb(self, tmdb_id: int) -> list[TorrentCandidate]:
         """Ricerca sul catalogo pubblico del tracker. Sempre richiesto:
         è il fallback generale usato anche per il cross-seed di file mai
-        scaricati con questo account."""
+        scaricati con questo account. Tutti i risultati, non la prima
+        pagina; se il tracker ne ha più di quanti l'adapter ne legge, una
+        CatalogResults con truncated=True (vedi catalog_truncated)."""
         raise NotImplementedError
 
     def get_own_history(self) -> list[TorrentRecord]:
@@ -167,6 +169,21 @@ class TrackerAdapter(ABC):
         se l'adapter non lo implementa, UploadError se il tracker rifiuta la
         richiesta."""
         raise NotSupportedError(f"{self.__class__.__name__} non supporta upload_torrent()")
+
+
+class CatalogResults(list):
+    """I risultati di search_by_tmdb, con `truncated` se il tracker ne
+    aveva altri oltre il limite di pagine dell'adapter: il controllo dei
+    dupe di un upload deve poterlo dire invece di sembrare completo. Una
+    lista normale per chi non lo guarda."""
+
+    truncated: bool = False
+
+
+def catalog_truncated(results) -> bool:
+    """Se una ricerca del catalogo è incompleta (un plugin che restituisce
+    una lista normale non lo dice mai)."""
+    return bool(getattr(results, "truncated", False))
 
 
 @dataclass(frozen=True)
@@ -265,7 +282,9 @@ class Unit3dTrackerAdapter(TrackerAdapter):
       solo nello stream video — trattarlo comunque come candidato forte,
       mai come certezza assoluta (vedi motore di matching).
     - Rispetta rate_limit_per_min configurato per il tracker; risultati di
-      search_by_tmdb cachati in memoria per cache_ttl_seconds.
+      search_by_tmdb cachati in memoria per cache_ttl_seconds. Ogni pagina
+      della ricerca (perPage=100, cursore meta.next_cursor) è una richiesta
+      col suo turno nel rate limit, fino a MAX_SEARCH_PAGES.
     - Su 429 attende quanto indica Retry-After (secondi o data HTTP; senza,
       un backoff esponenziale), al massimo _MAX_RETRY_WAIT_SECONDS per
       tentativo e _MAX_429_RETRIES tentativi, poi TrackerRateLimitedError.
@@ -274,6 +293,14 @@ class Unit3dTrackerAdapter(TrackerAdapter):
     _MAX_429_RETRIES = 3
     _MAX_RETRY_WAIT_SECONDS = 120.0
     _BASE_BACKOFF_SECONDS = 5.0
+
+    # /api/torrents/filter è paginato a cursore (25 per pagina di default,
+    # 100 al massimo, come chiede anche Upload-Assistant). Prima si leggeva
+    # solo la prima pagina: per una serie con un upload per episodio, o un
+    # film in molte versioni, i torrent più vecchi non diventavano mai
+    # candidati e il controllo dei dupe poteva non vedere un doppione.
+    SEARCH_PER_PAGE = 100
+    MAX_SEARCH_PAGES = 10
 
     _UNIQUE_ID_RE = re.compile(r"Unique ID\s*:\s*(\S+)")
     _GENERAL_SECTION_RE = re.compile(r"(?m)^\s*General\s*$")
@@ -316,13 +343,47 @@ class Unit3dTrackerAdapter(TrackerAdapter):
         if cached is not None and (time.monotonic() - cached[0]) < self._cache_ttl_seconds:
             return cached[1]
 
-        body = self._get_json("/api/torrents/filter", params={"tmdbId": tmdb_id})
-        data = body.get("data", []) if isinstance(body, dict) else None
-        if not isinstance(data, list):
-            raise UploadError("Unexpected answer from the UNIT3D tracker search")
-        candidates = [self._to_candidate(item) for item in data]
+        candidates = CatalogResults()
+        params: dict = {"tmdbId": tmdb_id, "perPage": self.SEARCH_PER_PAGE}
+        seen: set = set()
+        for _ in range(self.MAX_SEARCH_PAGES):
+            body = self._get_json("/api/torrents/filter", params=params)
+            data = body.get("data", []) if isinstance(body, dict) else None
+            if not isinstance(data, list):
+                raise UploadError("Unexpected answer from the UNIT3D tracker search")
+            candidates.extend(self._to_candidate(item) for item in data)
+            following = self._next_page(body)
+            if following is None or following in seen:  # ultima pagina, o un tracker che ripete la stessa
+                break
+            seen.add(following)
+            params = {"tmdbId": tmdb_id, "perPage": self.SEARCH_PER_PAGE, **dict(following)}
+        else:
+            candidates.truncated = True
+            logger.warning(
+                "Tracker %s: più di %d pagine di risultati per tmdb %s, letti solo i primi %d torrent",
+                self.base_url, self.MAX_SEARCH_PAGES, tmdb_id, len(candidates),
+            )
         self._search_cache[tmdb_id] = (time.monotonic(), candidates)
         return candidates
+
+    @staticmethod
+    def _next_page(body: dict) -> tuple | None:
+        """I parametri della pagina dopo: il cursore di UNIT3D
+        (meta.next_cursor), o cursor/page presi dal link links.next. Il link
+        non si segue mai così com'è: arriva dal tracker e potrebbe puntare
+        altrove, se ne leggono solo i parametri."""
+        meta = body.get("meta")
+        cursor = meta.get("next_cursor") if isinstance(meta, dict) else None
+        if isinstance(cursor, str) and cursor:
+            return (("cursor", cursor),)
+        links = body.get("links")
+        following = links.get("next") if isinstance(links, dict) else None
+        if isinstance(following, str) and following:
+            query = parse_qs(urlsplit(following).query)
+            for key in ("cursor", "page"):
+                if query.get(key):
+                    return ((key, query[key][0]),)
+        return None
 
     def get_torrent_detail(self, torrent_id_remote: str) -> TorrentCandidate:
         """Dettaglio singolo torrent — utile per rileggere lo stato

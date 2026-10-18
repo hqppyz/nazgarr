@@ -337,3 +337,77 @@ def test_a_body_that_trickles_past_the_deadline_is_dropped(monkeypatch):
     adapter = _adapter(lambda r: httpx.Response(200, content=trickle()))
     with pytest.raises(UploadError, match="too slow"):
         adapter.download_torrent("https://tracker.example/torrent/download/1.abc")
+
+
+def _page(ids, next_cursor=None, next_link=None):
+    body = {"data": [_search_item(f"https://tracker.example/torrent/download/{i}.k") | {"id": str(i)} for i in ids]}
+    body["meta"] = {"per_page": 100, "next_cursor": next_cursor}
+    body["links"] = {"next": next_link}
+    return body
+
+
+def test_the_search_follows_every_page_of_the_catalogue():
+    # Prima solo la prima pagina (25 torrent): i più vecchi non diventavano
+    # mai candidati, e il controllo dei dupe poteva non vedere un doppione.
+    from nazgarr.adapters.tracker.base import catalog_truncated
+
+    seen = []
+
+    def handler(request):
+        seen.append(dict(request.url.params))
+        cursor = request.url.params.get("cursor")
+        return httpx.Response(200, json=_page([1, 2], "c2") if cursor is None else _page([3]))
+
+    results = _adapter(handler).search_by_tmdb(7)
+
+    assert [c.torrent_id_remote for c in results] == ["1", "2", "3"]
+    assert seen == [{"tmdbId": "7", "perPage": "100"}, {"tmdbId": "7", "perPage": "100", "cursor": "c2"}]
+    assert catalog_truncated(results) is False
+
+
+def test_a_page_link_without_a_cursor_is_followed_by_its_parameters_only():
+    seen = []
+
+    def handler(request):
+        seen.append((request.url.host, dict(request.url.params)))
+        if "page" not in request.url.params:
+            return httpx.Response(200, json=_page([1], next_link="https://elsewhere.example/api/torrents/filter?page=2"))
+        return httpx.Response(200, json=_page([2]))
+
+    results = _adapter(handler).search_by_tmdb(7)
+
+    assert [c.torrent_id_remote for c in results] == ["1", "2"]
+    assert seen[1] == ("tracker.example", {"tmdbId": "7", "perPage": "100", "page": "2"})  # mai l'altro host
+
+
+def test_the_search_stops_at_the_page_cap_and_says_it_is_truncated(monkeypatch):
+    from nazgarr.adapters.tracker.base import catalog_truncated
+
+    monkeypatch.setattr(Unit3dTrackerAdapter, "MAX_SEARCH_PAGES", 3)
+    calls = []
+
+    def handler(request):
+        calls.append(1)
+        n = len(calls)
+        return httpx.Response(200, json=_page([n], f"c{n + 1}"))
+
+    adapter = _adapter(handler)
+    results = adapter.search_by_tmdb(7)
+
+    assert len(calls) == 3 and len(results) == 3
+    assert catalog_truncated(results) is True
+    assert catalog_truncated(adapter.search_by_tmdb(7)) is True  # anche dalla cache
+    assert len(calls) == 3
+
+
+def test_a_tracker_repeating_the_same_cursor_does_not_loop():
+    calls = []
+
+    def handler(request):
+        calls.append(1)
+        return httpx.Response(200, json=_page([len(calls)], "same"))
+
+    from nazgarr.adapters.tracker.base import catalog_truncated
+
+    results = _adapter(handler).search_by_tmdb(7)
+    assert len(calls) == 2 and catalog_truncated(results) is False
