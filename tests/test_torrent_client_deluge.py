@@ -12,13 +12,18 @@ from nazgarr.adapters.torrent_client.deluge import DelugeAdapter
 
 
 class _DelugeMock:
-    def __init__(self, torrents=None, plugins=("Label",), labels=(), connected=True):
+    def __init__(self, torrents=None, plugins=("Label",), labels=(), connected=True, reads_after_recheck=()):
         self.torrents = dict(torrents or {})
         self.plugins = list(plugins)
         self.labels = list(labels)
         self.connected = connected
         self.logged_in = False
         self.calls: list[tuple[str, list]] = []
+        # Le letture di core.get_torrent_status dopo force_recheck, una alla
+        # volta, prima di quella in self.torrents: lo stato che Deluge
+        # aggiorna solo all'evento dopo.
+        self.reads_after_recheck = list(reads_after_recheck)
+        self.rechecked = False
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/json"
@@ -44,7 +49,12 @@ class _DelugeMock:
             return ok([])
         if method == "core.get_torrents_status":
             return ok({h: {**t, "hash": h} for h, t in self.torrents.items()})
+        if method == "core.force_recheck":
+            self.rechecked = True
+            return ok(True)
         if method == "core.get_torrent_status":
+            if self.rechecked and self.reads_after_recheck:
+                return ok({**self.reads_after_recheck.pop(0), "hash": params[0]})
             torrent = self.torrents.get(params[0])
             return ok({**torrent, "hash": params[0]} if torrent else {})
         if method in ("core.add_torrent_file", "core.add_torrent_url", "core.add_torrent_magnet"):
@@ -151,20 +161,29 @@ def test_add_rejects_force_recheck_false_and_duplicates():
         adapter.add_torrent("magnet:?x", save_path="/d", expected_info_hash="ABC123")
 
 
-@pytest.mark.parametrize("state,progress,paused,auto,expected", [
-    ("Checking", 40.0, False, True, "pending"),
+# is_auto_managed è sempre vero, come lo riporta Deluge: è l'opzione salvata,
+# non lo stato di libtorrent, e la mappatura non la guarda (audit 2026-10-18).
+@pytest.mark.parametrize("state,progress,paused,expected", [
+    ("Checking", 40.0, False, "pending"),
     # Subito dopo force_recheck, visto sull'istanza reale: in coda per il controllo.
-    ("Seeding", 0.0, True, True, "pending"),
-    ("Queued", 0.0, True, True, "pending"),
-    ("Seeding", 100.0, False, True, "ok"),
-    ("Paused", 100.0, True, False, "ok"),
-    ("Downloading", 30.0, False, True, "failed"),
-    ("Paused", 30.0, True, False, "failed"),
-    ("Error", 0.0, False, True, "failed"),
+    ("Seeding", 0.0, True, "pending"),
+    ("Queued", 0.0, True, "pending"),
+    # force_recheck l'ha avviato per il controllo, lo stato di Deluge non l'ha ancora visto.
+    ("Paused", 0.0, False, "pending"),
+    ("Seeding", 100.0, False, "ok"),
+    ("Paused", 100.0, True, "ok"),
+    ("Downloading", 30.0, False, "failed"),
+    # Un reseed fermo dopo un recheck fallito: force_recheck l'ha rimesso in
+    # pausa. Prima era "pending" per sempre: il seed job non finiva mai.
+    ("Paused", 30.0, True, "failed"),
+    # La stessa lettura subito dopo l'aggiunta in pausa, se Deluge non ha
+    # ancora tolto la pausa: add_torrent aspetta che passi (test sotto).
+    ("Paused", 0.0, True, "failed"),
+    ("Error", 0.0, False, "failed"),
 ])
-def test_status_mapping(state, progress, paused, auto, expected):
+def test_status_mapping(state, progress, paused, expected):
     mock = _DelugeMock(torrents={"h1": {"state": state, "progress": progress, "paused": paused,
-                                        "is_auto_managed": auto, "total_wanted": 100, "total_done": 30}})
+                                        "is_auto_managed": True, "total_wanted": 100, "total_done": 30}})
 
     status = _adapter(mock).get_torrent_status("h1")
 
@@ -172,6 +191,59 @@ def test_status_mapping(state, progress, paused, auto, expected):
     assert status.progress == pytest.approx(progress / 100)
     assert status.incomplete is (expected == "failed" and state != "Error")
     assert status.amount_left == 70
+    assert "is_auto_managed" not in mock.called("core.get_torrent_status")[-1][1]
+
+
+PAUSED_UNCHECKED = {"state": "Paused", "progress": 0.0, "paused": True}
+
+
+def test_a_paused_add_returns_once_deluge_shows_its_check():
+    # Fra force_recheck e l'evento che Deluge elabora dopo, la lettura è
+    # quella di un recheck fallito: un reconcile lì chiudeva il seed job.
+    mock = _DelugeMock(reads_after_recheck=[PAUSED_UNCHECKED, PAUSED_UNCHECKED])
+    adapter = _adapter(mock)
+
+    info_hash = adapter.add_torrent("magnet:?x", save_path="/d", stopped=True)
+
+    assert len(mock.called("core.get_torrent_status")) == 3  # due "Paused", poi "Checking"
+    assert adapter.get_torrent_status(info_hash).recheck_status == "pending"
+
+
+def test_the_wait_after_a_paused_add_is_bounded(monkeypatch):
+    # Un controllo fallito già finito alla prima lettura (un torrent piccolo):
+    # la lettura resta "Paused", e dopo l'attesa è l'esito giusto.
+    from nazgarr.adapters.torrent_client import deluge
+
+    monkeypatch.setattr(deluge, "CHECK_START_TIMEOUT", 0.05)
+    mock = _DelugeMock(reads_after_recheck=[PAUSED_UNCHECKED] * 1000)
+    adapter = _adapter(mock)
+
+    info_hash = adapter.add_torrent("magnet:?x", save_path="/d", stopped=True)
+
+    assert adapter.get_torrent_status(info_hash).recheck_status == "failed"
+    assert len(mock.reads_after_recheck) > 900
+
+
+def test_a_running_add_and_a_running_recheck_do_not_wait():
+    mock = _DelugeMock(reads_after_recheck=[{"state": "Seeding", "progress": 0.0, "paused": False}] * 5)
+    adapter = _adapter(mock)
+
+    adapter.add_torrent("magnet:?x", save_path="/d")
+    assert mock.called("core.get_torrent_status") == []
+    adapter.recheck("abc123")
+    assert len(mock.called("core.get_torrent_status")) == 1
+
+
+def test_the_recheck_of_a_paused_torrent_waits_like_the_add():
+    # Il retry di un reseed fallito, fermo: lo si ricontrolla.
+    mock = _DelugeMock(torrents={"abc123": {"state": "Checking", "progress": 5.0, "paused": False}},
+                       reads_after_recheck=[PAUSED_UNCHECKED])
+    adapter = _adapter(mock)
+
+    adapter.recheck("ABC123")
+
+    assert mock.called("core.force_recheck") == [[["abc123"]]]
+    assert len(mock.called("core.get_torrent_status")) == 2
 
 
 def test_status_of_an_unknown_torrent_raises():
