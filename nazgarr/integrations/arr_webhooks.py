@@ -128,9 +128,37 @@ def locate(session: Session, arr_path: str, size: int | None) -> tuple[Disk, str
     return None
 
 
+def _gone(disk: Disk, relative_path: str) -> bool:
+    """Il file non è più sul disco. Solo "non esiste" vale: un errore di
+    lettura (permessi) lascia la riga com'è, ci pensa la scansione."""
+    try:
+        os.lstat(os.path.join(disk.root_path, relative_path))
+    except (FileNotFoundError, NotADirectoryError):
+        return True
+    except OSError:
+        return False
+    return False
+
+
+def _common_tail(parts: list[str], relative_path: str) -> int:
+    """Quante parti finali del percorso di Radarr/Sonarr coincidono con quello della riga."""
+    mine = [p.lower() for p in relative_path.split("/") if p]
+    count = 0
+    for theirs, ours in zip(reversed(parts), reversed(mine), strict=False):
+        if theirs.lower() != ours:
+            break
+        count += 1
+    return count
+
+
 def known_file(session: Session, arr_path: str, size: int | None) -> MediaFile | None:
     """La riga attuale di un file che non c'è più (cancellato o rinominato):
-    stessa cartella e nome (le ultime due parti), e la stessa dimensione."""
+    stessa cartella e nome (le ultime due parti), la stessa dimensione, e il
+    file davvero sparito dal suo disco (audit 2026-10-18). Prima bastavano
+    nome e dimensione, su qualunque disco: con due copie uguali (su due
+    dischi, o in due cartelle media) si dimenticava quella ancora lì, e
+    quella cancellata restava attuale. Con più righe sparite, quella col
+    percorso più simile a quello di Radarr/Sonarr, a parità la più vecchia."""
     parts = _parts(arr_path)
     if not parts:
         return None
@@ -139,13 +167,22 @@ def known_file(session: Session, arr_path: str, size: int | None) -> MediaFile |
     rows = (
         session.query(MediaFile)
         .filter(func.lower(MediaFile.relative_path).like(f"%{tail}"))
+        .order_by(MediaFile.id)
         .all()
     )
+    best, best_tail = None, 0
     for row in rows:
-        if current.get(row.disk_id) == row.last_scan_id and (not size or row.size_bytes == size):
-            if row.relative_path.lower() == tail or row.relative_path.lower().endswith("/" + tail):
-                return row
-    return None
+        if current.get(row.disk_id) != row.last_scan_id or (size and row.size_bytes != size):
+            continue
+        relative = row.relative_path.lower()
+        if relative != tail and not relative.endswith("/" + tail):
+            continue
+        if not _gone(row.disk, row.relative_path):
+            continue
+        common = _common_tail(parts, row.relative_path)
+        if common > best_tail:
+            best, best_tail = row, common
+    return best
 
 
 # --- identità ----------------------------------------------------------------------------

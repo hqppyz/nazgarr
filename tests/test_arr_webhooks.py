@@ -151,6 +151,55 @@ def test_a_sonarr_rename_keeps_the_identity_under_the_new_name(db_session, tmp_p
     assert not _current(db_session, disk, "media/tv/Show/Season 01/Show.S01E01.mkv")
 
 
+def _two_disks_with_the_same_copy(db_session, tmp_path):
+    """Due dischi con la stessa cartella, lo stesso nome e la stessa
+    dimensione: una copia rimasta dopo uno spostamento, o due istanze di Radarr."""
+    disks = []
+    for name in ("one", "two"):
+        root = tmp_path / name
+        folder = root / "media" / "movies" / "Foo (2020)"
+        folder.mkdir(parents=True)
+        (root / "torrents").mkdir()
+        (root / "torrents" / "Foo.2020.mkv").write_bytes(b"f" * 100)
+        os.link(root / "torrents" / "Foo.2020.mkv", folder / "Foo (2020).mkv")
+        disk = Disk(label=name, root_path=str(root), media_rel_path="media", torrents_rel_path="torrents")
+        db_session.add(disk)
+        db_session.commit()
+        disks.append((root, disk))
+    for _ in range(2):
+        for _root, disk in disks:
+            _scan(db_session, disk)
+    return disks
+
+
+FOO = "media/movies/Foo (2020)/Foo (2020).mkv"
+FOO_DELETE = {"eventType": "MovieFileDelete", "movie": {"tmdbId": 1},
+              "movieFile": {"path": "/movies/Foo (2020)/Foo (2020).mkv", "size": 100}}
+
+
+def test_a_delete_forgets_the_copy_that_is_really_gone_on_its_disk(db_session, tmp_path):
+    """Audit 2026-10-18: si dimenticava la prima riga con quel nome e quella
+    dimensione, su qualunque disco, senza guardare se il file c'era ancora."""
+    (_root_one, one), (root_two, two) = _two_disks_with_the_same_copy(db_session, tmp_path)
+    (root_two / FOO).unlink()  # Radarr cancella la copia del secondo disco
+
+    event = _event(db_session, "radarr", _radarr(db_session), FOO_DELETE)
+
+    assert event.detail == "file removed"
+    assert _current(db_session, one, FOO) and not _current(db_session, two, FOO)
+    kept = db_session.query(MediaFile).filter_by(disk_id=one.id, relative_path=FOO).one()
+    assert db_session.query(SeedFile).filter_by(disk_id=one.id).one().media_file_id == kept.id
+
+
+def test_a_delete_of_a_file_still_on_the_disk_forgets_nothing(db_session, tmp_path):
+    (_root_one, one), (_root_two, two) = _two_disks_with_the_same_copy(db_session, tmp_path)
+
+    event = _event(db_session, "radarr", _radarr(db_session), FOO_DELETE)
+
+    assert event.detail == "file not in the library, or nothing to do"
+    assert _current(db_session, one, FOO) and _current(db_session, two, FOO)
+
+
 def test_a_path_from_the_webhook_never_leaves_the_media_folders(db_session, tmp_path):
     root, disk = _library(db_session, tmp_path)
     (root / "secret.mkv").write_bytes(b"s" * 10)  # sul disco, fuori dalle cartelle media
