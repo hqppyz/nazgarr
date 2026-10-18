@@ -340,6 +340,7 @@ export const upload = {
   'upload.event.pack_from_seasons': 'Only {seasons} from the folder: {count} videos in the upload, the other {left} left out.',
   'upload.event.job_split_seasons': 'Several seasons: split into {count} uploads, one per season (uploads {jobs}).',
   'upload.event.split_skipped_untranslated': "Not split into episodes: some episodes of the files don't translate into the chosen ordering, so it isn't known whether the season is complete. It goes on as a season pack.",
+  'upload.event.split_orphans_removed': 'Removed {count} upload(s) left by a split stopped halfway by a restart: the split is done again.',
   'upload.event.split_from_seasons': '{season} of the folder with several seasons of upload #{upload}.',
   'upload.event.split_seasons_failed': 'Splitting into seasons failed: it goes on as a complete pack.',
   'upload.event.watch_folder_removed': 'No episode left: {folder} removed from the watched folder, with {count} files outside the torrents.',

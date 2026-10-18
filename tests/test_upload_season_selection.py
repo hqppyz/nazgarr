@@ -335,3 +335,25 @@ def test_a_split_into_seasons_failing_halfway_leaves_only_the_complete_pack(db_s
     assert (job.status, job.kind) == ("analyzing", "complete_pack")
     assert db_session.query(UploadJob).count() == 1 and kicked == []
     assert job.events[-1].code == "split_seasons_failed"
+
+
+def test_a_split_into_seasons_stopped_by_a_restart_never_splits_twice(db_session, from_watch, monkeypatch):
+    """Audit 2026-10-18: una stagione creata a metà da una divisione fermata
+    da un riavvio ha la cartella intera; ripresa da sola si identificava come
+    complete pack e si divideva di nuovo (S01 tre volte)."""
+    from tests.test_upload_split import _crash_on, _Killed, _restart
+
+    restore = _crash_on(monkeypatch, 3)  # il pack, la S01, poi il kill sulla S02
+    with pytest.raises(_Killed):
+        from_watch()
+    restore()
+    parent, first, second = db_session.query(UploadJob).order_by(UploadJob.id).all()
+    assert (parent.status, first.status, second.status) == ("analyzing", "analyzing", "identifying")
+
+    _resumed, kicked = _restart(db_session, [second.id, first.id], parent.id)
+
+    seasons = _children(db_session, parent)
+    assert parent.status == "cancelled"
+    assert [(json.loads(c.seasons_json), c.status, c.stage) for c in seasons] == [
+        ([1], "analyzing", None), ([2], "analyzing", None), ([3], "analyzing", None)]
+    assert db_session.query(UploadJob).count() == 4 and kicked == [c.id for c in seasons]

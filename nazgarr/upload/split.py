@@ -268,9 +268,10 @@ def split_seasons(session: Session, job: UploadJob, details: dict | None) -> lis
             session.commit()
             identify.record_identification(session, child, source, candidates)
             try:
+                # Ogni stagione passa poi dalla divisione in episodi (SPLIT_PENDING).
                 identify.confirm(session, child, content_type="tv", tmdb_id=job.tmdb_id, kind="season_pack",
                                  seasons=[season], episode=None, details=details, order_key=job.episode_order,
-                                 orders=orders)
+                                 orders=orders, split_pending=enabled(session))
             except (upload_jobs.UploadJobError, episode_orders.EpisodeOrderError) as exc:
                 # Resta al match, con la cartella intera: si sceglie a mano.
                 session.rollback()

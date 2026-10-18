@@ -359,3 +359,73 @@ def test_a_cancel_during_the_split_is_honoured(db_session, tmp_path, monkeypatch
     assert job.status == "cancelled" and kicked == []
     assert db_session.query(UploadJob).count() == 1
     assert "split_failed" not in [e.code for e in job.events]
+
+
+class _Killed(BaseException):
+    """Un kill del processo: nessun except Exception lo ferma."""
+
+
+def _crash_on(monkeypatch, call):
+    real = upload_identify.record_identification
+    calls = []
+
+    def record_identification(*args, **kwargs):
+        calls.append(1)
+        if len(calls) == call:
+            raise _Killed()
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(upload_identify, "record_identification", record_identification)
+    return lambda: monkeypatch.setattr(upload_identify, "record_identification", real)
+
+
+def _restart(db_session, ids_first, last):
+    """Come all'avvio (upload_jobs.reset_interrupted e un kick per job), con i
+    job svegliati nell'ordine dato: (ripresi, svegliati dalla ripresa)."""
+    from nazgarr.upload import analysis as upload_analysis
+
+    db_session.rollback()
+    resumed = upload_jobs.reset_interrupted(db_session)
+    kicked = []
+    worker = type("W", (), {"kick": lambda self, job_id, status: kicked.append(job_id)})()
+    for job_id in [*ids_first, last]:
+        job = db_session.get(UploadJob, job_id)
+        if job is None:
+            continue  # tolto da un altro passo nel frattempo
+        handler = {"identifying": upload_identify.handle, "analyzing": upload_analysis.handle}[job.status]
+        handler(db_session, job, worker)
+    return resumed, kicked
+
+
+def test_a_split_stopped_by_a_restart_is_done_again_without_leftovers(db_session, tmp_path, monkeypatch):
+    """Audit 2026-10-18: un riavvio a metà divisione faceva ripartire il pack
+    intero (l'analisi non sapeva della divisione) e, accanto, gli episodi
+    già creati."""
+    restore = _crash_on(monkeypatch, 3)  # il pack, il primo episodio, poi il kill sul secondo
+    with pytest.raises(_Killed):
+        _identified(db_session, tmp_path, monkeypatch)
+    restore()
+    parent, first, second = db_session.query(UploadJob).order_by(UploadJob.id).all()
+    assert (parent.status, parent.stage, first.status, second.status) == (
+        "analyzing", upload_identify.SPLIT_PENDING, "analyzing", "identifying")
+
+    resumed, kicked = _restart(db_session, [second.id, first.id], parent.id)
+
+    assert sorted(resumed) == sorted([parent.id, first.id, second.id])
+    jobs = db_session.query(UploadJob).order_by(UploadJob.id).all()
+    assert jobs[0].id == parent.id and parent.status == "cancelled"
+    children = jobs[1:]
+    assert [(c.kind, c.episode, c.status, c.split_from_id) for c in children] == [
+        ("episode", 1, "analyzing", parent.id), ("episode", 2, "analyzing", parent.id)]
+    # Righe nuove (SQLite può ridare gli stessi id): ognuna creata una volta.
+    assert [[e.code for e in c.events].count("job_created") for c in children] == [1, 1]
+    assert kicked == [c.id for c in children]
+    assert "job_split" in [e.code for e in parent.events]
+
+
+def test_a_complete_season_after_a_restart_is_analyzed_as_a_pack(db_session, tmp_path, monkeypatch):
+    """Lo stage della divisione si toglie anche quando non si divide: dopo,
+    l'analisi è quella di sempre."""
+    job, _kicked, _finished = _identified(db_session, tmp_path, monkeypatch, episodes_in_season=2)
+
+    assert (job.status, job.stage) == ("analyzing", None)

@@ -286,6 +286,12 @@ def _check_trackers(
 
 
 def handle(session: Session, job: UploadJob, worker) -> None:
+    from nazgarr.upload import identify as upload_identify  # import qui: identify importa questo modulo
+
+    # Una divisione fermata a metà da un riavvio (nazgarr/upload/identify.py):
+    # un upload creato da lei si toglie, il pack la rifà prima dell'analisi.
+    if upload_identify.drop_split_orphan(session, job) or upload_identify.resume_split(session, job, worker):
+        return
     upload_jobs.log_event(session, job, "analysis_started")
     session.commit()
     try:

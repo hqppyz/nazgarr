@@ -204,7 +204,7 @@ def test_auto_match_confirms_the_numbers_of_the_chosen_ordering(db_session, monk
     from nazgarr.upload import jobs as upload_jobs
 
     job = SimpleNamespace(id=1, kind="episode", seasons_json="[2]", episode=1, forced_ids_json="{}",
-                          title=None, year=None, layout_json=None)
+                          title=None, year=None, layout_json=None, origin=None)
     orders = {
         "recommended": "tmdb:group:1", "warning": None,
         "orders": [{"key": "tmdb:group:1"}], "files_order": "tvdb:aired",
