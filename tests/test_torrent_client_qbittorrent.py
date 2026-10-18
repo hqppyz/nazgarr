@@ -263,3 +263,17 @@ def test_the_factory_closes_the_adapter_even_when_the_operation_fails(monkeypatc
     with adapter_factory.torrent_client(object()):
         pass
     assert closed == [True, True]
+
+
+def test_stop_stops_the_torrent():
+    class StoppingClient(FakeQbtClient):
+        def __init__(self):
+            super().__init__()
+            self.stopped = []
+
+        def torrents_stop(self, torrent_hashes):
+            self.stopped.append(torrent_hashes)
+
+    client = StoppingClient()
+    _adapter(client).stop("h1")
+    assert client.stopped == ["h1"]

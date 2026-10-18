@@ -151,3 +151,110 @@ def test_sampling_still_catches_a_corrupted_sampled_piece(tmp_path):
 
     assert result.mismatches == 1
     assert result.clean is False
+
+
+class _ReadSpy:
+    """Un file aperto che registra quanti byte gli si chiedono per volta."""
+
+    def __init__(self, fh, sizes):
+        self._fh, self._sizes = fh, sizes
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        self._fh.close()
+
+    def close(self):
+        self._fh.close()
+
+    def seek(self, pos):
+        return self._fh.seek(pos)
+
+    def read(self, n):
+        self._sizes.append(n)
+        return self._fh.read(n)
+
+
+def test_a_piece_is_hashed_in_bounded_reads_whatever_its_length(tmp_path, monkeypatch):
+    # Un .torrent del tracker decide il piece length: un piece grande quanto
+    # il file portava l'intero video in memoria con una sola read().
+    import builtins
+
+    from nazgarr.torrents import pieces as pieces_module
+
+    content = bytes(range(256)) * 4  # 1 KiB, un solo piece
+    path = tmp_path / "movie.mkv"
+    path.write_bytes(content)
+    sizes = []
+    real_open = builtins.open
+    monkeypatch.setattr(pieces_module, "HASH_CHUNK", 100)
+    monkeypatch.setattr(builtins, "open", lambda p, mode="r": _ReadSpy(real_open(p, mode), sizes))
+
+    result = verify_file_pieces(
+        str(path), piece_length=len(content), pieces=_pieces(content, len(content)), total_length=len(content),
+        file_offset=0, file_length=len(content),
+    )
+
+    assert result.ok == 1 and result.mismatches == 0
+    assert sizes and max(sizes) <= 100
+
+
+def test_a_file_shorter_than_its_piece_is_a_mismatch(tmp_path):
+    content = b"0123456789abcdef" * 2
+    path = tmp_path / "movie.mkv"
+    path.write_bytes(content[:-3])  # troncato dopo la scansione
+
+    result = verify_file_pieces(
+        str(path), piece_length=16, pieces=_pieces(content, 16), total_length=32, file_offset=0, file_length=32,
+    )
+
+    assert (result.ok, result.mismatches) == (1, 1)
+
+
+def test_only_boundary_pieces_is_no_proof(tmp_path):
+    # Due file da 10 byte, piece da 32: l'unico piece è a cavallo, mai letto.
+    content = b"a" * 10 + b"b" * 10
+    path = tmp_path / "file_b.mkv"
+    path.write_bytes(b"X" * 10)  # contenuto sbagliato, stessa size
+
+    result = verify_file_pieces(
+        str(path), piece_length=32, pieces=_pieces(content, 32), total_length=20, file_offset=10, file_length=10,
+    )
+
+    assert (result.ok, result.mismatches, result.boundary) == (0, 0, 1)
+    assert result.clean is False
+
+
+def test_a_tiny_wrong_episode_in_a_pack_is_never_piece_verified(tmp_path):
+    # Il caso riprodotto: E01 sbagliato ma della size giusta, più piccolo di
+    # un piece. Prima risultava verificato a 0.99 e il pack veniva consigliato.
+    from nazgarr.torrents import layout as torrent_layout
+    from nazgarr.torrents.metainfo import TorrentFileEntry, TorrentInfo
+
+    e01, e02 = b"1" * 24, b"2" * 40
+    stream = e01 + e02
+    parsed = TorrentInfo(
+        name="Show.S01", piece_length=32, pieces=_pieces(stream, 32), is_multi_file=True, total_length=64,
+        files=[TorrentFileEntry("Show.S01E01.mkv", 24, 0), TorrentFileEntry("Show.S01E02.mkv", 40, 24)],
+    )
+    (tmp_path / "e01.mkv").write_bytes(b"X" * 24)
+    (tmp_path / "e02.mkv").write_bytes(e02)
+    matches = [
+        torrent_layout.FileMatch(
+            layout_file=torrent_layout.LayoutFile(entry.path, entry.length, True),
+            local=torrent_layout.LocalFile("media", i, 1, name, str(tmp_path / name), entry.length),
+        )
+        for i, (entry, name) in enumerate(zip(parsed.files, ("e01.mkv", "e02.mkv"), strict=True), start=1)
+    ]
+
+    evaluation = torrent_layout.evaluate(
+        matches, torrent_layout.Layout(folder="Show.S01", files=[m.layout_file for m in matches], torrent=parsed),
+        anchor_id=1, unique_ids=None, single_unique_id=None, compute_unique_id=lambda _: None,
+        fetch_torrent=lambda: parsed,
+    )
+
+    e01_match = evaluation.files[0]
+    assert e01_match.piece_verified is None and e01_match.confidence == torrent_layout.CONFIDENCE_SIZE_ONLY
+    assert evaluation.confidence == torrent_layout.CONFIDENCE_SIZE_ONLY
+    assert evaluation.piece_verified is None

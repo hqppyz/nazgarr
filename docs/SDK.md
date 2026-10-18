@@ -6,7 +6,7 @@ Nazgarr can be extended in three ways:
 - **Webhooks**: signed HTTP calls for the events you choose.
 - **API keys**: scripts and other services can use the same JSON API as the web UI.
 
-SDK version: **1.2.0** (`nazgarr.sdk.SDK_VERSION`, [semantic versioning](https://semver.org): a breaking change bumps the major version). 1.1 added `AdapterSpec.icon`, 1.2 `CheveretoImageHost` and `chevereto_image_url`: a plugin that uses them needs `REQUIRES_SDK = ">=1.1,<2"` or `">=1.2,<2"`.
+SDK version: **1.3.0** (`nazgarr.sdk.SDK_VERSION`, [semantic versioning](https://semver.org): a breaking change bumps the major version). 1.1 added `AdapterSpec.icon`, 1.2 `CheveretoImageHost` and `chevereto_image_url`, 1.3 `TorrentClientAdapter.stop`, `CatalogResults` and `catalog_truncated`: a plugin that uses them needs `REQUIRES_SDK = ">=1.1,<2"`, `">=1.2,<2"` or `">=1.3,<2"`.
 
 ## Rules that apply to everything here
 
@@ -141,8 +141,8 @@ Methods marked **required** are abstract. The others have a default that raises 
 
 | Method | |
 |---|---|
-| `search_by_tmdb(tmdb_id) -> list[TorrentCandidate]` | **required**: the tracker's torrents for a movie or series |
-| `download_torrent(url) -> bytes` | a `.torrent` from a `download_link`, through the tracker's rate limit |
+| `search_by_tmdb(tmdb_id) -> list[TorrentCandidate]` | **required**: the tracker's torrents for a movie or series. If you stop before the end of the catalogue (a page cap, a cursor the tracker repeats), return a `CatalogResults` (a `list`) with `truncated = True` (SDK 1.3), so the upload dupe check says it saw only part of it; `catalog_truncated(results)` reads it, and a plain list counts as complete |
+| `download_torrent(url) -> bytes` | a `.torrent` from a `download_link`, through the tracker's rate limit. Needed for reseeds: Nazgarr downloads the `.torrent` itself, checks its info hash and sends the client those bytes, never the link. The link comes from the tracker, so it is untrusted: refuse one off the tracker's host (or `http://` on an `https://` tracker), and cap the body as you read it, never after (the built-in UNIT3D adapter stops at 20 MB, `nazgarr/core/http_limits.py`) |
 | `upload_torrent(fields: UploadFields, torrent_path) -> UploadedTorrent` | publish a new upload; return the tracker id and the link to download the `.torrent` **as the tracker stored it**, because trackers often rewrite it and the info hash changes |
 | `get_own_history() -> list[TorrentRecord]` | your history on the tracker, if it has one |
 
@@ -158,12 +158,13 @@ Raise `UploadError` when the tracker refuses an upload, and `TrackerRateLimitedE
 | `get_torrent_info(info_hash) -> ClientTorrentInfo \| None` | one torrent with its files. Also asked after a failed add, to know whether the torrent reached the client anyway: return `None` only when the client really does not have it |
 | `content_layout() -> str` | the user's layout preference for added torrents (default `Original`): reseeds place their new hardlinks to match it |
 | `recheck(info_hash)` | ask the client to check a torrent again |
+| `stop(info_hash)` | stop a torrent, no download and no upload (SDK 1.3). Called when a reseed's recheck fails: left running, the torrent would download the missing pieces into files that are hardlinks of the user's library. Without it, Nazgarr tells the user to stop the torrent by hand |
 | `list_categories() -> list[str]` | the client's categories, for the category pickers |
 | `remove_torrent(info_hash, delete_files)` | remove a torrent from the client; with `delete_files`, also its files (only the torrent's own). Only called on an explicit user request |
 
 Raise `TorrentAddTimeoutError` if the torrent never shows up after adding it, and `TorrentAlreadyInClientError` if the client already has it.
 
-When `torrent_file_or_url` is a local file, send its **content** to the client, never its path: the client usually runs in another container and cannot see Nazgarr's data folder. Only real URLs (http, https, magnet) go to the client as URLs.
+When `torrent_file_or_url` is a local file, send its **content** to the client, never its path: the client usually runs in another container and cannot see Nazgarr's data folder. Only real URLs (http, https, magnet) go to the client as URLs. Uploads and reseeds always pass a local file.
 
 Set the class attribute `can_skip_recheck = False` if the client cannot add a torrent as already complete: Nazgarr then never records a skipped recheck for it, and `add_torrent` rechecks even when `skip_check_verified` is true.
 
@@ -308,6 +309,9 @@ The client's base URL is a column of every client (`ctx.row.base_url`). Only you
 #### A tracker, minimal
 
 ```python
+from urllib.parse import urlsplit
+
+
 class MyTracker(sdk.TrackerAdapter):
     def __init__(self, base_url: str, api_token: str, client: httpx.Client | None = None):
         self.http = client or httpx.Client(base_url=base_url, timeout=30.0)
@@ -325,10 +329,26 @@ class MyTracker(sdk.TrackerAdapter):
             for r in results
         ]
 
+    MAX_TORRENT_BYTES = 20 * 1024 * 1024
+
     def download_torrent(self, url: str) -> bytes:
-        response = self.http.get(url)
-        response.raise_for_status()
-        return response.content
+        # The link comes from the tracker: never follow it to another host,
+        # and never hold an endless body in memory. "identity" keeps httpx
+        # from decompressing a small gzip into gigabytes before you count.
+        tracker = urlsplit(str(self.http.base_url))
+        link = urlsplit(url)
+        if link.hostname != tracker.hostname or link.scheme != tracker.scheme:
+            raise sdk.UploadError(f"Download link outside the tracker: {link.hostname}")
+        body = bytearray()
+        with self.http.stream("GET", url, headers={"Accept-Encoding": "identity"}) as response:
+            response.raise_for_status()
+            if response.headers.get("Content-Encoding", "identity") != "identity":
+                raise sdk.UploadError("The tracker compressed the .torrent anyway")
+            for chunk in response.iter_raw():
+                body += chunk
+                if len(body) > self.MAX_TORRENT_BYTES:
+                    raise sdk.UploadError("The tracker sent a .torrent bigger than 20 MB")
+        return bytes(body)
 
 
 def setup() -> None:

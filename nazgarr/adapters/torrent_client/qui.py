@@ -179,6 +179,9 @@ class QuiTorrentClientAdapter(TorrentClientAdapter):
     def start(self, info_hash: str) -> None:
         self._bulk_action([info_hash], "resume")
 
+    def stop(self, info_hash: str) -> None:
+        self._bulk_action([info_hash], "pause")
+
     def _wait_for_new_hash(self, before_hashes: set[str], expected: str | None = None) -> str:
         deadline = time.monotonic() + self.poll_timeout
         while time.monotonic() < deadline:

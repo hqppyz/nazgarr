@@ -21,6 +21,28 @@ Porting diretto da ratio-guardian/app/torrent_pieces.py."""
 import hashlib
 from dataclasses import dataclass
 
+# Quanto si legge al massimo in una volta per calcolare l'hash di un piece:
+# la memoria resta questa qualunque sia il piece length del .torrent (che
+# arriva dal tracker). Prima un piece si leggeva intero, e un .torrent con
+# un piece grande quanto il file portava in memoria tutto il video.
+HASH_CHUNK = 4 * 1024 * 1024
+
+
+def hash_range(fh, start: int, length: int) -> bytes:
+    """SHA-1 di `length` byte di fh da `start`, letti a blocchi di
+    HASH_CHUNK. Un file più corto dà l'hash di quello che c'è, cioè un
+    mismatch, come prima."""
+    fh.seek(start)
+    digest = hashlib.sha1()
+    left = length
+    while left > 0:
+        buf = fh.read(min(HASH_CHUNK, left))
+        if not buf:
+            break
+        digest.update(buf)
+        left -= len(buf)
+    return digest.digest()
+
 
 @dataclass
 class PieceVerifyResult:
@@ -34,10 +56,13 @@ class PieceVerifyResult:
 
     @property
     def clean(self) -> bool:
-        """Nessun mismatch reale, e almeno un dato utile è stato ottenuto
-        (una piece verificata o di boundary) — mai True su un risultato
-        vuoto (es. file illeggibile, vedi verify_file_pieces)."""
-        return self.mismatches == 0 and (self.ok > 0 or self.boundary > 0)
+        """Nessun mismatch reale e almeno un piece letto e verificato. Mai
+        True su un risultato vuoto (file illeggibile, vedi
+        verify_file_pieces) né con soli piece di boundary: quelli non si
+        leggono, e un file più piccolo di un piece in un pack risultava
+        "verificato" (0.99) senza che se ne fosse letto un byte (audit
+        2026-10-18). Lo stesso criterio di layout._match_by_content."""
+        return self.mismatches == 0 and self.ok > 0
 
 
 def verify_file_pieces(
@@ -94,9 +119,7 @@ def verify_file_pieces(
             for idx in inner:
                 piece_start = idx * piece_length
                 piece_end = min(piece_start + piece_length, total_length)
-                fh.seek(piece_start - file_offset)
-                chunk = fh.read(piece_end - piece_start)
-                if hashlib.sha1(chunk).digest() == pieces[idx]:
+                if hash_range(fh, piece_start - file_offset, piece_end - piece_start) == pieces[idx]:
                     ok += 1
                 else:
                     mismatches += 1

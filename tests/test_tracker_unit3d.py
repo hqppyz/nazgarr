@@ -262,3 +262,294 @@ def test_the_rate_limiter_never_lets_threads_exceed_the_limit_together():
     for th in threads:
         th.join()
     assert len(waits) == 3  # le prime 5 subito, le altre 3 aspettano la finestra
+
+
+def _gzip_bomb_chunks(decoded_bytes: int, chunk: int = 1024):
+    """Un corpo gzip di soli zeri che si espande a decoded_bytes, mandato a
+    pezzi da `chunk` byte compressi, e quanti pezzi sono stati letti."""
+    import zlib
+
+    packer = zlib.compressobj(9, zlib.DEFLATED, 31)  # 31: formato gzip
+    block = b"\0" * (1024 * 1024)
+    raw = b"".join(packer.compress(block) for _ in range(decoded_bytes // len(block))) + packer.flush()
+    sent = []
+
+    def stream():
+        for i in range(0, len(raw), chunk):
+            sent.append(i)
+            yield raw[i:i + chunk]
+
+    return stream, sent, -(-len(raw) // chunk)
+
+
+def test_a_gzip_bomb_torrent_is_refused_before_it_is_all_in_memory():
+    # ~60 KB sul filo, 60 MB decompressi: prima il limite di 20 MB scattava
+    # solo con tutto il corpo già decompresso in memoria.
+    stream, sent, total_chunks = _gzip_bomb_chunks(60 * 1024 * 1024)
+    adapter = _adapter(lambda r: httpx.Response(200, headers={"Content-Encoding": "gzip"}, content=stream()))
+
+    with pytest.raises(UploadError, match="bigger than 20 MB"):
+        adapter.download_torrent("https://tracker.example/torrent/download/1.abc")
+    assert len(sent) < total_chunks / 2  # fermato poco oltre il limite, non a fine corpo
+
+
+def _peak_bytes(call) -> int:
+    """Il picco di memoria allocata (tracemalloc) mentre gira call()."""
+    import tracemalloc
+
+    tracemalloc.start()
+    try:
+        call()
+    finally:
+        peak = tracemalloc.get_traced_memory()[1]
+        tracemalloc.stop()
+    return peak
+
+
+def _refused(call):
+    def run():
+        with pytest.raises(UploadError) as info:
+            call()
+        run.message = str(info.value)
+    return run
+
+
+def test_a_gzip_bomb_in_network_sized_chunks_never_fills_the_memory():
+    # httpx decomprime ogni blocco grezzo (fino a 64 KiB da httpcore) in una
+    # sola chiamata: 60 MB di zeri stanno in un blocco solo, e si espandevano
+    # tutti prima del primo conteggio. Ora si decomprime a passi limitati.
+    stream, _, _ = _gzip_bomb_chunks(60 * 1024 * 1024, chunk=64 * 1024)
+    adapter = _adapter(lambda r: httpx.Response(200, headers={"Content-Encoding": "gzip"}, content=stream()))
+
+    run = _refused(lambda: adapter.download_torrent("https://tracker.example/torrent/download/1.abc"))
+    assert _peak_bytes(run) < 2 * Unit3dTrackerAdapter.MAX_TORRENT_BYTES
+    assert "bigger than 20 MB" in run.message
+
+
+def _stacked_gzip(decoded_bytes: int) -> bytes:
+    import zlib
+
+    inner = zlib.compressobj(9, zlib.DEFLATED, 31)
+    block = b"\0" * (1024 * 1024)
+    once = b"".join(inner.compress(block) for _ in range(decoded_bytes // len(block))) + inner.flush()
+    outer = zlib.compressobj(9, zlib.DEFLATED, 31)
+    return outer.compress(once) + outer.flush()
+
+
+def test_stacked_content_encodings_are_refused_before_any_decoding():
+    # "gzip, gzip": httpx incatenava i decoder, e un paio di KB sul filo
+    # diventavano GB in memoria (2,4 GB misurati con 1.827 byte) prima che il
+    # tetto di 20 MB scattasse. Più di uno strato non si legge affatto.
+    body = _stacked_gzip(64 * 1024 * 1024)
+    assert len(body) < 4096
+    adapter = _adapter(lambda r: httpx.Response(200, headers={"Content-Encoding": "gzip, gzip"}, content=iter([body])))
+
+    run = _refused(lambda: adapter.download_torrent("https://tracker.example/torrent/download/1.abc"))
+    assert _peak_bytes(run) < 2 * Unit3dTrackerAdapter.MAX_TORRENT_BYTES
+    assert "unsupported Content-Encoding (gzip, gzip)" in run.message
+
+    with pytest.raises(UploadError, match="unsupported Content-Encoding"):
+        adapter.search_by_tmdb(1)
+    split = _adapter(lambda r: httpx.Response(
+        200, headers=[("Content-Encoding", "gzip"), ("Content-Encoding", "deflate")], content=iter([body])))
+    with pytest.raises(UploadError, match="unsupported Content-Encoding"):
+        split.search_by_tmdb(1)
+    brotli = _adapter(lambda r: httpx.Response(200, headers={"Content-Encoding": "br"}, content=iter([b"x"])))
+    with pytest.raises(UploadError, match="unsupported Content-Encoding"):
+        brotli.download_torrent("https://tracker.example/torrent/download/1.abc")
+
+
+def test_a_single_gzip_or_deflate_layer_is_still_read():
+    import json
+    import zlib
+
+    payload = json.dumps({"data": []}).encode()
+
+    def packed(wbits):
+        packer = zlib.compressobj(6, zlib.DEFLATED, wbits)
+        return packer.compress(payload) + packer.flush()
+
+    seen = []
+    for coding, wbits in (("gzip", 31), ("x-gzip", 31), ("deflate", 15), ("deflate", -15), ("identity", None)):
+        body = payload if wbits is None else packed(wbits)
+        chunks = [body[i:i + 3] for i in range(0, len(body), 3)]  # a pezzi, anche l'intestazione
+
+        def handler(request, coding=coding, chunks=chunks):
+            seen.append(request.headers.get("accept-encoding"))
+            return httpx.Response(200, headers={"Content-Encoding": coding}, content=iter(chunks))
+
+        assert list(_adapter(handler).search_by_tmdb(1)) == [], coding
+    # Il server non riceve mai l'offerta di una codifica che qui non si legge.
+    assert set(seen) == {"gzip, deflate"}
+
+    broken = _adapter(lambda r: httpx.Response(200, headers={"Content-Encoding": "gzip"}, content=iter([b"not gzip"])))
+    with pytest.raises(UploadError, match="cannot be decompressed"):
+        broken.search_by_tmdb(1)
+
+
+def test_a_declared_length_over_the_limit_is_refused_without_reading():
+    read = []
+
+    def body():
+        read.append(1)
+        yield b"d4:infod4:name1:xee"
+
+    adapter = _adapter(lambda r: httpx.Response(
+        200, headers={"Content-Length": str(Unit3dTrackerAdapter.MAX_TORRENT_BYTES + 1)}, content=body()))
+
+    with pytest.raises(UploadError, match="bigger than 20 MB"):
+        adapter.download_torrent("https://tracker.example/torrent/download/1.abc")
+    assert read == []
+
+
+def test_a_search_answer_over_the_limit_or_not_json_is_an_upload_error(monkeypatch):
+    monkeypatch.setattr(Unit3dTrackerAdapter, "MAX_JSON_BYTES", 1000)
+    big = _adapter(lambda r: httpx.Response(200, json={"data": [], "pad": "x" * 2000}))
+    with pytest.raises(UploadError, match="bigger than 1000 bytes"):
+        big.search_by_tmdb(1)
+
+    html = _adapter(lambda r: httpx.Response(200, text="<html>maintenance</html>"))
+    with pytest.raises(UploadError, match="not valid JSON"):
+        html.search_by_tmdb(1)
+
+    odd = _adapter(lambda r: httpx.Response(200, json=[1, 2]))
+    with pytest.raises(UploadError, match="Unexpected answer"):
+        odd.search_by_tmdb(1)
+
+
+def test_a_body_that_trickles_past_the_deadline_is_dropped(monkeypatch):
+    # Il timeout di httpx vale per ogni lettura: un byte alla volta lo
+    # rispettava per sempre. Qui la scadenza totale è già passata.
+    import time
+
+    monkeypatch.setattr(Unit3dTrackerAdapter, "_deadline", lambda self: time.monotonic() - 1)
+
+    def trickle():
+        for _ in range(100):
+            yield b"x"
+
+    adapter = _adapter(lambda r: httpx.Response(200, content=trickle()))
+    with pytest.raises(UploadError, match="too slow"):
+        adapter.download_torrent("https://tracker.example/torrent/download/1.abc")
+
+
+def _page(ids, next_cursor=None, next_link=None):
+    body = {"data": [_search_item(f"https://tracker.example/torrent/download/{i}.k") | {"id": str(i)} for i in ids]}
+    body["meta"] = {"per_page": 100, "next_cursor": next_cursor}
+    body["links"] = {"next": next_link}
+    return body
+
+
+def test_the_search_follows_every_page_of_the_catalogue():
+    # Prima solo la prima pagina (25 torrent): i più vecchi non diventavano
+    # mai candidati, e il controllo dei dupe poteva non vedere un doppione.
+    from nazgarr.adapters.tracker.base import catalog_truncated
+
+    seen = []
+
+    def handler(request):
+        seen.append(dict(request.url.params))
+        cursor = request.url.params.get("cursor")
+        return httpx.Response(200, json=_page([1, 2], "c2") if cursor is None else _page([3]))
+
+    results = _adapter(handler).search_by_tmdb(7)
+
+    assert [c.torrent_id_remote for c in results] == ["1", "2", "3"]
+    assert seen == [{"tmdbId": "7", "perPage": "100"}, {"tmdbId": "7", "perPage": "100", "cursor": "c2"}]
+    assert catalog_truncated(results) is False
+
+
+def test_a_page_link_without_a_cursor_is_followed_by_its_parameters_only():
+    seen = []
+
+    def handler(request):
+        seen.append((request.url.host, dict(request.url.params)))
+        if "page" not in request.url.params:
+            return httpx.Response(200, json=_page([1], next_link="https://elsewhere.example/api/torrents/filter?page=2"))
+        return httpx.Response(200, json=_page([2]))
+
+    results = _adapter(handler).search_by_tmdb(7)
+
+    assert [c.torrent_id_remote for c in results] == ["1", "2"]
+    assert seen[1] == ("tracker.example", {"tmdbId": "7", "perPage": "100", "page": "2"})  # mai l'altro host
+
+
+def test_the_search_stops_at_the_page_cap_and_says_it_is_truncated(monkeypatch):
+    from nazgarr.adapters.tracker.base import catalog_truncated
+
+    monkeypatch.setattr(Unit3dTrackerAdapter, "MAX_SEARCH_PAGES", 3)
+    calls = []
+
+    def handler(request):
+        calls.append(1)
+        n = len(calls)
+        return httpx.Response(200, json=_page([n], f"c{n + 1}"))
+
+    adapter = _adapter(handler)
+    results = adapter.search_by_tmdb(7)
+
+    assert len(calls) == 3 and len(results) == 3
+    assert catalog_truncated(results) is True
+    assert catalog_truncated(adapter.search_by_tmdb(7)) is True  # anche dalla cache
+    assert len(calls) == 3
+
+
+def test_a_tracker_repeating_the_same_cursor_does_not_loop():
+    calls = []
+
+    def handler(request):
+        calls.append(1)
+        return httpx.Response(200, json=_page([len(calls)], "same"))
+
+    from nazgarr.adapters.tracker.base import catalog_truncated
+
+    results = _adapter(handler).search_by_tmdb(7)
+    # Le pagine dopo il cursore ripetuto non si sono mai lette: il catalogo
+    # non è completo, e il controllo dei dupe deve poterlo dire.
+    assert len(calls) == 2 and catalog_truncated(results) is True
+
+
+def test_a_download_link_downgraded_to_http_or_another_scheme_is_not_followed():
+    seen = []
+    adapter = _adapter(lambda r: (seen.append(r), httpx.Response(200, content=b"d4:infod4:name1:xee"))[1])
+
+    for link in ("http://tracker.example/torrent/download/1.key",   # la passkey in chiaro
+                 "ftp://tracker.example/torrent/download/1.key"):
+        with pytest.raises(UploadError, match="scheme"):
+            adapter.download_torrent(link)
+    assert seen == []
+
+
+def test_a_tracker_name_that_now_resolves_to_the_cloud_metadata_is_not_called(monkeypatch):
+    # Il base_url si controlla quando si salva; un DNS cambiato dopo restava
+    # libero di portare le richieste (col token) a 169.254.169.254.
+    import socket
+
+    from nazgarr.core import net_guard
+
+    def resolve(host, *args, **kwargs):
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("169.254.169.254", 0))]
+
+    monkeypatch.setattr(net_guard.socket, "getaddrinfo", resolve)
+    seen = []
+    adapter = _adapter(lambda r: (seen.append(r), httpx.Response(200, json={"data": []}))[1])
+
+    with pytest.raises(UploadError, match="refused"):
+        adapter.search_by_tmdb(1)
+    with pytest.raises(UploadError, match="refused"):
+        adapter.download_torrent("https://dl.tracker.example/torrent/download/1.x")
+    assert seen == []
+
+
+def test_a_download_link_with_an_invalid_host_label_is_an_upload_error():
+    # "x..tracker.example" passa la regola dell'host (finisce con
+    # .tracker.example), ma getaddrinfo solleva un UnicodeError, non un
+    # gaierror: usciva grezzo da download_torrent e fermava il matching.
+    seen = []
+    adapter = _adapter(lambda r: (seen.append(r), httpx.Response(200, content=b"d4:infod4:name1:xee"))[1])
+
+    for link in ("https://x..tracker.example/torrent/download/1",
+                 "https://" + "a" * 70 + ".tracker.example/torrent/download/1"):
+        with pytest.raises(UploadError, match="Invalid host"):
+            adapter.download_torrent(link)
+    assert seen == []

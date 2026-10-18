@@ -36,6 +36,7 @@ from nazgarr.core.fs_scope import ScopeViolation, resolve_scoped
 from nazgarr.core.logs import safe_error
 from nazgarr.core.models import Candidate, MatchReview, MediaFile, SeedFile, SeedJob
 from nazgarr.integrations import adapter_factory
+from nazgarr.torrents import pieces as piece_hashing
 from nazgarr.torrents.metainfo import TorrentFileEntry, TorrentInfo, compute_info_hash, parse_torrent_info
 
 logger = logging.getLogger(__name__)
@@ -136,11 +137,8 @@ def verify_all_pieces(
                     touched.append(i)
                     lo = max(start, entry.offset) - entry.offset
                     hi = min(end, entry.offset + entry.length) - entry.offset
-                    data = _read(handles, i, checks[i].local_path, lo, hi - lo) if readable else None
-                    if data is None or len(data) != hi - lo:
+                    if readable and not _feed(handles, i, checks[i].local_path, lo, hi - lo, digest):
                         readable = False
-                    else:
-                        digest.update(data)
                 i += 1
             if readable:
                 good = digest.digest() == expected
@@ -164,17 +162,28 @@ def verify_all_pieces(
     return checks, bad
 
 
-def _read(handles: dict, index: int, path: str | None, offset: int, length: int) -> bytes | None:
+def _feed(handles: dict, index: int, path: str | None, offset: int, length: int, digest) -> bool:
+    """Aggiunge al digest del piece `length` byte del file da `offset`, a
+    blocchi (nazgarr/torrents/pieces.py::HASH_CHUNK): mai un piece intero in
+    memoria, che con il piece length deciso dal .torrent poteva essere un
+    file intero. False se il file manca o è più corto."""
     if path is None:
-        return None
+        return False
     try:
         handle = handles.get(index)
         if handle is None:
             handle = handles[index] = open(path, "rb")  # noqa: SIM115 — chiuso da verify_all_pieces
         handle.seek(offset)
-        return handle.read(length)
+        left = length
+        while left > 0:
+            buf = handle.read(min(piece_hashing.HASH_CHUNK, left))
+            if not buf:
+                return False
+            digest.update(buf)
+            left -= len(buf)
     except OSError:
-        return None
+        return False
+    return True
 
 
 def _abs(disk, relative_path: str) -> str:
@@ -252,6 +261,17 @@ def _sync_folder(session: Session, candidate: Candidate, parsed: TorrentInfo) ->
         session.commit()
 
 
+def _learn_info_hash(session: Session, candidate: Candidate, info_hash: str) -> None:
+    """Un candidato senza info hash (il matching non ha scaricato il suo
+    .torrent) prende quello del torrent appena verificato: l'esecuzione
+    aggiunge al client solo un .torrent con questo hash
+    (nazgarr/reseed/executor.py::_torrent_to_add), cioè quello controllato
+    qui, e il salto del recheck lo confronta sempre (audit 2026-10-18)."""
+    if not candidate.info_hash:
+        candidate.info_hash = info_hash
+        session.commit()
+
+
 def run_full_check(
     session: Session,
     candidate: Candidate,
@@ -266,7 +286,10 @@ def run_full_check(
         fetch_torrent = _download_torrent
     content = fetch_torrent(candidate)
     parsed = parse_torrent_info(content)
+    info_hash = compute_info_hash(content)
+    expected_info_hash = (seed_job.info_hash if seed_job is not None else None) or candidate.info_hash
     _sync_folder(session, candidate, parsed)
+    _learn_info_hash(session, candidate, info_hash)
     locate = build_locator(session, candidate, seed_job, media_file_id)
     on_start(parsed.total_length)
     files, bad = verify_all_pieces(parsed, locate, on_progress, cancelled)
@@ -278,8 +301,8 @@ def run_full_check(
     ok = len(parsed.pieces) - len(bad_set)
     return CheckResult(
         torrent_name=parsed.name,
-        info_hash=compute_info_hash(content),
-        expected_info_hash=(seed_job.info_hash if seed_job is not None else None) or candidate.info_hash,
+        info_hash=info_hash,
+        expected_info_hash=expected_info_hash,
         piece_length=parsed.piece_length,
         pieces=len(parsed.pieces),
         ok=ok,
@@ -295,7 +318,15 @@ def verdict(result: CheckResult) -> tuple[bool, str | None]:
     e ogni file ha la sua copia locale della dimensione giusta, tranne gli
     extra che mancano in locale (nfo, sample): quelli li scarica il client
     dopo il recheck, lo stesso margine di seed_job.expected_missing_bytes.
-    Un video mancante o di dimensione diversa non passa mai."""
+    Un video mancante o di dimensione diversa non passa mai, e nemmeno un
+    .torrent diverso da quello atteso (il matching ne aveva un altro, o il
+    client ne ha un altro): i piece verificati sarebbero di un torrent che
+    non è quello che si esegue."""
+    if result.expected_info_hash and result.expected_info_hash.lower() != result.info_hash.lower():
+        return False, (
+            f"The tracker's .torrent (info hash {result.info_hash}) is not the expected one "
+            f"({result.expected_info_hash})"
+        )
     if result.mismatched:
         return False, f"{result.mismatched} of {result.pieces} pieces differ from the torrent"
     for f in result.files:

@@ -80,7 +80,7 @@ def _torrent_bytes(folder: str, files: dict[str, int]) -> bytes:
     from tests.test_season_pack import _bencode
 
     return _bencode({"info": {
-        "name": folder, "piece length": 16, "pieces": b"\x00" * 20 * (sum(files.values()) // 16 + 1),
+        "name": folder, "piece length": 16, "pieces": b"\x00" * 20 * -(-sum(files.values()) // 16),
         "files": [{"length": size, "path": [name]} for name, size in files.items()],
     }})
 

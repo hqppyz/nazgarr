@@ -208,6 +208,10 @@ class DelugeAdapter(TorrentClientAdapter):
     def recheck(self, info_hash: str) -> None:
         self._call("core.force_recheck", [info_hash.lower()])
 
+    def stop(self, info_hash: str) -> None:
+        # Una lista, come force_recheck: Deluge 1.3 vuole una lista, il 2 accetta entrambi.
+        self._call("core.pause_torrent", [info_hash.lower()])
+
     def remove_torrent(self, info_hash: str, delete_files: bool) -> None:
         self._call("core.remove_torrent", info_hash.lower(), delete_files)
 

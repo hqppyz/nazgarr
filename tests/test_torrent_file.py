@@ -7,10 +7,10 @@ import hashlib
 import pytest
 
 from nazgarr.torrents.metainfo import (
+    MAX_PIECE_LENGTH,
     TorrentMetainfoError,
     compute_info_hash,
     decode,
-    extract_root_folder,
     parse_torrent_info,
 )
 
@@ -70,14 +70,10 @@ def test_decode_raises_on_malformed_input():
         decode(b"not bencode")
 
 
-def test_extract_root_folder_none_for_single_file():
-    torrent_bytes = _single_file_torrent(b"0123456789abcdef")
-    assert extract_root_folder(torrent_bytes) is None
-
-
-def test_extract_root_folder_for_multi_file():
-    torrent_bytes = _multi_file_torrent({"a.mkv": b"0" * 16, "b.mkv": b"1" * 16})
-    assert extract_root_folder(torrent_bytes) == "Release.Name"
+def test_the_root_folder_is_the_name_of_a_multi_file_torrent_only():
+    single = parse_torrent_info(_single_file_torrent(b"0123456789abcdef"))
+    multi = parse_torrent_info(_multi_file_torrent({"a.mkv": b"0" * 16, "b.mkv": b"1" * 16}))
+    assert (single.is_multi_file, multi.is_multi_file, multi.name) == (False, True, "Release.Name")
 
 
 def test_compute_info_hash_is_deterministic_and_sensitive_to_content():
@@ -147,3 +143,70 @@ def test_a_torrent_with_paths_that_leave_its_folder_is_refused(name, parts):
 def test_a_hostile_torrent_is_a_metainfo_error_never_a_crash(data):
     with pytest.raises(TorrentMetainfoError):
         decode(data)
+
+
+def _info(overrides: dict) -> dict:
+    """Un dizionario info valido (un file da 32 byte, due piece da 16), con
+    i campi da sostituire per i casi ostili."""
+    info = {b"name": b"Movie", b"piece length": 16, b"pieces": b"\x00" * 40,
+            b"files": [{b"length": 32, b"path": [b"a.mkv"]}]}
+    info.update(overrides)
+    return {k: v for k, v in info.items() if v is not None}
+
+
+@pytest.mark.parametrize("info", [
+    _info({b"name": 7}),                                          # nome intero
+    _info({b"name": [b"Movie"]}),                                 # nome lista
+    _info({b"files": 3}),                                         # files intero
+    _info({b"files": b"a.mkv"}),                                  # files stringa
+    _info({b"files": [{b"length": 32, b"path": b"a.mkv"}]}),      # path stringa (si itera a interi)
+    _info({b"files": [{b"length": 32, b"path": [1, 2]}]}),        # parti del path intere
+    _info({b"files": [{b"length": 32, b"path": []}]}),            # path vuoto
+    _info({b"files": [{b"length": -5, b"path": [b"a.mkv"]}, {b"length": 37, b"path": [b"b.mkv"]}]}),
+    _info({b"files": None, b"length": -32}),                      # file singolo negativo
+    _info({b"files": None, b"length": "32"}),                     # lunghezza stringa
+    _info({b"piece length": 0}),
+    _info({b"piece length": -16}),
+    _info({b"piece length": b"16"}),
+])
+def test_type_confused_or_negative_fields_are_a_metainfo_error_never_a_crash(info):
+    with pytest.raises(TorrentMetainfoError):
+        parse_torrent_info(_bencode({b"info": info}))
+
+
+def test_a_huge_piece_length_is_refused_before_anything_is_read():
+    # Un piece della dimensione del file faceva leggere l'intero video in memoria.
+    info = _info({b"piece length": MAX_PIECE_LENGTH * 2, b"pieces": b"\x00" * 20,
+                    b"files": [{b"length": 3 * MAX_PIECE_LENGTH, b"path": [b"a.mkv"]}]})
+    with pytest.raises(TorrentMetainfoError, match="piece length"):
+        parse_torrent_info(_bencode({b"info": info}))
+
+
+def test_the_largest_allowed_piece_length_still_parses():
+    info = _info({b"piece length": MAX_PIECE_LENGTH, b"pieces": b"\x00" * 20,
+                    b"files": [{b"length": MAX_PIECE_LENGTH, b"path": [b"a.mkv"]}]})
+    assert parse_torrent_info(_bencode({b"info": info})).piece_length == MAX_PIECE_LENGTH
+
+
+@pytest.mark.parametrize("hashes", [1, 3, 0])
+def test_the_hash_count_must_cover_the_content_exactly(hashes):
+    # Con un hash in meno il controllo completo dava il 100% senza leggere la coda.
+    with pytest.raises(TorrentMetainfoError, match="hash"):
+        parse_torrent_info(_bencode({b"info": _info({b"pieces": b"\x00" * 20 * hashes})}))
+
+
+def test_a_last_piece_shorter_than_the_others_counts_as_one():
+    content = b"x" * 33  # 16 + 16 + 1
+    assert len(parse_torrent_info(_single_file_torrent(content, piece_length=16)).pieces) == 3
+
+
+@pytest.mark.parametrize("data", [
+    b"d4:infoi12x",                 # intero troncato dentro lo span di info
+    b"d4:info",                     # finisce dopo la chiave
+    b"d3:fooli1e",                  # lista mai chiusa prima di info
+    b"de",                          # niente info
+    b"x",
+])
+def test_compute_info_hash_on_a_broken_torrent_is_a_metainfo_error(data):
+    with pytest.raises(TorrentMetainfoError):
+        compute_info_hash(data)

@@ -157,6 +157,16 @@ class TorrentClientAdapter(ABC):
         Default: niente, il client lo avvia da sé (Deluge, Transmission e
         rTorrent lo aggiungono già avviato)."""
 
+    def stop(self, info_hash: str) -> None:
+        """Ferma un torrent: niente download né upload finché non si riavvia.
+        Nazgarr lo chiama su un reseed il cui recheck è fallito (audit
+        2026-10-18): un torrent incompleto lasciato avviato scarica i piece
+        che mancano e li scrive nei file a save_path, che per un reseed sono
+        hardlink dei file in libreria, cioè gli stessi byte. Default: non
+        supportato (un plugin scritto prima di stop): il seed job dice di
+        fermarlo a mano."""
+        raise NotImplementedError
+
     def content_layout(self) -> str:
         """La preferenza dell'utente per la struttura dei torrent aggiunti
         (qBittorrent: Opzioni › Download › Layout del contenuto), per

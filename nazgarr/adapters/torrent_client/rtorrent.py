@@ -186,6 +186,9 @@ class RTorrentAdapter(TorrentClientAdapter):
     def recheck(self, info_hash: str) -> None:
         self._call("d.check_hash", info_hash.upper())
 
+    def stop(self, info_hash: str) -> None:
+        self._call("d.stop", info_hash.upper())
+
     def remove_torrent(self, info_hash: str, delete_files: bool) -> None:
         target = info_hash.upper()
         if delete_files and self.via_rutorrent:
