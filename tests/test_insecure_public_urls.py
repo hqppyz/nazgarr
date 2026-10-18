@@ -41,6 +41,26 @@ def test_the_rule():
     assert types.insecure_public_url("http://nowhere.invalid") is True
 
 
+def test_a_name_that_does_not_resolve_is_public_only_for_a_short_while(monkeypatch):
+    """Il nome di un container in LAN che per un momento manca dal DNS (fermo,
+    o il DNS di Docker che singhiozza): l'avviso, ma tenuto 30 s, non 10
+    minuti; un nome che si risolve resta tenuto 10 minuti."""
+    clock = [1000.0]
+    monkeypatch.setattr(types.time, "monotonic", lambda: clock[0])
+    assert types.insecure_public_url("http://qbittorrent:8080") is True  # non si risolve
+
+    monkeypatch.setitem(ADDRESSES, "qbittorrent", "172.17.0.5")  # il container è ripartito
+    clock[0] += types.UNRESOLVED_HOST_TTL_SECONDS - 1
+    assert types.insecure_public_url("http://qbittorrent:8080") is True  # ancora il verdetto tenuto
+    clock[0] += 2
+    assert types.insecure_public_url("http://qbittorrent:8080") is False
+
+    # Risolto, il verdetto resta tenuto il tempo lungo.
+    monkeypatch.setitem(ADDRESSES, "qbittorrent", "93.184.216.40")
+    clock[0] += types.UNRESOLVED_HOST_TTL_SECONDS + 1
+    assert types.insecure_public_url("http://qbittorrent:8080") is False
+
+
 def test_a_tracker_over_plain_http_to_a_public_host_is_saved_with_the_warning(client):
     created = client.post("/api/trackers", json={
         "label": "t", "adapter_type": "unit3d", "base_url": "http://tracker.public.example",
