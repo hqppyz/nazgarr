@@ -376,12 +376,14 @@ def test_pack_folder_still_on_disk_is_readded_to_the_client(db_session, tmp_path
     pack_dir.mkdir(parents=True)
     run = pipeline.start_run(db_session, "manual")
     seeds = {}
-    for name, content in PACK_FILES.items():
+    for i, (name, content) in enumerate(PACK_FILES.items()):
         (pack_dir / name).write_bytes(content)
         linked = {"Show.S01E01.1080p-GRP.mkv": e01.id, "Show.S01E02.1080p-GRP.mkv": e02.id}.get(name)
+        # Inode fissi, lontani da quelli dei media (1, 2, 50): mai da hash(),
+        # che cambia con PYTHONHASHSEED.
         sf = SeedFile(
             disk_id=disk.id, relative_path=f"torrents/tv/{FOLDER}/{name}", size_bytes=len(content), st_dev=1,
-            inode=hash(name) % 10_000, media_file_id=linked, last_scan_id=run.id, last_seen_at=datetime.now(UTC),
+            inode=1000 + i, media_file_id=linked, last_scan_id=run.id, last_seen_at=datetime.now(UTC),
         )
         db_session.add(sf)
         seeds[name] = sf
