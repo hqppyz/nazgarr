@@ -45,6 +45,7 @@ In produzione `dist/` viene servito direttamente da FastAPI (`nazgarr/web/fronte
 
 - `src/api/` — client tipizzato (`openapi-fetch`) sullo schema generato da `openapi-typescript` (`schema.ts`, non modificare a mano — rigenerato da `npm run gen-types`)
 - `src/components/ui/` — componenti shadcn/ui (copiati nel repo dal CLI, non una dipendenza runtime)
+- `src/styles/shadcn-tailwind.css` — il foglio di stile di shadcn (varianti `data-*`, utility come `scroll-fade` e `shimmer`), copiato dal pacchetto `shadcn` 4.21.0: il pacchetto, che è il CLI, non è più una dipendenza (portava ~290 pacchetti in ogni `npm ci` solo per questo file). Per aggiungere o aggiornare un componente: `npx shadcn@4.21.0 add <nome>`; passando a una versione nuova del CLI si ricopia anche questo file da `dist/tailwind.css` di quella versione
 - `src/components/layout/` — shell dell'app (sidebar, layout)
 - `src/pages/` — una pagina per voce di navigazione (`src/lib/nav.ts`, struttura da `docs/SPEC.md` §10)
 
