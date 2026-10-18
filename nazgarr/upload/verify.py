@@ -122,7 +122,7 @@ def execute(session: Session, target_id: int, torrent_id_remote: str) -> None:
         verification = run_check(job, torrent_bytes)
     except Exception as exc:
         logger.warning("Full hash check di %s su %s fallito", torrent_id_remote, target.tracker.label, exc_info=True)
-        verification = {"status": "error", "reason": getattr(exc, "code", None) or str(exc)}
+        verification = {"status": "error", "reason": upload_jobs.error_text(exc)}
 
     session.refresh(target)
     dupes = json.loads(target.dupes_json or "[]")

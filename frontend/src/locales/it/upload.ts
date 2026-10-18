@@ -339,6 +339,8 @@ export const upload = {
   'upload.event.split_from_seasons': '{season} della cartella con più stagioni dell’upload #{upload}.',
   'upload.event.split_seasons_failed': 'Divisione in stagioni non riuscita: va avanti come complete pack.',
   'upload.event.watch_folder_removed': 'Nessun episodio rimasto: tolta dalla cartella osservata {folder}, con {count} file fuori dai torrent.',
+  'upload.event.watch_folder_remove_failed': '{folder} non si è potuta togliere dalla cartella osservata: restano {count} elementi ({files}).',
+  'upload.event.upload_cleanup_failed': "La pulizia dopo l'upload non è riuscita ({error}): l'esito non cambia.",
   'upload.event.job_resumed_by_user': "Ripreso.",
   'upload.event.job_resumed': 'Ripreso dopo un riavvio.',
   'upload.event.target_interrupted':

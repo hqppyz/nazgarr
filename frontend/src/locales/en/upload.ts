@@ -334,6 +334,8 @@ export const upload = {
   'upload.event.split_from_seasons': '{season} of the folder with several seasons of upload #{upload}.',
   'upload.event.split_seasons_failed': 'Splitting into seasons failed: it goes on as a complete pack.',
   'upload.event.watch_folder_removed': 'No episode left: {folder} removed from the watched folder, with {count} files outside the torrents.',
+  'upload.event.watch_folder_remove_failed': '{folder} could not be removed from the watched folder: {count} item(s) are left ({files}).',
+  'upload.event.upload_cleanup_failed': 'Cleaning up after the upload did not work ({error}): the outcome does not change.',
   'upload.event.job_scheduled': 'Scheduled: it starts {at}.',
   'upload.event.job_start_now': 'Started right away, without waiting for the scheduled time.',
   'upload.event.upload_dupe_appeared': 'Not sent: the same release showed up on the tracker in the meantime ({names}).',

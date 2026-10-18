@@ -992,3 +992,152 @@ def test_a_dupe_that_appeared_after_the_decision_stops_that_tracker(db_session, 
     assert (a.status, a.error_message) == ("failed", "upload_dupe_appeared")
     assert env["trackers"]["a"].uploads == [] and len(env["trackers"]["b"].uploads) == 1
     assert job.status == "partial"
+
+
+# --- errori a metà esecuzione (audit 2026-10-18) -------------------------------
+
+
+def test_an_unexpected_error_while_preparing_fails_the_uploads_with_it(db_session, tmp_path, env, monkeypatch, caplog):
+    """Un errore che non è nostro (qui torf che non legge il disco) faceva
+    finire il job con "passo non disponibile", senza log, e lasciava gli
+    hardlink dei nomi nuovi nella cartella di seed."""
+    import logging
+
+    video = write_video(env["root"] / "media" / "The Matrix (1999).mkv", 300 * KB)
+    job = _approved(db_session, env, "media/" + video.name, {"a": _upload("Matrix A"), "b": {"action": "skip"}},
+                    file_naming="generated")
+    monkeypatch.setattr(torf.Torrent, "generate", lambda self, **k: (_ for _ in ()).throw(OSError(5, "I/O error")))
+
+    with caplog.at_level(logging.ERROR, logger=upload_execute.logger.name):
+        _run(db_session, tmp_path, job)
+
+    a = job.targets[0]
+    assert (job.status, a.status, a.error_message) == ("failed", "failed", "upload_prepare_failed")
+    event = next(e for e in job.events if e.code == "upload_prepare_failed")
+    assert "I/O error" in json.loads(event.params_json)["error"]
+    assert "preparazione fallita" in caplog.text
+    assert not (env["root"] / "torrents" / "The.Matrix.1999.mkv").exists()
+
+
+def test_a_cancel_while_hashing_removes_the_links_made_for_the_names(db_session, tmp_path, env, monkeypatch):
+    video = write_video(env["root"] / "media" / "The Matrix (1999).mkv", 300 * KB)
+    job = _approved(db_session, env, "media/" + video.name, {"a": _upload("Matrix A"), "b": {"action": "skip"}},
+                    file_naming="generated")
+
+    def cancel_midway(self, callback=None, **kwargs):
+        other = db_session.__class__(bind=db_session.get_bind())
+        upload_jobs.cancel_job(other, other.get(upload_jobs.UploadJob, job.id))
+        other.close()
+        return callback(self, "", 1, 2)
+
+    monkeypatch.setattr(torf.Torrent, "generate", cancel_midway)
+    _run(db_session, tmp_path, job)
+
+    assert job.status == "cancelled"
+    assert not (env["root"] / "torrents" / "The.Matrix.1999.mkv").exists()
+    assert video.is_file()
+    assert "file_links_removed" in [e.code for e in job.events]
+
+
+def test_a_cleanup_error_never_changes_the_outcome(db_session, tmp_path, env, monkeypatch):
+    video = _watched_job(db_session, env, "My.Movie.2024.mkv", {"a": _upload("Movie A"), "b": {"action": "skip"}})
+    job = db_session.query(upload_jobs.UploadJob).one()
+    monkeypatch.setattr(upload_execute, "_clear_watch_source",
+                        lambda *a, **k: (_ for _ in ()).throw(PermissionError(13, "Permission denied")))
+
+    _run(db_session, tmp_path, job)
+
+    assert job.status == "done" and job.targets[0].torrent_id_remote == "100"
+    assert video.is_file()
+    assert "upload_cleanup_failed" in [e.code for e in job.events]
+
+
+def test_a_leftover_that_cannot_be_removed_keeps_the_episode_folder_and_the_job_done(
+        db_session, tmp_path, env, monkeypatch):
+    from nazgarr.upload import execute
+
+    env["disk"].watch_rel_path = "releases"
+    db_session.commit()
+    folder = env["root"] / "releases" / "Show.S01"
+    episode = write_video(folder / "Show.S01E01.mkv", 300 * KB)
+    (folder / "Show.nfo").write_text("nfo")
+    write_video(folder / "Locked" / "notes.txt", 10)
+    job = upload_jobs.create_job(db_session, env["disk"], "releases/Show.S01/Show.S01E01.mkv")
+    job.split_from_id = job.id  # un episodio di una stagione divisa
+    db_session.commit()
+    os.chmod(folder / "Locked", 0o555)
+    try:
+        os.unlink(episode)  # l'episodio è già andato
+        execute._remove_split_folder(db_session, job, str(env["root"] / "releases"))
+    finally:
+        os.chmod(folder / "Locked", 0o755)
+
+    assert (folder / "Locked" / "notes.txt").is_file() and not (folder / "Show.nfo").exists()
+    event = job.events[-1]
+    assert event.code == "watch_folder_remove_failed" and event.level == "warning"
+    assert json.loads(event.params_json)["files"] == ["Locked", "Locked/notes.txt"]
+
+
+def test_a_published_upload_whose_record_cannot_be_written_is_never_marked_failed(
+        db_session, tmp_path, env, monkeypatch):
+    from sqlalchemy.exc import OperationalError
+
+    video = write_video(env["root"] / "media" / "The.Matrix.1999.mkv", 300 * KB)
+    job = _approved(db_session, env, "media/" + video.name, {"a": _upload("Matrix A"), "b": {"action": "skip"}})
+
+    def locked(session, job, target, torrent_id_remote):
+        raise OperationalError("COMMIT", None, Exception("database is locked"))
+
+    monkeypatch.setattr(upload_execute, "_commit_published", locked)
+    _run(db_session, tmp_path, job)
+
+    a = job.targets[0]
+    assert (a.status, a.error_message, a.torrent_id_remote) == ("done", "seed_failed", "100")
+    assert len(env["trackers"]["a"].uploads) == 1 and env["client"].added == []
+    journal = upload_execute.published_journal(str(tmp_path / "data" / "uploads" / str(job.id)), a.id)
+    assert json.load(open(journal)) == {"torrent_id_remote": "100"}
+
+
+def test_the_published_id_is_written_again_after_a_locked_commit(monkeypatch):
+    from sqlalchemy.exc import OperationalError
+
+    class Flaky:
+        def __init__(self, fails):
+            self.fails, self.added, self.rollbacks = fails, [], 0
+
+        def add(self, obj):
+            self.added.append(obj)
+
+        def commit(self):
+            if self.fails:
+                self.fails -= 1
+                raise OperationalError("COMMIT", None, Exception("database is locked"))
+
+        def rollback(self):
+            self.rollbacks += 1
+
+    monkeypatch.setattr(upload_execute.time, "sleep", lambda s: None)
+    job, target = types.SimpleNamespace(id=1), types.SimpleNamespace(id=2, torrent_id_remote=None)
+    session = Flaky(2)
+    upload_execute._commit_published(session, job, target, "100")
+    assert target.torrent_id_remote == "100" and session.rollbacks == 2 and len(session.added) == 3
+
+    with pytest.raises(OperationalError):
+        upload_execute._commit_published(Flaky(3), job, target, "100")
+
+
+def test_a_database_error_on_one_tracker_is_recorded_with_its_message(db_session, tmp_path, env, monkeypatch):
+    """Un errore di SQLAlchemy ha anche lui .code e .params: prima finiva
+    registrato come "e3q8", e params.items() falliva sulla tupla della query."""
+    from sqlalchemy.exc import OperationalError
+
+    job, _video = _reseed_job(db_session, tmp_path, env)
+    monkeypatch.setattr(upload_execute, "run_reseed", lambda *a: (_ for _ in ()).throw(
+        OperationalError("INSERT INTO x", (1,), Exception("disk I/O error"))))
+
+    _run(db_session, tmp_path, job)
+
+    target = job.targets[0]
+    assert job.status == "failed" and target.status == "failed"
+    assert "disk I/O error" in target.error_message and target.error_message != "e3q8"
+    assert "reseed_failed" in [e.code for e in job.events]

@@ -51,6 +51,22 @@ class UploadJobError(CodedError):
     pass
 
 
+def error_of(exc: BaseException) -> tuple[str, dict]:
+    """Il codice e i parametri di un errore, per il registro del job. Solo
+    un CodedError li ha davvero: anche un errore di SQLAlchemy ha .code e
+    .params, ma sono il codice della sua documentazione ("e3q8") e i
+    parametri della query, e params.items() falliva proprio mentre si
+    registrava l'errore (audit 2026-10-18)."""
+    if isinstance(exc, CodedError):
+        return exc.code, dict(exc.params)
+    text = str(exc) or type(exc).__name__
+    return text, {"error": text}
+
+
+def error_text(exc: BaseException) -> str:
+    return error_of(exc)[0]
+
+
 def log_event(
     session: Session, job: UploadJob, code: str, *, level: str = "info", target: UploadTarget | None = None,
     **params,

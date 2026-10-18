@@ -132,6 +132,7 @@ export const errors = {
   'errors.upload_seed_retry_unavailable': "Niente da riprovare: l'upload su questo tracker è già in seed, o non è stato pubblicato.",
   'errors.upload_seed_files_missing': "I file di questo upload non sono più dove il client dovrebbe trovarli.",
   'errors.upload_seed_retry_failed': "L'aggiunta al client è fallita di nuovo: {error}",
+  'errors.upload_prepare_failed': "Preparazione dell'upload non riuscita: {error}",
   'errors.upload_reseed_missing_video': 'Il torrent del tracker ha un video che Nazgarr non trova in locale: {path}',
   'errors.upload_freeleech_not_allowed': '{tracker} non permette un freeleech del {value}%.',
   'errors.tracker_icon_not_available': 'Questo tracker non ha un’icona utilizzabile.',
