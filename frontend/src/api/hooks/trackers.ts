@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useEffect } from 'react'
 
 import { api, ApiError, unwrap } from '@/api/client'
 import type { Schemas } from '@/api/client'
@@ -29,8 +30,15 @@ export function useUpdateTracker() {
 }
 
 // Cosa se ne va dal DB eliminando il tracker (decisione dell'utente,
-// 2026-10-18): letto quando si apre la conferma, mai tenuto in cache.
+// 2026-10-18): letto quando si apre la conferma, mai tenuto in cache. Il
+// pulsante resta montato a conferma chiusa, quindi gcTime 0 non basta: alla
+// chiusura il conteggio si butta, così riaprendo non si mostra (né si
+// conferma) quello vecchio mentre arriva il nuovo.
 export function useTrackerDeletePreview(id: number, enabled: boolean) {
+  const queryClient = useQueryClient()
+  useEffect(() => {
+    if (!enabled) queryClient.removeQueries({ queryKey: ['trackers', id, 'delete-preview'], exact: true })
+  }, [enabled, id, queryClient])
   return useQuery({
     queryKey: ['trackers', id, 'delete-preview'],
     queryFn: () =>
