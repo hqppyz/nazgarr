@@ -91,6 +91,7 @@ function GridCard({ card, onOpen }: { card: PosterCard; onOpen: () => void }) {
           tmdbId={card.tmdb_id}
           hasPoster={card.has_poster}
           className="h-full w-full"
+          release
         />
         <div className="absolute inset-x-0 bottom-0 grid gap-1 bg-gradient-to-t from-black/90 via-black/60 to-transparent px-2 pt-8 pb-1.5">
           <p className="line-clamp-2 text-xs font-medium text-white">{cardLabel(card)}</p>

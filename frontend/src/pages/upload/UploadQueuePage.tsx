@@ -48,6 +48,7 @@ function Poster({ job }: { job: UploadJobSummary }) {
       hasPoster
       url={posterUrl({ content_type: job.content_type as 'movie' | 'tv', tmdb_id: job.tmdb_id, poster_path: job.poster_path })}
       className="aspect-[2/3] w-11 shrink-0 overflow-hidden rounded"
+      release
     />
   )
 }

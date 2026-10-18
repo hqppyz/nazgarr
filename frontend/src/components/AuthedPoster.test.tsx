@@ -10,9 +10,11 @@ class FakeObserver {
   readonly targets = new Set<Element>()
   readonly callback: IntersectionObserverCallback
   readonly rootMargin: string
+  readonly root: Element | Document | null
   constructor(callback: IntersectionObserverCallback, options?: IntersectionObserverInit) {
     this.callback = callback
     this.rootMargin = options?.rootMargin ?? ''
+    this.root = options?.root ?? null
     FakeObserver.all.push(this)
   }
   observe(target: Element) {
@@ -61,7 +63,7 @@ describe('AuthedPoster', () => {
       signals.push(init.signal as AbortSignal)
       return new Promise<Response>(() => {})
     }))
-    const { unmount } = render(<AuthedPoster contentType="movie" tmdbId={603} hasPoster />)
+    const { unmount } = render(<AuthedPoster contentType="movie" tmdbId={603} hasPoster release />)
     scroll('300px', true)
     expect(signals).toHaveLength(1)
     expect(signals[0].aborted).toBe(false)
@@ -72,7 +74,7 @@ describe('AuthedPoster', () => {
   it('downloads only near the screen, and frees the blob once the card is far from it', async () => {
     const fetch = posterFetch()
     vi.stubGlobal('fetch', fetch)
-    const { container } = render(<AuthedPoster contentType="movie" tmdbId={603} hasPoster />)
+    const { container } = render(<AuthedPoster contentType="movie" tmdbId={603} hasPoster release />)
     expect(fetch).not.toHaveBeenCalled()
 
     scroll('300px', true)
@@ -98,7 +100,7 @@ describe('AuthedPoster', () => {
     const { unmount } = render(
       <>
         {[1, 2, 3, 4].map((id) => (
-          <AuthedPoster key={id} contentType="movie" tmdbId={id} hasPoster />
+          <AuthedPoster key={id} contentType="movie" tmdbId={id} hasPoster release />
         ))}
       </>,
     )
@@ -107,10 +109,45 @@ describe('AuthedPoster', () => {
     expect(FakeObserver.all).toEqual([])
   })
 
+  it("measures the distance against the page's scrolling area, not the window", () => {
+    vi.stubGlobal('fetch', posterFetch())
+    // La finestra non scorre: con la radice implicita l'area che scorre
+    // taglierebbe senza margine. Il contenitore overflow-x-auto di una
+    // tabella in mezzo non conta: non scorre in verticale.
+    const { container } = render(
+      <>
+        <div data-scroll-root>
+          <div className="overflow-x-auto">
+            <AuthedPoster contentType="movie" tmdbId={1} hasPoster release />
+            <AuthedPoster contentType="movie" tmdbId={2} hasPoster release />
+          </div>
+        </div>
+        <AuthedPoster contentType="movie" tmdbId={3} hasPoster release />
+      </>,
+    )
+    const area = container.querySelector('[data-scroll-root]')
+    expect(FakeObserver.all.map((o) => [o.root, o.rootMargin, o.targets.size])).toEqual([
+      [area, '300px', 2],
+      [area, '1500px', 2],
+      [null, '300px', 1],
+      [null, '1500px', 1],
+    ])
+  })
+
+  it('keeps the poster of a detail view once loaded, without watching it any more', async () => {
+    vi.stubGlobal('fetch', posterFetch())
+    const { container } = render(<AuthedPoster contentType="movie" tmdbId={603} hasPoster />)
+    expect(FakeObserver.all.map((o) => o.rootMargin)).toEqual(['300px'])
+    scroll('300px', true)
+    await waitFor(() => expect(container.querySelector('img')).not.toBeNull())
+    expect(FakeObserver.all).toEqual([])
+    expect(URL.revokeObjectURL).not.toHaveBeenCalled()
+  })
+
   it('asks nothing for a title without a poster', () => {
     const fetch = posterFetch()
     vi.stubGlobal('fetch', fetch)
-    render(<AuthedPoster contentType="movie" tmdbId={603} hasPoster={false} />)
+    render(<AuthedPoster contentType="movie" tmdbId={603} hasPoster={false} release />)
     scroll('300px', true)
     expect(fetch).not.toHaveBeenCalled()
     expect(FakeObserver.all).toEqual([])

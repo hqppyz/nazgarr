@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 
+import { scrollRoot } from '@/lib/scrollRoot'
+
 // Quanti elementi di una lista lunga rendere: i primi `pageSize`, poi altri
 // `pageSize` ogni volta che la sentinella (l'ultimo elemento reso) si
 // avvicina alla vista. Quando `resetKey` cambia (un altro filtro, un'altra
@@ -22,7 +24,8 @@ export function useIncrementalCount<T extends Element>(total: number, pageSize: 
       (entries) => {
         if (entries.some((e) => e.isIntersecting)) setCount((n) => n + pageSize)
       },
-      { rootMargin: '800px' },
+      // Contro l'area che scorre: con la finestra gli 800 px valevano 0.
+      { root: scrollRoot(node), rootMargin: '800px' },
     )
     observer.observe(node)
     return () => observer.disconnect()

@@ -31,6 +31,7 @@ import { ToggleGroupItem, ToggleGroupSingle } from '@/components/ui/toggle-group
 import { t } from '@/lib/i18n'
 import { formatBytes } from '@/lib/library-filters'
 import { episodeRanges, groupBySeason, seasonLabel } from '@/lib/reviewGroups'
+import { scrollRoot } from '@/lib/scrollRoot'
 import { parseApiDate, relativeFromNow } from '@/lib/time'
 import { cn } from '@/lib/utils'
 
@@ -371,7 +372,7 @@ function NextPageSentinel({ onVisible }: { onVisible: () => void }) {
       (entries) => {
         if (entries.some((e) => e.isIntersecting)) onVisible()
       },
-      { rootMargin: '800px' },
+      { root: scrollRoot(node), rootMargin: '800px' },
     )
     observer.observe(node)
     return () => observer.disconnect()
