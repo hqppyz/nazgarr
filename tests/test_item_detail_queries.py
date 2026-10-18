@@ -27,8 +27,8 @@ def _detail_statements(session, library: _Library, start: int, count: int, execu
 
 def test_the_detail_of_a_series_costs_the_same_queries_with_more_episodes(db_session):
     library = _Library(db_session)
-    # Le esecuzioni restano quelle del primo giro: ognuna legge ancora il suo
-    # candidato (nazgarr/library/detail.py), una query piccola per esecuzione.
+    # Anche le esecuzioni crescono: il loro candidato si carica con tutte le
+    # altre (selectinload), non una query per esecuzione.
     few = _detail_statements(db_session, library, 1, 3, executions=True)
-    many = _detail_statements(db_session, library, 4, 30)
+    many = _detail_statements(db_session, library, 4, 30, executions=True)
     assert many <= few + 2, (few, many)

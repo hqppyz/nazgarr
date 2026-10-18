@@ -14,7 +14,7 @@ from collections import defaultdict
 from datetime import UTC
 from urllib.parse import urlsplit
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from nazgarr.adapters.torrent_client.base import is_stopped_state
 from nazgarr.core.file_types import is_video
@@ -245,8 +245,11 @@ def item_detail(session: Session, content_type: str, tmdb_id: int) -> dict | Non
     seed_jobs = []
     in_client = hashes_in_clients(session)
     if mf_ids:
+        # Il candidato di ogni esecuzione (il nome) con una query sola, non
+        # una per esecuzione (audit 2026-10-18).
         for sj in (
-            session.query(SeedJob).filter(SeedJob.source_media_file_id.in_(mf_ids)).order_by(SeedJob.id.desc()).all()
+            session.query(SeedJob).options(selectinload(SeedJob.candidate))
+            .filter(SeedJob.source_media_file_id.in_(mf_ids)).order_by(SeedJob.id.desc()).all()
         ):
             seed_jobs.append({
                 "id": sj.id, "candidate_id": sj.candidate_id, "candidate_name": sj.candidate.name,
