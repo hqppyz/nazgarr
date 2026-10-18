@@ -38,7 +38,8 @@ da ~190 a ~430 MB con 18.000 file, memoria che Python poi non restituisce
 (misurato il 2026-10-10).
 
 Memoria limitata (audit 2026-10-18): una risposta di una versione passata
-non si serve più, quindi esce appena si calcola quella nuova; e le risposte
+non si serve più, quindi esce appena si calcola quella nuova (e un calcolo
+finito dopo un commit non entra: è già passata); e le risposte
 in memoria sono al massimo MAX_ENTRIES, per non più di MAX_BYTES in tutto
 (le meno usate escono prima). Prima ogni filtro mai aperto teneva il suo
 corpo di qualche MB fino al riavvio, e un id di tracker sempre diverso
@@ -86,6 +87,10 @@ _lock = threading.Lock()
 _cache: OrderedDict[str, tuple[str, str, bytes]] = OrderedDict()
 _cached_bytes = 0
 _computing: dict[str, list] = {}  # chiave -> [lock di chi la calcola, quanti lo usano]
+# (generazione letta, versione) dell'ultima data_version: la sola versione che
+# _store accetta. Un calcolo lento su una versione già superata non entra e
+# non toglie i corpi freschi.
+_current: tuple[int, str] = (-1, "")
 
 _DIRTY = "nazgarr_cache_dirty"  # nella info della connessione: ha scritto, non ancora committato
 _COMMITTED = "nazgarr_cache_committed"  # ha committato una scrittura, non ancora tornata al pool
@@ -148,10 +153,19 @@ def data_version(session: Session) -> str:
     """La versione dei dati di tutte le viste in cache: cambia a ogni commit
     che ha scritto una tabella letta da una vista, o ogni RUNNING_BUCKET
     secondi durante una run."""
+    global _current
     generation = _generation  # letta prima di ogni query: il calcolo vede almeno questi dati
     if session.query(RunLog.id).filter(RunLog.finished_at.is_(None)).first() is not None:
-        return f"{_NONCE}:running:{int(time.time() // RUNNING_BUCKET_SECONDS)}"
-    return f"{_NONCE}:{generation}"
+        version = f"{_NONCE}:running:{int(time.time() // RUNNING_BUCKET_SECONDS)}"
+    else:
+        version = f"{_NONCE}:{generation}"
+    with _lock:
+        # Solo in avanti: due richieste in parallelo possono finire la query
+        # in ordine inverso, e quella con la generazione più vecchia non torna
+        # versione corrente.
+        if generation >= _current[0]:
+            _current = (generation, version)
+    return version
 
 
 def cached_json(request: Request, session: Session, key: str, compute: Callable[[], object]) -> Response:
@@ -202,6 +216,12 @@ def _cached_body(key: str, etag: str) -> bytes | None:
 def _store(key: str, version: str, etag: str, body: bytes) -> None:
     global _cached_bytes
     with _lock:
+        if version != _current[1]:
+            # Calcolato su una versione già superata (un commit è arrivato
+            # mentre calcolava, revisione dell'audit 2026-10-18): non si
+            # servirà più. Prima toglieva i corpi della versione nuova già
+            # in cache, da ricalcolare una volta in più.
+            return
         # Una versione passata non torna mai (la generazione sale soltanto,
         # la finestra della run pure): i suoi corpi sono solo memoria.
         for old_key in [k for k, (v, _e, _b) in _cache.items() if v != version or k == key]:

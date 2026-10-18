@@ -242,6 +242,26 @@ def test_bodies_of_a_past_version_leave_memory_and_the_cache_is_bounded(db_sessi
     assert response_cache._computing == {}  # i lock per chiave non restano
 
 
+def test_a_late_computation_of_a_past_version_keeps_the_fresh_bodies(db_session):
+    """Revisione dell'audit 2026-10-18: un calcolo partito prima di un commit
+    e finito dopo che un'altra vista era già in cache con la versione nuova
+    toglieva quel corpo fresco e teneva il suo, che nessuno avrebbe più
+    servito."""
+    from nazgarr.core.models import AppSetting
+    from nazgarr.web import response_cache
+
+    response_cache.clear()
+    old = response_cache.data_version(db_session)
+    db_session.add(AppSetting(key="late", value="1"))
+    db_session.commit()
+    response_cache.cached_json(_request(), db_session, "fresh", lambda: {"v": 2})
+
+    response_cache._store(f"{db_session.get_bind().url}|late", old, 'W/"late"', b'{"v":1}')
+
+    assert [k.rsplit("|", 1)[1] for k in response_cache._cache] == ["fresh"]
+    assert response_cache._cached_bytes == len(b'{"v":2}')
+
+
 def test_tracker_values_share_one_canonical_key(client, monkeypatch):
     """'1' e '01' sono lo stesso tracker, un id che non esiste vale "all" e
     '²' non è più un 500: ogni valore diverso era un corpo in più in memoria."""
