@@ -47,9 +47,9 @@ def test_mediainfo_is_read_once_per_file_until_the_file_changes(tmp_path, monkey
 
     mediainfo_util.clear_cache()
     calls = []
-    real = mediainfo_util.MediaInfo.parse
-    monkeypatch.setattr(mediainfo_util.MediaInfo, "parse",
-                        lambda path, **kw: calls.append((os.path.basename(path), kw.get("output"))) or real(path, **kw))
+    real = mediainfo_util._run_isolated
+    monkeypatch.setattr(mediainfo_util, "_run_isolated",
+                        lambda path, kind: calls.append((os.path.basename(path), kind)) or real(path, kind))
     video = tmp_path / "x.mkv"
     video.write_bytes(b"not a real video" * 50)
     link = tmp_path / "Renamed.mkv"
@@ -60,9 +60,39 @@ def test_mediainfo_is_read_once_per_file_until_the_file_changes(tmp_path, monkey
     mediainfo_util.parse(str(link))  # stesso inode: stessa voce
     mediainfo_util.extract_full_text(str(video))
     mediainfo_util.extract_full_text(str(video))
-    assert calls == [("x.mkv", None), ("x.mkv", "STRING")]
+    assert calls == [("x.mkv", "object"), ("x.mkv", "text")]
 
     video.write_bytes(b"changed content" * 60)
     mediainfo_util.parse(str(video))
     assert len(calls) == 3
     mediainfo_util.clear_cache()
+
+
+def test_the_parse_runs_in_a_child_and_its_crash_or_hang_is_only_an_error(tmp_path, monkeypatch):
+    """libmediainfo è codice nativo che legge file da fuori: un suo crash
+    chiudeva tutto il processo, e il worker al riavvio riprendeva lo stesso
+    job (audit 2026-10-18). Nel figlio, crash e blocchi sono un None."""
+    from pymediainfo import MediaInfo
+
+    from nazgarr.library import mediainfo as mediainfo_util
+
+    video = tmp_path / "x.mkv"
+    video.write_bytes(b"not a real video" * 50)
+    in_process = MediaInfo.parse(str(video))
+    isolated = mediainfo_util.parse(str(video))
+    assert isolated.to_data() == in_process.to_data()  # le stesse tracce di prima
+
+    mediainfo_util.clear_cache()
+    crash = "import os, signal\nos.kill(os.getpid(), signal.SIGSEGV)\n"
+    monkeypatch.setattr(mediainfo_util, "_CHILD", crash)
+    assert mediainfo_util.extract_summary(str(video)) is None
+    assert mediainfo_util.compute_unique_id(str(video)) is None  # e il processo dei test è ancora qui
+
+    monkeypatch.setattr(mediainfo_util, "_CHILD", "import time\ntime.sleep(30)\n")
+    monkeypatch.setattr(mediainfo_util, "PARSE_TIMEOUT_SECONDS", 0.5)
+    try:
+        mediainfo_util.parse(str(video))
+    except mediainfo_util.MediaInfoFailed as exc:
+        assert "did not finish" in str(exc)
+    else:
+        raise AssertionError("un blocco deve scadere")

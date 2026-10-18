@@ -1,20 +1,77 @@
-"""Calcolo dell'Unique ID mediainfo per un file locale.
+"""MediaInfo di un file locale: l'Unique ID per il matching, il report e il
+riepilogo per gli upload.
 
-Vedi docs/SPEC.md sezione 6: confrontato con l'Unique ID pubblicato dal
-tracker (candidate.mediainfo_match). Calcolato on-demand — solo per i
-candidati che hanno già superato il confronto dimensione — e cachato in
-media_file.mediainfo_unique_id (vedi nazgarr/reseed/matching.py).
+Vedi docs/SPEC.md sezione 6: l'Unique ID si confronta con quello pubblicato
+dal tracker (candidate.mediainfo_match), calcolato on-demand — solo per i
+candidati che hanno già superato il confronto dimensione — e tenuto solo
+nella cache in memoria qui sotto (media_file.mediainfo_unique_id non si
+scrive: un file cambiato lo renderebbe falso).
+
+libmediainfo legge file che arrivano da fuori (le release della cartella
+osservata, i video della libreria) ed è codice nativo: un suo crash
+chiudeva l'intero processo (API, scheduler, worker degli upload), e al
+riavvio il worker riprendeva lo stesso job e ricadeva; un blocco fermava
+la run senza fine. Ogni lettura gira quindi in un processo figlio con un
+tempo massimo (audit 2026-10-18): un crash o un blocco diventano
+un'eccezione come le altre, che i chiamanti trasformano in None. Il figlio
+restituisce solo testo (l'XML di MediaInfo o il report), mai oggetti
+Python serializzati: un figlio compromesso non può far eseguire niente al
+processo principale. Isola crash e blocchi, non è una sandbox: il figlio
+gira con lo stesso utente. Costa l'avvio di un interprete, circa 60-80 ms
+per lettura (misurato), e ogni file si legge una volta per tipo (la cache).
 """
 
 import logging
 import os
 import re
+import subprocess
+import sys
 import threading
 from collections import OrderedDict
 
 from pymediainfo import MediaInfo
 
 logger = logging.getLogger(__name__)
+
+PARSE_TIMEOUT_SECONDS = 300.0  # un disco che si risveglia, un file grande su una share lenta
+MAX_OUTPUT_BYTES = 64 * 1024 * 1024
+# Il figlio: solo pymediainfo, niente di Nazgarr. "-P": nessuna cartella di
+# lavoro nel percorso degli import (un pymediainfo.py lì non si carica).
+# OLDXML è quello che MediaInfo.parse usa da sé senza output (libmediainfo
+# dalla 17.10; quella del pacchetto è molto più recente).
+_CHILD = """
+import sys
+from pymediainfo import MediaInfo
+path, kind = sys.argv[1], sys.argv[2]
+if kind == "text":
+    out = MediaInfo.parse(path, output="STRING", full=False)
+else:
+    out = MediaInfo.parse(path, output="OLDXML")
+sys.stdout.buffer.write(out.encode("utf-8", "surrogateescape"))
+"""
+
+
+class MediaInfoFailed(RuntimeError):
+    """La lettura nel processo figlio non è finita bene: errore, crash
+    (codice d'uscita negativo: il segnale) o tempo scaduto."""
+
+
+def _run_isolated(file_path: str, kind: str) -> str:
+    """Il testo che MediaInfo produce per il file (kind "text": il report;
+    altrimenti l'XML), letto in un processo figlio con un tempo massimo."""
+    try:
+        done = subprocess.run(
+            [sys.executable, "-P", "-c", _CHILD, file_path, kind],
+            capture_output=True, timeout=PARSE_TIMEOUT_SECONDS, check=False, stdin=subprocess.DEVNULL,
+        )
+    except subprocess.TimeoutExpired as exc:  # run() ha già ucciso il figlio
+        raise MediaInfoFailed(f"mediainfo did not finish within {PARSE_TIMEOUT_SECONDS:.0f}s") from exc
+    if done.returncode != 0:
+        lines = done.stderr.decode("utf-8", "replace").strip().splitlines()
+        raise MediaInfoFailed(f"mediainfo failed (exit code {done.returncode}): {lines[-1] if lines else 'no output'}")
+    if len(done.stdout) > MAX_OUTPUT_BYTES:
+        raise MediaInfoFailed(f"mediainfo output bigger than {MAX_OUTPUT_BYTES // (1024 * 1024)} MB")
+    return done.stdout.decode("utf-8", "surrogateescape")
 
 _LEADING_TOKEN_RE = re.compile(r"^(\S+)")
 
@@ -28,15 +85,18 @@ _cache_lock = threading.Lock()
 
 
 def _parse(file_path: str, kind: str):
-    """MediaInfo.parse, in cache. kind "object" (tracce) o "text" (il report
-    testuale). Le eccezioni passano al chiamante, mai in cache."""
+    """MediaInfo.parse in un processo figlio (_run_isolated), in cache. kind
+    "object" (tracce) o "text" (il report testuale). Le eccezioni passano al
+    chiamante, mai in cache."""
     st = os.stat(file_path)
     key = (kind, st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns)
     with _cache_lock:
         if key in _cache:
             _cache.move_to_end(key)
             return _cache[key]
-    result = MediaInfo.parse(file_path, output="STRING", full=False) if kind == "text" else MediaInfo.parse(file_path)
+    text = _run_isolated(file_path, kind)
+    # Le tracce dall'XML, come fa MediaInfo.parse senza output: solo testo dal figlio.
+    result = text if kind == "text" else MediaInfo(text)
     with _cache_lock:
         _cache[key] = result
         while len(_cache) > _CACHE_SIZE:
