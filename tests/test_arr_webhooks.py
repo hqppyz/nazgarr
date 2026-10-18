@@ -330,3 +330,28 @@ def test_a_large_event_still_arrives_with_the_webhook_password(client):
     assert len(event) > 128 * 1024
     response = client.post(setup["path"], content=event, headers=_basic(setup["token"]))
     assert response.json() == {"status": "accepted"}
+
+
+def test_the_webhook_runs_no_query_on_the_event_loop(client):
+    import asyncio
+
+    from sqlalchemy import event
+    from sqlalchemy.engine import Engine
+
+    setup = _hook(client)
+    on_loop = []
+
+    def record(conn, cursor, statement, params, context, executemany):
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return  # un thread del threadpool: nessun loop qui
+        on_loop.append(statement)
+
+    event.listen(Engine, "before_cursor_execute", record)
+    try:
+        response = client.post(setup["path"], json={"eventType": "Test"}, headers=_basic(setup["token"]))
+    finally:
+        event.remove(Engine, "before_cursor_execute", record)
+    assert response.json() == {"status": "accepted"}
+    assert on_loop == []

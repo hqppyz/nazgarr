@@ -76,5 +76,7 @@ async def receive(source: str, instance_id: int, request: Request, session: Sess
     if instance is None:
         raise HTTPException(status_code=401, detail=coded_detail("arr_hook_unauthorized"))
     payload = await _payload(request)
-    event = await run_in_threadpool(arr_webhooks.receive, session, source, instance, payload)
-    return ArrHookResponse(status="accepted" if event.status == "pending" else "ignored")
+    # Lo stato si legge nel threadpool: dopo il commit la riga è scaduta, e
+    # leggerla qui sarebbe un'altra SELECT sul loop.
+    status = await run_in_threadpool(lambda: arr_webhooks.receive(session, source, instance, payload).status)
+    return ArrHookResponse(status="accepted" if status == "pending" else "ignored")
