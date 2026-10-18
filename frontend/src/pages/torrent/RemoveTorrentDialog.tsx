@@ -10,15 +10,13 @@ import { formatBytes } from '@/lib/library-filters'
 
 type Torrent = Schemas['NotImportedItem']
 
-// Gli avvisi che impediscono la rimozione (gli stessi del server,
-// nazgarr/api/torrents.py BLOCKING_WARNINGS). Gli altri, come "ultimo
+// Quali avvisi impediscono la rimozione lo dice il server (blocking,
+// nazgarr/api/torrents.py BLOCKING_WARNINGS): gli altri, come "ultimo
 // seeder", si mostrano nella conferma ma non la bloccano.
-const BLOCKING = ['shared_files', 'client_error', 'checking', 'downloading']
-
 export function canRemove(torrent: Torrent): boolean {
   return (
     torrent.seed_requirement?.status === 'met' &&
-    !(torrent.removal_warnings ?? []).some((warning) => BLOCKING.includes(warning.code))
+    !(torrent.removal_warnings ?? []).some((warning) => warning.blocking)
   )
 }
 

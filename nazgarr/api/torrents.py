@@ -62,13 +62,27 @@ class SeedRequirement(BaseModel):
     remaining: dict[str, float] = {}  # seed_time_seconds e/o ratio che mancano
 
 
+# Avvisi che impediscono la rimozione: i file servono ad altri torrent, o il
+# client non è in uno stato stabile. "Ultimo seeder" no: si toglie lo stesso,
+# ma la conferma lo dice chiaramente.
+BLOCKING_WARNINGS = ("shared_files", "client_error", "checking", "downloading")
+
+
 class RemovalWarning(BaseModel):
     """Un motivo, oltre a seedtime e ratio, per pensarci prima di togliere il
-    torrent: code ("shared_files", "client_error", "checking", "downloading")
-    e i parametri del messaggio."""
+    torrent: code ("last_seeder", "shared_files", "client_error", "checking",
+    "downloading"), i parametri del messaggio, e se impedisce la rimozione
+    (BLOCKING_WARNINGS). L'interfaccia legge blocking invece di tenere una
+    sua copia dell'elenco (audit 2026-10-18): due elenchi potevano non
+    essere d'accordo."""
 
     code: str
     params: dict = {}
+    blocking: bool = False
+
+
+def _warning(code: str, params: dict) -> RemovalWarning:
+    return RemovalWarning(code=code, params=params, blocking=code in BLOCKING_WARNINGS)
 
 
 class NotImportedItem(BaseModel):
@@ -127,19 +141,16 @@ def removal_warnings(state: str | None, shared: list[str], swarm_seeders: int | 
     # torrent muore. Non blocca la rimozione, ma va detto (decisione
     # dell'utente, 2026-10-03).
     if swarm_seeders == 1:
-        out.append(RemovalWarning(code="last_seeder", params={}))
+        out.append(_warning("last_seeder", {}))
     if shared:
-        params = {"count": len(shared), "torrents": ", ".join(shared[:3])}
-        out.append(RemovalWarning(code="shared_files", params=params))
+        out.append(_warning("shared_files", {"count": len(shared), "torrents": ", ".join(shared[:3])}))
     # Lo stato nativo ridotto a una categoria: vale per ogni client, non
     # solo per i nomi di qBittorrent.
     kind = state_kind(state)
     if kind == "error":
-        out.append(RemovalWarning(code="client_error", params={"state": state}))
-    elif kind == "checking":
-        out.append(RemovalWarning(code="checking", params={"state": state}))
-    elif kind == "downloading":
-        out.append(RemovalWarning(code="downloading", params={"state": state}))
+        out.append(_warning("client_error", {"state": state}))
+    elif kind in ("checking", "downloading"):
+        out.append(_warning(kind, {"state": state}))
     return out
 
 
@@ -277,12 +288,6 @@ def refresh_not_imported(session: Session = Depends(get_session)):
     return list_not_imported(session)
 
 
-# Avvisi che impediscono la rimozione: i file servono ad altri torrent, o il
-# client non è in uno stato stabile. "Ultimo seeder" no: si toglie lo stesso,
-# ma la conferma lo dice chiaramente.
-BLOCKING_WARNINGS = ("shared_files", "client_error", "checking", "downloading")
-
-
 class RemoveRequest(BaseModel):
     # Va mandato a true: la conferma che i file saranno cancellati.
     delete_files: bool
@@ -305,8 +310,7 @@ def remove_not_imported(client_torrent_id: int, body: RemoveRequest, session: Se
     if requirement["status"] != "met":
         raise HTTPException(status_code=400, detail=coded_detail("removal_requirement_not_met",
                                                                  status=requirement["status"]))
-    blocking = [w for w in removal_warnings(ct.state, _shared_with(session).get(ct.id, []))
-                if w.code in BLOCKING_WARNINGS]
+    blocking = [w for w in removal_warnings(ct.state, _shared_with(session).get(ct.id, [])) if w.blocking]
     if blocking:
         raise HTTPException(status_code=400, detail=coded_detail("removal_blocked", reason=blocking[0].code))
     client_row = session.get(TorrentClient, ct.torrent_client_id)

@@ -4400,8 +4400,11 @@ export interface components {
         /**
          * RemovalWarning
          * @description Un motivo, oltre a seedtime e ratio, per pensarci prima di togliere il
-         *     torrent: code ("shared_files", "client_error", "checking", "downloading")
-         *     e i parametri del messaggio.
+         *     torrent: code ("last_seeder", "shared_files", "client_error", "checking",
+         *     "downloading"), i parametri del messaggio, e se impedisce la rimozione
+         *     (BLOCKING_WARNINGS). L'interfaccia legge blocking invece di tenere una
+         *     sua copia dell'elenco (audit 2026-10-18): due elenchi potevano non
+         *     essere d'accordo.
          */
         RemovalWarning: {
             /** Code */
@@ -4413,6 +4416,11 @@ export interface components {
             params: {
                 [key: string]: unknown;
             };
+            /**
+             * Blocking
+             * @default false
+             */
+            blocking: boolean;
         };
         /** RemoveRequest */
         RemoveRequest: {

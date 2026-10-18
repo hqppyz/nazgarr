@@ -225,6 +225,11 @@ def test_api_warns_about_what_seed_time_and_ratio_do_not_say(db_session, tmp_pat
     assert body["h-name"] == []
     assert [w.code for w in removal_warnings("downloading", [])] == ["downloading"]
     assert removal_warnings("stalledUP", []) == [] and removal_warnings("pausedDL", []) == []
+    # Quali bloccano la rimozione lo dice il server (audit 2026-10-18): la UI
+    # non ne tiene più una copia sua.
+    assert [(w.code, w.blocking) for w in removal_warnings("checkingUP", ["Twin"], 1)] == [
+        ("last_seeder", False), ("shared_files", True), ("checking", True)]
+    assert [w.blocking for w in body["h-random"]] == [True]
 
 
 def _met(db_session, index, *hashes):
