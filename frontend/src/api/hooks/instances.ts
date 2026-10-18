@@ -84,18 +84,23 @@ export interface InstanceSnapshot {
   version: string
 }
 
+export async function fetchInstanceSnapshot(id: number | null): Promise<InstanceSnapshot> {
+  const [dashboard, uploads, health] = await Promise.all([
+    getFrom<Schemas['DashboardResponse']>(id, '/api/dashboard'),
+    // Solo gli upload non finiti: la scheda conta quelli in corso, e tutto
+    // lo storico ogni minuto per ogni istanza cresceva senza limite (audit
+    // 2026-10-18). Un'istanza di prima ignora scope: la scheda filtra comunque.
+    getFrom<{ status: string }[]>(id, '/api/uploads?scope=active'),
+    getFrom<{ version: string }>(id, '/api/health'),
+  ])
+  return { dashboard, uploads, version: health.version }
+}
+
 export function useInstanceSnapshot(id: number | null, enabled = true) {
   return useQuery({
     queryKey: ['instances', 'snapshot', id],
     enabled,
     refetchInterval: 60_000,
-    queryFn: async (): Promise<InstanceSnapshot> => {
-      const [dashboard, uploads, health] = await Promise.all([
-        getFrom<Schemas['DashboardResponse']>(id, '/api/dashboard'),
-        getFrom<{ status: string }[]>(id, '/api/uploads'),
-        getFrom<{ version: string }>(id, '/api/health'),
-      ])
-      return { dashboard, uploads, version: health.version }
-    },
+    queryFn: () => fetchInstanceSnapshot(id),
   })
 }

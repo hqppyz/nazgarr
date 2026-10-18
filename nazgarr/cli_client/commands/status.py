@@ -15,7 +15,9 @@ def status(ctx: typer.Context):
     health = client.get("/api/health")
     setup = client.get("/api/system/setup-status")
     dashboard = client.get("/api/dashboard")
-    uploads = client.get("/api/uploads")
+    # Solo quelli non finiti, non tutto lo storico (audit 2026-10-18); un server
+    # di prima ignora scope, e i conteggi qui sotto filtrano comunque.
+    uploads = client.get("/api/uploads", scope="active")
     data = {
         "url": client.url, "version": health.get("version"), "setup": setup, "dashboard": dashboard,
         "uploads": {"active": sum(1 for u in uploads if u["status"] in ACTIVE),
