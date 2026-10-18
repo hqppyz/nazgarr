@@ -141,6 +141,24 @@ def test_create_rejects_missing_source_and_unknown_disk(client, setup):
     assert resp.status_code == 404
 
 
+@pytest.mark.parametrize("overrides, code", [
+    ({"content_name": "."}, "upload_invalid_override"),
+    ({"screenshot_count": 999}, "upload_invalid_override"),
+    ({"file_naming": "whatever"}, "upload_invalid_override"),
+    ({"no_such_override": 1}, "upload_unknown_override"),
+])
+def test_overrides_given_at_creation_follow_the_decision_rules(client, tmp_path, setup, overrides, code):
+    write_video(tmp_path / "Movie.2024.mkv")
+    resp = client.post("/api/uploads", json={"disk_id": setup["disk_id"], "relative_path": "Movie.2024.mkv",
+                                             "overrides": overrides})
+    assert resp.status_code == 400 and resp.json()["detail"]["code"] == code
+    assert client.get("/api/uploads").json() == []
+
+    ok = client.post("/api/uploads", json={"disk_id": setup["disk_id"], "relative_path": "Movie.2024.mkv",
+                                           "overrides": {"group": " NZG ", "notes": ""}})
+    assert ok.status_code == 201 and ok.json()["overrides"] == {"group": "NZG"}
+
+
 def test_cancel_list_and_delete(client, tmp_path, setup):
     write_video(tmp_path / "Movie.2024.mkv")
     job_id = client.post(

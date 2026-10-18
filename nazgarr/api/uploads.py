@@ -473,10 +473,14 @@ def create_upload(body: UploadCreateRequest, request: Request, session: Session 
     try:
         forced = body.forced_ids.model_dump() if body.forced_ids else None
         choices = {tid: c.model_dump() for tid, c in (body.tracker_choices or {}).items()}
+        # Le stesse regole della decisione (audit 2026-10-18): prima gli
+        # override dati alla creazione non passavano da nessun controllo
+        # (un content_name ".", screenshot senza limite, chiavi sconosciute).
+        overrides = upload_decision.clean_overrides(body.overrides)
         if body.files is not None:
-            job = upload_pack.create_job(session, disk, body.files, body.tracker_ids, forced, body.overrides, choices)
+            job = upload_pack.create_job(session, disk, body.files, body.tracker_ids, forced, overrides, choices)
         elif body.relative_path:
-            job = upload_jobs.create_job(session, disk, body.relative_path, body.tracker_ids, forced, body.overrides,
+            job = upload_jobs.create_job(session, disk, body.relative_path, body.tracker_ids, forced, overrides,
                                          choices)
         else:
             raise UploadJobError("upload_source_not_found", path="")
