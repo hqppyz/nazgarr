@@ -118,7 +118,7 @@ def deliver_due(session: Session, client: httpx.Client | None = None, now: datet
         .all()
     )
     owns = client is None
-    client = client or httpx.Client(follow_redirects=False)
+    client = client or net_guard.http_client(follow_redirects=False)  # l'indirizzo controllato quando si connette
     try:
         for delivery in due:
             try:

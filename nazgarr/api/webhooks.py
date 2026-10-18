@@ -6,7 +6,6 @@ import json
 import secrets
 from datetime import datetime
 
-import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -176,6 +175,6 @@ def send_test(webhook_id: int, session: Session = Depends(get_session)):
                          only_webhook_id=webhook.id)
     session.commit()
     delivery = event.deliveries[0]
-    with httpx.Client(follow_redirects=False) as client:
+    with net_guard.http_client(follow_redirects=False) as client:
         webhooks.attempt(session, delivery, client)
     return list_deliveries(webhook_id, session)[0]

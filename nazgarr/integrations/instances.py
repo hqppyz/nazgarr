@@ -46,7 +46,9 @@ class InstanceError(CodedError):
 
 def _default_client(base_url: str, api_key: str | None) -> httpx.Client:
     headers = {"X-Api-Key": api_key} if api_key else {}
-    return httpx.Client(base_url=base_url, headers=headers, timeout=TIMEOUT_SECONDS, follow_redirects=False)
+    # Connesso solo a indirizzi controllati nel momento della connessione (net_guard).
+    return net_guard.http_client(base_url=base_url, headers=headers, timeout=TIMEOUT_SECONDS,
+                                 follow_redirects=False)
 
 
 # Sostituibile nei test.

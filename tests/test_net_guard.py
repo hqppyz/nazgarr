@@ -193,3 +193,32 @@ def test_pin_leaves_clients_with_their_own_transport_alone():
     pinned = net_guard.http_client()
     backend = pinned._transport._pool._network_backend
     assert net_guard.pin(pinned)._transport._pool._network_backend is backend  # una volta sola
+
+
+def test_every_client_for_a_user_or_tracker_url_is_pinned(monkeypatch, tmp_path, db_session):
+    """I client costruiti per gli URL che vengono da utenti o tracker:
+    tracker, Radarr/Sonarr (e la loro prova), altre istanze, webhook (e la
+    loro prova), icone dei tracker."""
+    from types import SimpleNamespace
+
+    from nazgarr.adapters.tracker.base import Unit3dTrackerAdapter
+    from nazgarr.api import arr_instances
+    from nazgarr.integrations import arr, instances, webhooks
+    from nazgarr.torrents import tracker_icons
+
+    def pinned(client) -> bool:
+        return isinstance(client._transport._pool._network_backend, net_guard._CheckedBackend)
+
+    instance = SimpleNamespace(basic_auth_username=None, basic_auth_password=None, label="r", id=1,
+                               base_url="http://radarr:7878", api_key="k", timeout_seconds=15)
+    assert pinned(Unit3dTrackerAdapter("https://t.example", "token")._client)
+    assert pinned(arr.ArrApi(instance)._client)
+    assert pinned(arr_instances.status_client(None, 5))
+    assert pinned(instances._default_client("https://other.example", "key"))
+
+    built = []
+    real = net_guard.http_client
+    monkeypatch.setattr(net_guard, "http_client", lambda **kw: built.append(kw) or real(**kw))
+    webhooks.deliver_due(db_session)
+    tracker_icons.fetch_icon(str(tmp_path), 1, "https://t.example")  # nessun DNS: nessuna icona
+    assert len(built) == 2

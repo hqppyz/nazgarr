@@ -68,6 +68,11 @@ def check_url(url: str) -> None:
         raise ForbiddenDestination(f"{host} is not a destination Nazgarr calls")
 
 
+# Le classi vere, prese all'import: un test può sostituire httpx.Client con
+# un finto, che pin deve riconoscere e lasciare stare.
+_CLIENT, _TRANSPORT = httpx.Client, httpx.HTTPTransport
+
+
 class ForbiddenConnection(httpcore.ConnectError):
     """Una connessione verso una destinazione vietata, rifiutata nel momento
     in cui si apre: httpx la rende un httpx.ConnectError (col messaggio),
@@ -129,7 +134,7 @@ def pin(client: httpx.Client) -> httpx.Client:
     della richiesta. Se httpx non ha più il trasporto che ci si aspetta, si
     fallisce invece di lasciare la finestra aperta in silenzio."""
     transport = getattr(client, "_transport", None)
-    if not isinstance(client, httpx.Client) or type(transport) is not httpx.HTTPTransport:
+    if not isinstance(client, _CLIENT) or type(transport) is not _TRANSPORT:
         return client
     pool = getattr(transport, "_pool", None)
     backend = getattr(pool, "_network_backend", None)
