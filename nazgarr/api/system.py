@@ -3,6 +3,7 @@ Configuration > Application (versione/runtime + controllo aggiornamenti)
 e Configuration > Logs (docs/SPEC.md non ne parla ancora: aggiunta su
 richiesta esplicita, non collegata a nessuna fase del roadmap)."""
 
+import os
 import platform
 import re
 from datetime import datetime
@@ -118,6 +119,8 @@ def release_notes_seen(session: Session = Depends(get_session)):
 _LOG_LINE_RE = re.compile(r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) (\S+)\s+([^:]+): (.*)$")
 _LEVEL_ORDER = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 _MAX_LOG_ENTRIES = 500
+# Quanto leggere alla volta dalla fine del file.
+_TAIL_CHUNK_BYTES = 256 * 1024
 
 
 class LogEntry(BaseModel):
@@ -132,26 +135,63 @@ class LogsResponse(BaseModel):
     available: bool  # false se il file di log non esiste ancora (avvio appena fatto)
 
 
+def _lines_backwards(path: Path, chunk_bytes: int):
+    """Le righe del file dall'ultima alla prima, leggendo a blocchi dalla
+    fine: le ultime 500 voci stanno quasi sempre nel primo blocco, e il
+    file (fino a 5 MB) non si legge più intero a ogni poll. Si divide solo
+    sugli a capo, quindi un carattere UTF-8 non si spezza mai fra due blocchi."""
+    with path.open("rb") as f:
+        position = f.seek(0, os.SEEK_END)
+        rest = b""
+        first = True
+        while position > 0:
+            size = min(chunk_bytes, position)
+            position -= size
+            f.seek(position)
+            lines = (f.read(size) + rest).split(b"\n")
+            # La prima può essere a metà: si completa col blocco precedente.
+            rest = lines.pop(0) if position > 0 else b""
+            if first:
+                first = False
+                if lines and lines[-1] == b"":
+                    lines.pop()  # l'a capo finale del file
+            for raw in reversed(lines):
+                yield raw.decode("utf-8", errors="replace").rstrip("\r")
+
+
+def read_log_entries(path: Path, min_level: str, limit: int = _MAX_LOG_ENTRIES,
+                     chunk_bytes: int = _TAIL_CHUNK_BYTES) -> list[LogEntry]:
+    """Le ultime `limit` voci almeno di `min_level`, dalla più nuova. Una riga
+    che non apre una voce (es. un traceback su più righe) appartiene a quella
+    sopra: leggendo dal fondo si tiene da parte finché non arriva la sua."""
+    min_index = _LEVEL_ORDER.index(min_level) if min_level in _LEVEL_ORDER else 0
+    entries: list[LogEntry] = []
+    continuation: list[str] = []
+    for line in _lines_backwards(path, chunk_bytes):
+        match = _LOG_LINE_RE.match(line)
+        if not match:
+            continuation.append(line)
+            continue
+        timestamp, level, logger_name, message = match.groups()
+        if continuation:
+            message += "\n" + "\n".join(reversed(continuation))
+            continuation.clear()
+        if level in _LEVEL_ORDER and _LEVEL_ORDER.index(level) >= min_index:
+            entries.append(LogEntry(timestamp=timestamp, level=level, logger=logger_name, message=message))
+            if len(entries) >= limit:
+                break
+    # Righe prima della prima voce del file: di nessuno, come prima.
+    return entries
+
+
 @router.get("/logs", response_model=LogsResponse)
 def logs(min_level: str = "INFO", settings: Settings = Depends(get_settings)):
+    """Le ultime voci del log per la tab Logs, che le chiede ogni 10 s: dalla
+    fine del file, senza rileggerlo e analizzarlo tutto (audit 2026-10-18)."""
     log_path = Path(settings.data_dir) / "logs" / "nazgarr.log"
     if not log_path.exists():
         return LogsResponse(entries=[], available=False)
-
-    min_index = _LEVEL_ORDER.index(min_level) if min_level in _LEVEL_ORDER else 0
-    entries: list[LogEntry] = []
-    for line in log_path.read_text(errors="replace").splitlines():
-        match = _LOG_LINE_RE.match(line)
-        if match:
-            timestamp, level, logger_name, message = match.groups()
-            entries.append(LogEntry(timestamp=timestamp, level=level, logger=logger_name, message=message))
-        elif entries:
-            # riga di continuazione (es. traceback multi-riga): si appende
-            # all'ultima entry invece di diventarne una fasulla a sé.
-            entries[-1].message += "\n" + line
-
-    filtered = [e for e in entries if e.level in _LEVEL_ORDER and _LEVEL_ORDER.index(e.level) >= min_index]
-    return LogsResponse(entries=list(reversed(filtered[-_MAX_LOG_ENTRIES:])), available=True)
+    return LogsResponse(entries=read_log_entries(log_path, min_level), available=True)
 
 
 class SetupStep(BaseModel):

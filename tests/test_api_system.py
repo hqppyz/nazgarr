@@ -1,7 +1,10 @@
 import logging
+import random
+import re
 
 import httpx
 
+from nazgarr.api import system
 from nazgarr.core import updates
 
 
@@ -122,3 +125,69 @@ def test_logs_filters_by_level(client):
     messages = [e["message"] for e in errors_only["entries"]]
     assert "an info line" not in messages
     assert "an error line" in messages
+
+
+def _read_whole_file(path, min_level, limit=500):
+    """La lettura di prima (tutto il file, dall'inizio): il riferimento per
+    quella dalla fine."""
+    order = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+    min_index = order.index(min_level) if min_level in order else 0
+    entries = []
+    for line in path.read_text(errors="replace").split("\n")[:-1]:
+        match = re.match(r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) (\S+)\s+([^:]+): (.*)$", line)
+        if match:
+            entries.append(list(match.groups()))
+        elif entries:
+            entries[-1][3] += "\n" + line
+    kept = [e for e in entries if e[1] in order and order.index(e[1]) >= min_index]
+    return [tuple(e) for e in reversed(kept[-limit:])]
+
+
+def _write_log(path, count, seed=7):
+    rng = random.Random(seed)
+    lines = ["orphan continuation before the first entry"]
+    for i in range(count):
+        level = rng.choice(["DEBUG", "INFO", "INFO", "WARNING", "ERROR", "NOTICE"])
+        stamp = f"2026-10-18 10:{i // 60 % 60:02d}:{i % 60:02d}"
+        lines.append(f"{stamp} {level:<8} nazgarr.test: message {i} è già fatto ✓")
+        for k in range(rng.choice([0, 0, 0, 1, 3])):
+            lines.append(f"  Traceback line {k} of {i} — ünïcode")
+        if rng.random() < 0.05:
+            lines.append("")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def test_logs_read_from_the_end_match_the_whole_file(tmp_path):
+    log = tmp_path / "nazgarr.log"
+    _write_log(log, 3000)
+    for level in ["DEBUG", "INFO", "ERROR", "BOGUS"]:
+        for chunk in [64, 1000, 256 * 1024]:  # blocchi piccoli: righe e caratteri a cavallo
+            entries = system.read_log_entries(log, level, chunk_bytes=chunk)
+            got = [(e.timestamp, e.level, e.logger, e.message) for e in entries]
+            assert got == _read_whole_file(log, level), (level, chunk)
+
+
+def test_logs_without_a_final_newline_and_with_few_entries(tmp_path):
+    log = tmp_path / "nazgarr.log"
+    log.write_text(
+        "2026-10-18 10:00:00 INFO     a: first\n  more\n2026-10-18 10:00:01 ERROR    b: second", encoding="utf-8")
+    entries = system.read_log_entries(log, "INFO", chunk_bytes=8)
+    assert [(e.logger, e.message) for e in entries] == [("b", "second"), ("a", "first\n  more")]
+
+
+def test_logs_stop_reading_once_the_last_entries_are_found(tmp_path, monkeypatch):
+    log = tmp_path / "nazgarr.log"
+    _write_log(log, 20000)
+    read = []
+    real_open = type(log).open
+
+    def counting_open(self, *args, **kwargs):
+        handle = real_open(self, *args, **kwargs)
+        real_read = handle.read
+        handle.read = lambda size=-1: read.append(size) or real_read(size)
+        return handle
+
+    monkeypatch.setattr(type(log), "open", counting_open)
+    entries = system.read_log_entries(log, "DEBUG", chunk_bytes=64 * 1024)
+    assert len(entries) == 500
+    assert read and sum(read) < log.stat().st_size / 4
