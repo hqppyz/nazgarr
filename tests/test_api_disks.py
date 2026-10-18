@@ -226,6 +226,59 @@ def test_a_folder_with_library_files_is_never_watched(client):
     assert client.patch(url, json={"watch_rel_path": "media/incoming"}).status_code == 200
 
 
+def test_a_disk_is_not_deleted_while_a_reseed_or_an_upload_works_on_it(client):
+    from nazgarr.core.models import SeedJob, UploadJob
+    from tests.test_delete_used_tracker_and_disk import _used_tracker_and_disk
+
+    disk_id, _tracker_id = _used_tracker_and_disk(client)
+    session = client.app.state.session_factory()
+    try:
+        job = session.query(SeedJob).one()
+        job.final_status = "in_progress"
+        session.commit()
+    finally:
+        session.close()
+
+    busy = client.delete(f"/api/disks/{disk_id}")
+    assert busy.status_code == 409
+    assert busy.json()["detail"] == {"code": "disk_busy", "params": {"label": "Disk 1", "work": "reseed"}}
+
+    session = client.app.state.session_factory()
+    try:
+        session.query(SeedJob).one().final_status = "seeding"
+        session.add(UploadJob(disk_id=disk_id, relative_path="media/m.mkv", source_path="/x", status="queued"))
+        session.commit()
+    finally:
+        session.close()
+    assert client.delete(f"/api/disks/{disk_id}").json()["detail"]["params"]["work"] == "upload"
+
+    session = client.app.state.session_factory()
+    try:
+        session.query(UploadJob).one().status = "done"
+        session.commit()
+    finally:
+        session.close()
+    assert client.delete(f"/api/disks/{disk_id}").status_code == 204
+
+
+def test_a_constraint_failing_on_delete_is_a_409_not_a_500(client):
+    from sqlalchemy import text
+
+    created = _disk(client, "media")
+    session = client.app.state.session_factory()
+    try:
+        session.execute(text("CREATE TRIGGER keep_disk BEFORE DELETE ON disk "
+                             "BEGIN SELECT RAISE(ABORT, 'FOREIGN KEY constraint failed'); END"))
+        session.commit()
+    finally:
+        session.close()
+
+    response = client.delete(f"/api/disks/{created['id']}")
+
+    assert response.status_code == 409 and response.json()["detail"]["code"] == "disk_delete_conflict"
+    assert [d["id"] for d in client.get("/api/disks").json()] == [created["id"]]
+
+
 def test_a_disk_never_holds_nazgarr_own_folders(client, tmp_path, monkeypatch):
     """Con una radice dei dischi ampia (la home, per pipx) un disco poteva
     contenere config, secret.key e DB, e mostrarli o metterli in un torrent

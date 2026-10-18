@@ -16,15 +16,17 @@ import os
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
+from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from nazgarr.core import mounts as container_mounts
 from nazgarr.core.errors import CodedError, coded_detail, from_coded_error
 from nazgarr.core.fs_scope import ScopeViolation, resolve_scoped
-from nazgarr.core.models import ClientTorrentFile, Disk, MediaFile, SeedFile
+from nazgarr.core.models import ClientTorrentFile, Disk, MediaFile, SeedFile, SeedJob, UploadJob
 from nazgarr.library import disk_folders, hardlinks
 from nazgarr.library.scan_state import latest_scan_by_disk
+from nazgarr.upload import jobs as upload_jobs
 from nazgarr.web.deps import get_or_404, get_session
 
 router = APIRouter(prefix="/api/disks", tags=["disks"])
@@ -411,8 +413,37 @@ def remove_folder(disk_id: int, folder_id: int, session: Session = Depends(get_s
     return DiskResponse.from_model(disk)
 
 
+def _busy_with(session: Session, disk: Disk) -> str | None:
+    """Cosa sta lavorando sui file del disco: un reseed in esecuzione (un
+    seed_job in corso di un suo file) o un upload nel worker. Cancellare il
+    disco in quel momento toglieva dal DB le righe che il lavoro stava
+    scrivendo: un 500 a metà, o un'esecuzione che non si ritrova più."""
+    media_ids = session.query(MediaFile.id).filter(MediaFile.disk_id == disk.id)
+    seed_ids = session.query(SeedFile.id).filter(SeedFile.disk_id == disk.id)
+    reseed = session.query(SeedJob.id).filter(
+        SeedJob.final_status == "in_progress",
+        or_(SeedJob.source_media_file_id.in_(media_ids), SeedJob.source_seed_file_id.in_(seed_ids)),
+    ).first()
+    if reseed is not None:
+        return "reseed"
+    upload = session.query(UploadJob.id).filter(
+        UploadJob.disk_id == disk.id, UploadJob.status.in_(upload_jobs.WORKER_STATES)).first()
+    return "upload" if upload is not None else None
+
+
 @router.delete("/{disk_id}", status_code=204)
 def delete_disk(disk_id: int, session: Session = Depends(get_session)):
+    """Toglie il disco e, a cascata, quello che Nazgarr sa dei suoi file
+    (docs/schema.sql); sul disco non cambia niente. Rifiutato (409) mentre
+    un reseed o un upload lavora sui suoi file."""
     disk = _get_disk_or_404(session, disk_id)
+    busy = _busy_with(session, disk)
+    if busy is not None:
+        raise HTTPException(status_code=409, detail=coded_detail("disk_busy", label=disk.label, work=busy))
     session.delete(disk)
-    session.commit()
+    try:
+        session.commit()
+    except IntegrityError as exc:
+        # Una riga che lo usa ancora (scritta nel frattempo): un 409 chiaro, non un 500.
+        session.rollback()
+        raise HTTPException(status_code=409, detail=coded_detail("disk_delete_conflict", label=disk.label)) from exc
