@@ -436,6 +436,7 @@ export const upload = {
   'upload.fileNames.help.original': 'I nomi che i file hanno nelle tue cartelle (nella libreria, quelli di Plex/Radarr/Sonarr).',
   'upload.event.file_names': 'Nomi dei file nel torrent: {mode} ({name}).',
   'upload.event.file_links_removed': '{count} file collegati per il torrent rimossi: nessuno li ha in seed.',
+  'upload.event.file_links_changed': '{count} file collegati per il torrent lasciati dove sono: al loro posto ora c’è un altro file ({files}).',
   'upload.overrides.missingSource':
     'Sorgente non trovata: nessun torrent in hardlink o nome di release dice da dove viene (BluRay, WEB-DL, HDTV…), quindi il nome non ce l’ha. Scrivila nel campo Sorgente.',
   'upload.overrides.setSource': 'Impostala',

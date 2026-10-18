@@ -137,6 +137,33 @@ def link_files(pairs: list[tuple[str, str]], root: str) -> list[str]:
     return hardlinks.create_links(planned)
 
 
+def _link_identities(paths: list[str]) -> dict[str, tuple[int, int]]:
+    """(dispositivo, inode) di ogni hardlink appena creato, visto con lstat:
+    la pulizia toglie solo un file che è ancora quello (_cleanup_unused_links)."""
+    out = {}
+    for path in paths:
+        with contextlib.suppress(OSError):
+            st = os.lstat(path)
+            if stat.S_ISREG(st.st_mode):
+                out[path] = (st.st_dev, st.st_ino)
+    return out
+
+
+def _still_our_link(path: str, recorded: tuple[int, int] | None) -> bool | None:
+    """L'hardlink creato da questo job è ancora al suo posto: un file vero
+    (non un link simbolico), con il dispositivo e l'inode di quando è nato.
+    None se non c'è più (niente da togliere), False se al suo posto c'è
+    altro: un file con lo stesso nome messo lì da qualcun altro non si
+    tocca (audit 2026-10-18)."""
+    try:
+        st = os.lstat(path)
+    except FileNotFoundError:
+        return None
+    except OSError:
+        return False
+    return recorded is not None and stat.S_ISREG(st.st_mode) and (st.st_dev, st.st_ino) == recorded
+
+
 # --- una volta per job --------------------------------------------------------
 
 
@@ -185,6 +212,7 @@ def prepare_content(session: Session, job: UploadJob, ctx: dict) -> str:
     # Da qui un reseed del motore approvato nel frattempo può riusarli (_used_elsewhere).
     ctx["links_at"] = datetime.now(UTC)
     ctx["created_links"] = link_files(pairs, root)
+    ctx["created_ids"] = _link_identities(ctx["created_links"])
     ctx["save_path"] = base
     # Nel torrent solo questi: la cartella può avere già altro (hash_pieces).
     ctx["planned"] = [target for _source, target in pairs]
@@ -901,7 +929,14 @@ def _cleanup_unused_links(session: Session, job: UploadJob, ctx: dict, overrides
     Mai uno da cui seeda un altro tracker del job (audit 2026-10-18): un
     reseed con lo stesso nome e lo stesso layout riusa proprio quel link
     (hardlinks.check_link), e toglierlo lasciava il suo torrent senza dati;
-    dalla cartella osservata poi se ne andava anche l'originale."""
+    dalla cartella osservata poi se ne andava anche l'originale.
+
+    Ognuno si ricontrolla subito prima (audit 2026-10-18): deve essere
+    ancora un file vero con l'inode di quando è nato (_still_our_link), e
+    si toglie con hardlinks.remove_links, che non segue mai un link
+    simbolico nelle cartelle sopra. Prima un unlink per percorso: un altro
+    file messo con lo stesso nome nel frattempo, o una cartella diventata
+    un link simbolico, portavano a cancellare un file non nostro."""
     created = ctx.get("created_links") or []
     uploaded = any(t.action == "upload" and t.status == "done" for t in job.targets)
     if not created or (uploaded and not overrides.get("no_seed")):
@@ -914,17 +949,22 @@ def _cleanup_unused_links(session: Session, job: UploadJob, ctx: dict, overrides
     if not unused:
         return
     root = os.path.realpath(ctx["seed_root"]())
+    recorded = ctx.get("created_ids") or {}
+    removable, changed = [], []
     for path in unused:
-        with contextlib.suppress(OSError):
-            os.unlink(path)
-        parent = os.path.dirname(path)
-        while os.path.realpath(parent).startswith(root + os.sep):
-            try:
-                os.rmdir(parent)  # solo se vuota
-            except OSError:
-                break
-            parent = os.path.dirname(parent)
-    upload_jobs.log_event(session, job, "file_links_removed", count=len(unused))
+        ours = _still_our_link(path, recorded.get(path))
+        if ours:
+            removable.append(path)
+        elif ours is False:
+            changed.append(path)
+    hardlinks.remove_links(removable, prune_up_to=root)
+    # Quelli che remove_links non ha potuto togliere (lo scrive nel log) non contano.
+    removed = [path for path in removable if not os.path.lexists(path)]
+    if changed:
+        upload_jobs.log_event(session, job, "file_links_changed", level="warning", count=len(changed),
+                              files=[os.path.relpath(path, root) for path in changed[:10]])
+    if removed:
+        upload_jobs.log_event(session, job, "file_links_removed", count=len(removed))
     session.commit()
 
 

@@ -1059,6 +1059,58 @@ def test_a_cancel_while_hashing_removes_the_links_made_for_the_names(db_session,
     assert "file_links_removed" in [e.code for e in job.events]
 
 
+@pytest.mark.parametrize("swap", ["another_file", "symlink"])
+def test_the_cleanup_never_removes_what_took_the_place_of_a_link(db_session, tmp_path, env, monkeypatch, swap):
+    """Audit 2026-10-18 (finding 75): la pulizia toglieva per percorso. Un
+    altro file messo al posto dell'hardlink dopo la sua creazione (o un link
+    simbolico) si cancellava al posto suo."""
+    video = write_video(env["root"] / "media" / "The Matrix (1999).mkv", 300 * KB)
+    job = _approved(db_session, env, "media/" + video.name, {"a": _upload("Matrix A"), "b": {"action": "skip"}},
+                    file_naming="generated")
+    job.overrides_json = json.dumps({**json.loads(job.overrides_json), "no_seed": True})
+    db_session.commit()
+    link = env["root"] / "torrents" / "The.Matrix.1999.mkv"
+    check = upload_execute._used_elsewhere
+
+    def swap_then_check(session, job, paths, since):
+        link.unlink()
+        if swap == "another_file":
+            link.write_bytes(b"not ours")
+        else:
+            link.symlink_to(video)
+        return check(session, job, paths, since)
+
+    monkeypatch.setattr(upload_execute, "_used_elsewhere", swap_then_check)
+    _run(db_session, tmp_path, job)
+
+    assert job.status == "done"
+    assert os.path.lexists(link)
+    assert video.is_file()
+    codes = [e.code for e in job.events]
+    assert "file_links_changed" in codes and "file_links_removed" not in codes
+
+
+def test_the_cleanup_never_follows_a_folder_turned_into_a_symlink(db_session, tmp_path, env):
+    """Audit 2026-10-18 (finding 75): una cartella sopra l'hardlink diventata
+    un link simbolico dopo la creazione portava l'unlink fuori dalla
+    cartella di seed."""
+    video = write_video(env["root"] / "media" / "The Matrix (1999).mkv", 300 * KB)
+    job = _approved(db_session, env, "media/" + video.name, {"a": _upload("Matrix A"), "b": {"action": "skip"}})
+    seed = env["root"] / "torrents"
+    folder = seed / "The.Matrix.1999"
+    [link] = upload_execute.link_files([(str(video), str(folder / "The.Matrix.1999.mkv"))], str(seed))
+    ctx = {"created_links": [link], "created_ids": upload_execute._link_identities([link]),
+           "seed_root": lambda: str(seed)}
+    elsewhere = env["root"] / "elsewhere"
+    os.rename(folder, elsewhere)
+    folder.symlink_to(elsewhere, target_is_directory=True)
+
+    upload_execute._cleanup_unused_links(db_session, job, ctx, {})
+
+    assert (elsewhere / "The.Matrix.1999.mkv").is_file()  # mai seguito il link simbolico
+    assert "file_links_removed" not in [e.code for e in job.events]
+
+
 def test_a_cleanup_error_never_changes_the_outcome(db_session, tmp_path, env, monkeypatch):
     video = _watched_job(db_session, env, "My.Movie.2024.mkv", {"a": _upload("Movie A"), "b": {"action": "skip"}})
     job = db_session.query(upload_jobs.UploadJob).one()
