@@ -34,7 +34,7 @@ from nazgarr.adapters.tracker.base import (
 )
 from nazgarr.plugins.registry import KINDS, AdapterContext, AdapterSpec, ConfigField, register
 
-SDK_VERSION = "1.2.0"  # 1.1: AdapterSpec.icon; 1.2: CheveretoImageHost, chevereto_image_url
+SDK_VERSION = "1.3.0"  # 1.1: AdapterSpec.icon; 1.2: CheveretoImageHost, chevereto_image_url; 1.3: stop()
 
 __all__ = [
     "KINDS", "SDK_VERSION", "AdapterContext", "AdapterSpec", "ClientTorrentFileInfo", "ClientTorrentInfo",

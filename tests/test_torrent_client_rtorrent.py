@@ -232,3 +232,11 @@ def test_endpoint_from_base_url():
                                                                  "/plugins/httprpc/action.php"),
                           ("http://h/plugins/httprpc/action.php", "http://h/plugins/httprpc/action.php")):
         assert RTorrentAdapter(url, None, None).url == expected
+
+
+def test_stop_stops_the_torrent():
+    mock = _RTorrentMock(rows=[_row()])
+
+    _adapter(mock).stop(HASH.lower())
+
+    assert mock.calls == [("d.stop", (HASH,))]

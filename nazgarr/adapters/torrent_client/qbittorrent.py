@@ -136,6 +136,10 @@ class QBittorrentAdapter(TorrentClientAdapter):
     def start(self, info_hash: str) -> None:
         self._client.torrents_start(torrent_hashes=info_hash)
 
+    def stop(self, info_hash: str) -> None:
+        # qbittorrent-api usa "pause" sulle WebUI API prima della 2.11 (qBittorrent 4).
+        self._client.torrents_stop(torrent_hashes=info_hash)
+
     def content_layout(self) -> str:
         prefs = self._client.app_preferences()
         layout = prefs.get("torrent_content_layout")

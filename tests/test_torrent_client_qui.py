@@ -311,3 +311,11 @@ def test_the_api_lists_qui_instances_and_never_sends_a_saved_token_to_a_new_host
     moved = client.post("/api/torrent-clients/qui-instances",
                         json={"base_url": "http://evil:1", "torrent_client_id": tc})
     assert moved.status_code == 400 and seen[-1][1] == "saved" and len(seen) == 2
+
+
+def test_stop_uses_the_bulk_pause():
+    mock = _QuiMock()
+
+    _adapter(mock).stop("h1")
+
+    assert mock.bulk_actions == [{"hashes": ["h1"], "action": "pause"}]

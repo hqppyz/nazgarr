@@ -206,3 +206,11 @@ def test_remove_torrent(delete_files):
     _adapter(mock).remove_torrent("H1", delete_files=delete_files)
 
     assert mock.called("core.remove_torrent") == [["h1", delete_files]]
+
+
+def test_stop_pauses_the_torrent():
+    mock = _DelugeMock()
+
+    _adapter(mock).stop("H1")
+
+    assert mock.called("core.pause_torrent") == [[["h1"]]]

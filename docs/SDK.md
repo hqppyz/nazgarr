@@ -6,7 +6,7 @@ Nazgarr can be extended in three ways:
 - **Webhooks**: signed HTTP calls for the events you choose.
 - **API keys**: scripts and other services can use the same JSON API as the web UI.
 
-SDK version: **1.2.0** (`nazgarr.sdk.SDK_VERSION`, [semantic versioning](https://semver.org): a breaking change bumps the major version). 1.1 added `AdapterSpec.icon`, 1.2 `CheveretoImageHost` and `chevereto_image_url`: a plugin that uses them needs `REQUIRES_SDK = ">=1.1,<2"` or `">=1.2,<2"`.
+SDK version: **1.3.0** (`nazgarr.sdk.SDK_VERSION`, [semantic versioning](https://semver.org): a breaking change bumps the major version). 1.1 added `AdapterSpec.icon`, 1.2 `CheveretoImageHost` and `chevereto_image_url`, 1.3 `TorrentClientAdapter.stop`: a plugin that uses them needs `REQUIRES_SDK = ">=1.1,<2"`, `">=1.2,<2"` or `">=1.3,<2"`.
 
 ## Rules that apply to everything here
 
@@ -158,6 +158,7 @@ Raise `UploadError` when the tracker refuses an upload, and `TrackerRateLimitedE
 | `get_torrent_info(info_hash) -> ClientTorrentInfo \| None` | one torrent with its files. Also asked after a failed add, to know whether the torrent reached the client anyway: return `None` only when the client really does not have it |
 | `content_layout() -> str` | the user's layout preference for added torrents (default `Original`): reseeds place their new hardlinks to match it |
 | `recheck(info_hash)` | ask the client to check a torrent again |
+| `stop(info_hash)` | stop a torrent, no download and no upload (SDK 1.3). Called when a reseed's recheck fails: left running, the torrent would download the missing pieces into files that are hardlinks of the user's library. Without it, Nazgarr tells the user to stop the torrent by hand |
 | `list_categories() -> list[str]` | the client's categories, for the category pickers |
 | `remove_torrent(info_hash, delete_files)` | remove a torrent from the client; with `delete_files`, also its files (only the torrent's own). Only called on an explicit user request |
 

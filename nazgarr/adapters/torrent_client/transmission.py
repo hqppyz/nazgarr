@@ -169,6 +169,9 @@ class TransmissionAdapter(TorrentClientAdapter):
     def recheck(self, info_hash: str) -> None:
         self._rpc("torrent-verify", {"ids": [info_hash.lower()]})
 
+    def stop(self, info_hash: str) -> None:
+        self._rpc("torrent-stop", {"ids": [info_hash.lower()]})
+
     def remove_torrent(self, info_hash: str, delete_files: bool) -> None:
         self._rpc("torrent-remove", {"ids": [info_hash.lower()], "delete-local-data": delete_files})
 

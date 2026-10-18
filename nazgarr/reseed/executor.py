@@ -623,10 +623,32 @@ def reconcile_seed_job(session: Session, seed_job: SeedJob, adapter: TorrentClie
         logger.info("Recheck ok, seed_job %s in seeding (info_hash=%s)", seed_job.id, seed_job.info_hash)
     elif recheck_status == "failed":
         seed_job.final_status = "failed"
-        seed_job.error_message = f"Recheck failed, client state: {status.state}"
+        seed_job.error_message = f"Recheck failed, client state: {status.state}" + _stop_after_failed_recheck(
+            adapter, seed_job, status.state)
         logger.warning("Recheck fallito per seed_job %s: stato client %s", seed_job.id, status.state)
     session.commit()
     return seed_job
+
+
+def _stop_after_failed_recheck(adapter: TorrentClientAdapter, seed_job: SeedJob, state: str | None) -> str:
+    """Un reseed col recheck fallito si ferma nel client (audit 2026-10-18):
+    avviato, scaricherebbe i piece che mancano scrivendoli nei file a
+    save_path, che sono hardlink dei file in libreria (gli stessi byte), o
+    i file già nella cartella dei torrent. Niente di approvato dall'utente.
+    Ritorna la coda del messaggio del seed job. Un retry che trova il
+    recheck riuscito lo riavvia (il ramo "fermo dopo il recheck" sopra)."""
+    if is_stopped_state(state):
+        return ""
+    try:
+        adapter.stop(seed_job.info_hash)
+    except NotImplementedError:
+        logger.warning("Seed_job %s: il client non sa fermare il torrent %s", seed_job.id, seed_job.info_hash)
+        return "; this client cannot be told to stop it: stop it by hand, or it downloads into the linked files"
+    except Exception:
+        logger.warning("Seed_job %s: torrent %s non fermato", seed_job.id, seed_job.info_hash, exc_info=True)
+        return "; it could not be stopped in the client: stop it by hand, or it downloads into the linked files"
+    logger.info("Seed_job %s: torrent %s fermato dopo il recheck fallito", seed_job.id, seed_job.info_hash)
+    return "; stopped in the client so it does not download into the linked files"
 
 
 def retry_seed_job(

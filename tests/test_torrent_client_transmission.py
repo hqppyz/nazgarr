@@ -162,3 +162,11 @@ def test_remove_torrent(delete_files):
 def test_rpc_url_from_base_url():
     assert TransmissionAdapter("http://tr:9091/", None, None).url == "http://tr:9091/transmission/rpc"
     assert TransmissionAdapter("http://h/custom/rpc", None, None).url == "http://h/custom/rpc"
+
+
+def test_stop_stops_the_torrent():
+    mock = _TransmissionMock()
+
+    _adapter(mock).stop("H1")
+
+    assert mock.calls[-1] == {"method": "torrent-stop", "arguments": {"ids": ["h1"]}}

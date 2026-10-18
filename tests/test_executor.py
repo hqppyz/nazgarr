@@ -525,3 +525,85 @@ def test_without_a_choice_a_reseed_takes_the_client_defaults_and_empty_means_non
     assert labels == {"category": "film", "tags": ["reseed"]}
     review_module.set_client_labels(db_session, review, "", None)  # nessuna categoria, i tag di sempre
     assert executor._labels(db_session, client.id, review.candidate, review) == {"tags": ["reseed"]}
+
+
+def _failed_recheck_job(db_session, tmp_path):
+    from nazgarr.core.models import SeedJob
+
+    _root, disk, tracker, item, _run = _base_setup(db_session, tmp_path)
+    candidate = Candidate(
+        media_item_id=item.id, tracker_id=tracker.id, torrent_id_remote="1", name="x", size_bytes=1,
+        source="catalog_search", direction="media_to_torrent", confidence=1.0,
+    )
+    db_session.add(candidate)
+    db_session.commit()
+    seed_job = SeedJob(candidate_id=candidate.id, final_status="in_progress", info_hash="deadbeef",
+                       recheck_status="pending")
+    db_session.add(seed_job)
+    db_session.commit()
+    return seed_job
+
+
+class _IncompleteAfterRecheck(FakeAdapter):
+    def __init__(self, state="stalledDL", stop_error=None):
+        super().__init__()
+        self.state, self.stop_error, self.stopped = state, stop_error, []
+
+    def get_torrent_status(self, info_hash):
+        return TorrentStatus(info_hash=info_hash, state=self.state, recheck_status="failed", progress=0.97,
+                             incomplete=True, amount_left=1000)
+
+    def stop(self, info_hash):
+        if self.stop_error is not None:
+            raise self.stop_error
+        self.stopped.append(info_hash)
+
+
+def test_a_failed_recheck_stops_the_torrent_so_it_never_downloads_into_the_library(db_session, tmp_path):
+    # Avviato, il client scaricava i piece mancanti negli hardlink: gli stessi
+    # byte dei file in libreria, senza alcuna approvazione.
+    seed_job = _failed_recheck_job(db_session, tmp_path)
+    adapter = _IncompleteAfterRecheck()
+
+    executor.reconcile_seed_job(db_session, seed_job, adapter)
+
+    assert seed_job.final_status == "failed" and adapter.stopped == ["deadbeef"]
+    assert "stopped in the client" in seed_job.error_message
+
+
+def test_a_torrent_already_stopped_is_not_stopped_again(db_session, tmp_path):
+    seed_job = _failed_recheck_job(db_session, tmp_path)
+    adapter = _IncompleteAfterRecheck(state="stoppedDL")
+
+    executor.reconcile_seed_job(db_session, seed_job, adapter)
+
+    assert seed_job.final_status == "failed" and adapter.stopped == []
+
+
+@pytest.mark.parametrize("error,expected", [
+    (NotImplementedError(), "cannot be told to stop it"), (RuntimeError("down"), "could not be stopped"),
+])
+def test_a_torrent_that_cannot_be_stopped_says_to_stop_it_by_hand(db_session, tmp_path, error, expected):
+    seed_job = _failed_recheck_job(db_session, tmp_path)
+
+    executor.reconcile_seed_job(db_session, seed_job, _IncompleteAfterRecheck(stop_error=error))
+
+    assert seed_job.final_status == "failed"
+    assert expected in seed_job.error_message and "by hand" in seed_job.error_message
+
+
+def test_a_plugin_adapter_without_stop_keeps_the_safe_default():
+    from nazgarr.sdk import TorrentClientAdapter
+
+    class Plugin(TorrentClientAdapter):
+        def add_torrent(self, *a, **kw):
+            return "h"
+
+        def get_torrent_status(self, info_hash):
+            raise NotImplementedError
+
+        def list_torrents(self, on_progress=None):
+            return []
+
+    with pytest.raises(NotImplementedError):
+        Plugin().stop("h")
