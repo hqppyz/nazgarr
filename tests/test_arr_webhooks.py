@@ -320,3 +320,13 @@ def test_an_oversized_event_is_refused_before_it_is_read(client):
     assert client.post(setup["path"], content=big, headers=_basic(setup["token"])).status_code == 413
     assert client.post(setup["path"], content=b"not json", headers=_basic(setup["token"])).status_code == 400
     assert client.post(setup["path"], content=b"[1]", headers=_basic(setup["token"])).status_code == 400
+
+
+def test_a_large_event_still_arrives_with_the_webhook_password(client):
+    # Il tetto sui corpi senza login di Nazgarr (nazgarr/web/body_limit.py) non
+    # vale qui: il webhook legge il corpo da sé, dopo la sua password.
+    setup = _hook(client)
+    event = json.dumps({"eventType": "Test", "episodes": [{"title": "e" * 500}] * 400})
+    assert len(event) > 128 * 1024
+    response = client.post(setup["path"], content=event, headers=_basic(setup["token"]))
+    assert response.json() == {"status": "accepted"}

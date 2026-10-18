@@ -5,7 +5,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -127,6 +129,22 @@ async def lifespan(app: FastAPI):
 # 2026-10-18).
 app = FastAPI(title="Nazgarr", lifespan=lifespan, docs_url=None, redoc_url=None)
 
+_MAX_VALIDATION_ERRORS = 50
+
+
+@app.exception_handler(RequestValidationError)
+async def _validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
+    """Il 422 di FastAPI, ma senza "input" e "ctx": quello di default rimandava
+    indietro il valore sbagliato, cioè anche un corpo intero, passato da
+    jsonable_encoder sul loop. Con un corpo di 2 MB fatto apposta, prima del
+    login, era quasi un secondo di loop e oltre 100 MB a richiesta (audit
+    2026-10-18). Tipo, posizione e messaggio bastano all'interfaccia e al CLI;
+    oltre i primi 50 errori nessuno legge."""
+    errors = [{"type": error["type"], "loc": error["loc"], "msg": error["msg"]}
+              for error in exc.errors()[:_MAX_VALIDATION_ERRORS]]
+    return JSONResponse(status_code=422, content={"detail": errors})
+
+
 # /api/auth/* è l'unico router mai protetto da require_auth (altrimenti
 # nessuno potrebbe mai autenticarsi la prima volta) — vedi nazgarr/api/auth.py.
 # Le viste della libreria restituiscono JSON da diversi MB (decine di
@@ -136,7 +154,8 @@ app = FastAPI(title="Nazgarr", lifespan=lifespan, docs_url=None, redoc_url=None)
 app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=6)
 app.add_middleware(SecurityMiddleware)
 # Per ultimo, quindi il più esterno: un corpo troppo grande si ferma prima di
-# qualunque altra cosa, login compreso (nazgarr/web/body_limit.py).
+# qualunque altra cosa, login compreso, e fuori da /api/auth/* nessun corpo
+# passa prima delle credenziali (nazgarr/web/body_limit.py).
 app.add_middleware(BodyLimitMiddleware)
 app.include_router(auth_router)
 # I webhook di Radarr/Sonarr: fuori dal login, con la password del webhook di
