@@ -498,16 +498,57 @@ class AlreadyVerifyingError(Exception):
     pass
 
 
+class ReviewAlreadyDecidedError(Exception):
+    """La review non è più in coda (approvata, rifiutata dall'utente o dal
+    sistema) o il suo candidato ha già un'esecuzione: niente da decidere."""
+
+    def __init__(self, review_id: int):
+        self.review_id = review_id
+        super().__init__(f"Review {review_id} has already been decided")
+
+
+def ready_for_decision(session: Session, review: MatchReview) -> bool:
+    """La stessa regola della coda (list_ready_for_review), letta ora dal DB."""
+    return without_seed_job(session.query(MatchReview.id).filter(
+        MatchReview.id == review.id, MatchReview.status.in_(READY_FOR_DECISION_STATUSES))).first() is not None
+
+
+def _claim(session: Session, review: MatchReview, status: str, decided_by: str) -> bool:
+    """La decisione su una review, presa una volta sola (audit 2026-10-18):
+    un UPDATE condizionato (ancora in coda, senza esecuzioni) apre la
+    transazione di scrittura, e nella stessa transazione la review cambia
+    stato. Due approvazioni insieme (un doppio clic, "Approva tutti" mentre
+    una riga è ancora in corso, l'esecuzione automatica della run e quella
+    dell'utente) non eseguono mai due volte, e una review chiusa dal sistema
+    o già eseguita non riparte. Lo stato si scrive con l'ORM, così l'evento
+    review.decided parte come sempre."""
+    now = datetime.now(UTC)
+    claimed = session.query(MatchReview).filter(
+        MatchReview.id == review.id, MatchReview.status.in_(READY_FOR_DECISION_STATUSES),
+        ~exists().where(SeedJob.candidate_id == MatchReview.candidate_id),
+    ).update({MatchReview.decided_at: now}, synchronize_session=False)
+    if claimed != 1:
+        session.rollback()
+        return False
+    review.status, review.decided_by, review.decided_at = status, decided_by, now
+    session.commit()
+    return True
+
+
 def request_approval(session: Session, review: MatchReview, session_factory, decided_by: str = "user",
                      fetch_torrent=None) -> MatchReview:
     """Approve dall'interfaccia. Con la verifica attiva la review resta in
     coda come "verifying" e parte il controllo completo in background:
     l'approvazione e l'esecuzione arrivano solo se passa (_after_verification).
-    Senza verifica, come sempre: approva ed esegue subito."""
+    Senza verifica, come sempre: approva ed esegue subito. Una review che
+    non è più in coda: ReviewAlreadyDecidedError, prima di qualunque
+    controllo o esecuzione."""
     if not verify_before_execute_enabled(session):
         return approve(session, review, decided_by=decided_by)
     if review.verify_status == "verifying":
         raise AlreadyVerifyingError(f"Review {review.id} is already being verified")
+    if not ready_for_decision(session, review):
+        raise ReviewAlreadyDecidedError(review.id)
 
     def after(worker_session: Session, state, result) -> None:
         _after_verification(worker_session, state, result, decided_by)
@@ -548,7 +589,13 @@ def _after_verification(session: Session, state, result, decided_by: str) -> Non
         return
     state.stage = "executing"
     skip = skip_recheck_enabled(session) and fully_verified(result, review.candidate)
-    approve(session, review, decided_by=decided_by, skip_recheck=skip)
+    try:
+        approve(session, review, decided_by=decided_by, skip_recheck=skip)
+    except ReviewAlreadyDecidedError:
+        # Decisa da un'altra parte mentre il controllo girava (la run
+        # l'ha eseguita, o chiusa): questa non esegue niente.
+        state.execution = "skipped"
+        return
     seed_job = (
         session.query(SeedJob).filter_by(candidate_id=review.candidate_id).order_by(SeedJob.id.desc()).first()
     )
@@ -577,11 +624,11 @@ def approve(
     """Approva e prova subito l'esecuzione (hardlink+seed, o solo add al
     client) se un client torrent è configurato. Un fallimento
     dell'esecuzione non annulla l'approvazione: resta approved con il
-    seed_job in stato failed — ritenta da list_failed_seed_jobs()."""
-    review.status = "approved"
-    review.decided_by = decided_by
-    review.decided_at = datetime.now(UTC)
-    session.commit()
+    seed_job in stato failed — ritenta da list_failed_seed_jobs(). Solo una
+    review ancora in coda, presa in modo atomico (_claim):
+    ReviewAlreadyDecidedError altrimenti."""
+    if not _claim(session, review, "approved", decided_by):
+        raise ReviewAlreadyDecidedError(review.id)
     if skip_recheck:
         _try_execute(session, review, skip_recheck=True)
     else:
@@ -590,10 +637,10 @@ def approve(
 
 
 def reject(session: Session, review: MatchReview, decided_by: str = "user") -> MatchReview:
-    review.status = "rejected"
-    review.decided_by = decided_by
-    review.decided_at = datetime.now(UTC)
-    session.commit()
+    """Come approve: solo una review ancora in coda. Prima un rifiuto poteva
+    trasformare in "no dell'utente" una review già eseguita."""
+    if not _claim(session, review, "rejected", decided_by):
+        raise ReviewAlreadyDecidedError(review.id)
     return review
 
 
@@ -702,12 +749,21 @@ def execute_auto_approved(session: Session, progress=NULL_PROGRESS) -> dict[str,
     verify = verify_before_execute_enabled(session)
     executed = 0
     for review in reviews:
+        # La lista si legge una volta, e un controllo completo dura minuti:
+        # l'utente può averla approvata o rifiutata nel frattempo.
+        if not ready_for_decision(session, review):
+            progress.advance()
+            continue
         verified = _verify_now(session, review, progress) if verify else None
         if verify and not verified:
             progress.advance()
             continue
         skip = verified is not None and skip_recheck_enabled(session) and fully_verified(verified, review.candidate)
-        approve(session, review, decided_by="system", skip_recheck=skip)
+        try:
+            approve(session, review, decided_by="system", skip_recheck=skip)
+        except ReviewAlreadyDecidedError:
+            progress.advance()
+            continue
         executed += 1
         progress.advance()
         progress.result(executed=1)

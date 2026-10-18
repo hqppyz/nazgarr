@@ -228,6 +228,10 @@ def approve_review(review_id: int, request: Request, session: Session = Depends(
         review.request_approval(session, row, request.app.state.session_factory)
     except review.AlreadyVerifyingError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except review.ReviewAlreadyDecidedError as exc:
+        # Già approvata, rifiutata o eseguita: un'esecuzione fallita si
+        # ritenta da /api/reviews/failed/{id}/retry, mai approvando di nuovo.
+        raise HTTPException(status_code=409, detail=coded_detail("review_already_decided", id=review_id)) from exc
     return ReviewResponse.from_model(row)
 
 
@@ -250,7 +254,10 @@ def set_client_labels(review_id: int, body: ClientLabelsRequest, session: Sessio
 @router.post("/{review_id}/reject", response_model=ReviewResponse)
 def reject_review(review_id: int, session: Session = Depends(get_session)):
     row = _get_review_or_404(session, review_id)
-    review.reject(session, row)
+    try:
+        review.reject(session, row)
+    except review.ReviewAlreadyDecidedError as exc:
+        raise HTTPException(status_code=409, detail=coded_detail("review_already_decided", id=review_id)) from exc
     return ReviewResponse.from_model(row)
 
 

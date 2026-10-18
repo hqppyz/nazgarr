@@ -408,3 +408,32 @@ def test_a_review_says_where_the_file_already_seeds(db_session):
     row = _review_for(db_session, _candidate(db_session, item, tracker, confidence=0.5), media_file_id=mf.id)
 
     assert ReviewResponse.from_model(row).seeding_on == ["public.example", "t"]
+
+
+def test_automatic_execution_skips_a_review_decided_meanwhile(db_session, monkeypatch):
+    # La lista si legge una volta: una review approvata dall'utente nel
+    # frattempo non si esegue una seconda volta (audit 2026-10-18, finding 116).
+    from nazgarr.core import settings_repo
+
+    settings_repo.set_setting(db_session, "auto_execute_above_threshold", "true")
+    settings_repo.set_setting(db_session, "verify_before_execute", "false")
+    tracker = _tracker(db_session)
+    item = _media_item(db_session)
+    first = _review_for(db_session, _candidate(db_session, item, tracker, confidence=0.99))
+    second = _review_for(db_session, _candidate(db_session, item, tracker, confidence=0.99, remote="2"))
+    for row in (first, second):
+        row.status = "auto_approved"
+    db_session.commit()
+    executed = []
+
+    def execute(session, row, **kw):
+        executed.append(row.id)
+        if row.id == first.id:  # mentre la run esegue la prima, l'utente rifiuta la seconda
+            other = session.get(MatchReview, second.id)
+            review.reject(session, other)
+
+    monkeypatch.setattr(review, "_try_execute", execute)
+    result = review.execute_auto_approved(db_session)
+
+    assert executed == [first.id]
+    assert result["executed"] == 1
