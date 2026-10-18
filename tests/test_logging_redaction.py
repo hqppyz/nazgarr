@@ -25,3 +25,39 @@ def test_formatter_redacts_tracebacks_too():
     out = formatter.format(record)
     assert "secretkey" not in out
     assert "/torrent/download/1.<redacted>" in out
+
+
+def test_the_uvicorn_access_log_hides_a_webhook_token():
+    # Il log degli accessi di uvicorn ha il suo handler (propagate=False) e non
+    # passava dal RedactingFormatter: ?token= finiva in chiaro su stdout
+    # (docker logs, Dozzle; audit 2026-10-18).
+    import io
+    import logging.config
+
+    from uvicorn.config import LOGGING_CONFIG
+    from uvicorn.logging import AccessFormatter
+
+    from nazgarr.core.logs import configure_logging
+
+    names = ("uvicorn", "uvicorn.error", "uvicorn.access")
+    saved = {name: (logging.getLogger(name).handlers[:], logging.getLogger(name).filters[:],
+                    logging.getLogger(name).propagate, logging.getLogger(name).level) for name in names}
+    try:
+        logging.config.dictConfig(LOGGING_CONFIG)  # come fa uvicorn prima di importare l'app
+        configure_logging()
+        access = logging.getLogger("uvicorn.access")
+        stream = io.StringIO()
+        handler = logging.StreamHandler(stream)
+        handler.setFormatter(AccessFormatter('%(client_addr)s - "%(request_line)s" %(status_code)s', use_colors=False))
+        access.addHandler(handler)
+        access.info('%s - "%s %s HTTP/%s" %d', "10.0.0.5:1234", "POST",
+                    "/api/arr-hooks/radarr/1?token=SECRETPW123", "1.1", 200)
+        line = stream.getvalue()
+        assert "SECRETPW123" not in line and "token=<redacted>" in line and "200" in line
+        configure_logging()  # una seconda volta non aggiunge un altro filtro
+        assert sum(type(f).__name__ == "RedactingFilter" for f in access.filters) == 1
+    finally:
+        for name, (handlers, filters, propagate, level) in saved.items():
+            logger = logging.getLogger(name)
+            logger.handlers, logger.filters, logger.propagate = handlers, filters, propagate
+            logger.setLevel(level)
