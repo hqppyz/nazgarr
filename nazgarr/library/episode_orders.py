@@ -20,6 +20,7 @@ trovati, tradotti in ognuno."""
 import bisect
 import difflib
 import functools
+import hashlib
 import json
 import logging
 import re
@@ -293,9 +294,28 @@ def _in_airing_order(order: EpisodeOrder, specials: bool) -> list[tuple[int, Ord
     ]
 
 
+def _fingerprint(order: EpisodeOrder, refs: bool) -> str:
+    """Quello di un ordinamento da cui dipende l'allineamento, in breve."""
+    shape = [(season, ep.number, ep.titles, ep.air_date, ep.refs if refs else None)
+             for season, eps in sorted(order.seasons.items()) for ep in eps]
+    return hashlib.sha1(repr(shape).encode(), usedforsecurity=False).hexdigest()
+
+
 def align_to(order: EpisodeOrder, reference: EpisodeOrder) -> None:
-    align(_in_airing_order(order, False), _in_airing_order(reference, False))
-    align(_in_airing_order(order, True), _in_airing_order(reference, True))
+    """I riferimenti di `order` verso `reference` (le stagioni di default di
+    TMDB). Il risultato resta in cache per gli stessi due ordinamenti (audit
+    2026-10-18): il reseeding riallineava la stessa serie per ogni tracker
+    e la scheda a ogni apertura, e una serie lunga costa secondi."""
+    def compute() -> list[list[Ref]]:
+        align(_in_airing_order(order, False), _in_airing_order(reference, False))
+        align(_in_airing_order(order, True), _in_airing_order(reference, True))
+        return [list(ep.refs) for _season, eps in sorted(order.seasons.items()) for ep in eps]
+
+    key = ("aligned", _fingerprint(order, refs=False), _fingerprint(reference, refs=True))
+    aligned = iter(_cached(key, compute, copy=True))
+    for _season, eps in sorted(order.seasons.items()):
+        for ep in eps:
+            ep.refs = [tuple(r) for r in next(aligned)]
 
 
 # --- Fonti -------------------------------------------------------------------------

@@ -628,3 +628,17 @@ def test_a_near_title_never_takes_an_episode_an_identical_title_already_owns():
     eo.align_to(typo, tmdb)
     assert [e.refs for e in typo.seasons[1]] == [[(1, 3)], [(1, 1)], [(1, 2)]]
 
+
+def test_an_alignment_is_computed_once_for_the_same_orders(monkeypatch):
+    calls = []
+    real = eo.align
+    monkeypatch.setattr(eo, "align", lambda episodes, reference: calls.append(1) or real(episodes, reference))
+    tmdb = _order("tmdb:default", {1: 10, 2: 7})
+    for _ in range(3):
+        parts = _order("tvdb:alternate", {1: 5, 2: 5, 3: 7}, "tvdb", refs=False)
+        eo.align_to(parts, tmdb)
+        assert parts.seasons[3][0].refs == [(2, 1)]
+    assert len(calls) == 2  # stagioni e speciali, una volta sola
+    other = _order("tvdb:alternate", {1: 5, 2: 12}, "tvdb", refs=False)
+    eo.align_to(other, tmdb)
+    assert len(calls) == 4 and other.seasons[2][0].refs == [(1, 6)]
