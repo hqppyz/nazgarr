@@ -2,6 +2,7 @@
 scenari della retrospettiva del 2026-10-05."""
 
 from nazgarr.adapters.torrent_client.base import ClientTorrentFileInfo, ClientTorrentInfo
+from nazgarr.api import torrent_clients
 from nazgarr.core.models import Disk, DiskFolder, DiskTorrentClient, TorrentClient
 from nazgarr.torrents import path_check
 from nazgarr.torrents.path_check import Sample
@@ -178,4 +179,5 @@ def test_the_live_check_asks_the_client_only_for_the_largest_files(client, monke
     body = client.post(f"/api/torrent-clients/{tc}/path-check?live=true").json()
 
     assert (body["status"], body["source"], body["checked"]) == ("ok", "live", 1)
-    assert asked == [path_check.MAX_SAMPLES]
+    # Meno dei 5000 dell'indice: qBittorrent fa una richiesta per torrent.
+    assert asked == [torrent_clients.LIVE_SAMPLES] and torrent_clients.LIVE_SAMPLES < path_check.MAX_SAMPLES

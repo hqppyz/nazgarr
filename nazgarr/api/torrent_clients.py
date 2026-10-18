@@ -264,14 +264,22 @@ class PathCheckResponse(BaseModel):
     suggestions: list[PathCheckSuggestion] = []
 
 
+# Torrent guardati da una verifica chiesta al client (path_check.MAX_SAMPLES
+# vale per l'indice, letto dal DB). qBittorrent non ha un endpoint per i file
+# di più torrent: una richiesta per torrent, 4 alla volta, e con 5000 una
+# richiesta HTTP sincrona poteva superare il timeout di un proxy davanti
+# (audit 2026-10-18). Per una corrispondenza dei percorsi 500 bastano.
+LIVE_SAMPLES = 500
+
+
 def _largest_files(adapter) -> list:
-    """Il file più grande dei primi path_check.MAX_SAMPLES torrent, chiesto
-    al client col minimo (adapter.list_largest_files): prima l'elenco
-    completo di list_torrents, coi tracker e i file di ogni torrent anche
-    oltre quelli guardati, e con migliaia di torrent il proxy davanti
-    scadeva (audit 2026-10-18). Un plugin senza la classe base: list_torrents."""
+    """Il file più grande dei primi LIVE_SAMPLES torrent, chiesto al client
+    col minimo (adapter.list_largest_files): prima l'elenco completo di
+    list_torrents, coi tracker e i file di ogni torrent anche oltre quelli
+    guardati, e con migliaia di torrent il proxy davanti scadeva (audit
+    2026-10-18). Un plugin senza la classe base: list_torrents."""
     largest = getattr(adapter, "list_largest_files", None)
-    return largest(limit=path_check.MAX_SAMPLES) if callable(largest) else adapter.list_torrents()
+    return largest(limit=LIVE_SAMPLES) if callable(largest) else adapter.list_torrents()[:LIVE_SAMPLES]
 
 
 @router.post("/{torrent_client_id}/path-check", response_model=PathCheckResponse)
