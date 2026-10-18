@@ -94,10 +94,11 @@ def _run_isolated(file_path: str, kind: str) -> str:
     try:
         returncode = child.wait(timeout=PARSE_TIMEOUT_SECONDS)  # una scadenza totale, dall'avvio
     except subprocess.TimeoutExpired as exc:
-        child.kill()
-        child.wait()
         raise MediaInfoFailed(f"mediainfo did not finish within {PARSE_TIMEOUT_SECONDS:.0f}s") from exc
     finally:
+        if child.poll() is None:  # scaduto, o un'interruzione mentre si aspettava
+            child.kill()
+            child.wait()
         for reader in readers:
             reader.join()  # il figlio è finito: le pipe arrivano alla fine
         child.stdout.close()
