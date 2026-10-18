@@ -185,10 +185,12 @@ def _video_seasons(video: dict, translated: dict[int, dict[int, set[int]]] | Non
     """Le stagioni di un video della sorgente nella numerazione scelta al
     match (translated: episodio dei file -> stagioni scelte, per stagione
     dei file; None se i file seguono l'ordinamento scelto). Un episodio che
-    non si traduce prende le stagioni degli episodi vicini della stessa
-    stagione dei file (audit 2026-10-18: con quella dei file, il video
-    finiva fuori dal season pack in cui stanno i suoi vicini, perso
-    dall'upload)."""
+    non si traduce prende la stagione dell'episodio tradotto prima di lui
+    nella stessa stagione dei file, o se non c'è di quello dopo (audit
+    2026-10-18: con quella dei file, il video finiva fuori dal season pack
+    in cui stanno i suoi vicini, perso dall'upload). Una sola: con quelle di
+    entrambi, un episodio a cavallo fra due stagioni finiva nell'upload di
+    tutte e due."""
     season = video.get("season")
     if season is None:
         return set()
@@ -203,7 +205,12 @@ def _video_seasons(video: dict, translated: dict[int, dict[int, set[int]]] | Non
             continue
         lower = max((k for k in known if k < e), default=None)
         higher = min((k for k in known if k > e), default=None)
-        out |= (known.get(lower, set()) | known.get(higher, set())) or {season}
+        if lower is not None:
+            out.add(max(known[lower]))
+        elif higher is not None:
+            out.add(min(known[higher]))
+        else:
+            out.add(season)
     return out
 
 

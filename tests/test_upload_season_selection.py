@@ -357,3 +357,29 @@ def test_a_split_into_seasons_stopped_by_a_restart_never_splits_twice(db_session
     assert [(json.loads(c.seasons_json), c.status, c.stage) for c in seasons] == [
         ([1], "analyzing", None), ([2], "analyzing", None), ([3], "analyzing", None)]
     assert db_session.query(UploadJob).count() == 4 and kicked == [c.id for c in seasons]
+
+
+def test_an_episode_that_does_not_translate_goes_into_one_season_only():
+    """Audit 2026-10-18: un episodio che non si traduce, a cavallo fra due
+    stagioni dell'ordinamento scelto, prendeva le stagioni di entrambi i
+    vicini, e una serie intera divisa in stagioni lo metteva in due upload."""
+    from types import SimpleNamespace
+
+    from tests.test_episode_orders import _order
+
+    chosen = _order("tmdb:default", {1: 2, 2: 2})
+    # I file in una stagione sola da quattro: il terzo non ha riferimenti.
+    files = EpisodeOrder("sonarr", "Sonarr", "sonarr", {1: [
+        OrderEpisode(number=1, refs=[(1, 1)]), OrderEpisode(number=2, refs=[(1, 2)]),
+        OrderEpisode(number=3, refs=[]), OrderEpisode(number=4, refs=[(2, 2)])]})
+    snapshot = {"chosen": chosen.to_dict(), "files": files.to_dict()}
+    videos = [{"relative_path": f"Show.S01E{e:02d}.mkv", "season": 1, "episodes": [e]} for e in (1, 2, 3, 4)]
+    job = SimpleNamespace(layout_json=json.dumps({"videos": videos}))
+
+    seasons = {video["relative_path"]: found for video, found in upload_pack._with_seasons(job, snapshot)}
+    assert seasons == {"Show.S01E01.mkv": {1}, "Show.S01E02.mkv": {1}, "Show.S01E03.mkv": {1},
+                       "Show.S01E04.mkv": {2}}
+    # Senza un vicino prima, quello dopo; senza nessuno, la stagione dei file.
+    assert upload_pack._video_seasons({"season": 1, "episodes": [1]}, {1: {2: {2}}}) == {2}
+    assert upload_pack._video_seasons({"season": 3, "episodes": [1]}, {1: {2: {2}}}) == {3}
+    assert upload_pack._video_seasons({"season": 1, "episodes": [14]}, {1: {13: {1}, 15: {2}}}) == {1}
