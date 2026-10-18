@@ -472,7 +472,12 @@ function ExecutionRow({ job }: { job: SeedJob }) {
               disabled={retry.isPending}
               onClick={() =>
                 retry.mutate(job.id, {
-                  onSuccess: () => toast.success(t('reseeding.retryCompleted')),
+                  // Da zero, con il controllo completo acceso, parte prima quel
+                  // controllo: l'avanzamento lo segue la notifica in basso.
+                  onSuccess: (result) =>
+                    result.verify_check_id
+                      ? toast.info(t('reseeding.retryVerifying'))
+                      : toast.success(t('reseeding.retryCompleted')),
                   onError: (error) => toast.error(t('reseeding.retryFailed', { message: error.message })),
                 })
               }

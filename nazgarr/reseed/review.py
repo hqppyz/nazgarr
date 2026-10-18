@@ -28,6 +28,7 @@ from sqlalchemy import exists, func, select
 from sqlalchemy.orm import Session, selectinload
 
 from nazgarr.core import settings_registry
+from nazgarr.core.logs import safe_error
 from nazgarr.core.models import (
     Candidate,
     CandidateFile,
@@ -59,7 +60,14 @@ from nazgarr.library.seeding import (
     torrent_format,
 )
 from nazgarr.reseed import full_check
-from nazgarr.reseed.executor import ExecutionError, execute_review, reconcile_seed_job, retry_seed_job
+from nazgarr.reseed.executor import (
+    ExecutionError,
+    adopt_for_retry,
+    execute_review,
+    reconcile_seed_job,
+    retry_from_scratch,
+    review_of,
+)
 from nazgarr.torrents import client_labels
 
 logger = logging.getLogger(__name__)
@@ -973,17 +981,81 @@ def delete_seed_job(session: Session, seed_job: SeedJob) -> None:
     session.commit()
 
 
-def retry_failed(session: Session, seed_job: SeedJob) -> SeedJob:
+def _client_for_seed_job(session: Session, seed_job: SeedJob):
     # Col client dove era stato aggiunto, se si sa; altrimenti quello del tracker.
-    adapter, torrent_client_id = (
+    return (
         _client_for(session, seed_job.torrent_client_id)
         if seed_job.torrent_client_id is not None
         else _client_for_candidate(session, seed_job.candidate)
     )
+
+
+def _retried_already(session: Session, seed_job: SeedJob) -> bool:
+    """Il candidato ha già un'esecuzione più recente: questa è già stata ritentata."""
+    return session.query(SeedJob.id).filter(
+        SeedJob.candidate_id == seed_job.candidate_id, SeedJob.id > seed_job.id).first() is not None
+
+
+def retry_failed(session: Session, seed_job: SeedJob, session_factory=None):
+    """Ritenta un'esecuzione fallita. Se il client ha già il torrent lo si
+    segue, come sempre (nessun file creato, nessun torrent aggiunto). Da
+    zero, con il controllo completo prima di eseguire acceso (il default) e
+    session_factory: parte quel controllo, come per un'approvazione, e
+    l'esecuzione arriva solo se passa (audit 2026-10-18: il retry
+    rieseguiva senza, anche se i file erano cambiati dall'ultima volta).
+    Restituisce il seed_job, o lo stato del controllo partito
+    (full_check.CheckState)."""
+    if seed_job.final_status != "failed":
+        raise ExecutionError(f"SeedJob {seed_job.id} is not in failed status (current: {seed_job.final_status})")
+    if _retried_already(session, seed_job):
+        raise ExecutionError(f"SeedJob {seed_job.id} has already been retried: see its newer execution")
+    adapter, torrent_client_id = _client_for_seed_job(session, seed_job)
     if adapter is None:
-        raise ExecutionError("Nessun client torrent configurato")
+        raise ExecutionError("No torrent client is enabled")
     try:
-        return retry_seed_job(session, seed_job, adapter, torrent_client_id)
+        adopted = adopt_for_retry(session, seed_job, adapter)
+        if adopted is not None:
+            return adopted
+        if session_factory is not None and verify_before_execute_enabled(session):
+            return _verify_then_retry(session, seed_job, session_factory)
+        return retry_from_scratch(session, seed_job, adapter, torrent_client_id)
+    finally:
+        close_adapter(adapter)
+
+
+def _verify_then_retry(session: Session, seed_job: SeedJob, session_factory):
+    match_review = review_of(session, seed_job)
+    seed_job_id = seed_job.id
+
+    def after(worker_session: Session, state, result) -> None:
+        _after_retry_verification(worker_session, state, result, seed_job_id)
+
+    return full_check.start_check(
+        session_factory, session, seed_job.candidate_id, media_file_id=match_review.media_file_id,
+        purpose="verify", review_id=match_review.id, after=after,
+    )
+
+
+def _after_retry_verification(session: Session, state, result, seed_job_id: int) -> None:
+    """Nel worker del controllo: il retry da zero solo se il controllo è
+    passato e nessun'altra esecuzione l'ha già rifatto nel frattempo."""
+    seed_job = session.get(SeedJob, seed_job_id)
+    if (result is None or state.verdict != "passed" or seed_job is None or seed_job.final_status != "failed"
+            or _retried_already(session, seed_job)):
+        state.execution = "skipped"
+        return
+    state.stage = "executing"
+    adapter, torrent_client_id = _client_for_seed_job(session, seed_job)
+    if adapter is None:
+        state.execution = "no_client"
+        return
+    try:
+        skip = skip_recheck_enabled(session) and fully_verified(result, seed_job.candidate)
+        again = retry_from_scratch(session, seed_job, adapter, torrent_client_id, skip_recheck=skip)
+        state.execution = "failed" if again.final_status == "failed" else "added"
+        state.execution_error = again.error_message if again.final_status == "failed" else None
+    except ExecutionError as exc:
+        state.execution, state.execution_error = "failed", safe_error(exc)
     finally:
         close_adapter(adapter)
 

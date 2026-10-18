@@ -428,7 +428,11 @@ def _seed(
         seed_job.final_status = "failed"
         seed_job.error_message = _error_text(exc)
         session.commit()
-        raise ExecutionError(str(exc)) from exc
+        # Lo stesso testo inglese salvato sul seed_job, senza chiavi: prima
+        # str(exc) di un errore con codice era il codice nudo (es.
+        # "client_cannot_see_path"), e quello di un client il suo messaggio
+        # così com'era (audit 2026-10-18).
+        raise ExecutionError(safe_error(seed_job.error_message)) from exc
     return seed_job
 
 
@@ -673,17 +677,13 @@ def _stop_after_failed_recheck(adapter: TorrentClientAdapter, seed_job: SeedJob,
     return "; stopped in the client so it does not download into the linked files"
 
 
-def retry_seed_job(
-    session: Session, seed_job: SeedJob, adapter: TorrentClientAdapter, torrent_client_id: int | None = None
-) -> SeedJob:
-    """Ritenta un seed_job failed. Se ha già un info_hash, il problema era
-    probabilmente solo il recheck mai confermato: si reinterroga il client
-    invece di ripartire da zero (un torrent fermato dopo un recheck fallito
-    riparte se ora il recheck è riuscito). Da zero, gli hardlink già al loro
-    posto con lo stesso inode si riusano, e il .torrent si riscarica e si
-    ricontrolla contro l'info hash del candidato."""
-    if seed_job.final_status != "failed":
-        raise ExecutionError(f"SeedJob {seed_job.id} is not in failed status (current: {seed_job.final_status})")
+def adopt_for_retry(session: Session, seed_job: SeedJob, adapter: TorrentClientAdapter) -> SeedJob | None:
+    """La parte di un retry che segue un torrent già nel client, senza
+    creare niente: con un info_hash il problema era probabilmente solo il
+    recheck mai confermato, e si reinterroga il client (un torrent fermato
+    dopo un recheck fallito riparte se ora il recheck è riuscito); senza, se
+    il client ha comunque il torrent del candidato (l'aggiunta fallita può
+    essere arrivata lo stesso), lo si segue. None = va rifatto da zero."""
     if seed_job.info_hash:
         logger.info("Retry seed_job %s: info_hash già presente, reinterrogo il client", seed_job.id)
         seed_job.final_status = "in_progress"
@@ -691,7 +691,7 @@ def retry_seed_job(
         return reconcile_seed_job(session, seed_job, adapter)
     candidate = session.get(Candidate, seed_job.candidate_id)
     if candidate is not None and candidate.info_hash:
-        try:  # l'aggiunta fallita può essere arrivata al client lo stesso
+        try:
             info = adapter.get_torrent_info(candidate.info_hash)
         except Exception:
             info = None
@@ -703,8 +703,12 @@ def retry_seed_job(
             seed_job.recheck_status = "pending"
             session.commit()
             return reconcile_seed_job(session, seed_job, adapter)
+    return None
 
-    review = (
+
+def review_of(session: Session, seed_job: SeedJob) -> MatchReview:
+    """La review che ha lanciato l'esecuzione."""
+    return (
         session.query(MatchReview)
         .filter(MatchReview.candidate_id == seed_job.candidate_id)
         .filter(
@@ -714,5 +718,29 @@ def retry_seed_job(
         )
         .one()
     )
+
+
+def retry_from_scratch(
+    session: Session, seed_job: SeedJob, adapter: TorrentClientAdapter, torrent_client_id: int | None = None,
+    skip_recheck: bool = False,
+) -> SeedJob:
+    """Una nuova esecuzione della stessa review: gli hardlink già al loro
+    posto con lo stesso inode si riusano, e il .torrent si riscarica e si
+    ricontrolla contro l'info hash del candidato."""
     logger.info("Retry seed_job %s: riparto da zero (nessun info_hash mai ottenuto)", seed_job.id)
-    return execute_review(session, review, adapter, torrent_client_id)
+    return execute_review(session, review_of(session, seed_job), adapter, torrent_client_id, skip_recheck=skip_recheck)
+
+
+def retry_seed_job(
+    session: Session, seed_job: SeedJob, adapter: TorrentClientAdapter, torrent_client_id: int | None = None
+) -> SeedJob:
+    """Ritenta un seed_job failed: segue il torrent se il client ce l'ha
+    (adopt_for_retry), altrimenti da zero (retry_from_scratch). Con il
+    controllo completo prima di eseguire acceso, il retry da zero passa da
+    lì (nazgarr/reseed/review.py::retry_failed)."""
+    if seed_job.final_status != "failed":
+        raise ExecutionError(f"SeedJob {seed_job.id} is not in failed status (current: {seed_job.final_status})")
+    adopted = adopt_for_retry(session, seed_job, adapter)
+    if adopted is not None:
+        return adopted
+    return retry_from_scratch(session, seed_job, adapter, torrent_client_id)

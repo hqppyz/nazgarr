@@ -4371,6 +4371,40 @@ export interface components {
             /** Quality */
             quality: string | null;
         };
+        /** RetryResponse */
+        RetryResponse: {
+            /** Id */
+            id: number;
+            /** Candidate Id */
+            candidate_id: number;
+            /** Candidate Name */
+            candidate_name?: string | null;
+            /** Direction */
+            direction?: string | null;
+            /** Tracker */
+            tracker?: string | null;
+            /** Torrent Client */
+            torrent_client?: string | null;
+            /** Final Status */
+            final_status: string;
+            /** Display Status */
+            display_status?: string | null;
+            /** Recheck Status */
+            recheck_status: string | null;
+            /**
+             * Recheck Skipped
+             * @default false
+             */
+            recheck_skipped: boolean;
+            /** Error Message */
+            error_message: string | null;
+            /** Hardlink Created At */
+            hardlink_created_at?: string | null;
+            /** Torrent Added At */
+            torrent_added_at?: string | null;
+            /** Verify Check Id */
+            verify_check_id?: string | null;
+        };
         /** ReviewQueuePage */
         ReviewQueuePage: {
             /** Items */
@@ -8090,7 +8124,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SeedJobResponse"];
+                    "application/json": components["schemas"]["RetryResponse"];
                 };
             };
             /** @description Validation Error */

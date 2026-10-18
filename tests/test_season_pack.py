@@ -620,3 +620,71 @@ def test_reconcile_between_runs_is_scheduled_and_skipped_during_a_run(db_session
     assert calls == [1]
     sched = scheduler.build_scheduler(lambda: db_session, "/tmp")
     assert sched.get_job(scheduler.RECONCILE_JOB_ID) is not None
+
+
+class _DownClient(FakeClient):
+    def add_torrent(self, url, save_path, force_recheck=True, expected_info_hash=None):
+        raise RuntimeError("client down")
+
+    def get_torrent_info(self, info_hash):
+        return None
+
+
+def _failed_pack_job(db_session, tmp_path, monkeypatch):
+    from nazgarr.reseed import review
+
+    _no_mediainfo(monkeypatch)
+    _disk, tracker, _ = _library(db_session, tmp_path)
+    matching.run_media_to_torrent_matching(db_session, tracker, PackTracker([_pack_candidate()]))
+    client_row = TorrentClient(label="q", adapter_type="qbittorrent", base_url="http://q")
+    db_session.add(client_row)
+    db_session.commit()
+    with pytest.raises(executor.ExecutionError):
+        executor.execute_review(db_session, db_session.query(MatchReview).one(), _DownClient(), client_row.id)
+    db_session.query(Candidate).one().info_hash = None  # il .torrent non è mai arrivato al client
+    db_session.commit()
+    seed_job = db_session.query(SeedJob).one()
+    monkeypatch.setattr(review, "build_torrent_client_adapter", lambda row: FakeClient())
+    return seed_job
+
+
+def test_a_retry_from_scratch_runs_the_full_check_first(db_session, tmp_path, monkeypatch):
+    # Prima il retry da zero rieseguiva senza controllo completo, anche con
+    # la verifica accesa (audit 2026-10-18, finding 125).
+    from types import SimpleNamespace
+
+    from nazgarr.reseed import full_check, review
+
+    seed_job = _failed_pack_job(db_session, tmp_path, monkeypatch)
+    started = []
+    monkeypatch.setattr(full_check, "start_check", lambda *a, **k: started.append(k) or SimpleNamespace(id="c1"))
+
+    state = review.retry_failed(db_session, seed_job, session_factory=object())
+
+    assert state.id == "c1" and started[0]["purpose"] == "verify"
+    assert db_session.query(SeedJob).count() == 1  # niente eseguito prima dell'esito
+
+    failed = SimpleNamespace(verdict="failed", stage="verifying", execution=None, execution_error=None)
+    started[0]["after"](db_session, failed, object())
+    assert failed.execution == "skipped" and db_session.query(SeedJob).count() == 1
+
+    passed = SimpleNamespace(verdict="passed", stage="verifying", execution=None, execution_error=None)
+    result = SimpleNamespace(pieces=0, ok=0, mismatched=0, unreadable=0, info_hash=PACK_HASH)
+    started[0]["after"](db_session, passed, result)
+    assert passed.execution == "added"
+    assert db_session.query(SeedJob).count() == 2
+    # Il vecchio, ormai ritentato, non si ritenta di nuovo.
+    with pytest.raises(executor.ExecutionError, match="already been retried"):
+        review.retry_failed(db_session, seed_job, session_factory=object())
+
+
+def test_without_the_full_check_a_retry_from_scratch_executes_at_once(db_session, tmp_path, monkeypatch):
+    from nazgarr.core import settings_repo
+    from nazgarr.reseed import review
+
+    seed_job = _failed_pack_job(db_session, tmp_path, monkeypatch)
+    settings_repo.set_setting(db_session, "verify_before_execute", "false")
+
+    again = review.retry_failed(db_session, seed_job, session_factory=object())
+
+    assert again.id != seed_job.id and again.final_status == "in_progress"

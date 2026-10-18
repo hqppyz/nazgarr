@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session, object_session, selectinload
 
 from nazgarr.core.errors import coded_detail
+from nazgarr.core.logs import safe_error
 from nazgarr.core.models import Candidate, MatchReview, SeedJob, TorrentClient, Tracker
 from nazgarr.library import seeding
 from nazgarr.reseed import pipeline, review
@@ -390,7 +391,7 @@ def delete_seed_job(seed_job_id: int, session: Session = Depends(get_session)):
     try:
         review.delete_seed_job(session, seed_job)
     except ExecutionError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise HTTPException(status_code=409, detail=safe_error(exc)) from exc
 
 
 @router.get("/failed", response_model=list[SeedJobResponse])
@@ -404,16 +405,28 @@ def list_failed(session: Session = Depends(get_session)):
     return seed_job_responses(session, rows)
 
 
-@router.post("/failed/{seed_job_id}/retry", response_model=SeedJobResponse)
-def retry_failed(seed_job_id: int, session: Session = Depends(get_session)):
+class RetryResponse(SeedJobResponse):
+    # Retry da zero con il controllo completo acceso: è partito quel
+    # controllo (avanzamento in /api/full-checks/{id}), l'esecuzione arriva
+    # solo se passa. Il seed_job qui è ancora quello fallito.
+    verify_check_id: str | None = None
+
+
+@router.post("/failed/{seed_job_id}/retry", response_model=RetryResponse)
+def retry_failed(seed_job_id: int, request: Request, session: Session = Depends(get_session)):
     seed_job = session.get(SeedJob, seed_job_id)
     if seed_job is None:
         raise HTTPException(status_code=404, detail=coded_detail("seed_job_not_found", id=seed_job_id))
     try:
-        result = review.retry_failed(session, seed_job)
+        result = review.retry_failed(session, seed_job, request.app.state.session_factory)
     except ExecutionError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
-    return SeedJobResponse.from_model(result)
+        # Il testo inglese dell'errore, senza chiavi o passkey (prima a volte
+        # solo il codice, o il messaggio del client così com'era).
+        raise HTTPException(status_code=409, detail=safe_error(exc)) from exc
+    if isinstance(result, SeedJob):
+        return RetryResponse(**SeedJobResponse.from_model(result).model_dump())
+    session.refresh(seed_job)
+    return RetryResponse(**SeedJobResponse.from_model(seed_job).model_dump(), verify_check_id=result.id)
 
 
 class CandidateAuditResponse(BaseModel):

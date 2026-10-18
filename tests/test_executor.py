@@ -875,3 +875,23 @@ def test_a_catalogue_name_the_torrent_does_not_have_creates_nothing(db_session, 
 
     assert not any((root / "torrents").rglob("*.mkv"))
     assert adapter.add_torrent_calls == []
+
+
+def test_an_execution_error_carries_the_english_text_never_the_bare_code(db_session, tmp_path, monkeypatch):
+    # Il retry mostrava "Retry failed: client_cannot_see_path", senza percorso,
+    # mentre il seed_job aveva il testo giusto (audit 2026-10-18, finding 119).
+    from nazgarr.core.models import SeedJob
+    from nazgarr.torrents.client_paths import ClientPathError
+
+    _root, review = _catalog_only_review(db_session, tmp_path)
+
+    def cannot_see(*args):
+        raise ClientPathError("client_cannot_see_path", path="/data/torrents", folder="/data/media",
+                              client_root="/downloads")
+
+    monkeypatch.setattr(executor, "client_visible_path", cannot_see)
+    with pytest.raises(executor.ExecutionError) as info:
+        executor.execute_review(db_session, review, FakeAdapter())
+
+    assert str(info.value).startswith("The client cannot see /data/torrents")
+    assert str(info.value) == db_session.query(SeedJob).one().error_message
