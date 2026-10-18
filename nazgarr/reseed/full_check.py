@@ -36,6 +36,7 @@ from nazgarr.core.fs_scope import ScopeViolation, resolve_scoped
 from nazgarr.core.logs import safe_error
 from nazgarr.core.models import Candidate, MatchReview, MediaFile, SeedFile, SeedJob
 from nazgarr.integrations import adapter_factory
+from nazgarr.torrents import pieces as piece_hashing
 from nazgarr.torrents.metainfo import TorrentFileEntry, TorrentInfo, compute_info_hash, parse_torrent_info
 
 logger = logging.getLogger(__name__)
@@ -136,11 +137,8 @@ def verify_all_pieces(
                     touched.append(i)
                     lo = max(start, entry.offset) - entry.offset
                     hi = min(end, entry.offset + entry.length) - entry.offset
-                    data = _read(handles, i, checks[i].local_path, lo, hi - lo) if readable else None
-                    if data is None or len(data) != hi - lo:
+                    if readable and not _feed(handles, i, checks[i].local_path, lo, hi - lo, digest):
                         readable = False
-                    else:
-                        digest.update(data)
                 i += 1
             if readable:
                 good = digest.digest() == expected
@@ -164,17 +162,28 @@ def verify_all_pieces(
     return checks, bad
 
 
-def _read(handles: dict, index: int, path: str | None, offset: int, length: int) -> bytes | None:
+def _feed(handles: dict, index: int, path: str | None, offset: int, length: int, digest) -> bool:
+    """Aggiunge al digest del piece `length` byte del file da `offset`, a
+    blocchi (nazgarr/torrents/pieces.py::HASH_CHUNK): mai un piece intero in
+    memoria, che con il piece length deciso dal .torrent poteva essere un
+    file intero. False se il file manca o è più corto."""
     if path is None:
-        return None
+        return False
     try:
         handle = handles.get(index)
         if handle is None:
             handle = handles[index] = open(path, "rb")  # noqa: SIM115 — chiuso da verify_all_pieces
         handle.seek(offset)
-        return handle.read(length)
+        left = length
+        while left > 0:
+            buf = handle.read(min(piece_hashing.HASH_CHUNK, left))
+            if not buf:
+                return False
+            digest.update(buf)
+            left -= len(buf)
     except OSError:
-        return None
+        return False
+    return True
 
 
 def _abs(disk, relative_path: str) -> str:

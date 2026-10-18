@@ -262,3 +262,42 @@ def test_the_check_takes_the_torrent_folder_the_catalog_did_not_report(db_sessio
 
     assert candidate.folder == "Movie"
     assert result.ok == result.pieces
+
+
+def test_the_full_check_reads_in_bounded_chunks_even_with_huge_pieces(db_session, tmp_path, monkeypatch):
+    # Il piece length lo decide il .torrent del tracker: mai un piece intero
+    # (o la parte di un file) in una read() sola.
+    import builtins
+
+    from nazgarr.torrents import pieces as pieces_module
+
+    _, candidate = _setup(db_session, tmp_path, FILES)
+    stream = b"".join(FILES.values())
+    content = _bencode({"info": {
+        "name": "Movie", "piece length": 64, "pieces": hashlib.sha1(stream).digest(),
+        "files": [{"length": len(data), "path": [path]} for path, data in FILES.items()],
+    }})
+    sizes = []
+    real_open = builtins.open
+
+    class Spy:
+        def __init__(self, fh):
+            self._fh = fh
+
+        def seek(self, pos):
+            return self._fh.seek(pos)
+
+        def read(self, n):
+            sizes.append(n)
+            return self._fh.read(n)
+
+        def close(self):
+            self._fh.close()
+
+    monkeypatch.setattr(pieces_module, "HASH_CHUNK", 7)
+    monkeypatch.setattr(full_check, "open", lambda p, mode="r": Spy(real_open(p, mode)), raising=False)
+
+    result = full_check.run_full_check(db_session, candidate, fetch_torrent=lambda _: content)
+
+    assert (result.ok, result.pieces) == (1, 1)
+    assert sizes and max(sizes) <= 7

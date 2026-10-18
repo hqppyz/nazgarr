@@ -151,3 +151,62 @@ def test_sampling_still_catches_a_corrupted_sampled_piece(tmp_path):
 
     assert result.mismatches == 1
     assert result.clean is False
+
+
+class _ReadSpy:
+    """Un file aperto che registra quanti byte gli si chiedono per volta."""
+
+    def __init__(self, fh, sizes):
+        self._fh, self._sizes = fh, sizes
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        self._fh.close()
+
+    def close(self):
+        self._fh.close()
+
+    def seek(self, pos):
+        return self._fh.seek(pos)
+
+    def read(self, n):
+        self._sizes.append(n)
+        return self._fh.read(n)
+
+
+def test_a_piece_is_hashed_in_bounded_reads_whatever_its_length(tmp_path, monkeypatch):
+    # Un .torrent del tracker decide il piece length: un piece grande quanto
+    # il file portava l'intero video in memoria con una sola read().
+    import builtins
+
+    from nazgarr.torrents import pieces as pieces_module
+
+    content = bytes(range(256)) * 4  # 1 KiB, un solo piece
+    path = tmp_path / "movie.mkv"
+    path.write_bytes(content)
+    sizes = []
+    real_open = builtins.open
+    monkeypatch.setattr(pieces_module, "HASH_CHUNK", 100)
+    monkeypatch.setattr(builtins, "open", lambda p, mode="r": _ReadSpy(real_open(p, mode), sizes))
+
+    result = verify_file_pieces(
+        str(path), piece_length=len(content), pieces=_pieces(content, len(content)), total_length=len(content),
+        file_offset=0, file_length=len(content),
+    )
+
+    assert result.ok == 1 and result.mismatches == 0
+    assert sizes and max(sizes) <= 100
+
+
+def test_a_file_shorter_than_its_piece_is_a_mismatch(tmp_path):
+    content = b"0123456789abcdef" * 2
+    path = tmp_path / "movie.mkv"
+    path.write_bytes(content[:-3])  # troncato dopo la scansione
+
+    result = verify_file_pieces(
+        str(path), piece_length=16, pieces=_pieces(content, 16), total_length=32, file_offset=0, file_length=32,
+    )
+
+    assert (result.ok, result.mismatches) == (1, 1)
