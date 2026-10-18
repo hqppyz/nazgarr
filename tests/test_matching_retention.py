@@ -282,3 +282,30 @@ def test_the_parsed_torrents_kept_in_a_pass_are_bounded(db_session, monkeypatch)
 
     assert list(ctx._torrents) == ["c", "a"]
     assert adapter.downloads == ["a", "b", "c", "a", "bad"]  # un link che non va si prova una volta sola
+
+
+def test_a_torrent_with_a_huge_piece_length_is_never_read_against_the_library(db_session, tmp_path, monkeypatch):
+    # Un .torrent con un piece grande quanto il file faceva leggere in memoria
+    # tutto il video: il parser lo rifiuta, e il matching non legge niente
+    # (audit 2026-10-18, finding 3, lato layout._check_pieces).
+    from nazgarr.torrents import layout as torrent_layout
+
+    _no_mediainfo(monkeypatch)
+    _disk, tracker, (e01, _e02) = _library(db_session, tmp_path)
+    hostile = _bencode({"info": {"name": "Show.S01E01.1080p-GRP.mkv", "piece length": 2 ** 40,
+                                 "length": len(E01), "pieces": b"\x00" * 20}})
+    single = _single("800", "Show.S01E01.1080p-GRP.mkv", len(E01))
+    single.download_link = "https://t.example/torrent/download/800.k"
+
+    class Hostile(PackTracker):
+        def download_torrent(self, url):
+            self.downloads.append(url)
+            return hostile
+
+    reads = []
+    monkeypatch.setattr(torrent_layout, "verify_file_pieces", lambda *a, **k: reads.append(a) or None)
+    matching.run_media_to_torrent_matching(db_session, tracker, Hostile([single]))
+
+    assert reads == []
+    candidate = db_session.query(Candidate).filter_by(media_item_id=e01.media_item_id).one()
+    assert candidate.piece_length is None and candidate.info_hash is None  # resta la forma del catalogo
