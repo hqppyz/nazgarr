@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from nazgarr.core import updates
 from nazgarr.core.config import Settings
+from nazgarr.core.logs import redact
 from nazgarr.core.version import __commit__, __version__
 from nazgarr.library import setup_status as setup_status_module
 from nazgarr.web.deps import get_session, get_settings
@@ -195,7 +196,11 @@ def read_log_entries(path: Path, min_level: str, limit: int = _MAX_LOG_ENTRIES,
             message += "\n" + "\n".join(reversed(continuation))
             continuation.clear()
         if level in _LEVEL_ORDER and _LEVEL_ORDER.index(level) >= min_index:
-            entries.append(LogEntry(timestamp=timestamp, level=level, logger=logger_name, message=message))
+            # Ripulita anche in uscita: le righe scritte prima degli schemi
+            # nuovi (token di Telegram e Discord, utente:password@) restano
+            # nel file finché non ruota, e la tab Logs la legge anche una
+            # API key di sola lettura (audit 2026-10-18).
+            entries.append(LogEntry(timestamp=timestamp, level=level, logger=logger_name, message=redact(message)))
             if len(entries) >= limit:
                 break
     # Righe prima della prima voce del file: di nessuno, come prima.

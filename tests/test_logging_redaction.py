@@ -166,3 +166,40 @@ def test_a_run_keeps_no_credential_in_its_error_list(db_session):
     db_session.refresh(run)
     assert "SUPERSECRET" not in run.errors_json and "SUPERSECRET" not in run.last_error
     assert json.loads(run.errors_json) == ["failed https://t.example/api/x?api_key=<redacted>"]
+
+
+def test_a_json_error_list_stays_readable_after_redaction(db_session):
+    """Un errore che contiene a sua volta del JSON (la risposta di un
+    tracker): come testo, token=abc\\" perdeva la barra della virgoletta e
+    errors_json non si leggeva più (audit 2026-10-18)."""
+    import json
+    from datetime import UTC, datetime
+
+    from nazgarr.core.models import RunLog
+
+    errors = json.dumps(['bad {"x": "token=abc"}'])
+    run = RunLog(run_type="manual", started_at=datetime.now(UTC), errors_json=errors)
+    db_session.add(run)
+    db_session.commit()
+    db_session.refresh(run)
+    assert json.loads(run.errors_json) == ['bad {"x": "token=<redacted>"}']
+    assert "abc" not in run.errors_json
+
+
+def test_a_json_column_without_secrets_is_left_as_written(db_session):
+    from datetime import UTC, datetime
+
+    from nazgarr.core.models import RunLog
+
+    errors = '["sì, già"]'  # ensure_ascii=False: riscriverlo lo cambierebbe
+    run = RunLog(run_type="manual", started_at=datetime.now(UTC), errors_json=errors)
+    db_session.add(run)
+    db_session.commit()
+    db_session.refresh(run)
+    assert run.errors_json == errors
+
+
+def test_a_json_column_that_is_not_json_is_redacted_as_text():
+    from nazgarr.core.redaction import _redact_json
+
+    assert _redact_json("not json token=abc") == "not json token=<redacted>"
