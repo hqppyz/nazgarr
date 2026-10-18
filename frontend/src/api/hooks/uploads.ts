@@ -152,7 +152,7 @@ export function useDeleteUpload() {
     // darebbe 404 e smonterebbe la pagina prima della navigazione.
     onSuccess: (_, uploadId) => {
       queryClient.removeQueries({ queryKey: ['uploads', uploadId] })
-      return queryClient.invalidateQueries({ queryKey: ['uploads'], exact: true })
+      return refreshList(queryClient) // anche lo storico, da cui si elimina
     },
   })
 }
