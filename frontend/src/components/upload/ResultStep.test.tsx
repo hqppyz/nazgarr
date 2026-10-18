@@ -32,6 +32,7 @@ describe('ResultStep', () => {
     expect(screen.getByRole('link', { name: /Open on the tracker/ }).getAttribute('href')).toBe('https://itt/torrents/5')
     expect(screen.getByText(/adding it to the client failed/)).toBeTruthy()
     expect(screen.getAllByRole('button', { name: /Retry seeding/ })).toHaveLength(1) // solo dove il seed è fallito
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeTruthy() // il tracker fallito si riprova
     expect(screen.getByText('Upload failed: rejected: dupe')).toBeTruthy()
   })
 })

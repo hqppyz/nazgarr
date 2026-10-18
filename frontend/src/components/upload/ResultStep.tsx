@@ -3,10 +3,12 @@ import { toast } from 'sonner'
 
 import { useRetrySeed, type UploadJob } from '@/api/hooks/uploads'
 import { ExecutionSteps } from '@/components/upload/ExecutionSteps'
+import { currentRunEvents } from '@/components/upload/jobState'
+import { RetryUploadButton } from '@/components/upload/RetryUploadButton'
 import { ActionBadge } from '@/components/upload/TrackerCheckCard'
 import { UploadStatusBadge } from '@/components/upload/UploadStatusBadge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { t } from '@/lib/i18n'
 import { eventMessage, executionSteps } from '@/lib/upload'
 import { safeHref } from '@/lib/safeUrl'
@@ -14,7 +16,8 @@ import { safeHref } from '@/lib/safeUrl'
 // Esito finale, tracker per tracker: cosa è stato fatto, il link al
 // torrent sul tracker e, se qualcosa è andato storto, perché (l'ultimo
 // errore del registro eventi per quel tracker). Pubblicato ma non in seed:
-// "Riprova il seed" rifà solo l'aggiunta al client.
+// "Riprova il seed" rifà solo l'aggiunta al client; "Riprova" in alto rimette
+// in coda i tracker falliti prima di pubblicare.
 const SEED_RETRYABLE = ['seed_failed', 'no_client']
 
 export function ResultStep({ job }: { job: UploadJob }) {
@@ -32,9 +35,12 @@ export function ResultStep({ job }: { job: UploadJob }) {
           )}
           {t(`upload.result.${job.status}`)}
         </CardTitle>
+        <CardAction>
+          <RetryUploadButton job={job} />
+        </CardAction>
       </CardHeader>
       <CardContent className="grid gap-3">
-        <ExecutionSteps steps={executionSteps(job)} />
+        <ExecutionSteps steps={executionSteps({ ...job, events: currentRunEvents(job.events) })} />
         {job.targets.map((target) => {
           const error = lastError(target.id)
           return (

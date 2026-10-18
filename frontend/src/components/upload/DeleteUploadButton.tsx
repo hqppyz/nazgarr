@@ -17,12 +17,23 @@ const DESTRUCTIVE = 'bg-destructive text-white hover:bg-destructive/90'
 
 // Elimina un upload, sempre con la conferma; onDeleted decide dove andare
 // dopo (la coda dalla pagina del job, niente dal drawer dello storico).
-export function DeleteUploadButton({ uploadId, onDeleted }: { uploadId: number; onDeleted: () => void }) {
+// busy: un tracker è ancora in invio (un upload appena annullato): si
+// aspetta che finisca, il server rifiuterebbe comunque.
+export function DeleteUploadButton({ uploadId, onDeleted, busy = false }: {
+  uploadId: number
+  onDeleted: () => void
+  busy?: boolean
+}) {
   const remove = useDeleteUpload()
   const [open, setOpen] = useState(false)
   return (
     <>
-      <Button className={DESTRUCTIVE} disabled={remove.isPending} onClick={() => setOpen(true)}>
+      <Button
+        className={DESTRUCTIVE}
+        disabled={remove.isPending || busy}
+        title={busy ? t('upload.busy') : undefined}
+        onClick={() => setOpen(true)}
+      >
         {t('upload.deleteJob')}
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>

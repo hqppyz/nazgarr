@@ -3,6 +3,7 @@ import { toast } from 'sonner'
 
 import { useCancelUpload, useResumeUpload, WORKER_STATES, type UploadJob } from '@/api/hooks/uploads'
 import { DeleteUploadButton } from '@/components/upload/DeleteUploadButton'
+import { isBusy } from '@/components/upload/jobState'
 import { Button } from '@/components/ui/button'
 import { t } from '@/lib/i18n'
 
@@ -16,6 +17,8 @@ export function JobActions({ job }: { job: UploadJob }) {
   const resume = useResumeUpload()
   const final = FINAL_STATES.includes(job.status)
   const working = WORKER_STATES.includes(job.status)
+  // Annullato, ma con un tracker ancora in invio: né riprendere né eliminare finché non finisce.
+  const busy = isBusy(job)
   return (
     <div className="flex shrink-0 gap-2">
       {!final && (
@@ -34,7 +37,8 @@ export function JobActions({ job }: { job: UploadJob }) {
       )}
       {job.status === 'cancelled' && (
         <Button
-          disabled={resume.isPending}
+          disabled={resume.isPending || busy}
+          title={busy ? t('upload.busy') : undefined}
           onClick={() =>
             resume
               .mutateAsync(job.id)
@@ -45,7 +49,7 @@ export function JobActions({ job }: { job: UploadJob }) {
           {t('upload.resumeJob')}
         </Button>
       )}
-      {!working && <DeleteUploadButton uploadId={job.id} onDeleted={() => navigate('/upload')} />}
+      {!working && <DeleteUploadButton uploadId={job.id} busy={busy} onDeleted={() => navigate('/upload')} />}
     </div>
   )
 }

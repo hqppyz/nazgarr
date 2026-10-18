@@ -46,6 +46,15 @@ describe('UploadQueuePage', () => {
     expect(reorder).toHaveBeenCalledWith([3, 2], expect.anything())
   })
 
+  it('opens an upload from its title with the keyboard too', () => {
+    render(<MemoryRouter><UploadQueuePage /></MemoryRouter>)
+    expect(screen.getByRole('link', { name: 'Movie 1 (2024)' }).getAttribute('href')).toBe('/upload/1')
+    cleanup()
+
+    render(<MemoryRouter initialEntries={['/?tab=history']}><UploadQueuePage /></MemoryRouter>)
+    expect(screen.getByRole('button', { name: 'Movie 4 (2024)' })).toBeTruthy()
+  })
+
   it('removes a history entry with two clicks on its trash button, without opening it', () => {
     render(<MemoryRouter initialEntries={['/?tab=history']}><UploadQueuePage /></MemoryRouter>)
 

@@ -24,6 +24,14 @@ function isJobWorking(job: UploadJobSummary | undefined) {
   return !!job && (isWorking(job.status) || job.targets.some((target) => TARGET_WORKING_STATES.includes(target.status)))
 }
 
+// Dopo una mutation che ha già messo il job aggiornato in ['uploads', id]:
+// solo la lista della coda da ricaricare (audit 2026-10-18). Il prefisso
+// ['uploads'] ricaricava anche il dettaglio appena scritto, gli avvisi e gli
+// ordinamenti degli episodi.
+function refreshList(queryClient: ReturnType<typeof useQueryClient>) {
+  return queryClient.invalidateQueries({ queryKey: ['uploads'], exact: true })
+}
+
 export function useUploads() {
   return useQuery({
     queryKey: ['uploads'],
@@ -66,7 +74,27 @@ export function useResumeUpload() {
       unwrap(api.POST('/api/uploads/{upload_id}/resume', { params: { path: { upload_id: uploadId } } })),
     onSuccess: (job) => {
       queryClient.setQueryData(['uploads', job.id], job)
-      queryClient.invalidateQueries({ queryKey: ['uploads'] })
+      return refreshList(queryClient)
+    },
+  })
+}
+
+// Un nuovo tentativo dei tracker falliti, con le scelte già fatte
+// (nazgarr/upload/jobs.py retry_failed); confirmInterrupted: anche quelli il
+// cui invio si è interrotto, dopo averli controllati sul tracker.
+export function useRetryUpload(uploadId: number) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (confirmInterrupted: boolean) =>
+      unwrap(
+        api.POST('/api/uploads/{upload_id}/retry', {
+          params: { path: { upload_id: uploadId } },
+          body: { confirm_interrupted: confirmInterrupted },
+        }),
+      ),
+    onSuccess: (job) => {
+      queryClient.setQueryData(['uploads', uploadId], job)
+      return refreshList(queryClient)
     },
   })
 }
@@ -126,7 +154,7 @@ export function useConfirmMatch(uploadId: number) {
       unwrap(api.POST('/api/uploads/{upload_id}/match', { params: { path: { upload_id: uploadId } }, body })),
     onSuccess: (job) => {
       queryClient.setQueryData(['uploads', uploadId], job)
-      queryClient.invalidateQueries({ queryKey: ['uploads'] })
+      return refreshList(queryClient)
     },
   })
 }
@@ -154,7 +182,7 @@ export function useReidentify(uploadId: number) {
       ),
     onSuccess: (job) => {
       queryClient.setQueryData(['uploads', uploadId], job)
-      queryClient.invalidateQueries({ queryKey: ['uploads'] })
+      return refreshList(queryClient)
     },
   })
 }
@@ -166,7 +194,7 @@ export function useRematch(uploadId: number) {
     mutationFn: () => unwrap(api.POST('/api/uploads/{upload_id}/rematch', { params: { path: { upload_id: uploadId } } })),
     onSuccess: (job) => {
       queryClient.setQueryData(['uploads', uploadId], job)
-      queryClient.invalidateQueries({ queryKey: ['uploads'] })
+      return refreshList(queryClient)
     },
   })
 }
@@ -197,10 +225,10 @@ export function useRetrySeed(uploadId: number) {
       ),
     onSuccess: (job) => {
       queryClient.setQueryData(['uploads', uploadId], job)
-      queryClient.invalidateQueries({ queryKey: ['uploads'] })
+      return refreshList(queryClient)
     },
     // Anche un tentativo fallito aggiunge il suo evento al registro.
-    onError: () => queryClient.invalidateQueries({ queryKey: ['uploads', uploadId] }),
+    onError: () => queryClient.invalidateQueries({ queryKey: ['uploads', uploadId], exact: true }),
   })
 }
 
@@ -226,7 +254,7 @@ export function useApproveUpload(uploadId: number) {
       unwrap(api.POST('/api/uploads/{upload_id}/approve', { params: { path: { upload_id: uploadId } }, body })),
     onSuccess: (job) => {
       queryClient.setQueryData(['uploads', uploadId], job)
-      queryClient.invalidateQueries({ queryKey: ['uploads'] })
+      return refreshList(queryClient)
     },
   })
 }
@@ -241,7 +269,7 @@ export function useScheduleUpload(uploadId: number) {
       })),
     onSuccess: (job) => {
       queryClient.setQueryData(['uploads', uploadId], job)
-      queryClient.invalidateQueries({ queryKey: ['uploads'] })
+      return refreshList(queryClient)
     },
   })
 }

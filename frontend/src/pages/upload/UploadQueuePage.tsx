@@ -1,11 +1,12 @@
 import { ArrowDownIcon, ArrowUpIcon, CircleXIcon, PlusIcon, RotateCcwIcon, Trash2Icon } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 
 import { posterUrl } from '@/api/hooks/metadata'
 import { useCancelUpload, useDeleteUpload, useReorderQueue, useResumeUpload, useUploads, type UploadJobSummary } from '@/api/hooks/uploads'
 import { AuthedPoster } from '@/components/AuthedPoster'
+import { isBusy } from '@/components/upload/jobState'
 import { ActionBadge } from '@/components/upload/TrackerCheckCard'
 import { UploadDetailSheet } from '@/components/upload/UploadDetailSheet'
 import { UploadStatusBadge } from '@/components/upload/UploadStatusBadge'
@@ -67,14 +68,46 @@ function TargetOutcomes({ job, className }: { job: UploadJobSummary; className?:
   )
 }
 
+const TITLE =
+  'min-w-0 truncate rounded-sm text-left font-medium outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50'
+
+// Il titolo apre l'upload anche da tastiera (audit 2026-10-18): un link alla
+// sua pagina, o un pulsante per il dettaglio dello storico. Il clic sulla
+// riga resta la scorciatoia col mouse.
+function JobTitle({ job, open }: { job: UploadJobSummary; open: string | ((id: number) => void) }) {
+  if (typeof open === 'string') {
+    return (
+      <Link to={open} className={TITLE} onClick={(event) => event.stopPropagation()}>
+        {title(job)}
+      </Link>
+    )
+  }
+  return (
+    <button
+      type="button"
+      className={TITLE}
+      onClick={(event) => {
+        event.stopPropagation()
+        open(job.id)
+      }}
+    >
+      {title(job)}
+    </button>
+  )
+}
+
 // Titolo, badge e sorgente: la parte che cresce, a sinistra.
-function JobHeading({ job, status }: { job: UploadJobSummary; status?: React.ReactNode }) {
+function JobHeading({ job, status, open }: {
+  job: UploadJobSummary
+  status?: React.ReactNode
+  open: string | ((id: number) => void)
+}) {
   return (
     // Sotto lg tutta la prima riga accanto al poster (w-11 + gap-x-4): esiti e
     // azioni vanno sulla seconda, invece di schiacciare il titolo.
     <div className="grid min-w-0 flex-1 gap-1 max-lg:basis-[calc(100%-3.75rem)]">
       <div className="flex min-w-0 flex-wrap items-center gap-2">
-        <span className="truncate font-medium">{title(job)}</span>
+        <JobTitle job={job} open={open} />
         {job.kind && <Badge variant="outline">{t(`upload.kind.${job.kind}`)}</Badge>}
         {job.origin === 'watch' && <Badge variant="outline">{t('upload.watch.badge')}</Badge>}
         {status}
@@ -117,6 +150,7 @@ function ActiveList({ jobs }: { jobs: UploadJobSummary[] }) {
             <Poster job={job} />
             <JobHeading
               job={job}
+              open={`/upload/${job.id}`}
               status={
                 <>
                   <UploadStatusBadge status={job.status} />
@@ -178,11 +212,14 @@ function QuickDelete({ job }: { job: UploadJobSummary }) {
     return () => clearTimeout(timer)
   }, [armed])
   const running = job.status === 'running'
+  const busy = !running && isBusy(job)
   const label = running
     ? t('upload.history.cancelRunning')
-    : FINAL_STATES.includes(job.status)
-      ? t('upload.history.delete')
-      : t('upload.history.removeActive')
+    : busy
+      ? t('upload.busy')
+      : FINAL_STATES.includes(job.status)
+        ? t('upload.history.delete')
+        : t('upload.history.removeActive')
 
   async function act() {
     if (running) {
@@ -200,7 +237,7 @@ function QuickDelete({ job }: { job: UploadJobSummary }) {
       variant={armed ? 'destructive' : 'ghost'}
       size={armed ? 'sm' : 'icon-sm'}
       className="shrink-0"
-      disabled={remove.isPending || cancel.isPending}
+      disabled={remove.isPending || cancel.isPending || busy}
       title={label}
       aria-label={label}
       onClick={(event) => {
@@ -217,13 +254,14 @@ function QuickDelete({ job }: { job: UploadJobSummary }) {
 // Riprende un upload annullato dallo storico, senza aprirlo.
 function QuickResume({ job }: { job: UploadJobSummary }) {
   const resume = useResumeUpload()
+  const busy = isBusy(job)
   return (
     <Button
       variant="ghost"
       size="icon-sm"
       className="shrink-0"
-      disabled={resume.isPending}
-      title={t('upload.resumeJob')}
+      disabled={resume.isPending || busy}
+      title={busy ? t('upload.busy') : t('upload.resumeJob')}
       aria-label={t('upload.resumeJob')}
       onClick={() =>
         resume
@@ -244,7 +282,7 @@ function HistoryList({ jobs, onOpen }: { jobs: UploadJobSummary[]; onOpen: (id: 
       {jobs.map((job) => (
         <li key={job.id} className={cn(ROW, job.status === 'cancelled' && 'opacity-60')} onClick={() => onOpen(job.id)}>
           <Poster job={job} />
-          <JobHeading job={job} status={<UploadStatusBadge status={job.status} />} />
+          <JobHeading job={job} open={onOpen} status={<UploadStatusBadge status={job.status} />} />
           <TargetOutcomes job={job} className="min-w-0 flex-1 basis-[60%] lg:w-56 lg:flex-none lg:shrink-0 lg:basis-auto" />
           <span className="text-xs text-muted-foreground tabular-nums lg:w-40 lg:shrink-0 lg:text-right">
             {job.finished_at && parseApiDate(job.finished_at).toLocaleString()}

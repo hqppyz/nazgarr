@@ -1656,6 +1656,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/uploads/{upload_id}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Retry Upload
+         * @description Un nuovo tentativo dei tracker falliti, con le scelte già fatte
+         *     (upload_jobs.retry_failed): di nuovo in coda, senza ripassare dal match.
+         */
+        post: operations["retry_upload_api_uploads__upload_id__retry_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/uploads/{upload_id}/match": {
         parameters: {
             query?: never;
@@ -5347,6 +5368,14 @@ export interface components {
         UploadReidentifyRequest: {
             forced_ids?: components["schemas"]["ForcedIds"] | null;
         };
+        /** UploadRetryRequest */
+        UploadRetryRequest: {
+            /**
+             * Confirm Interrupted
+             * @default false
+             */
+            confirm_interrupted: boolean;
+        };
         /** UploadScheduleRequest */
         UploadScheduleRequest: {
             /** Scheduled At */
@@ -8709,6 +8738,41 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadJobDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    retry_upload_api_uploads__upload_id__retry_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                upload_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["UploadRetryRequest"] | null;
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {
