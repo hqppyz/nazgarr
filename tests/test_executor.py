@@ -877,6 +877,23 @@ def test_a_catalogue_name_the_torrent_does_not_have_creates_nothing(db_session, 
     assert adapter.add_torrent_calls == []
 
 
+def test_a_known_info_hash_does_not_skip_the_structure_check(db_session, tmp_path, _tracker_torrent):
+    # Il controllo completo impara l'info hash e ritrova i file anche per
+    # nome: prima, con l'info hash noto, gli hardlink seguivano lo stesso i
+    # nomi del catalogo. Conta se la struttura è mai stata letta da un .torrent.
+    root, review = _catalog_only_review(db_session, tmp_path)
+    _tracker_torrent["content"] = _folder_torrent("Something.Else.mkv")
+    review.candidate.info_hash = compute_info_hash(_tracker_torrent["content"])
+    db_session.commit()
+    adapter = FakeAdapter(info_hash=review.candidate.info_hash)
+
+    with pytest.raises(executor.ExecutionError, match="not the ones the tracker's catalogue listed"):
+        executor.execute_review(db_session, review, adapter)
+
+    assert not any((root / "torrents").rglob("*.mkv"))
+    assert adapter.add_torrent_calls == []
+
+
 def test_an_execution_error_carries_the_english_text_never_the_bare_code(db_session, tmp_path, monkeypatch):
     # Il retry mostrava "Retry failed: client_cannot_see_path", senza percorso,
     # mentre il seed_job aveva il testo giusto (audit 2026-10-18, finding 119).

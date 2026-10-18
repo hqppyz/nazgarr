@@ -157,10 +157,13 @@ def _torrent_to_add(session: Session, candidate: Candidate, fetch_torrent: Fetch
 
 
 def _structure_from_torrent(session: Session, candidate: Candidate, fetch_torrent: FetchTorrent | None) -> FetchTorrent:
-    """Un candidato il cui .torrent il matching non ha mai letto (niente info
-    hash: il download era fallito, e il controllo completo prima di eseguire
-    è spento): la cartella e i nomi dei file vengono solo dal catalogo del
-    tracker, cioè da chi ha caricato il torrent. Prima di decidere dove vanno
+    """Un candidato il cui .torrent il matching non ha mai letto (niente
+    piece_length, che c'è solo per una struttura letta da un .torrent: il
+    download era fallito): la cartella e i nomi dei file vengono solo dal
+    catalogo del tracker, cioè da chi ha caricato il torrent. Anche dopo un
+    controllo completo passato, che impara l'info hash e corregge la cartella
+    ma ritrova i file anche per nome: prima bastava l'info hash per saltare
+    questo controllo (audit 2026-10-18). Prima di decidere dove vanno
     gli hardlink, la struttura vera dal .torrent: la cartella si corregge (il
     catalogo UNIT3D spesso non la riporta), e i file devono essere gli
     stessi, altrimenti niente (audit 2026-10-18: un nome del catalogo poteva
@@ -498,7 +501,7 @@ def _execute_layout_media_to_torrent(
     _require_every_video(candidate)
     disk = anchor.disk
     target_root = _new_torrents_root(disk)
-    if not candidate.info_hash:
+    if candidate.piece_length is None:
         _require_download_link(candidate)
         fetch_torrent = _structure_from_torrent(session, candidate, fetch_torrent)
 
@@ -537,7 +540,7 @@ def _execute_layout_torrent_to_client(
     _require_every_video(candidate)
     _require_download_link(candidate)
     disk = anchor.disk
-    if not candidate.info_hash:
+    if candidate.piece_length is None:
         fetch_torrent = _structure_from_torrent(session, candidate, fetch_torrent)
 
     anchor_row = next((f for f in candidate.files if f.seed_file_id == anchor.id), None)
