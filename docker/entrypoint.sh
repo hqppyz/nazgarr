@@ -14,6 +14,21 @@ set -e
 PUID="${PUID:-1000}"
 PGID="${PGID:-1000}"
 
+# The app's umask (supervisord.conf, umask=%(ENV_UMASK)s): it shapes the
+# folders Nazgarr creates on your disks. 022 by default; 002 lets a torrent
+# client running as another user of the same group write into them. Secrets
+# stay private either way (chmod below, and the app keeps its data folder
+# 0700 at startup).
+UMASK="${UMASK:-022}"
+case "$UMASK" in
+    [0-7][0-7][0-7] | [0-7][0-7][0-7][0-7]) ;;
+    *)
+        echo "UMASK=$UMASK is not an octal umask (e.g. 022): using 022."
+        UMASK=022
+        ;;
+esac
+export UMASK
+
 if ! getent group "$PGID" >/dev/null 2>&1; then
     groupadd -g "$PGID" nazgarr
 fi
@@ -41,7 +56,8 @@ fi
 chown -R "$PUID:$PGID" /app/config
 # DB, log e .torrent (con le passkey negli announce) solo per l'utente
 # dell'app: niente lettura per gli altri utenti dell'host. I file nuovi
-# nascono già così (umask di supervisord, docker/supervisord.conf).
+# restano privati perché /app/config stesso è 0700, qualunque sia la umask
+# (che vale per le cartelle sui dischi, sopra).
 chmod -R go-rwx /app/config
 
 export RUN_AS_USER="$USER_NAME"

@@ -155,6 +155,7 @@ Nazgarr needs very little up front. Disks, folders, clients, trackers and thresh
 | --- | --- |
 | `APP_SECRET_KEY` | **Required.** Encrypts the stored credentials. Keep it with your backups. |
 | `PUID` / `PGID` | The user and group the app runs as. They need write access to your folders, because hardlinks are created there. Default `1000`. |
+| `UMASK` | Optional, default `022`: the permissions of what the app creates. Folders on your disks copy the permissions and group of the folder they are created in, so it rarely matters there; `002` if your torrent client runs as another user of the same group. The database stays private (its folder is `0700`) whatever the value. |
 | `TZ` | Time zone for the schedule and the logs. |
 | `NAZGARR_SETUP_CODE` | Optional: your own one-time code to create the account (otherwise one is generated and printed in the log). |
 | `FORWARDED_ALLOW_IPS` | Only behind a reverse proxy: the proxy's address or network (say `172.18.0.0/16` for its Docker network). See below. |

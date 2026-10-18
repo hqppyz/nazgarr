@@ -23,7 +23,7 @@ from nazgarr.core import mounts as container_mounts
 from nazgarr.core.errors import CodedError, coded_detail, from_coded_error
 from nazgarr.core.fs_scope import ScopeViolation, resolve_scoped
 from nazgarr.core.models import ClientTorrentFile, Disk, SeedFile
-from nazgarr.library import disk_folders
+from nazgarr.library import disk_folders, hardlinks
 from nazgarr.web.deps import get_or_404, get_session
 
 router = APIRouter(prefix="/api/disks", tags=["disks"])
@@ -282,7 +282,7 @@ def mkdir(disk_id: int, body: MkdirRequest, session: Session = Depends(get_sessi
     if os.path.exists(candidate):
         raise HTTPException(status_code=409, detail=coded_detail("folder_already_exists", path=body.path))
 
-    os.makedirs(candidate)
+    hardlinks.make_dirs(candidate)  # con permessi e gruppo della cartella sopra
     return MkdirResponse(path=_relative_to_root(disk.root_path, candidate), created=True)
 
 

@@ -54,17 +54,37 @@ configure_logging()
 
 logger = logging.getLogger(__name__)
 
+
+def _keep_private(*paths_and_modes: tuple[str, int]) -> None:
+    """DB, log e .torrent (con le passkey negli announce) solo per l'utente
+    dell'app, anche fuori dal container. Prima lo faceva una umask 077 su
+    tutto il processo, che però valeva anche per le cartelle create sui dischi
+    dei media: nascevano 0700, e un client torrent con un altro utente non ci
+    entrava (audit 2026-10-18). Ora i permessi stretti stanno solo dove ci
+    sono i segreti: la cartella dei dati (tutto quello che c'è dentro resta
+    privato, qualunque sia il modo dei file) e il database."""
+    for path, mode in paths_and_modes:
+        if not os.path.exists(path):
+            continue
+        try:
+            os.chmod(path, mode)
+        except OSError as exc:
+            logger.warning("Impossibile rendere %s privato (%o): %s", path, mode, exc)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = load_settings()
-    # Anche fuori dal container: DB, log e .torrent solo per questo utente.
-    os.umask(0o077)
+    os.makedirs(settings.data_dir, mode=0o700, exist_ok=True)
+    _keep_private((settings.data_dir, 0o700))
     add_file_handler(Path(settings.data_dir) / "logs")
     # Prima di tutto il resto: gli adapter dei plugin servono già allo startup.
     plugin_loader.load(settings.data_dir)
     db.migrate_legacy_db_filename(settings.data_dir)
     engine = db.make_engine(settings.db_path)
     migrations.upgrade(engine)  # schema, colonne nuove e passi una tantum (nazgarr/core/migrations.py)
+    # SQLite dà a -wal e -shm i permessi del database quando li ricrea.
+    _keep_private(*((settings.db_path + suffix, 0o600) for suffix in ("", "-wal", "-shm")))
     session_factory = db.make_session_factory(engine)
     with session_factory() as session:
         plugin_switch.apply_disabled(session)  # i plugin spenti dall'utente, inclusi o installati

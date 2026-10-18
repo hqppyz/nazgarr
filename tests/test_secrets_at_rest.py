@@ -47,3 +47,34 @@ def test_an_existing_instance_is_migrated_and_still_starts(db_session):
     assert _raw(db_session, "SELECT tracker_url FROM client_torrent") == "https://t.example:443"
     assert settings_repo.get_setting(db_session, "image_host_ptpimg_api_key") == "pk-1"
     startup_checks.verify_secret_key(db_session)  # il canary è intatto: l'app riparte
+
+
+def test_the_data_folder_and_the_database_are_private_without_touching_the_umask(tmp_path, monkeypatch):
+    # Prima una umask 077 per tutto il processo, che valeva anche per le
+    # cartelle create sui dischi dei media (audit 2026-10-18): ora i permessi
+    # stretti solo dove stanno i segreti.
+    import base64
+    import os
+
+    from fastapi.testclient import TestClient
+
+    from nazgarr.core import crypto
+    from nazgarr.main import app
+
+    data_dir = tmp_path / "data"
+    data_dir.mkdir(mode=0o755)
+    os.chmod(data_dir, 0o755)
+    config = tmp_path / "config.yaml"
+    config.write_text(f"data_dir: {data_dir}\n")
+    monkeypatch.setenv("CONFIG_PATH", str(config))
+    monkeypatch.setenv("APP_SECRET_KEY", base64.urlsafe_b64encode(os.urandom(32)).decode())
+    crypto._fernet.cache_clear()
+    previous = os.umask(0o022)
+    try:
+        with TestClient(app):
+            assert os.umask(0o022) == 0o022  # la lifespan non la cambia più
+            assert os.stat(data_dir).st_mode & 0o777 == 0o700
+            assert os.stat(data_dir / "nazgarr.db").st_mode & 0o777 == 0o600
+    finally:
+        os.umask(previous)
+        crypto._fernet.cache_clear()

@@ -23,6 +23,7 @@ l'esecuzione delle review (nazgarr/reseed/executor.py) e l'upload
 
 import logging
 import os
+import stat
 from collections import defaultdict
 
 from sqlalchemy import or_, tuple_
@@ -121,6 +122,37 @@ def check_link(source: str, target: str, root: str) -> str | None:
     return resolved
 
 
+def make_dirs(path: str) -> None:
+    """os.makedirs, ma ogni cartella nuova prende permessi e gruppo della più
+    vicina che c'era già: segue la disposizione del disco, non la umask del
+    processo. Con la umask 077 di prima le cartelle create sui dischi
+    nascevano 0700, e un client torrent con un altro utente dello stesso
+    gruppo non ci entrava: recheck fallito, o un upload aggiunto senza recheck
+    che poi non legge i pezzi (audit 2026-10-18)."""
+    if os.path.isdir(path):
+        return
+    parent = os.path.dirname(path)
+    if parent and parent != path:
+        make_dirs(parent)
+    try:
+        os.mkdir(path)
+    except FileExistsError:
+        if os.path.isdir(path):
+            return  # creata da qualcun altro nel frattempo: la sua resta com'è
+        raise
+    _like_parent(path, parent)
+
+
+def _like_parent(path: str, parent: str) -> None:
+    try:
+        model = os.stat(parent)
+        os.chmod(path, stat.S_IMODE(model.st_mode) & 0o2777)  # mai setuid o sticky
+        if os.stat(path).st_gid != model.st_gid:
+            os.chown(path, -1, model.st_gid)
+    except OSError as exc:  # SMB decide i permessi al mount; un gruppo non nostro: EPERM
+        logger.debug("Permessi di %s non copiati da %s: %s", path, parent, exc)
+
+
 def create_links(pairs: list[tuple[str, str]]) -> list[str]:
     """Crea gli hardlink (sorgente, destinazione) già controllati con
     check_link, senza mai seguire link simbolici. Se uno fallisce, toglie
@@ -129,7 +161,7 @@ def create_links(pairs: list[tuple[str, str]]) -> list[str]:
     created: list[str] = []
     try:
         for source, target in pairs:
-            os.makedirs(os.path.dirname(target), exist_ok=True)
+            make_dirs(os.path.dirname(target))
             os.link(source, target, follow_symlinks=False)
             created.append(target)
     except OSError:
