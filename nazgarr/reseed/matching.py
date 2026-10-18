@@ -387,13 +387,18 @@ def _drop_stale(ctx: MatchContext, media_item_id: int, anchor: MediaFile | SeedF
             continue
         for row in [r for r in rows if _for_anchor(r, anchor) and review.candidate_format(r) in formats]:
             rows.remove(row)
-            stale.append(row.id)
+            stale.append(row)
     if stale:
         ctx.session.query(Candidate).filter(
-            Candidate.id.in_(stale),
+            Candidate.id.in_([row.id for row in stale]),
             ~exists().where(MatchReview.candidate_id == Candidate.id),
             ~exists().where(SeedJob.candidate_id == Candidate.id),
         ).delete(synchronize_session=False)
+        # Fuori dalla sessione anche gli oggetti (coi loro candidate_file, in
+        # cascata): SQLite riusa l'id più alto, e la riga nuova dello stesso
+        # passaggio trovava l'id ancora occupato da quella tolta.
+        for row in stale:
+            ctx.session.expunge(row)
 
 
 def match_file(ctx: MatchContext, anchor: MediaFile | SeedFile, media_item_id: int, tmdb_id: int,

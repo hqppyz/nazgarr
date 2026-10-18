@@ -387,3 +387,33 @@ def test_a_queued_review_follows_a_pack_whose_mapping_changed(db_session, tmp_pa
     assert (first.status, first.decided_by) == ("rejected", "system")
     assert current.status == status and current.candidate_id != first.candidate_id
     assert any(f.media_file_id is not None for f in current.candidate.files if f.torrent_path.endswith(".srt"))
+
+
+def test_dropped_rows_leave_the_session(db_session, tmp_path, monkeypatch):
+    # La DELETE delle righe vecchie lasciava i loro oggetti nella sessione:
+    # SQLite riusa l'id più alto, e la riga nuova dello stesso passaggio
+    # trovava l'id già occupato (SAWarning a ogni run).
+    import warnings
+
+    from sqlalchemy.exc import SAWarning
+
+    from nazgarr.core import settings_repo
+
+    _no_mediainfo(monkeypatch)
+    settings_repo.set_setting(db_session, "rematch_interval_days", "0")
+    _disk, tracker, (e01, e02) = _library(db_session, tmp_path)
+    matching.run_media_to_torrent_matching(db_session, tracker, PackTracker([_single("500", "Show.S01E01.WEB.mkv",
+                                                                                     998)]),
+                                           only_media_file_ids={e01.id})
+    (stale,) = db_session.query(Candidate).all()
+    stale_id = stale.id
+    del stale
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", SAWarning)
+        matching.run_media_to_torrent_matching(
+            db_session, tracker, PackTracker([_single("600", "Show.S01E02.720p-OTHER.mkv", 997)]))
+
+    (row,) = db_session.query(Candidate).all()
+    assert (row.torrent_id_remote, row.media_item_id) == ("600", e02.media_item_id)
+    assert row.id == stale_id  # l'id riusato, senza oggetti vecchi in mezzo
