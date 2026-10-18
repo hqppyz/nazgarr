@@ -487,8 +487,9 @@ One Nazgarr can open others: Configuration › Instances lists them (name, addre
 
 - **Switching.** A switcher at the top of the sidebar changes the instance every view shows, and a banner always says which one it is. The choice lives in the browser and reloads the page, so caches, queries and the tour start clean. Each instance has its own browser cache.
 - **The proxy.** The browser never talks to the other instance and never sees its key. Every call goes to this instance, which forwards it with the key (`/api/remote/{id}/…`), so no CORS is needed.
-  - It forwards only `/api/…`, never login, API keys, instances or the proxy itself.
-  - It has timeouts and a size limit.
+  - It forwards only `/api/…`, never login, API keys, instances or the proxy itself. The path is checked segment by segment and rebuilt from the checked segments (audit 2026-10-18): an empty, `.` or `..` segment, or a `%`, is refused, since `api/./auth/…` passed the old string check and httpx sent it as `/api/auth/…`.
+  - It has timeouts and a size limit. The answer is read as it arrives and counted after decompression, which Nazgarr does itself in bounded steps (`nazgarr/core/http_limits.py`, only gzip and deflate announced): at most 64 MB in 120 s, otherwise `502 instance_response_too_large`. Before, httpx loaded and decompressed the whole answer before the check, so a few MB of gzip from a hostile instance filled the memory of the single process. The probe (`/api/health`, `/api/system/whoami`) reads at most 64 KB per answer.
+  - A `401` from the other instance means its stored key is no longer valid there (revoked, rotated, mistyped): the proxy answers `502 instance_bad_key` and forgets the cached probe, so the next one shows the instance with a bad key. Passed through as it was, it looked like this instance's own session had expired.
   - It needs this instance's login: an API key of this instance cannot use the keys of the others.
 - **Reaching an instance.** LAN or VPN addresses (private, CGNAT/Tailscale) are allowed over `http://`. A public address only over `https://`, so the key never travels in clear. To open a home instance from a VPS, use a VPN such as Tailscale or WireGuard.
 - **Versions.** The UI speaks the API of its own version, so it compares major.minor with each instance:

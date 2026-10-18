@@ -5,13 +5,14 @@ Solo con il login, mai con una API key (main.py: require_login): una chiave
 di questa istanza non deve poter usare le chiavi delle altre."""
 
 import concurrent.futures
+import time
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from nazgarr.core import settings_repo
+from nazgarr.core import http_limits, settings_repo
 from nazgarr.core.errors import coded_detail, from_coded_error
 from nazgarr.core.models import RemoteInstance
 from nazgarr.core.version import __version__
@@ -21,7 +22,14 @@ from nazgarr.web.deps import get_session
 router = APIRouter(prefix="/api/instances", tags=["instances"])
 remote_router = APIRouter(prefix="/api/remote", tags=["instances"])
 
-MAX_RESPONSE_BYTES = 200 * 1024 * 1024
+# La risposta più grande di un'istanza (la libreria intera, i log) sta in
+# qualche decina di MB. Si legge in streaming e si conta mentre arriva,
+# decompressa qui a passi limitati (nazgarr/core/http_limits.py): prima
+# httpx la caricava e decomprimeva tutta prima del controllo, e un gzip di
+# pochi MB da un'istanza ostile riempiva la memoria del processo unico
+# (audit 2026-10-18). Una scadenza totale ferma chi manda un byte alla volta.
+MAX_RESPONSE_BYTES = 64 * 1024 * 1024
+PROXY_DEADLINE_SECONDS = 120.0
 _FORWARDED_REQUEST = ("content-type", "accept", "if-none-match")
 _FORWARDED_RESPONSE = ("content-type", "etag", "cache-control", "content-disposition", "last-modified")
 
@@ -170,14 +178,28 @@ def proxy(instance_id: int, path: str, request: Request, body: bytes = Depends(_
         raise HTTPException(status_code=409, detail=coded_detail(
             "instance_incompatible", label=row.label, version=status.get("version") or "?", local=__version__))
     headers = {k: v for k, v in request.headers.items() if k.lower() in _FORWARDED_REQUEST}
+    headers["Accept-Encoding"] = http_limits.ACCEPT_ENCODING  # solo quello che read_limited decomprime
+    deadline = time.monotonic() + PROXY_DEADLINE_SECONDS
     try:
-        with instances.CLIENT_FACTORY(row.base_url, row.api_key) as client:
-            upstream = client.request(request.method, target, params=list(request.query_params.multi_items()),
-                                      content=body or None, headers=headers)
+        with instances.CLIENT_FACTORY(row.base_url, row.api_key) as client, client.stream(
+                request.method, target, params=list(request.query_params.multi_items()),
+                content=body or None, headers=headers) as upstream:
+            if upstream.status_code == 401:
+                # La chiave salvata non vale più su quell'istanza (revocata,
+                # ruotata, sbagliata). Passato com'era, il 401 sembrava la
+                # sessione scaduta di questa: si risponde 502 col suo codice,
+                # e la prossima prova la mostra come chiave non valida.
+                instances.forget(row.id)
+                raise HTTPException(status_code=502, detail=coded_detail("instance_bad_key", label=row.label))
+            content = http_limits.read_limited(upstream, MAX_RESPONSE_BYTES, deadline)
+    except http_limits.ResponseLimitExceeded as exc:
+        if str(exc).startswith("bigger than"):
+            detail = coded_detail("instance_response_too_large", label=row.label)
+        else:
+            detail = coded_detail("instance_unreachable", label=row.label, error=f"an answer {exc}")
+        raise HTTPException(status_code=502, detail=detail) from exc
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=502, detail=coded_detail(
             "instance_unreachable", label=row.label, error=str(exc))) from exc
-    if len(upstream.content) > MAX_RESPONSE_BYTES:
-        raise HTTPException(status_code=502, detail=coded_detail("instance_response_too_large", label=row.label))
     out = {k: v for k, v in upstream.headers.items() if k.lower() in _FORWARDED_RESPONSE}
-    return Response(content=upstream.content, status_code=upstream.status_code, headers=out)
+    return Response(content=content, status_code=upstream.status_code, headers=out)

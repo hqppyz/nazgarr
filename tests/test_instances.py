@@ -37,7 +37,11 @@ def test_a_public_address_needs_https(monkeypatch):
 
 def test_the_proxy_paths():
     assert instances.proxied_path("api/disks") == "/api/disks"
-    for path in ("api/auth/me", "api/api-keys", "api/remote/1/api/disks", "api/instances", "static/x", "api/../x"):
+    assert instances.proxied_path("/api/library/items/") == "/api/library/items/"
+    for path in ("api/auth/me", "api/api-keys", "api/remote/1/api/disks", "api/instances", "static/x", "api/../x",
+                 # Segmenti che httpx (o il server) normalizza: "api/./auth" arrivava come /api/auth (audit 2026-10-18).
+                 "api/./auth/logout-everywhere", "api//auth/me", "./api/disks", "api/x/../auth", "api/%2e/auth/x",
+                 "api/Auth/me", "api", "api/", "api/disks//x"):
         with pytest.raises(instances.InstanceError):
             instances.proxied_path(path)
 
@@ -136,3 +140,69 @@ def test_this_instance_can_have_a_name(client):
     assert client.get("/api/instances").json()["local_name"] is None
     assert client.put("/api/instances/local", json={"name": "  NAS  "}).json()["local_name"] == "NAS"
     assert client.get("/api/instances").json()["local_name"] == "NAS"
+
+
+def test_a_revoked_key_on_the_other_instance_is_not_this_sessions_401(client, remote):
+    """Il 401 dell'altra istanza passava così com'era, e l'interfaccia lo
+    prendeva per la propria sessione scaduta (audit 2026-10-18)."""
+    instance = remote()
+    key_id = next(k["id"] for k in client.get("/api/api-keys").json() if k["name"] == "hub-write")
+    assert client.post(f"/api/api-keys/{key_id}/revoke").status_code in (200, 204)
+    response = client.get(f"/api/remote/{instance['id']}/api/disks")
+    assert response.status_code == 502
+    assert response.json()["detail"] == {"code": "instance_bad_key", "params": {"label": "Seedbox"}}
+    assert client.get("/api/auth/me").status_code == 200
+    assert client.get("/api/instances", params={"probe": True}).json()["instances"][0]["status"]["status"] == "bad_key"
+
+
+def _gzip_bomb(size: int) -> bytes:
+    import gzip
+
+    return gzip.compress(b"0" * size)
+
+
+def test_the_proxy_stops_reading_past_its_limit(client, remote, monkeypatch):
+    """Prima httpx caricava e decomprimeva tutta la risposta prima del
+    controllo: pochi KB di gzip diventavano centinaia di MB in memoria."""
+    import httpx
+
+    from nazgarr.api import instances as instances_api
+
+    instance = remote()
+    read = []
+
+    def handler(request):
+        assert request.headers["accept-encoding"] == "gzip, deflate"
+        body = _gzip_bomb(50 * 1024 * 1024)
+        read.append(len(body))
+        return httpx.Response(200, content=body, headers={"content-encoding": "gzip",
+                                                          "content-type": "application/json"})
+
+    monkeypatch.setattr(instances, "CLIENT_FACTORY", lambda base_url, key: httpx.Client(
+        base_url=base_url, transport=httpx.MockTransport(handler)))
+    monkeypatch.setattr(instances_api, "MAX_RESPONSE_BYTES", 1024 * 1024)
+    response = client.get(f"/api/remote/{instance['id']}/api/library/items")
+    assert response.status_code == 502
+    assert response.json()["detail"]["code"] == "instance_response_too_large"
+    assert read and read[0] < 1024 * 1024  # sul filo erano pochi KB
+
+    small = b'{"ok": true}'
+    monkeypatch.setattr(instances, "CLIENT_FACTORY", lambda base_url, key: httpx.Client(
+        base_url=base_url, transport=httpx.MockTransport(lambda r: httpx.Response(
+            200, content=__import__("gzip").compress(small), headers={"content-encoding": "gzip",
+                                                                      "content-type": "application/json"}))))
+    ok = client.get(f"/api/remote/{instance['id']}/api/disks")
+    assert ok.status_code == 200 and ok.json() == {"ok": True}
+    assert "content-encoding" not in ok.headers
+
+
+def test_the_probe_reads_only_small_answers(monkeypatch):
+    import httpx
+
+    def handler(request):
+        return httpx.Response(200, content=_gzip_bomb(10 * 1024 * 1024), headers={"content-encoding": "gzip"})
+
+    monkeypatch.setattr(instances, "CLIENT_FACTORY", lambda base_url, key: httpx.Client(
+        base_url=base_url, transport=httpx.MockTransport(handler)))
+    result = instances.probe("http://hostile.lan", "nzg_x")
+    assert result["status"] == "unreachable" and "bigger than" in result["error"]

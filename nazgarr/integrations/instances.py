@@ -18,6 +18,7 @@ aggiornano allo stesso livello.
 """
 
 import ipaddress
+import json
 import re
 import socket
 import time
@@ -26,11 +27,14 @@ from urllib.parse import urlsplit
 
 import httpx
 
-from nazgarr.core import net_guard
+from nazgarr.core import http_limits, net_guard
 from nazgarr.core.errors import CodedError
 from nazgarr.core.version import __version__
 
 TIMEOUT_SECONDS = 20.0
+# La prova legge due risposte di poche centinaia di byte: un'istanza ostile
+# (o compromessa) non le fa diventare gigabyte in memoria (audit 2026-10-18).
+PROBE_MAX_BYTES = 64 * 1024
 HEALTH_TTL_SECONDS = 60.0
 # Tailscale e simili (CGNAT, 100.64.0.0/10): non pubblico, come la LAN.
 _CGNAT = ipaddress.ip_network("100.64.0.0/10")
@@ -109,25 +113,47 @@ def blocked(status: str) -> bool:
     return status.startswith("block")
 
 
+def _get_capped(client: httpx.Client, path: str, deadline: float) -> tuple[int, bytes]:
+    """Stato e corpo (al massimo PROBE_MAX_BYTES, decompressi qui a passi
+    limitati, nazgarr/core/http_limits.py) di un GET; il corpo di un errore
+    non si legge. ResponseLimitExceeded se è più grande o troppo lento."""
+    with client.stream("GET", path, headers={"Accept-Encoding": http_limits.ACCEPT_ENCODING}) as response:
+        if response.status_code >= 400:
+            return response.status_code, b""
+        return response.status_code, http_limits.read_limited(response, PROBE_MAX_BYTES, deadline)
+
+
+def _object(body: bytes) -> dict:
+    data = json.loads(body)
+    if not isinstance(data, dict):
+        raise ValueError("not a JSON object")
+    return data
+
+
 def probe(base_url: str, api_key: str) -> dict:
     """La prova di un'istanza: raggiungibile, versione, la chiave (valida, e
     di lettura o di scrittura), compatibilità con questa."""
+    deadline = time.monotonic() + TIMEOUT_SECONDS
     try:
         with CLIENT_FACTORY(base_url, api_key) as client:
-            health = client.get("/api/health")
-            health.raise_for_status()
-            version = health.json().get("version")
-            who = client.get("/api/system/whoami")
-    except (httpx.HTTPError, ValueError) as exc:
+            status, body = _get_capped(client, "/api/health", deadline)
+            if status >= 400:
+                raise ValueError(f"/api/health answered HTTP {status}")
+            version = _object(body).get("version")
+            try:
+                who_status, who_body = _get_capped(client, "/api/system/whoami", deadline)
+            except http_limits.ResponseLimitExceeded:
+                who_status, who_body = 200, b""  # non è whoami: livello sconosciuto, come sotto
+    except (httpx.HTTPError, ValueError, http_limits.ResponseLimitExceeded) as exc:
         return {"status": "unreachable", "error": str(exc), "version": None, "level": None,
                 "compatibility": "unknown"}
-    if who.status_code in (401, 403):
+    if who_status in (401, 403):
         return {"status": "bad_key", "error": None, "version": version, "level": None,
                 "compatibility": compatibility(version)}
     # Un'istanza di prima di /api/system/whoami (0.7.x) non sa dire il livello
     # della chiave: connessa lo stesso, livello sconosciuto.
     try:
-        level = who.json().get("level") if who.status_code == 200 else None
+        level = _object(who_body).get("level") if who_status == 200 else None
     except ValueError:
         level = None
     return {"status": "ok", "error": None, "version": version, "level": level,
@@ -155,11 +181,21 @@ def forget(instance_id: int) -> None:
 
 # Cosa il proxy non inoltra mai: il login e le chiavi dell'altra istanza, e
 # le istanze/il proxy stesso (niente catene).
-_DENIED = ("api/auth", "api/api-keys", "api/instances", "api/remote")
+_DENIED = frozenset({"auth", "api-keys", "instances", "remote"})
 
 
 def proxied_path(path: str) -> str:
+    """Il percorso da chiamare sull'altra istanza, controllato segmento per
+    segmento. Prima il controllo era sulla stringa: "api/./auth/..."
+    passava, e httpx lo normalizzava in /api/auth/... prima di mandarlo
+    (audit 2026-10-18). Ora un segmento vuoto, "." o "..", o un "%" (un
+    segmento codificato due volte) è un rifiuto, e il percorso mandato è
+    quello fatto dei segmenti controllati."""
     path = path.lstrip("/")
-    if not path.startswith("api/") or any(path == d or path.startswith(d + "/") for d in _DENIED) or ".." in path:
+    trailing = path.endswith("/")
+    segments = (path[:-1] if trailing else path).split("/")
+    if ("%" in path or len(segments) < 2 or segments[0] != "api"
+            or any(segment in ("", ".", "..") for segment in segments)
+            or segments[1].lower() in _DENIED):
         raise InstanceError("instance_path_not_allowed", path=path)
-    return "/" + path
+    return "/" + "/".join(segments) + ("/" if trailing else "")
