@@ -111,6 +111,7 @@
  "upload_invalid_imdb_id": "Not an IMDB id: {value}",
  "upload_invalid_override": "Invalid value for {field}.",
  "upload_invalid_tmdb_id": "Not a TMDB id: {value}",
+ "upload_job_busy": "This upload is still finishing a tracker: wait a moment, then try again.",
  "upload_job_not_found": "Upload {id} not found.",
  "upload_job_split": "This upload was split into episodes: carry on from their uploads.",
  "upload_job_split_seasons": "This upload was split into seasons: carry on from their uploads.",

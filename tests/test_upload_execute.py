@@ -1094,7 +1094,7 @@ def test_a_published_upload_whose_record_cannot_be_written_is_never_marked_faile
     a = job.targets[0]
     assert (a.status, a.error_message, a.torrent_id_remote) == ("done", "seed_failed", "100")
     assert len(env["trackers"]["a"].uploads) == 1 and env["client"].added == []
-    journal = upload_execute.published_journal(str(tmp_path / "data" / "uploads" / str(job.id)), a.id)
+    journal = upload_jobs.published_journal(str(tmp_path / "data" / "uploads" / str(job.id)), a.id)
     assert json.load(open(journal)) == {"torrent_id_remote": "100"}
 
 

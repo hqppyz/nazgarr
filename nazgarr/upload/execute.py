@@ -538,12 +538,8 @@ def _journal_published(job_dir: str, target: UploadTarget, torrent_id_remote: st
     riavvio reset_interrupted sa che il tracker l'ha ricevuto. Solo l'id,
     mai il link di download (ha la passkey)."""
     with contextlib.suppress(OSError):
-        with open(published_journal(job_dir, target.id), "w") as f:
+        with open(upload_jobs.published_journal(job_dir, target.id), "w") as f:
             json.dump({"torrent_id_remote": torrent_id_remote}, f)
-
-
-def published_journal(job_dir: str, target_id: int) -> str:
-    return os.path.join(job_dir, f"published-{target_id}.json")
 
 
 def _commit_published(session: Session, job: UploadJob, target: UploadTarget, torrent_id_remote: str) -> None:

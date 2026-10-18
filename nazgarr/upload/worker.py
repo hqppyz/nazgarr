@@ -112,7 +112,7 @@ class UploadWorker:
     def resume(self) -> None:
         session = self.session_factory()
         try:
-            job_ids = upload_jobs.reset_interrupted(session)
+            job_ids = upload_jobs.reset_interrupted(session, self.data_dir)
             statuses = {j.id: j.status for j in session.query(UploadJob).filter(UploadJob.id.in_(job_ids))}
         finally:
             session.close()

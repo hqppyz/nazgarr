@@ -129,6 +129,61 @@ def test_reset_interrupted_never_repeats_an_upload(db_session, tmp_path):
     assert job.targets[0].error_message == "interrupted"
 
 
+def test_a_restart_while_seeding_leaves_the_upload_published_and_retryable(db_session, tmp_path):
+    """Audit 2026-10-18: un target fermato in 'seeding' (o in 'uploading' dopo
+    che il tracker l'aveva accettato) restava lì per sempre, senza modo di
+    rimetterlo in seed."""
+    from nazgarr.upload import execute as upload_execute
+
+    for label in ("a", "b", "c", "d"):
+        make_tracker(db_session, label)
+    job = _job(db_session, tmp_path)
+    seeding, reseeding, recorded, journaled = job.targets
+    seeding.action, seeding.status, seeding.torrent_id_remote = "upload", "seeding", "100"
+    reseeding.action, reseeding.status = "reseed", "seeding"
+    recorded.action, recorded.status, recorded.torrent_id_remote = "upload", "uploading", "300"
+    journaled.action, journaled.status = "upload", "uploading"
+    job.status = "running"
+    db_session.commit()
+    folder = tmp_path / "data" / "uploads" / str(job.id)
+    folder.mkdir(parents=True)
+    (folder / f"published-{journaled.id}.json").write_text('{"torrent_id_remote": "400"}')
+
+    assert upload_jobs.reset_interrupted(db_session, str(tmp_path / "data")) == [job.id]
+
+    db_session.refresh(job)
+    assert job.status == "queued"
+    assert [(t.status, t.error_message, t.torrent_id_remote) for t in job.targets] == [
+        ("done", "seed_failed", "100"), ("failed", "interrupted", None), ("done", "seed_failed", "300"),
+        ("done", "seed_failed", "400")]
+    assert {e.code for e in job.events} >= {"seed_interrupted", "reseed_interrupted"}
+    # Il seed si può riprovare (qui manca il .torrent, ma non è più "niente da riprovare").
+    with pytest.raises(UploadJobError) as exc:
+        upload_execute.retry_seed(db_session, job, seeding)
+    assert exc.value.code != "upload_seed_retry_unavailable"
+
+
+def test_a_cancelled_job_still_sending_is_neither_deleted_nor_resumed(db_session, tmp_path):
+    make_tracker(db_session)
+    job = _job(db_session, tmp_path)
+    upload_jobs.cancel_job(db_session, job)
+    job.targets[0].action, job.targets[0].status = "upload", "uploading"
+    db_session.commit()
+
+    for refused in (lambda: upload_jobs.delete_job(db_session, job, str(tmp_path / "data")),
+                    lambda: upload_jobs.resume_job(db_session, job)):
+        with pytest.raises(UploadJobError, match="upload_job_busy"):
+            refused()
+
+    # Il worker morto con il job annullato: al riavvio il target si sistema.
+    upload_jobs.reset_interrupted(db_session, str(tmp_path / "data"))
+    db_session.refresh(job)
+    assert (job.status, job.targets[0].status, job.targets[0].error_message) == ("cancelled", "failed", "interrupted")
+    with pytest.raises(UploadJobError, match="upload_job_busy"):
+        upload_jobs.delete_job(db_session, job, str(tmp_path / "data"), active=True)  # il worker ci sta lavorando
+    upload_jobs.delete_job(db_session, job, str(tmp_path / "data"))
+
+
 def test_worker_runs_light_states_until_a_gate(db_session, tmp_path):
     make_tracker(db_session)
     job = _job(db_session, tmp_path)

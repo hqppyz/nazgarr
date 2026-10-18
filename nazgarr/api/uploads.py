@@ -323,6 +323,14 @@ def _worker(request: Request):
     return request.app.state.upload_worker
 
 
+# Rifiuti per lo stato del momento, non per una richiesta sbagliata: 409.
+_CONFLICT_CODES = {"upload_job_busy"}
+
+
+def _refused(exc: UploadJobError) -> HTTPException:
+    return HTTPException(status_code=409 if exc.code in _CONFLICT_CODES else 400, detail=from_coded_error(exc))
+
+
 @router.get("", response_model=list[UploadJobSummary])
 def list_uploads(session: Session = Depends(get_session)):
     jobs = session.query(UploadJob).order_by(UploadJob.id.desc()).all()
@@ -493,9 +501,9 @@ def resume_upload(upload_id: int, request: Request, session: Session = Depends(g
     """Un upload annullato riparte da dove si era fermato (upload_jobs.resume_job)."""
     job = _get_job_or_404(session, upload_id)
     try:
-        upload_jobs.resume_job(session, job)
+        upload_jobs.resume_job(session, job, active=_worker(request).is_active(job.id))
     except UploadJobError as exc:
-        raise HTTPException(status_code=400, detail=from_coded_error(exc)) from exc
+        raise _refused(exc) from exc
     if job.status in upload_jobs.WORKER_STATES:
         _worker(request).kick(job.id, job.status)
     return UploadJobDetail.from_model(job)
@@ -505,9 +513,10 @@ def resume_upload(upload_id: int, request: Request, session: Session = Depends(g
 def delete_upload(upload_id: int, request: Request, session: Session = Depends(get_session)):
     job = _get_job_or_404(session, upload_id)
     try:
-        upload_jobs.delete_job(session, job, request.app.state.settings.data_dir)
+        upload_jobs.delete_job(session, job, request.app.state.settings.data_dir,
+                               active=_worker(request).is_active(job.id))
     except UploadJobError as exc:
-        raise HTTPException(status_code=400, detail=from_coded_error(exc)) from exc
+        raise _refused(exc) from exc
 
 
 def _confirm(session: Session, job: UploadJob, body: UploadMatchRequest) -> dict | None:

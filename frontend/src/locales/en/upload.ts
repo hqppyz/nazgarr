@@ -345,6 +345,8 @@ export const upload = {
   'upload.event.job_resumed': 'Resumed after a restart.',
   'upload.event.target_interrupted':
     'Interrupted by a restart while sending to the tracker: check on the tracker before retrying.',
+  'upload.event.seed_interrupted': 'Interrupted by a restart while adding it to the client: published, but not seeding yet. Retry seeding.',
+  'upload.event.reseed_interrupted': 'Interrupted by a restart while adding it back to the client: retrying finds it there, or adds it.',
   'upload.event.upload_step_failed': 'The step "{step}" failed: {error}',
   'upload.event.analysis_started': 'Analysis started.',
   'upload.event.analysis_done': 'Analysis done: waiting for your decision.',

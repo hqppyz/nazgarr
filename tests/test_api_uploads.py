@@ -153,6 +153,17 @@ def test_cancel_list_and_delete(client, tmp_path, setup):
 
     assert client.post(f"/api/uploads/{job_id}/cancel").json()["status"] == "cancelled"
     assert client.post(f"/api/uploads/{job_id}/cancel").status_code == 400
+    # Annullato mentre un tracker è ancora in invio: si aspetta che finisca.
+    session = client.app.state.session_factory()
+    target = session.get(UploadJob, job_id).targets[0]
+    target.action, target.status = "upload", "uploading"
+    session.commit()
+    busy = client.delete(f"/api/uploads/{job_id}")
+    assert busy.status_code == 409 and busy.json()["detail"]["code"] == "upload_job_busy"
+    assert client.post(f"/api/uploads/{job_id}/resume").status_code == 409
+    target.status = "failed"
+    session.commit()
+    session.close()
     assert client.delete(f"/api/uploads/{job_id}").status_code == 204
     assert client.get(f"/api/uploads/{job_id}").status_code == 404
 

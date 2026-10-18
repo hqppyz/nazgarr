@@ -345,6 +345,8 @@ export const upload = {
   'upload.event.job_resumed': 'Ripreso dopo un riavvio.',
   'upload.event.target_interrupted':
     'Interrotto da un riavvio durante l’invio al tracker: controlla sul tracker prima di riprovare.',
+  'upload.event.seed_interrupted': 'Interrotto da un riavvio mentre andava nel client: pubblicato, ma non ancora in seed. Riprova il seed.',
+  'upload.event.reseed_interrupted': 'Interrotto da un riavvio mentre tornava nel client: riprovando lo si ritrova lì, o si aggiunge.',
   'upload.event.upload_step_failed': 'Il passaggio "{step}" è fallito: {error}',
   'upload.event.analysis_started': 'Analisi avviata.',
   'upload.event.analysis_done': 'Analisi completata: in attesa della tua decisione.',

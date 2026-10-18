@@ -43,6 +43,9 @@ logger = logging.getLogger(__name__)
 WORKER_STATES = ("identifying", "analyzing", "queued", "running")
 GATE_STATES = ("awaiting_match", "awaiting_decision")
 FINAL_STATES = ("done", "partial", "failed", "cancelled")
+# Un target in questi stati lo sta lavorando l'esecuzione (anche di un job
+# appena annullato: il tracker in invio si finisce).
+BUSY_TARGET_STATES = ("preparing", "uploading", "seeding")
 
 FORCED_ID_KEYS = ("tmdb", "imdb", "tvdb", "mal")
 
@@ -315,6 +318,15 @@ def insert_job(
     return job
 
 
+def _refuse_if_busy(job: UploadJob, active: bool) -> None:
+    """Un job annullato può avere ancora un tracker in invio (cancel_job lo
+    lascia finire): eliminarlo o riprenderlo adesso lascerebbe un torrent
+    pubblicato senza record e senza seed, o due esecuzioni dello stesso job
+    (audit 2026-10-18). active: il worker ci sta lavorando adesso."""
+    if active or any(t.status in BUSY_TARGET_STATES for t in job.targets):
+        raise UploadJobError("upload_job_busy")
+
+
 def cancel_job(session: Session, job: UploadJob) -> None:
     """Annulla un job non ancora finito. Un target già in upload verso il
     tracker non si ferma a metà: il worker lo porta a termine e poi smette
@@ -345,13 +357,14 @@ def _cancelled_from(job: UploadJob) -> str:
     return "analyzing" if job.tmdb_id else "identifying"
 
 
-def resume_job(session: Session, job: UploadJob) -> str:
+def resume_job(session: Session, job: UploadJob, active: bool = False) -> str:
     """Riprende un job annullato da dove si era fermato: a un punto di
     approvazione ci torna con le scelte fatte, un passo del worker riparte,
     l'esecuzione torna in coda con i soli tracker non ancora fatti (uno già
     pubblicato non si ricarica mai). Restituisce il nuovo stato."""
     if job.status != "cancelled":
         raise UploadJobError("upload_job_wrong_status", status=job.status)
+    _refuse_if_busy(job, active)
     if any(event.code == "job_split" for event in job.events):
         raise UploadJobError("upload_job_split")  # continua negli upload degli episodi
     if any(event.code == "job_split_seasons" for event in job.events):
@@ -382,13 +395,32 @@ def job_folder(data_dir: str, job_id: int) -> str:
     return os.path.join(data_dir, "uploads", str(job_id))
 
 
-def delete_job(session: Session, job: UploadJob, data_dir: str) -> None:
+def published_journal(job_dir: str, target_id: int) -> str:
+    """Il file in cui l'esecuzione scrive l'id di un torrent appena
+    pubblicato, prima del DB (nazgarr/upload/execute.py::run_upload)."""
+    return os.path.join(job_dir, f"published-{target_id}.json")
+
+
+def _journaled_id(data_dir: str | None, job: UploadJob, target: UploadTarget) -> str | None:
+    if data_dir is None:
+        return None
+    try:
+        with open(published_journal(job_folder(data_dir, job.id), target.id)) as f:
+            value = json.load(f).get("torrent_id_remote")
+    except (OSError, ValueError, AttributeError):
+        return None
+    return str(value) if value else None
+
+
+def delete_job(session: Session, job: UploadJob, data_dir: str, active: bool = False) -> None:
     """Solo job fermi (a un punto di approvazione o finiti): uno che il
-    worker sta lavorando va prima annullato. Con lui va la sua cartella: il
-    client ha già la sua copia del .torrent, e SQLite può ridare lo stesso id
-    al prossimo upload, che non deve trovarci i file di questo."""
+    worker sta lavorando va prima annullato, e uno annullato aspetta che il
+    tracker in invio finisca. Con lui va la sua cartella: il client ha già
+    la sua copia del .torrent, e SQLite può ridare lo stesso id al prossimo
+    upload, che non deve trovarci i file di questo."""
     if job.status in WORKER_STATES:
         raise UploadJobError("upload_job_wrong_status", status=job.status)
+    _refuse_if_busy(job, active)
     job_id = job.id
     session.delete(job)
     session.commit()
@@ -405,23 +437,28 @@ def next_queue_position(session: Session) -> int:
     return (last[0] + 1) if last else 1
 
 
-def reset_interrupted(session: Session) -> list[int]:
+def reset_interrupted(session: Session, data_dir: str | None = None) -> list[int]:
     """All'avvio: i job lasciati a metà da un riavvio. identifying/analyzing/
     queued ripartono da capo (passi senza effetti fuori da Nazgarr). Un job
     'running' torna in coda, ma un target che stava inviando al tracker
     finisce in 'failed': non si sa se il tracker l'ha ricevuto, e ripetere
-    l'invio rischierebbe un doppio upload. Restituisce gli id da riprendere."""
-    for job in session.query(UploadJob).filter(UploadJob.status == "running").all():
+    l'invio rischierebbe un doppio upload. Restituisce gli id da riprendere.
+
+    Un upload che il tracker aveva già accettato (l'id nel DB, o nel file
+    del job scritto prima: execute._journal_published) e uno fermato mentre
+    andava nel client ('seeding') sono pubblicati: 'done' con seed_failed,
+    da cui si riprova il seed (audit 2026-10-18; prima restavano 'seeding'
+    per sempre, senza nessun modo di metterli in seed). Lo stesso per i
+    target di un job annullato che il worker stava ancora finendo."""
+    for job in session.query(UploadJob).filter(UploadJob.status.in_(("running", "cancelled"))).all():
+        if job.status == "cancelled" and not any(t.status in BUSY_TARGET_STATES for t in job.targets):
+            continue
         for target in job.targets:
-            if target.status == "uploading":
-                set_target_status(target, TargetStatus.FAILED)
-                target.error_message = "interrupted"
-                log_event(session, job, "target_interrupted", level="error", target=target)
-            elif target.status in ("preparing", "verifying"):
-                set_target_status(target, TargetStatus.APPROVED)
-        job.status = "queued"
-        job.stage = None
-        log_event(session, job, "job_resumed", level="warning")
+            _reset_target(session, job, target, data_dir)
+        if job.status == "running":
+            job.status = "queued"
+            job.stage = None
+            log_event(session, job, "job_resumed", level="warning")
     # Un full hash check interrotto (in memoria nel worker) non riparte da
     # solo: il target torna alla decisione, l'utente lo rilancia se vuole.
     for target in (
@@ -440,6 +477,30 @@ def reset_interrupted(session: Session) -> list[int]:
         .order_by(UploadJob.id)
         .all()
     ]
+
+
+def _reset_target(session: Session, job: UploadJob, target: UploadTarget, data_dir: str | None) -> None:
+    published = target.torrent_id_remote or _journaled_id(data_dir, job, target)
+    if target.action == "upload" and (target.status == "seeding" or (target.status == "uploading" and published)):
+        target.torrent_id_remote = published
+        set_target_status(target, TargetStatus.DONE)
+        target.error_message = "seed_failed"
+        target.finished_at = datetime.now(UTC)
+        log_event(session, job, "seed_interrupted", level="error", target=target, torrent=published)
+    elif target.status == "uploading":
+        set_target_status(target, TargetStatus.FAILED)
+        target.error_message = "interrupted"
+        target.finished_at = datetime.now(UTC)
+        log_event(session, job, "target_interrupted", level="error", target=target)
+    elif target.status == "seeding":
+        # Un reseed: niente pubblicato. Il client può averlo già: riprovare
+        # lo ritrova lì (execute._add_to_client) invece di aggiungerlo due volte.
+        set_target_status(target, TargetStatus.FAILED)
+        target.error_message = "interrupted"
+        target.finished_at = datetime.now(UTC)
+        log_event(session, job, "reseed_interrupted", level="error", target=target)
+    elif target.status in ("preparing", "verifying"):
+        set_target_status(target, TargetStatus.APPROVED)
 
 
 TV_KINDS = ("episode", "season_pack", "complete_pack")
