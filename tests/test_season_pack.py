@@ -27,6 +27,7 @@ from nazgarr.core.models import (
 from nazgarr.integrations.arr import ArrIndex
 from nazgarr.reseed import executor, matching, pipeline
 from nazgarr.torrents.metainfo import compute_info_hash
+from tests.fakes import RecordingClient
 
 PIECE = 16
 FOLDER = "Show.S01.1080p-GRP"
@@ -73,11 +74,6 @@ def _pack_torrent() -> bytes:
 PACK_HASH = compute_info_hash(_pack_torrent())
 
 
-def _read(path) -> bytes:
-    with open(path, "rb") as fh:
-        return fh.read()
-
-
 def _pack_candidate() -> TorrentCandidate:
     return TorrentCandidate(
         torrent_id_remote="900", info_hash=None, name="Show S01 1080p", size_bytes=sum(map(len, PACK_FILES.values())),
@@ -109,19 +105,16 @@ def _executor_downloads_the_pack(monkeypatch):
     monkeypatch.setattr(executor, "_download_torrent", lambda candidate: _pack_torrent())
 
 
-class FakeClient:
-    def __init__(self, status=None):
-        self.added = []
-        self.status = status
+class FakeClient(RecordingClient):
+    """Il client dei test: il contratto vero (tests/fakes.py), che riceve il
+    .torrent del pack per contenuto, mai il link del tracker, con il suo
+    info hash atteso."""
 
-    def add_torrent(self, url, save_path, force_recheck=True, expected_info_hash=None):
-        assert force_recheck is True
-        assert expected_info_hash == PACK_HASH
-        self.added.append((_read(url), save_path))  # il contenuto, mai il link del tracker
-        return PACK_HASH
+    def __init__(self, status=None, **kwargs):
+        super().__init__(status=status, expect_info_hash=PACK_HASH, **kwargs)
 
-    def get_torrent_status(self, info_hash):
-        return self.status
+    def adds(self) -> list[tuple[bytes | None, str]]:
+        return [(added.content, added.save_path) for added in self.added]
 
 
 def _library(db_session, tmp_path, names=("Show - S01E01 - Pilot.mkv", "Show - S01E02 - Second.mkv"),
@@ -227,7 +220,8 @@ def test_executing_a_pack_hardlinks_every_local_file_and_tolerates_missing_extra
     assert os.stat(target / "Show.S01E02.1080p-GRP.mkv").st_ino == os.stat(
         tmp_path / "media/tv/Show/Season 01/Show - S01E02 - Second.mkv").st_ino
     assert not (target / "Show.S01.1080p-GRP.nfo").exists()
-    assert client.added == [(_pack_torrent(), str(tmp_path / "torrents"))]
+    assert client.adds() == [(_pack_torrent(), str(tmp_path / "torrents"))]
+    assert client.added[0].options["stopped"] is True  # un reseed entra fermo
     assert seed_job.expected_missing_bytes == len(NFO) + 2 * PIECE
 
     # Recheck: mancano solo i byte dell'nfo (più i piece condivisi) -> ok.
@@ -241,20 +235,13 @@ def test_a_pack_for_a_client_without_root_folders_is_hardlinked_without_it(db_se
     _disk, tracker, _ = _library(db_session, tmp_path)
     matching.run_media_to_torrent_matching(db_session, tracker, PackTracker([_pack_candidate()]))
 
-    class NoSubfolderClient(FakeClient):
-        def content_layout(self):
-            return "NoSubfolder"
-
-        def add_torrent(self, url, save_path, force_recheck=True, expected_info_hash=None, content_layout="Original"):
-            self.added.append((_read(url), save_path, content_layout))
-            return PACK_HASH
-
-    client = NoSubfolderClient()
+    client = FakeClient(layout="NoSubfolder")
     executor.execute_review(db_session, db_session.query(MatchReview).one(), client)
 
     assert (tmp_path / "torrents" / "Show.S01E01.1080p-GRP.mkv").read_bytes() == E01
     assert not (tmp_path / "torrents" / FOLDER).exists()
-    assert client.added == [(_pack_torrent(), str(tmp_path / "torrents"), "NoSubfolder")]
+    assert client.adds() == [(_pack_torrent(), str(tmp_path / "torrents"))]
+    assert client.added[0].options["content_layout"] == "NoSubfolder"
 
 
 def test_recheck_missing_more_than_the_extras_still_fails(db_session, tmp_path, monkeypatch):
@@ -278,15 +265,10 @@ def test_failed_client_add_removes_only_the_new_hardlinks(db_session, tmp_path, 
     db_session.query(Candidate).one().info_hash = PACK_HASH
     db_session.commit()
 
-    class Down(FakeClient):
-        def add_torrent(self, url, save_path, force_recheck=True, expected_info_hash=None):
-            raise RuntimeError("client down")
-
-        def get_torrent_info(self, info_hash):
-            return None  # il client risponde: quel torrent non ce l'ha
-
+    # Il client risponde che quel torrent non ce l'ha (get_torrent_info: None).
+    down = FakeClient(add_error=RuntimeError("client down"))
     try:
-        executor.execute_review(db_session, db_session.query(MatchReview).one(), Down())
+        executor.execute_review(db_session, db_session.query(MatchReview).one(), down)
     except executor.ExecutionError:
         pass
     assert not any((tmp_path / "torrents" / FOLDER).glob("*"))
@@ -295,24 +277,19 @@ def test_failed_client_add_removes_only_the_new_hardlinks(db_session, tmp_path, 
 
 class LateClient(FakeClient):
     """Accetta il torrent ma l'attesa del suo hash scade (il .torrent arriva
-    dal tracker dopo il timeout): il caso del bug del reseed partito in download."""
+    dal tracker dopo il timeout): il caso del bug del reseed partito in
+    download. has_torrent: il client lo ha poi davvero, in save_path."""
 
-    def __init__(self, has_torrent):
-        super().__init__()
+    def __init__(self, has_torrent, save_path=None):
+        super().__init__(add_error=TorrentAddTimeoutError("no new torrent within 30s"))
         self.has_torrent = has_torrent
-        self.rechecks = []
-
-    def add_torrent(self, url, save_path, force_recheck=True, expected_info_hash=None):
-        self.added.append((url, save_path))
-        raise TorrentAddTimeoutError("no new torrent within 30s")
+        self.save_path = save_path
 
     def get_torrent_info(self, info_hash):
         if not self.has_torrent:
             return None
-        return ClientTorrentInfo(info_hash=info_hash, name=FOLDER, save_path=self.added[0][1], state="checkingUP")
-
-    def recheck(self, info_hash):
-        self.rechecks.append(info_hash)
+        save_path = self.save_path or self.added[0].save_path
+        return ClientTorrentInfo(info_hash=info_hash, name=FOLDER, save_path=save_path, state="checkingUP")
 
 
 def test_torrent_that_reached_the_client_after_an_add_error_keeps_its_hardlinks(db_session, tmp_path, monkeypatch):
@@ -328,7 +305,7 @@ def test_torrent_that_reached_the_client_after_an_add_error_keeps_its_hardlinks(
     assert (tmp_path / "torrents" / FOLDER / "Show.S01E01.1080p-GRP.mkv").read_bytes() == E01
     assert (seed_job.final_status, seed_job.info_hash) == ("in_progress", PACK_HASH)
     assert seed_job.recheck_status == "pending"
-    assert client.rechecks == [PACK_HASH]
+    assert client.rechecked == [PACK_HASH]
 
 
 def test_add_timeout_without_the_torrent_in_the_client_still_keeps_the_hardlinks(db_session, tmp_path, monkeypatch):
@@ -358,13 +335,12 @@ def test_retry_of_a_failed_job_follows_the_torrent_already_in_the_client(db_sess
         executor.execute_review(db_session, db_session.query(MatchReview).one(), LateClient(has_torrent=False))
     seed_job = db_session.query(SeedJob).one()
 
-    client = LateClient(has_torrent=True)
-    client.added.append(("x", str(tmp_path / "torrents")))
+    client = LateClient(has_torrent=True, save_path=str(tmp_path / "torrents"))
     client.status = TorrentStatus(PACK_HASH, "checkingUP", "pending", 0.4)
     assert executor.adopt_for_retry(db_session, seed_job, client) is seed_job
 
     assert (seed_job.info_hash, seed_job.final_status) == (PACK_HASH, "in_progress")
-    assert len(client.added) == 1  # nessuna nuova aggiunta
+    assert client.added == []  # nessuna nuova aggiunta
 
 
 def test_pack_folder_still_on_disk_is_readded_to_the_client(db_session, tmp_path, monkeypatch):
@@ -399,7 +375,7 @@ def test_pack_folder_still_on_disk_is_readded_to_the_client(db_session, tmp_path
 
     client = FakeClient()
     seed_job = executor.execute_review(db_session, db_session.query(MatchReview).one(), client)
-    assert client.added == [(_pack_torrent(), str(tmp_path / "torrents" / "tv"))]
+    assert client.adds() == [(_pack_torrent(), str(tmp_path / "torrents" / "tv"))]
     assert seed_job.expected_missing_bytes == 0
 
 
@@ -624,12 +600,8 @@ def test_reconcile_between_runs_is_scheduled_and_skipped_during_a_run(db_session
     assert sched.get_job(scheduler.RECONCILE_JOB_ID) is not None
 
 
-class _DownClient(FakeClient):
-    def add_torrent(self, url, save_path, force_recheck=True, expected_info_hash=None):
-        raise RuntimeError("client down")
-
-    def get_torrent_info(self, info_hash):
-        return None
+def _DownClient():  # noqa: N802 — si usa come le classi dei client qui sopra
+    return FakeClient(add_error=RuntimeError("client down"))
 
 
 def _failed_pack_job(db_session, tmp_path, monkeypatch):
