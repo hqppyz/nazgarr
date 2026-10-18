@@ -423,6 +423,77 @@ def test_a_split_stopped_by_a_restart_is_done_again_without_leftovers(db_session
     assert "job_split" in [e.code for e in parent.events]
 
 
+def test_a_kill_right_after_the_split_closes_keeps_the_episodes(db_session, tmp_path, monkeypatch):
+    """Audit 2026-10-18: l'annullamento del pack e l'evento della divisione
+    erano due commit; un riavvio fra i due lasciava il pack annullato senza
+    "divisione", e ogni episodio, ripreso, si toglieva da solo. Ora vanno
+    insieme: un kill subito dopo li trova entrambi, e gli episodi restano."""
+    real_transition = upload_jobs.transition
+
+    def transition(session, job, expected, new, *args, **kwargs):
+        done = real_transition(session, job, expected, new, *args, **kwargs)
+        if new == "cancelled":
+            raise _Killed()
+        return done
+
+    monkeypatch.setattr(upload_split.upload_jobs, "transition", transition)
+    with pytest.raises(_Killed):
+        _identified(db_session, tmp_path, monkeypatch)
+    monkeypatch.setattr(upload_split.upload_jobs, "transition", real_transition)
+    db_session.rollback()
+    parent, first, second = db_session.query(UploadJob).order_by(UploadJob.id).all()
+    assert parent.status == "cancelled" and "job_split" in [e.code for e in parent.events]
+
+    # Al riavvio ogni episodio riparte da sé (l'analisi, qui non serve farla).
+    upload_jobs.reset_interrupted(db_session)
+    assert [upload_identify.drop_split_orphan(db_session, c) for c in (second, first)] == [False, False]
+    children = db_session.query(UploadJob).filter(UploadJob.split_from_id == parent.id).order_by(UploadJob.id).all()
+    assert [(c.id, c.episode, c.status) for c in children] == [(first.id, 1, "analyzing"), (second.id, 2, "analyzing")]
+
+
+def test_an_old_kick_during_the_new_split_leaves_the_new_episode_alone(db_session, tmp_path, monkeypatch):
+    """Audit 2026-10-18: la nuova divisione dopo un riavvio crea upload che
+    possono avere l'id di quelli appena tolti (SQLite riusa gli id). Un kick
+    vecchio per quell'id, arrivato mentre il pack si divide, trovava il nuovo
+    episodio col pack non ancora chiuso e lo toglieva: la divisione falliva e
+    il pack andava avanti intero."""
+    restore = _crash_on(monkeypatch, 3)
+    with pytest.raises(_Killed):
+        _identified(db_session, tmp_path, monkeypatch)
+    restore()
+    parent = db_session.query(UploadJob).order_by(UploadJob.id).first()
+    parent_id = parent.id
+
+    real_scan = upload_split.scan_source
+    stale = []
+
+    def scan_source(path, *args, **kwargs):
+        # Il worker, in un altro thread, con un kick di prima del riavvio.
+        other = db_session.__class__(bind=db_session.get_bind())
+        newest = other.query(UploadJob).filter(UploadJob.split_from_id == parent_id).order_by(
+            UploadJob.id.desc()).first()
+        if newest is not None and not stale:
+            stale.append(newest.id)
+            upload_identify.handle(other, newest, None)
+        other.close()
+        return real_scan(path, *args, **kwargs)
+
+    monkeypatch.setattr(upload_split, "scan_source", scan_source)
+    from nazgarr.upload import analysis as upload_analysis
+
+    # Se la divisione fallisse, il pack andrebbe al dupe check: mai verso la rete.
+    monkeypatch.setattr(upload_analysis.adapter_factory, "build_tracker_adapter",
+                        lambda t: (_ for _ in ()).throw(RuntimeError("offline")))
+    _resumed, kicked = _restart(db_session, [], parent_id)
+
+    parent = db_session.get(UploadJob, parent_id)
+    children = db_session.query(UploadJob).filter(UploadJob.split_from_id == parent_id).order_by(UploadJob.id).all()
+    assert parent.status == "cancelled" and "job_split" in [e.code for e in parent.events]
+    assert stale and stale[0] in [c.id for c in children]
+    assert [(c.episode, c.status) for c in children] == [(1, "analyzing"), (2, "analyzing")]
+    assert kicked == [c.id for c in children]
+
+
 def test_a_complete_season_after_a_restart_is_analyzed_as_a_pack(db_session, tmp_path, monkeypatch):
     """Lo stage della divisione si toglie anche quando non si divide: dopo,
     l'analisi è quella di sempre."""

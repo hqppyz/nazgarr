@@ -399,12 +399,22 @@ def drop_split_orphan(session: Session, job: UploadJob) -> bool:
     Non ha fatto niente fuori da Nazgarr e si toglie, con quelli nati da
     lui; la divisione la rifà il pack (resume_split), o il pack va avanti
     intero. Prima ripartiva da solo: un episodio, o una stagione che con la
-    cartella intera si divideva di nuovo, accanto al pack. True se tolto."""
+    cartella intera si divideva di nuovo, accanto al pack. True se non c'è
+    niente da fare per lui.
+
+    Con il pack ancora in analisi non si toglie niente: la pulizia e la
+    nuova divisione sono del pack (resume_split). Un kick vecchio può anche
+    arrivare su un upload appena creato dalla nuova divisione con lo stesso
+    id di uno tolto (SQLite riusa gli id), e lo toglieva mentre il pack si
+    divideva."""
     if job.split_from_id is None or job.status not in _UNSTARTED:
         return False
     parent = session.get(UploadJob, job.split_from_id)
     if parent is None or _closed_by_split(parent):
         return False
+    if parent.status == "analyzing":
+        logger.info("Upload %s: la divisione di %s non è finita, ci pensa il pack", job.id, parent.id)
+        return True
     ids = [job.id, *_split_orphans(session, job)]
     logger.warning("Upload %s: creato da una divisione di %s fermata a metà, si toglie", job.id, parent.id)
     session.execute(delete(UploadJob).where(UploadJob.id.in_(ids), UploadJob.status.in_(_UNSTARTED)))

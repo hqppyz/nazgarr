@@ -217,12 +217,18 @@ def _discard(session: Session, children: list[UploadJob]) -> None:
 
 def _close(session: Session, job: UploadJob, code: str, children: list[UploadJob]) -> None:
     """Il job diviso si chiude (annullato, con l'elenco dei nuovi): si va
-    avanti da quelli, e non si riprende."""
-    if not upload_jobs.transition(session, job, "analyzing", "cancelled", emit=False, stage=None,
-                                  queue_position=None):
-        raise upload_jobs.UploadJobError("upload_job_wrong_status", status=job.status)
-    upload_jobs.log_event(session, job, code, count=len(children), jobs=[c.id for c in children])
+    avanti da quelli, e non si riprende. L'evento della divisione entra nello
+    stesso commit dell'annullamento (audit 2026-10-18): con due commit, un
+    riavvio fra i due lasciava il pack annullato senza la divisione, e i
+    nuovi, presi per avanzi di una divisione mai finita, si toglievano."""
+    event = upload_jobs.log_event(session, job, code, count=len(children), jobs=[c.id for c in children])
+    if upload_jobs.transition(session, job, "analyzing", "cancelled", emit=False, stage=None,
+                              queue_position=None):
+        return
+    # Annullato dall'utente nel frattempo: l'evento è entrato col commit, e si toglie.
+    session.delete(event)
     session.commit()
+    raise upload_jobs.UploadJobError("upload_job_wrong_status", status=job.status)
 
 
 def seasons_to_split(job: UploadJob) -> list[int]:
