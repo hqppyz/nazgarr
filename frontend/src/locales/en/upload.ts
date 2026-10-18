@@ -159,6 +159,7 @@ export const upload = {
   'upload.dupes.seedingHere': 'These files are already seeding on {client} for this tracker ({torrent}): nothing to do here.',
   'upload.decision.yourDecision': 'Your decision',
   'upload.dupes.none': 'Nothing like this on the tracker yet.',
+  'upload.dupes.truncated': 'The tracker has more results than were read ({count}): the dupe check may be incomplete. Check the tracker before uploading.',
   'upload.dupes.checkFailed':
     "The tracker didn't answer: the dupe check is missing for this tracker, decide knowing that.",
   'upload.dupes.verdict.identical': 'Identical',
@@ -369,6 +370,7 @@ export const upload = {
   'upload.event.dupe_check_done':
     '{results} result(s) on the tracker, {identical} identical, {same_slot} dupe(s): suggested {suggested}.',
   'upload.event.already_seeding_here': 'Already seeding on {client} for this tracker ({torrent}): skip suggested.',
+  'upload.event.dupe_check_truncated': 'Dupe check incomplete: the tracker has more results than the {results} read.',
   'upload.event.dupe_check_failed': 'Dupe check failed: {error}',
   'upload.event.verify_started': 'Full hash check against torrent {torrent} started.',
   'upload.event.verify_passed': 'Torrent {torrent}: every piece matches ({ok}/{pieces}).',

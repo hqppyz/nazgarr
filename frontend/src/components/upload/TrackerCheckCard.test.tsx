@@ -47,6 +47,16 @@ describe('TrackerCheckCard', () => {
     expect(screen.queryByRole('button', { name: 'Full hash check' })).toBeNull()
   })
 
+  it('says when the tracker had more results than were read', () => {
+    const truncated = { ...job, analysis: { dupes_truncated: { '3': 1000 } } } as unknown as UploadJob
+    render(<TrackerCheckCard job={truncated} target={target} />)
+    expect(screen.getByText(/more results than were read \(1000\)/)).toBeTruthy()
+    cleanup()
+
+    render(<TrackerCheckCard job={job} target={target} />)
+    expect(screen.queryByText(/more results than were read/)).toBeNull()
+  })
+
   it("warns when no audio track is in the tracker's language", () => {
     const withLanguage = {
       ...job,

@@ -3,6 +3,7 @@ import os
 from datetime import UTC, datetime
 
 import pytest
+from sqlalchemy import text
 
 from nazgarr.adapters.tracker.base import TorrentCandidate
 from nazgarr.core.models import ClientTorrent, ClientTorrentFile, RunLog, SeedFile, UploadJob
@@ -265,3 +266,112 @@ def test_names_come_from_the_original_name_radarr_recorded(db_session, tmp_path,
     analysis = json.loads(analyzing_job.analysis_json)
     assert analysis["name_source"]["origin"] == "radarr"
     assert (analysis["detected"]["resolution"], analysis["detected"]["group"]) == ("2160p", "SCENE")
+
+
+def test_a_cancel_during_the_dupe_checks_stops_the_analysis(db_session, tmp_path, monkeypatch, analyzing_job):
+    """Audit 2026-10-18: annullato durante un dupe check, l'analisi andava
+    avanti sugli altri tracker e riscriveva target e proposte; ripreso
+    subito, due analisi dello stesso job giravano insieme."""
+    asked = []
+
+    class Cancelling(_FakeTracker):
+        def search_by_tmdb(self, tmdb_id):
+            asked.append(tmdb_id)
+            other = db_session.__class__(bind=db_session.get_bind())
+            upload_jobs.cancel_job(other, other.get(UploadJob, analyzing_job.id))
+            other.close()
+            return []
+
+    monkeypatch.setattr(upload_analysis.adapter_factory, "build_tracker_adapter", lambda t: Cancelling())
+    proposed = []
+    monkeypatch.setattr(upload_analysis.upload_decision, "propose", lambda session, job: proposed.append(job.id))
+
+    upload_analysis.handle(db_session, analyzing_job, None)
+
+    db_session.refresh(analyzing_job)
+    assert analyzing_job.status == "cancelled" and len(asked) == 1 and proposed == []
+    assert [t.status for t in analyzing_job.targets] == ["awaiting_decision", "pending"]
+
+
+def test_an_analysis_started_after_this_one_wins(db_session, tmp_path, monkeypatch, analyzing_job):
+    asked = []
+
+    class Superseded(_FakeTracker):
+        def search_by_tmdb(self, tmdb_id):
+            asked.append(tmdb_id)
+            # Un'altra analisi dello stesso job parte adesso (annullato e ripreso).
+            upload_jobs.log_event(db_session, analyzing_job, "analysis_started")
+            db_session.commit()
+            return []
+
+    monkeypatch.setattr(upload_analysis.adapter_factory, "build_tracker_adapter", lambda t: Superseded())
+
+    upload_analysis.handle(db_session, analyzing_job, None)
+
+    assert len(asked) == 1 and analyzing_job.status == "analyzing"
+    assert "analysis_done" not in [e.code for e in analyzing_job.events]
+
+
+def test_a_truncated_catalogue_is_said_at_the_decision(db_session, tmp_path, monkeypatch, analyzing_job):
+    """Ondata 1 (finding 51): un tracker con più risultati di quelli letti
+    lo dice con CatalogResults.truncated; il dupe check non deve sembrare
+    completo."""
+    from nazgarr.adapters.tracker.base import CatalogResults
+
+    many = CatalogResults([_candidate("Other.Movie.2019.720p", 1 * MB, "9")])
+    many.truncated = True
+    trackers = {"a": _FakeTracker(), "b": _FakeTracker()}
+    trackers["b"].candidates = many
+    monkeypatch.setattr(upload_analysis.adapter_factory, "build_tracker_adapter", lambda t: trackers[t.label])
+
+    _run(db_session, tmp_path, analyzing_job)
+
+    a, b = analyzing_job.targets
+    assert json.loads(analyzing_job.analysis_json)["dupes_truncated"] == {str(b.id): 1}
+    event = next(e for e in analyzing_job.events if e.code == "dupe_check_truncated")
+    assert (event.target_id, event.level, json.loads(event.params_json)) == (b.id, "warning", {"results": 1})
+
+
+def test_dupe_links_are_stored_without_the_download_key(db_session, tmp_path, monkeypatch, analyzing_job):
+    """Audit 2026-10-18 (finding 55): il link di download di UNIT3D ha la
+    chiave personale, e finiva in chiaro nel dupes_json di ogni target (e
+    nella risposta dell'API). Si salva senza; la chiave imparata resta sul
+    tracker, cifrata, per ricostruire il link al full hash check o al reseed."""
+    from nazgarr.upload import dupes as upload_dupes
+
+    link = "https://a.example/torrent/download/77.SeCrEtKey123"
+    candidate = _candidate("Movie.Name.2024.1080p.WEB-DL.DDP5.1.H.264-OTHER", 59 * MB, "77")
+    candidate = type(candidate)(**{**candidate.__dict__, "download_link": link})
+    learning = _FakeTracker([candidate])
+    learning.rss_key = "SeCrEtKey123"
+    monkeypatch.setattr(upload_analysis.adapter_factory, "build_tracker_adapter", lambda t: learning)
+
+    _run(db_session, tmp_path, analyzing_job)
+
+    target = analyzing_job.targets[0]
+    assert "SeCrEtKey123" not in target.dupes_json
+    [dupe] = json.loads(target.dupes_json)
+    assert dupe["download_link"] == "https://a.example/torrent/download/77.rsskey"
+    db_session.refresh(target.tracker)
+    assert target.tracker.rss_key == "SeCrEtKey123"
+    raw = db_session.execute(text("SELECT rss_key FROM tracker WHERE id = :id"), {"id": target.tracker_id}).scalar()
+    assert raw and "SeCrEtKey123" not in raw  # cifrata nel DB
+
+    class Unit3d:
+        rss_key = "NewKey9"
+
+        def rewrite_download_link(self, url):
+            return url.rsplit(".", 1)[0] + "." + self.rss_key
+
+    assert upload_dupes.download_link(Unit3d(), dupe) == "https://a.example/torrent/download/77.NewKey9"
+
+    class NoKey:
+        rss_key = None
+
+        def get_torrent_detail(self, torrent_id):
+            return type("T", (), {"download_link": f"https://a.example/torrent/download/{torrent_id}.FromApi"})()
+
+    assert upload_dupes.download_link(NoKey(), dupe) == "https://a.example/torrent/download/77.FromApi"
+    # Un link salvato prima (con la chiave) o di un tracker senza chiave resta com'è.
+    assert upload_dupes.download_link(NoKey(), {"download_link": link}) == link
+    assert upload_dupes.download_link(NoKey(), {"download_link": "https://t/dl?id=1"}) == "https://t/dl?id=1"

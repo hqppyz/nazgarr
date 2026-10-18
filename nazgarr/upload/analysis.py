@@ -20,6 +20,7 @@ import time
 
 from sqlalchemy.orm import Session
 
+from nazgarr.adapters.tracker.base import catalog_truncated
 from nazgarr.core import events
 from nazgarr.core.file_types import is_video
 from nazgarr.core.models import (
@@ -29,6 +30,7 @@ from nazgarr.core.models import (
     SeedFile,
     SonarrInstance,
     TorrentClient,
+    UploadEvent,
     UploadJob,
 )
 from nazgarr.integrations import adapter_factory, arr
@@ -245,18 +247,45 @@ def seeding_here(target, client_matches: list[dict]) -> dict | None:
     return None
 
 
+def _still_mine(session: Session, job: UploadJob, run_id: int) -> bool:
+    """Il job è ancora in analisi, e con questa analisi (audit 2026-10-18):
+    annullato nel frattempo, i tracker che restano non si interrogano e
+    nessun target si tocca più; ripreso, un'analisi partita dopo (il suo
+    analysis_started) è quella che vale."""
+    status = session.query(UploadJob.status).filter(UploadJob.id == job.id).scalar()
+    newer = session.query(UploadEvent.id).filter(
+        UploadEvent.job_id == job.id, UploadEvent.code == "analysis_started", UploadEvent.id > run_id).first()
+    return status == "analyzing" and newer is None
+
+
+def _remember_rss_key(target, adapter) -> None:
+    """La chiave dei link di download imparata dalle risposte del tracker
+    resta sul tracker (cifrata): il dupe check salva i link senza, e il full
+    hash check o il reseed li ricostruiscono con lei (nazgarr/upload/dupes.py)."""
+    learned = getattr(adapter, "rss_key", None)
+    if learned and learned != target.tracker.rss_key:
+        target.tracker.rss_key = learned
+
+
 def _check_trackers(
-    session: Session, job: UploadJob, summary: SourceSummary, client_matches: list[dict]
-) -> dict[str, dict]:
+    session: Session, job: UploadJob, summary: SourceSummary, client_matches: list[dict], run_id: int
+) -> tuple[dict[str, dict], dict[str, int]] | None:
     """Dupe check di ogni tracker; restituisce, per target, il torrent che fa
-    già seed degli stessi byte sul suo client (vedi seeding_here)."""
+    già seed degli stessi byte sul suo client (vedi seeding_here) e quanti
+    risultati si sono letti da un tracker che ne aveva di più (il catalogo
+    tagliato: il dupe check può non essere completo). None se l'analisi non
+    è più di questo job (_still_mine)."""
     seeding_by_target: dict[str, dict] = {}
+    truncated_by_target: dict[str, int] = {}
     for target in job.targets:
+        if not _still_mine(session, job, run_id):
+            return None
         upload_jobs.set_target_status(target, upload_jobs.TargetStatus.CHECKING)
         session.commit()
         try:
             with adapter_factory.tracker(target.tracker) as adapter:
                 found = adapter.search_by_tmdb(job.tmdb_id)
+                _remember_rss_key(target, adapter)
             results, suggested = check(found, summary)
         except Exception as exc:
             # L'utente decide lo stesso: senza dupe check, ma lo sa.
@@ -274,6 +303,12 @@ def _check_trackers(
                 session, job, "dupe_check_done", target=target, results=len(results),
                 identical=counts["identical"], same_slot=counts["same_slot"], suggested=suggested,
             )
+            if catalog_truncated(found):
+                # Il tracker ha più risultati di quelli letti (audit 2026-10-18):
+                # un dupe oltre il limite non si vede, e la decisione lo dice.
+                truncated_by_target[str(target.id)] = len(found)
+                upload_jobs.log_event(session, job, "dupe_check_truncated", level="warning", target=target,
+                                      results=len(found))
         seeding = seeding_here(target, client_matches)
         if seeding is not None:
             seeding_by_target[str(target.id)] = {"name": seeding["name"], "client": seeding["client"]}
@@ -282,7 +317,7 @@ def _check_trackers(
                                   torrent=seeding["name"], client=seeding["client"])
         upload_jobs.set_target_status(target, upload_jobs.TargetStatus.AWAITING_DECISION)
         session.commit()
-    return seeding_by_target
+    return seeding_by_target, truncated_by_target
 
 
 def handle(session: Session, job: UploadJob, worker) -> None:
@@ -292,7 +327,7 @@ def handle(session: Session, job: UploadJob, worker) -> None:
     # un upload creato da lei si toglie, il pack la rifà prima dell'analisi.
     if upload_identify.drop_split_orphan(session, job) or upload_identify.resume_split(session, job, worker):
         return
-    upload_jobs.log_event(session, job, "analysis_started")
+    run = upload_jobs.log_event(session, job, "analysis_started")
     session.commit()
     try:
         files = source_files(job)
@@ -347,7 +382,11 @@ def handle(session: Session, job: UploadJob, worker) -> None:
 
     job.stage = "trackers"
     session.commit()
-    analysis["seeding_here"] = _check_trackers(session, job, summary_of(job, files, analysis), client_matches)
+    checked = _check_trackers(session, job, summary_of(job, files, analysis), client_matches, run.id)
+    if checked is None or not _still_mine(session, job, run.id):
+        logger.info("Upload %s: analisi interrotta (annullato, o ripresa da un'altra analisi)", job.id)
+        return
+    analysis["seeding_here"], analysis["dupes_truncated"] = checked
     job.analysis_json = json.dumps(analysis)
     session.commit()
     upload_decision.propose(session, job)
