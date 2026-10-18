@@ -49,6 +49,9 @@ FINAL_STATES = ("done", "partial", "failed", "cancelled")
 # Un target in questi stati lo sta lavorando l'esecuzione (anche di un job
 # appena annullato: il tracker in invio si finisce).
 BUSY_TARGET_STATES = ("preparing", "uploading", "seeding")
+# Un target 'done' il cui torrent è fermo nel client in attesa dell'esito
+# del recheck (nazgarr/upload/execute.py, reconcile_held_seeds).
+SEED_RECHECK_PENDING = "seed_recheck_pending"
 
 FORCED_ID_KEYS = ("tmdb", "imdb", "tvdb", "mal")
 
@@ -340,6 +343,20 @@ def _refuse_if_busy(job: UploadJob, active: bool) -> None:
         raise UploadJobError("upload_job_busy")
 
 
+def _refuse_if_seed_pending(job: UploadJob) -> None:
+    """Un target col torrent fermo in attesa del suo recheck: il target e
+    l'evento dell'aggiunta sono l'unica traccia che il reconcile segue per
+    avviarlo, ed eliminato il job restava fermo nel client per sempre, senza
+    che niente lo dicesse (audit 2026-10-18). Il recheck finisce da solo
+    (o, fallito, il target lo dice e il job si elimina). Non con il client
+    tolto o spento: lì il reconcile non lo segue comunque."""
+    for target in job.targets:
+        client = target.torrent_client
+        if (target.status == TargetStatus.DONE and target.error_message == SEED_RECHECK_PENDING
+                and client is not None and client.enabled):
+            raise UploadJobError("upload_seed_recheck_pending", tracker=target.tracker.label, client=client.label)
+
+
 def cancel_job(session: Session, job: UploadJob) -> None:
     """Annulla un job non ancora finito. Un target già in upload verso il
     tracker non si ferma a metà: il worker lo porta a termine e poi smette
@@ -545,6 +562,7 @@ def delete_job(session: Session, job: UploadJob, data_dir: str, active: bool = F
     if job.status in WORKER_STATES:
         raise UploadJobError("upload_job_wrong_status", status=job.status)
     _refuse_if_busy(job, active)
+    _refuse_if_seed_pending(job)
     job_id = job.id
     session.delete(job)
     session.commit()

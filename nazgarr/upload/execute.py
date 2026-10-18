@@ -634,7 +634,7 @@ def _stop_before_recheck(adapter, info_hash: str, job_id: int, client: str) -> N
 # dell'esito del suo recheck: il target è 'done' (il reseed o l'upload sono
 # fatti) e reconcile_held_seeds lo avvia a recheck riuscito. Fallito, resta
 # fermo e "Riprova il seed" lo fa ricontrollare.
-SEED_RECHECK_PENDING = "seed_recheck_pending"
+SEED_RECHECK_PENDING = upload_jobs.SEED_RECHECK_PENDING
 SEED_RECHECK_FAILED = "seed_recheck_failed"
 # Gli eventi di un'aggiunta in attesa: i loro parametri (save_path, allowed)
 # servono al reconcile e al nuovo tentativo.

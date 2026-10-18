@@ -655,6 +655,35 @@ def test_a_running_torrent_already_in_the_client_is_stopped_before_its_recheck(
     assert target.error_message == "seed_recheck_failed" and client.started == []
 
 
+def test_a_job_with_a_torrent_waiting_for_its_recheck_is_not_deleted(db_session, tmp_path, env):
+    """Audit 2026-10-18: eliminato il job, il torrent restava fermo nel
+    client per sempre, senza più niente che lo seguisse."""
+    job, _video = _reseed_job(db_session, tmp_path, env)
+    env["client"].can_add_stopped = True
+    _run(db_session, tmp_path, job)
+    data_dir = str(tmp_path / "data")
+
+    with pytest.raises(UploadJobError) as refused:
+        upload_jobs.delete_job(db_session, job, data_dir)
+    assert refused.value.code == "upload_seed_recheck_pending"
+    assert refused.value.params == {"tracker": "a", "client": env["client_row"].label}
+
+    upload_execute.reconcile_held_seeds(db_session)  # recheck riuscito: avviato
+    upload_jobs.delete_job(db_session, job, data_dir)
+
+
+def test_a_job_whose_held_torrent_is_in_a_disabled_client_can_be_deleted(db_session, tmp_path, env):
+    """Con il client spento il reconcile non lo segue: il job resterebbe
+    da non eliminare per sempre."""
+    job, _video = _reseed_job(db_session, tmp_path, env)
+    env["client"].can_add_stopped = True
+    _run(db_session, tmp_path, job)
+    env["client_row"].enabled = False
+    db_session.commit()
+
+    upload_jobs.delete_job(db_session, job, str(tmp_path / "data"))
+
+
 def test_after_a_failed_recheck_the_files_the_client_renamed_get_their_name_back(db_session, tmp_path, env):
     """Transmission con rename-partial-files rinomina un file incompleto in
     "<nome>.part" già durante il recheck (decisione dell'utente,

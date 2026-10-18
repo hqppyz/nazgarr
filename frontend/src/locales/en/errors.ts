@@ -148,6 +148,7 @@ export const errors = {
   'errors.upload_seed_retry_failed': "Adding to the client failed again: {error}",
   'errors.upload_prepare_failed': 'Preparing the upload failed: {error}',
   'errors.upload_job_busy': 'This upload is still finishing a tracker: wait a moment, then try again.',
+  'errors.upload_seed_recheck_pending': "{tracker}'s torrent is stopped in {client}, waiting for its recheck: delete the upload once it is checked.",
   'errors.upload_already_in_client': '{client} already has this torrent, in another folder ({path}): nothing was moved. Remove it there, or seed it by hand.',
   'errors.upload_planned_files_missing': 'Some files of this upload are missing from its folder for uploads: {files}',
   'errors.upload_retry_nothing': 'Nothing to retry: no tracker of this upload failed before publishing. One published but not seeding is retried with Retry seeding.',
