@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
-import { api, unwrap, type Schemas } from '@/api/client'
+import { api, ApiError, unwrap, type Schemas } from '@/api/client'
 import { getToken } from '@/lib/authToken'
 import { TOAST_ERRORS } from '@/lib/mutationErrors'
 
@@ -73,7 +73,8 @@ async function getFrom<T>(id: number | null, path: string): Promise<T> {
   const response = await fetch(id === null ? path : `/api/remote/${id}${path}`, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   })
-  if (!response.ok) throw new Error(String(response.status))
+  // Con lo stato, come unwrap: un 4xx (chiave rifiutata) non si ripete.
+  if (!response.ok) throw new ApiError(String(response.status), response.status)
   return response.json() as Promise<T>
 }
 
