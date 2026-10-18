@@ -63,6 +63,25 @@ def test_resolver_first_then_search_prefers_the_year_and_dedupes(db_session, tmp
     assert ("search", "tv", "The Matrix", 1999) not in fake.calls  # abbastanza risultati nel tipo rilevato
 
 
+def test_a_same_titled_series_past_the_eighth_result_still_makes_the_match_ambiguous(
+        db_session, tmp_path, monkeypatch, no_resolver):
+    """Audit 2026-10-18: i candidati si tagliavano a 8 prima del punteggio;
+    una seconda serie "The Bridge" al decimo posto non contava, la prima
+    prendeva l'anno non richiesto e passava da sola il match automatico."""
+    layout = scan_source(str(write_video(tmp_path / "The.Bridge.S01E01.1080p.mkv")))
+    others = [tmdb_result(100 + n, f"Bridge Story {n}", 2000 + n, "tv") for n in range(8)]
+    fake = FakeTMDB(search={("tv", "The Bridge", None): [
+        tmdb_result(1, "The Bridge", 2011, "tv"), *others, tmdb_result(2, "The Bridge", 2013, "tv")]})
+    _with_tmdb(monkeypatch, fake)
+
+    candidates = upload_identify.find_candidates(db_session, {}, layout)
+
+    assert len(candidates) == upload_identify.MAX_CANDIDATES
+    assert [c["tmdb_id"] for c in candidates[:2]] == [1, 2]
+    assert all(c.get("ambiguous") for c in candidates[:2])
+    assert not candidates[0]["confidence_parts"].get("year_waived")
+
+
 def test_few_results_also_search_the_other_type_and_retry_without_year(db_session, tmp_path, monkeypatch, no_resolver):
     layout = scan_source(str(write_video(tmp_path / "Chernobyl.2019.1080p.mkv")))
     fake = FakeTMDB(search={

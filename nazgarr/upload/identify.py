@@ -172,15 +172,19 @@ def find_candidates(
     if forced and client is not None:
         forced_candidates = _forced_candidates(client, forced, layout)
         if forced_candidates:
-            return upload_match_score.scored(forced_candidates[:MAX_CANDIDATES], layout.title, layout.year,
-                                             layout.content_type)
+            return upload_match_score.scored(forced_candidates, layout.title, layout.year,
+                                             layout.content_type)[:MAX_CANDIDATES]
 
     candidates: list[dict] = []
     _add(candidates, _resolver_candidates(session, layout.main_video), "resolver")
     if client is not None:
         _add(candidates, _search_candidates(client, layout, languages), "search")
-    # Ognuno con la sua confidence (nazgarr/upload/match_score.py), dal più sicuro.
-    return upload_match_score.scored(candidates[:MAX_CANDIDATES], layout.title, layout.year, layout.content_type)
+    # Ognuno con la sua confidence (nazgarr/upload/match_score.py), dal più
+    # sicuro. Prima il punteggio su tutti, poi i primi: tagliati prima, una
+    # serie con lo stesso titolo oltre l'ottavo posto non contava né per
+    # l'ambiguità né per l'anno non richiesto, e il primo passava da solo
+    # (audit 2026-10-18).
+    return upload_match_score.scored(candidates, layout.title, layout.year, layout.content_type)[:MAX_CANDIDATES]
 
 
 AUTO_MATCH_SETTING = "upload_auto_match_threshold"
