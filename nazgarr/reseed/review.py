@@ -650,7 +650,12 @@ def verify_before_execute_enabled(session: Session) -> bool:
 
 
 class AlreadyVerifyingError(Exception):
-    pass
+    """Il controllo completo di questa review è già in corso: l'API lo dice
+    col codice review_already_verifying (prima un testo libero)."""
+
+    def __init__(self, review_id: int):
+        self.review_id = review_id
+        super().__init__(f"Review {review_id} is already being verified")
 
 
 class ReviewAlreadyDecidedError(Exception):
@@ -701,7 +706,7 @@ def request_approval(session: Session, review: MatchReview, session_factory, dec
     if not verify_before_execute_enabled(session):
         return approve(session, review, decided_by=decided_by)
     if review.verify_status == "verifying":
-        raise AlreadyVerifyingError(f"Review {review.id} is already being verified")
+        raise AlreadyVerifyingError(review.id)
     if not ready_for_decision(session, review):
         raise ReviewAlreadyDecidedError(review.id)
 

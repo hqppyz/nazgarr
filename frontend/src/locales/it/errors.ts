@@ -38,6 +38,10 @@ export const errors = {
 
   'errors.review_not_found': 'Proposta {id} non trovata.',
   'errors.seed_job_not_found': 'SeedJob {id} non trovato.',
+  'errors.review_already_verifying': 'La proposta {id} è già in verifica: aspetta che finisca il suo controllo completo degli hash.',
+  'errors.full_check_not_found': 'Controllo completo degli hash {id} non trovato: è finito da tempo, o Nazgarr si è riavviato.',
+  'errors.full_check_candidate_not_found': 'Candidato torrent {id} non trovato.',
+  'errors.full_check_seed_job_mismatch': "L'esecuzione {seed_job_id} non è del candidato torrent {candidate_id}.",
 
   'errors.tracker_not_found': 'Tracker {id} non trovato.',
   'errors.tracker_busy': '{label} ha un’esecuzione o un upload in corso: aspetta che finisca, annulla l’upload o elimina l’esecuzione bloccata in Reseeding, poi eliminalo',

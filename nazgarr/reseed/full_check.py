@@ -31,6 +31,7 @@ from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session, sessionmaker
 
+from nazgarr.core.errors import CodedError
 from nazgarr.core.file_types import is_video
 from nazgarr.core.fs_scope import ScopeViolation, resolve_scoped
 from nazgarr.core.logs import safe_error
@@ -49,6 +50,12 @@ MAX_KEPT_CHECKS = 20
 
 class FullCheckError(Exception):
     pass
+
+
+class CheckNotStarted(CodedError):
+    """Un controllo che non può partire (start_check): candidato che non
+    esiste, o un'esecuzione di un altro candidato. Un codice per l'API
+    (nazgarr/core/errors.py), non più il testo inglese di FullCheckError."""
 
 
 class CheckCancelled(Exception):
@@ -479,11 +486,11 @@ def start_check(session_factory: sessionmaker, session: Session, candidate_id: i
                 review_id: int | None = None, after: AfterCheck | None = None) -> CheckState:
     candidate = session.get(Candidate, candidate_id)
     if candidate is None:
-        raise FullCheckError("Candidate not found")
+        raise CheckNotStarted("full_check_candidate_not_found", id=candidate_id)
     if seed_job_id is not None:
         seed_job = session.get(SeedJob, seed_job_id)
         if seed_job is None or seed_job.candidate_id != candidate_id:
-            raise FullCheckError("This execution doesn't belong to the candidate")
+            raise CheckNotStarted("full_check_seed_job_mismatch", seed_job_id=seed_job_id, candidate_id=candidate_id)
     state = CheckState(
         id=uuid.uuid4().hex[:12], candidate_id=candidate_id, seed_job_id=seed_job_id,
         media_file_id=media_file_id, label=candidate.name, purpose=purpose, review_id=review_id,

@@ -319,7 +319,7 @@ def approve_review(review_id: int, request: Request, session: Session = Depends(
     try:
         review.request_approval(session, row, request.app.state.session_factory)
     except review.AlreadyVerifyingError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise HTTPException(status_code=409, detail=coded_detail("review_already_verifying", id=exc.review_id)) from exc
     except review.ReviewAlreadyDecidedError as exc:
         # Già approvata, rifiutata o eseguita: un'esecuzione fallita si
         # ritenta da /api/reviews/failed/{id}/retry, mai approvando di nuovo.
