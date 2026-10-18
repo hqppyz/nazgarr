@@ -1089,3 +1089,74 @@ def test_a_client_that_cannot_add_stopped_gets_the_add_of_before():
         executor._add_to_client(adapter, torrent, "/torrents", SimpleNamespace(recheck_skipped=None),
                                 skip_recheck=False)
         assert [a.options["stopped"] for a in adapter.added] == [False]
+
+
+class _RenamesPartialFiles(_StoppedAdds):
+    """Come Transmission con rename-partial-files: dice il suffisso e dove
+    cerca i file del torrent (decisione dell'utente, 2026-10-19)."""
+
+    def __init__(self):
+        super().__init__(recheck_status="failed", progress=0.97)
+        self.save_path = None
+
+    def add_torrent(self, torrent_file_or_url, save_path, force_recheck=True, expected_info_hash=None, **kwargs):
+        self.save_path = save_path
+        return super().add_torrent(torrent_file_or_url, save_path, force_recheck, expected_info_hash, **kwargs)
+
+    def partial_file_suffix(self):
+        return ".part"
+
+    def get_torrent_info(self, info_hash):
+        from nazgarr.adapters.torrent_client.base import ClientTorrentFileInfo, ClientTorrentInfo
+
+        return ClientTorrentInfo(info_hash=info_hash, name="Movie.2024.mkv", save_path=self.save_path,
+                                 state="stoppedDL", files=[ClientTorrentFileInfo("Movie.2024.mkv", 7)])
+
+
+def _tracked(db_session, root, review):
+    st = os.stat(root / "media" / "movies" / "Movie.2024.mkv")
+    review.media_file.st_dev, review.media_file.inode = st.st_dev, st.st_ino
+    db_session.commit()
+
+
+def test_after_a_failed_recheck_the_hardlink_the_client_renamed_gets_its_name_back(db_session, tmp_path):
+    root, review = _movie_review(db_session, tmp_path)
+    _tracked(db_session, root, review)
+    adapter = _RenamesPartialFiles()
+    seed_job = executor.execute_review(db_session, review, adapter)
+    link = root / "torrents" / "Movie.2024.mkv"
+    os.rename(link, str(link) + ".part")  # come Transmission, durante il recheck
+
+    executor.reconcile_seed_job(db_session, seed_job, adapter)
+
+    assert seed_job.final_status == "failed" and adapter.started == []
+    assert link.is_file() and os.path.samefile(link, root / "media" / "movies" / "Movie.2024.mkv")
+    assert not os.path.exists(str(link) + ".part")
+    assert "1 file(s) the client had renamed to *.part got their name back" in seed_job.error_message
+
+
+def test_a_renamed_file_that_is_not_ours_keeps_its_name(db_session, tmp_path):
+    root, review = _movie_review(db_session, tmp_path)
+    _tracked(db_session, root, review)
+    adapter = _RenamesPartialFiles()
+    seed_job = executor.execute_review(db_session, review, adapter)
+    link = root / "torrents" / "Movie.2024.mkv"
+    os.unlink(link)
+    (root / "torrents" / "Movie.2024.mkv.part").write_bytes(b"another file")  # un altro inode
+
+    executor.reconcile_seed_job(db_session, seed_job, adapter)
+
+    assert not link.exists() and (root / "torrents" / "Movie.2024.mkv.part").is_file()
+    assert "got their name back" not in seed_job.error_message
+
+
+def test_a_client_that_renames_nothing_is_not_asked_where_its_files_are(db_session, tmp_path):
+    root, review = _movie_review(db_session, tmp_path)
+    adapter = _RenamesPartialFiles()
+    adapter.partial_file_suffix = lambda: None
+    adapter.get_torrent_info = None  # mai chiamato
+    seed_job = executor.execute_review(db_session, review, adapter)
+
+    executor.reconcile_seed_job(db_session, seed_job, adapter)
+
+    assert seed_job.final_status == "failed"

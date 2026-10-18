@@ -61,7 +61,7 @@ def test_connection_test_reports_success(client, monkeypatch):
     response = client.post(f"/api/torrent-clients/{tc_id}/test")
 
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "torrents_found": 3, "error": None}
+    assert response.json() == {"status": "ok", "torrents_found": 3, "error": None, "warnings": []}
 
 
 def test_connection_test_only_counts_the_torrents(client, monkeypatch):
@@ -170,3 +170,45 @@ def test_a_client_seeing_only_a_subfolder_of_the_disk(client):
                        ({"local_rel_path": "qbittorrent"}, "client_mapping_needs_client_root")):
         refused = client.post(f"/api/torrent-clients/{tc}/disks/{disk_id}", json=body)
         assert refused.status_code == 400 and refused.json()["detail"]["code"] == code, body
+
+
+def _transmission(client, monkeypatch, rename_partial_files):
+    """Un client Transmission con la sua RPC finta (tests/test_torrent_client_transmission.py)."""
+    import httpx
+
+    from nazgarr.adapters.torrent_client.transmission import TransmissionAdapter
+    from tests.test_torrent_client_transmission import _TransmissionMock
+
+    tc_id = client.post("/api/torrent-clients", json={
+        "label": "tr", "adapter_type": "transmission", "base_url": "http://tr:9091"}).json()["id"]
+    mock = _TransmissionMock(rename_partial_files=rename_partial_files)
+    monkeypatch.setattr(
+        "nazgarr.integrations.adapter_factory.build_torrent_client_adapter",
+        lambda tc: TransmissionAdapter(tc.base_url, None, None,
+                                       http_client=httpx.Client(transport=httpx.MockTransport(mock.handler))))
+    return tc_id
+
+
+def test_transmission_renaming_partial_files_is_a_warning_on_its_card(client, monkeypatch):
+    """Decisione dell'utente, 2026-10-19: con rename-partial-files l'hardlink
+    di un reseed col recheck fallito restava "<nome>.part"."""
+    tc_id = _transmission(client, monkeypatch, rename_partial_files=True)
+
+    assert client.get(f"/api/torrent-clients/{tc_id}/warnings").json() == {
+        "status": "ok", "warnings": ["rename_partial_files"], "error": None}
+    assert client.post(f"/api/torrent-clients/{tc_id}/test").json()["warnings"] == ["rename_partial_files"]
+
+
+def test_no_warning_when_transmission_keeps_the_names(client, monkeypatch):
+    tc_id = _transmission(client, monkeypatch, rename_partial_files=False)
+
+    assert client.get(f"/api/torrent-clients/{tc_id}/warnings").json()["warnings"] == []
+
+
+def test_the_warnings_of_a_client_that_does_not_answer_are_an_error_not_a_warning(client):
+    tc_id = client.post("/api/torrent-clients", json={
+        "label": "tr", "adapter_type": "transmission", "base_url": "http://127.0.0.1:1"}).json()["id"]
+
+    body = client.get(f"/api/torrent-clients/{tc_id}/warnings").json()
+
+    assert body["status"] == "error" and body["warnings"] == [] and body["error"]

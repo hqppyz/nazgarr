@@ -296,6 +296,9 @@ export const upload = {
   'upload.result.warning.seed_failed':
     'Published, but adding it to the client failed (see the activity below): retry, or add the torrent by hand.',
   'upload.result.warning.no_client': 'Published, but no client is configured for this tracker: set one up and retry, or add it by hand.',
+  'upload.result.warning.seed_recheck_pending': 'In the client, stopped until its recheck passes: Nazgarr starts it then.',
+  'upload.result.warning.seed_recheck_failed':
+    'The client’s recheck failed: the torrent stays stopped, so nothing downloads into the linked files (see the activity below). Fix or restore the files, then retry seeding.',
 
   'upload.history.activeTab': 'In progress ({count})',
   'upload.history.historyTab': 'History ({count})',
@@ -410,6 +413,23 @@ export const upload = {
   'upload.event.seed_files_linked': '{count} file(s) linked again in the folder for uploads, to seed them from there.',
   'upload.event.seed_retry_own_torrent': "The tracker could not give its .torrent back: the one Nazgarr made was added. If the tracker changed it, the client will see it as unregistered: add it from the tracker's page.",
   'upload.event.reseeded': 'Torrent {torrent} added back to the client on your files.',
+  'upload.event.added_to_client_held':
+    'Added to {client} stopped, with a full recheck: it starts once the recheck passes.',
+  'upload.event.already_in_client_held':
+    'Already in {client}, in the same folder: kept stopped, with a full recheck. It starts once the recheck passes.',
+  'upload.event.seed_recheck_passed': 'Recheck passed in {client}: the torrent started.',
+  'upload.event.seed_recheck_passed_start_by_hand': 'Recheck passed, but {client} cannot be told to start it: start it in the client.',
+  'upload.event.seed_recheck_failed':
+    'The recheck in {client} failed ({state}): the torrent stays stopped, so nothing downloads into the linked files. Fix or restore the files, then retry seeding.',
+  'upload.event.seed_recheck_failed_running':
+    'The recheck in {client} failed ({state}) and the client could not be told to stop the torrent: stop it by hand, or it downloads into the linked files.',
+  'upload.event.seed_recheck_torrent_gone':
+    'The torrent is no longer in {client}: retry seeding adds it again, stopped and with a full recheck.',
+  'upload.event.seed_recheck_no_client':
+    'The client of this torrent was removed from Nazgarr: retry seeding adds it to the tracker’s client.',
+  'upload.event.seed_recheck_requested': 'New recheck asked to {client}: the torrent stays stopped until it passes.',
+  'upload.event.seed_partial_names_restored':
+    '{client} had renamed {count} file(s) to “.part” during the recheck: they have their names back.',
   'upload.event.upload_failed': 'Upload failed: {error}',
   'upload.event.upload_outcome_unknown': 'Sending failed after the request went out ({error}): the tracker may have received it anyway. Check on the tracker before retrying.',
   'upload.event.reseed_failed': 'Reseed failed: {error}',

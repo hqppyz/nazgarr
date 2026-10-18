@@ -12,10 +12,11 @@ from nazgarr.adapters.torrent_client.transmission import TransmissionAdapter
 
 
 class _TransmissionMock:
-    def __init__(self, torrents=None):
+    def __init__(self, torrents=None, rename_partial_files=True):
         self.torrents = list(torrents or [])
         self.calls: list[dict] = []
         self.session = "sid-1"
+        self.rename_partial_files = rename_partial_files
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/transmission/rpc"
@@ -28,6 +29,11 @@ class _TransmissionMock:
             ids = args.get("ids")
             found = [t for t in self.torrents if ids is None or t["hashString"] in ids]
             return httpx.Response(200, json={"result": "success", "arguments": {"torrents": found}})
+        if method == "session-get":
+            settings = {"rename-partial-files": self.rename_partial_files, "version": "4.1.3"}
+            fields = args.get("fields")
+            return httpx.Response(200, json={"result": "success", "arguments": {
+                k: v for k, v in settings.items() if fields is None or k in fields}})
         if method == "torrent-add":
             new = {"hashString": "abc123", "name": "x", "downloadDir": args["download-dir"], "status": 0, "error": 0,
                    "percentDone": 0.0, "leftUntilDone": 10, "labels": [], "trackers": [], "files": []}
@@ -205,3 +211,20 @@ def test_the_live_path_check_asks_only_save_path_and_files():
     get = [c["arguments"] for c in mock.calls if c["method"] == "torrent-get"][-1]
     assert "trackers" not in get["fields"] and "files" in get["fields"]
     assert [(t.info_hash, [f.path_in_torrent for f in t.files]) for t in largest] == [("h1", ["M/a.mkv"])]
+
+
+@pytest.mark.parametrize("enabled, suffix", [(True, ".part"), (False, None)])
+def test_rename_partial_files_is_read_from_the_session(enabled, suffix):
+    """Decisione dell'utente, 2026-10-19: con rename-partial-files Transmission
+    rinomina un file incompleto in "<nome>.part" già durante il recheck."""
+    mock = _TransmissionMock(rename_partial_files=enabled)
+
+    assert _adapter(mock).partial_file_suffix() == suffix
+
+    assert mock.calls[-1] == {"method": "session-get", "arguments": {"fields": ["rename-partial-files"]}}
+
+
+def test_other_clients_rename_nothing():
+    from nazgarr.adapters.torrent_client.qbittorrent import QBittorrentAdapter
+
+    assert QBittorrentAdapter.partial_file_suffix(object.__new__(QBittorrentAdapter)) is None

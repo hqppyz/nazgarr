@@ -296,6 +296,9 @@ export const upload = {
   'upload.result.warning.seed_failed':
     'Pubblicato, ma l’aggiunta al client è fallita (vedi l’attività qui sotto): riprova, o aggiungi il torrent a mano.',
   'upload.result.warning.no_client': 'Pubblicato, ma per questo tracker non è configurato nessun client: configuralo e riprova, o aggiungilo a mano.',
+  'upload.result.warning.seed_recheck_pending': 'Nel client, fermo finché il suo recheck non riesce: allora Nazgarr lo avvia.',
+  'upload.result.warning.seed_recheck_failed':
+    'Il recheck del client è fallito: il torrent resta fermo, così niente si scarica nei file collegati (vedi l’attività qui sotto). Sistema o ripristina i file, poi riprova il seed.',
 
   'upload.history.activeTab': 'In corso ({count})',
   'upload.history.historyTab': 'Storico ({count})',
@@ -410,6 +413,23 @@ export const upload = {
   'upload.event.seed_files_linked': '{count} file collegati di nuovo nella cartella per gli upload, per seedarli da lì.',
   'upload.event.seed_retry_own_torrent': "Il tracker non ha ridato il suo .torrent: si è aggiunto quello creato da Nazgarr. Se il tracker l'ha cambiato, il client lo vedrà non registrato: aggiungilo dalla pagina del tracker.",
   'upload.event.reseeded': 'Torrent {torrent} riaggiunto al client sui tuoi file.',
+  'upload.event.added_to_client_held':
+    'Aggiunto a {client} fermo, con un recheck completo: parte quando il recheck riesce.',
+  'upload.event.already_in_client_held':
+    'Già in {client}, nella stessa cartella: tenuto fermo, con un recheck completo. Parte quando il recheck riesce.',
+  'upload.event.seed_recheck_passed': 'Recheck riuscito in {client}: il torrent è partito.',
+  'upload.event.seed_recheck_passed_start_by_hand': 'Recheck riuscito, ma a {client} non si può dire di avviarlo: avvialo nel client.',
+  'upload.event.seed_recheck_failed':
+    'Il recheck in {client} è fallito ({state}): il torrent resta fermo, così niente si scarica nei file collegati. Sistema o ripristina i file, poi riprova il seed.',
+  'upload.event.seed_recheck_failed_running':
+    'Il recheck in {client} è fallito ({state}) e al client non si è potuto dire di fermare il torrent: fermalo a mano, o scarica nei file collegati.',
+  'upload.event.seed_recheck_torrent_gone':
+    'Il torrent non è più in {client}: riprovare il seed lo riaggiunge, fermo e con un recheck completo.',
+  'upload.event.seed_recheck_no_client':
+    'Il client di questo torrent è stato tolto da Nazgarr: riprovare il seed lo aggiunge al client del tracker.',
+  'upload.event.seed_recheck_requested': 'Nuovo recheck chiesto a {client}: il torrent resta fermo finché non riesce.',
+  'upload.event.seed_partial_names_restored':
+    '{client} aveva rinominato {count} file in “.part” durante il recheck: hanno di nuovo il loro nome.',
   'upload.event.upload_failed': 'Upload fallito: {error}',
   'upload.event.upload_outcome_unknown': "Invio fallito dopo che la richiesta era partita ({error}): il tracker potrebbe averlo ricevuto comunque. Controlla sul tracker prima di riprovare.",
   'upload.event.reseed_failed': 'Reseed fallito: {error}',

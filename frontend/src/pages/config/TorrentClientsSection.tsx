@@ -52,6 +52,7 @@ import { ClientLogo } from '@/pages/config/ServiceIcons'
 import { InsecureUrlWarning } from '@/pages/config/InsecureUrlWarning'
 import { insecureUrlWarning } from '@/pages/config/insecureUrl'
 import { PathCheckButton } from '@/pages/config/ClientPathCheck'
+import { ClientWarnings } from '@/pages/config/ClientWarnings'
 import { QuiInstanceField } from '@/pages/config/QuiInstanceField'
 import { DiskBrowserDialog } from '@/pages/config/DiskBrowserDialog'
 
@@ -568,6 +569,7 @@ export function TorrentClientsSection() {
                 {tc.base_url}
               </p>
               {tc.insecure_public_url && <InsecureUrlWarning kind="client" />}
+              <ClientWarnings clientId={tc.id} enabled={tc.enabled} />
               <div className="grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-1.5 text-xs">
                 <span className="text-muted-foreground">{t('torrentClients.disks')}</span>
                 <span className="flex flex-wrap gap-1">

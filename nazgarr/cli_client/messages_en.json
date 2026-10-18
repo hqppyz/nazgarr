@@ -156,6 +156,7 @@
  "upload_seed_files_missing": "The files of this upload are no longer where the client should find them.",
  "upload_seed_folder_missing": "The folder for uploads does not exist: {path}",
  "upload_seed_path_exists": "A different file already exists at {path}.",
+ "upload_seed_recheck_pending": "{tracker}'s torrent is stopped in {client}, waiting for its recheck: delete the upload once it is checked.",
  "upload_seed_retry_failed": "Adding to the client failed again: {error}",
  "upload_seed_retry_unavailable": "Nothing to retry: this tracker's upload is already seeding, or was not published.",
  "upload_single_season_required": "An {kind} has exactly one season.",

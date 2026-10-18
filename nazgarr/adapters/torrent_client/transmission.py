@@ -34,6 +34,11 @@ Transmission 4.1.3, RPC 19): tests/integration/test_real_clients.py.
 - Stato nativo: il nome dello `status` numerico ("stopped", "checking",
   "seeding"...), "error" se `error` è 3 (errore locale, es. file mancanti:
   gli errori 1 e 2 sono del tracker e non dicono niente sui dati).
+- `rename-partial-files` (session-get, acceso di default): Transmission
+  rinomina un file incompleto in "<nome>.part" già durante il recheck, anche
+  di un torrent fermo (visto sull'istanza reale). partial_file_suffix() lo
+  dice, per l'avviso nella pagina dei client e per rimettere il nome dopo
+  un recheck fallito (decisione dell'utente, 2026-10-19).
 """
 
 import base64
@@ -63,6 +68,7 @@ STATUS_NAMES = {
 }
 CHECKING = {"check_pending", "checking"}
 LOCAL_ERROR = 3  # tr_stat_errtype TR_STAT_LOCAL_ERROR
+PARTIAL_SUFFIX = ".part"  # rename-partial-files
 STATUS_FIELDS = ["hashString", "status", "error", "percentDone", "leftUntilDone"]
 # La verifica dei percorsi (list_largest_files): solo save path e file.
 LARGEST_FIELDS = ["hashString", "name", "downloadDir", "status", "error", "files"]
@@ -180,6 +186,12 @@ class TransmissionAdapter(TorrentClientAdapter):
 
     def recheck(self, info_hash: str) -> None:
         self._rpc("torrent-verify", {"ids": [info_hash.lower()]})
+
+    def partial_file_suffix(self) -> str | None:
+        # "fields" dalla RPC 16 (Transmission 3.0); una versione prima lo
+        # ignora e risponde con tutte le impostazioni, chiave compresa.
+        settings = self._rpc("session-get", {"fields": ["rename-partial-files"]})
+        return PARTIAL_SUFFIX if settings.get("rename-partial-files") else None
 
     def start(self, info_hash: str) -> None:
         self._rpc("torrent-start", {"ids": [info_hash.lower()]})

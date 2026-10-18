@@ -31,6 +31,7 @@ from collections import Counter, OrderedDict, defaultdict
 from collections.abc import Callable
 from copy import deepcopy
 from dataclasses import asdict, dataclass, field
+from datetime import date, timedelta
 
 import httpx
 from sqlalchemy.orm import Session
@@ -132,10 +133,14 @@ def align(episodes: list[tuple[int, OrderEpisode]], reference: list[tuple[int, O
     """Riferimenti per un ordinamento che non ha gli id TMDB degli episodi
     (Sonarr, TVDB): stesso numero di episodi -> uno a uno; uno il doppio
     dell'altro -> a coppie (gli episodi accorpati); altrimenti per data di
-    uscita. Poi i titoli, dove dicono quale episodio è, valgono più della
-    posizione e delle date: un ordine DVD che riordina gli episodi, o che li
-    accorpa a segmenti ("Titolo A / Titolo B") con la stessa data per tutti.
-    Le liste sono in ordine di uscita, gli speciali a parte."""
+    uscita. Per posizione solo se le date non dicono il contrario: se la
+    maggior parte delle coppie con le due date le ha lontane più di
+    DATE_TOLERANCE_DAYS, le posizioni sono sfasate e vale la data (decisione
+    dell'utente, 2026-10-18). Poi i titoli, dove dicono quale episodio è,
+    valgono più della posizione e delle date: un ordine DVD che riordina gli
+    episodi, o che li accorpa a segmenti ("Titolo A / Titolo B") con la
+    stessa data per tutti. Le liste sono in ordine di uscita, gli speciali a
+    parte."""
     for _season, ep in episodes:
         ep.refs = []
     if not episodes or not reference:
@@ -145,31 +150,120 @@ def align(episodes: list[tuple[int, OrderEpisode]], reference: list[tuple[int, O
         episodes[i][1].refs = refs
 
 
+# Quanto possono distare le date di uscita di due fonti per lo stesso
+# episodio: TMDB e TVDB spesso differiscono di un giorno (fusi orari, la
+# prima in un altro paese), a volte di due o tre; un episodio sfasato di
+# una posizione in una serie settimanale è lontano 7 giorni. Più di metà
+# delle coppie oltre questa distanza: le posizioni sono sfasate (un pilot
+# che una fonte tiene nella stagione 1 e l'altra fra gli speciali, più un
+# finale diviso in due da una parte sola, e i conteggi tornano lo stesso).
+DATE_TOLERANCE_DAYS = 3
+# Con meno coppie con le due date di così (o meno di metà delle coppie)
+# le date non decidono niente.
+MIN_DATED_PAIRS = 2
+
+
+def _day(value: str | None) -> date | None:
+    try:
+        return date.fromisoformat(value) if value else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _dates_disagree(episodes: list[tuple[int, OrderEpisode]], reference: list[tuple[int, OrderEpisode]]) -> bool:
+    """Le coppie fatte per posizione hanno, per la maggior parte, date di
+    uscita lontane più di DATE_TOLERANCE_DAYS (contano solo quelle con la
+    data da tutte e due le parti; per un episodio con due riferimenti, il
+    più vicino). Mai se le date non distinguono le posizioni da una delle
+    due parti (audit 2026-10-18): una serie uscita tutta in un giorno anche
+    da una parte sola (lo streaming da una, le settimane della trasmissione
+    dall'altra) per data andrebbe tutta sullo stesso riferimento. Né se le
+    coppie con le due date sono meno di metà: poche date non decidono per
+    tutta la serie."""
+    ref_days = {(season, ep.number): _day(ep.air_date) for season, ep in reference}
+    # Le date per unità dell'allineamento: le due metà di un episodio
+    # (lo stesso riferimento) contano una volta, come i riferimenti usati
+    # da più episodi, così il doppio e la metà non sembrano date ripetute.
+    mine_by_unit: dict[tuple[Ref, ...], date] = {}
+    theirs_by_ref: dict[Ref, date] = {}
+    dated = far = 0
+    for _season, ep in episodes:
+        mine = _day(ep.air_date)
+        if mine is None:
+            continue
+        theirs = [(abs((mine - d).days), d, r) for r in ep.refs if (d := ref_days.get(r)) is not None]
+        if not theirs:
+            continue
+        distance, day, ref = min(theirs)
+        dated += 1
+        mine_by_unit.setdefault(tuple(ep.refs), mine)
+        theirs_by_ref[ref] = day
+        if distance > DATE_TOLERANCE_DAYS:
+            far += 1
+    if dated < MIN_DATED_PAIRS or dated * 2 < len(episodes):
+        return False
+    # Metà delle date diverse o meno, da una delle due parti: troppo
+    # poche per distinguere le posizioni.
+    for days in (mine_by_unit.values(), theirs_by_ref.values()):
+        if len(set(days)) * 2 <= len(days):
+            return False
+    return far * 2 > dated
+
+
 def _align_by_shape(episodes: list[tuple[int, OrderEpisode]], reference: list[tuple[int, OrderEpisode]]) -> None:
     refs = [(season, ep.number) for season, ep in reference]
     n, m = len(episodes), len(refs)
     if n == m:
         for (_s, ep), ref in zip(episodes, refs, strict=True):
             ep.refs = [ref]
-        return
-    if m == 2 * n:
+    elif m == 2 * n:
         for i, (_s, ep) in enumerate(episodes):
             ep.refs = refs[2 * i:2 * i + 2]
-        return
-    if n == 2 * m:
+    elif n == 2 * m:
         for i, (_s, ep) in enumerate(episodes):
             ep.refs = [refs[i // 2]]
+    else:
+        _align_by_date(episodes, reference)
         return
+    if not _dates_disagree(episodes, reference):
+        return
+    logger.debug("Ordinamento allineato per data: per posizione le date non tornano")
+    for _s, ep in episodes:
+        ep.refs = []
+    # Le date si sono già confrontate con una tolleranza: un giorno di
+    # differenza (il fuso orario di una fonte) non lascia l'episodio senza.
+    _align_by_date(episodes, reference, near_days=1)
+
+
+def _align_by_date(episodes: list[tuple[int, OrderEpisode]], reference: list[tuple[int, OrderEpisode]],
+                   near_days: int = 0) -> None:
+    """Per data di uscita. near_days: una data senza la stessa nel
+    riferimento prende quella entro near_days giorni, se ce n'è una sola e
+    non è anche una data di questo ordinamento (lì sarebbe di un altro)."""
     by_date: dict[str, list[Ref]] = defaultdict(list)
-    for (season, ep), ref in zip(reference, refs, strict=True):
+    for season, ep in reference:
         if ep.air_date:
-            by_date[ep.air_date].append(ref)
+            by_date[ep.air_date].append((season, ep.number))
     mine: dict[str, list[OrderEpisode]] = defaultdict(list)
     for _s, ep in episodes:
         if ep.air_date:
             mine[ep.air_date].append(ep)
-    for date, eps in mine.items():
-        theirs = by_date.get(date) or []
+    if near_days:
+        moved: dict[str, list[str]] = defaultdict(list)  # data vicina -> le mie date senza la stessa
+        for day in mine:
+            parsed = _day(day) if day not in by_date else None
+            if parsed is None:
+                continue
+            near = {(parsed + timedelta(days=sign * delta)).isoformat()
+                    for delta in range(1, near_days + 1) for sign in (-1, 1)}
+            near = {other for other in near if other in by_date and other not in mine}
+            if len(near) == 1:
+                moved[near.pop()].append(day)
+        for other, days in moved.items():
+            if len(days) == 1:  # due mie date sulla stessa vicina: nessuna delle due
+                mine[other] = mine.pop(days[0])
+    for day, eps in mine.items():
+        theirs = by_date.get(day) or []
         if not theirs:
             continue
         # Nove episodi in un giorno contro due (un ordine DVD con una data

@@ -12,7 +12,8 @@ Poi per ogni tracker, in ordine, la sua azione:
   torrent aggiunto al client del tracker senza il suo recheck, dopo aver
   controllato che i file siano al loro posto (vedi _add_to_client);
 - reseed: il .torrent già sul tracker, i file sistemati con i nomi che si
-  aspetta, e l'aggiunta al client con recheck forzato.
+  aspetta, e l'aggiunta al client con recheck forzato, fermo: parte solo a
+  recheck riuscito (decisione dell'utente, 2026-10-19; reconcile_held_seeds).
 
 Dove seedano: hardlink nella cartella per gli upload del disco
 (disk.effective_upload_rel_path: upload_rel_path, o la prima cartella di seeding),
@@ -38,7 +39,7 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from nazgarr.adapters.image_host.base import ImageHostError
-from nazgarr.adapters.torrent_client.base import TorrentAlreadyInClientError
+from nazgarr.adapters.torrent_client.base import TorrentAlreadyInClientError, is_stopped_state, stopped_kwargs
 from nazgarr.adapters.tracker.base import UploadFields, catalog_truncated
 from nazgarr.core import settings_registry
 from nazgarr.core.errors import CodedError
@@ -61,8 +62,17 @@ from nazgarr.integrations import adapter_factory
 from nazgarr.integrations.adapter_factory import ImageHostConfigError
 from nazgarr.library import disk_folders, hardlinks, seed_refresh
 from nazgarr.library import mediainfo as mediainfo_util
-from nazgarr.reseed.executor import client_visible_path
-from nazgarr.torrents import client_labels
+from nazgarr.reseed.executor import (
+    MISSING_TORRENT_GRACE,
+    can_look_up_torrent,
+    client_visible_path,
+    recheck_outcome,
+    start_torrent,
+    stop_torrent,
+    torrent_missing,
+)
+from nazgarr.torrents import client_labels, partial_files
+from nazgarr.torrents.layout import expected_missing_bytes
 from nazgarr.torrents.metainfo import compute_info_hash, parse_torrent_info
 from nazgarr.upload import file_names as upload_file_names
 from nazgarr.upload import inventory as upload_inventory
@@ -463,9 +473,18 @@ def files_in_place(torrent: torf.Torrent, save_path: str) -> bool:
 
 def _add_to_client(
     session: Session, job: UploadJob, target: UploadTarget, torrent_file: str, save_path: str,
-    torrent: torf.Torrent | None = None,
+    torrent: torf.Torrent | None = None, hold: bool = False, allowed: int = 0,
 ):
-    """Senza il recheck del client (decisione dell'utente, 2026-09-30): il
+    """hold: il .torrent del tracker sui file di Nazgarr (un reseed, o
+    "Riprova il seed"): entra fermo, con il recheck, e parte solo quando il
+    recheck è riuscito (decisione dell'utente, 2026-10-19, come i reseed del
+    motore): avviato, con un recheck fallito scaricava i piece mancanti
+    dentro gli hardlink, cioè nei file della libreria. Il target resta
+    SEED_RECHECK_PENDING finché reconcile_held_seeds non legge l'esito;
+    allowed: i byte degli extra che si sa di non avere, che il client
+    scarica dopo l'avvio (expected_missing_bytes).
+
+    Senza hold, senza il recheck del client (decisione dell'utente, 2026-09-30): il
     torrent l'ha appena creato Nazgarr leggendo ogni piece di questi file (o
     dei loro hardlink, gli stessi byte), rileggerli tutti non verifica niente
     di nuovo. Quello che il recheck verificherebbe davvero è che il client li
@@ -485,21 +504,34 @@ def _add_to_client(
         # Transmission e rTorrent non sanno aggiungere un torrent senza
         # ricontrollarlo: lì il recheck c'è sempre.
         can_skip = getattr(adapter, "can_skip_recheck", True)
-        skip = torrent is not None and can_skip and files_in_place(torrent, save_path)
+        skip = not hold and torrent is not None and can_skip and files_in_place(torrent, save_path)
         client = target.torrent_client.label
         # L'info hash di questi byte (audit 2026-10-18): senza, qBittorrent e
         # qui prendevano per il nostro un torrent qualunque comparso nel
         # frattempo (un *arr, cross-seed), e il controllo del percorso dopo
         # un'aggiunta senza recheck guardava quello.
         expected = _info_hash_of(torrent_file)
+        # Fermo se l'adapter lo sa fare (ogni adapter incluso); un plugin che
+        # non lo sa lo aggiunge avviato, e un recheck fallito lo ferma.
+        extra = stopped_kwargs(adapter) if hold else {}
         try:
             info_hash = adapter.add_torrent(
                 torrent_file, save_path=visible, force_recheck=True, expected_info_hash=expected,
-                skip_check_verified=skip, **client_labels.add_kwargs(target.client_category, target.client_tags),
+                skip_check_verified=skip, **extra,
+                **client_labels.add_kwargs(target.client_category, target.client_tags),
             )
         except TorrentAlreadyInClientError:
-            info_hash = _keep_existing(session, job, target, adapter, expected, visible, client)
+            info_hash = _keep_existing(session, job, target, adapter, expected, visible, client, hold=hold)
             _register_seed(session, job, target, adapter, info_hash)
+            if hold:
+                _hold(session, job, target, "already_in_client_held", client, save_path, allowed)
+            return info_hash
+        if hold:
+            # Dopo la registrazione: il rollback di un DB occupato lì dentro
+            # non deve perdere l'attesa, se no il torrent restava fermo per
+            # sempre senza nessuno che lo avviasse. Il commit è del chiamante.
+            _register_seed(session, job, target, adapter, info_hash)
+            _hold(session, job, target, "added_to_client_held", client, save_path, allowed)
             return info_hash
         info = None
         if skip:
@@ -559,23 +591,78 @@ def _info_hash_of(torrent_file: str) -> str:
 
 
 def _keep_existing(session: Session, job: UploadJob, target: UploadTarget, adapter, info_hash: str, visible: str,
-                   client: str) -> str:
+                   client: str, hold: bool = False) -> str:
     """Il client ha già questo torrent: un tentativo precedente arrivato fin
     lì (un errore dopo l'aggiunta, un riavvio), o aggiunto a mano. Si tiene
     quello, con un recheck, se usa proprio il percorso di seed; altrove no:
-    niente si sposta da solo."""
+    niente si sposta da solo. Con hold solo il recheck, fermo: lo avvia
+    reconcile_held_seeds se riesce."""
     info = adapter.get_torrent_info(info_hash)
     seen = os.path.normpath(info.save_path) if info is not None and info.save_path else None
     if seen != os.path.normpath(visible):
         raise UploadJobError("upload_already_in_client", client=client, path=seen or "?")
+    if hold:
+        _stop_before_recheck(adapter, info_hash, job.id, client)
     adapter.recheck(info_hash)
-    adapter.start(info_hash)
-    upload_jobs.log_event(session, job, "already_in_client", target=target, client=client)
+    if not hold:
+        adapter.start(info_hash)
+        upload_jobs.log_event(session, job, "already_in_client", target=target, client=client)
     return info_hash
 
 
-# Gli errori di un upload pubblicato ma non in seed, da cui si può riprovare.
-SEED_RETRYABLE = ("seed_failed", "no_client")
+def _stop_before_recheck(adapter, info_hash: str, job_id: int, client: str) -> None:
+    """Prima del recheck di un torrent in attesa (hold) che il client ha
+    già: uno avviato (aggiunto a mano, da un tentativo di prima del
+    2026-10-19, che lo aggiungeva avviato, o avviato a mano dopo un recheck
+    fallito) con il recheck fallito riprenderebbe subito a scaricare dentro
+    gli hardlink, fino al reconcile dopo (audit 2026-10-18). Se non si
+    ferma lo dice il log; il reconcile riprova a fermarlo se il recheck
+    fallisce."""
+    try:
+        state = adapter.get_torrent_status(info_hash).state
+    except Exception:
+        state = None  # non si sa: fermarlo non costa niente
+    if is_stopped_state(state):
+        return
+    result, error = stop_torrent(adapter, info_hash)
+    if result != "stopped":
+        logger.warning("Upload %s: %s non fermato in %s prima del recheck (%s)", job_id, info_hash, client, result,
+                       exc_info=error)
+
+
+# Un torrent aggiunto fermo dal flusso degli upload (hold), in attesa
+# dell'esito del suo recheck: il target è 'done' (il reseed o l'upload sono
+# fatti) e reconcile_held_seeds lo avvia a recheck riuscito. Fallito, resta
+# fermo e "Riprova il seed" lo fa ricontrollare.
+SEED_RECHECK_PENDING = upload_jobs.SEED_RECHECK_PENDING
+SEED_RECHECK_FAILED = "seed_recheck_failed"
+# Gli eventi di un'aggiunta in attesa: i loro parametri (save_path, allowed)
+# servono al reconcile e al nuovo tentativo.
+_HOLD_EVENTS = ("added_to_client_held", "already_in_client_held")
+
+
+def _hold(session: Session, job: UploadJob, target: UploadTarget, code: str, client: str, save_path: str,
+          allowed: int) -> None:
+    target.error_message = SEED_RECHECK_PENDING
+    upload_jobs.log_event(session, job, code, target=target, client=client, save_path=save_path,
+                          allowed=int(allowed or 0))
+
+
+def _hold_params(job: UploadJob, target: UploadTarget) -> dict:
+    """I parametri dell'ultima aggiunta in attesa di questo target."""
+    for event in sorted(job.events, key=lambda e: e.id, reverse=True):
+        if event.target_id == target.id and event.code in _HOLD_EVENTS:
+            try:
+                params = json.loads(event.params_json or "{}")
+            except ValueError:
+                return {}
+            return params if isinstance(params, dict) else {}
+    return {}
+
+
+# Gli errori di un upload pubblicato ma non in seed, da cui si può riprovare;
+# SEED_RECHECK_FAILED anche per un reseed.
+SEED_RETRYABLE = ("seed_failed", "no_client", SEED_RECHECK_FAILED)
 
 
 def _seeds_from_source(job: UploadJob) -> bool:
@@ -677,13 +764,28 @@ def _tracker_torrent(session: Session, job: UploadJob, target: UploadTarget, dat
 def retry_seed(session: Session, job: UploadJob, target: UploadTarget, data_dir: str | None = None) -> None:
     """Di nuovo solo l'aggiunta al client di un upload già pubblicato (il
     .torrent salvato dal tracker), mai l'upload. Con il recheck del client:
-    i file potrebbero essere cambiati da quando Nazgarr li ha letti."""
-    if target.action != "upload" or target.status != "done" or target.error_message not in SEED_RETRYABLE:
+    i file potrebbero essere cambiati da quando Nazgarr li ha letti. Fermo,
+    come un reseed (decisione dell'utente, 2026-10-19): parte a recheck
+    riuscito (reconcile_held_seeds).
+
+    Dopo un recheck fallito (SEED_RECHECK_FAILED, anche di un reseed) il
+    torrent è ancora nel client, fermo: si chiede un nuovo recheck, mai un
+    avvio, come il retry di un reseed del motore (executor.adopt_for_retry).
+    Il client non ricontrolla da solo un torrent fermo. Se non c'è più, si
+    riaggiunge."""
+    retryable = target.error_message in SEED_RETRYABLE and (
+        target.action == "upload" or target.error_message == SEED_RECHECK_FAILED)
+    if target.status != "done" or not retryable:
         raise UploadJobError("upload_seed_retry_unavailable")
+    if target.error_message == SEED_RECHECK_FAILED and _recheck_held(session, job, target):
+        return
     if _client_row(session, target) is None:
         # Senza client all'upload (no_client) o con quello di allora tolto:
         # quello che il tracker userebbe oggi.
         target.torrent_client_id = upload_jobs.default_client_id(session, target.tracker)
+    if target.action != "upload":
+        _readd_reseed(session, job, target)
+        return
     torrent_path = _tracker_torrent(session, job, target, data_dir)
     try:
         torrent = torf.Torrent.read(torrent_path)
@@ -696,10 +798,19 @@ def retry_seed(session: Session, job: UploadJob, target: UploadTarget, data_dir:
     # dopo l'aggiunta il DB non si scrive (_register_seed torna indietro),
     # restano quelli, non il client di prima (magari nessuno).
     session.commit()
+    _retry_add(session, job, target, torrent_path, save_path, allowed=0)
+
+
+def _retry_add(session: Session, job: UploadJob, target: UploadTarget, torrent_path: str, save_path: str,
+               allowed: int) -> None:
+    """L'aggiunta di un nuovo tentativo: ferma, con il recheck, e il target
+    in attesa del suo esito (_add_to_client con hold)."""
+    previous = target.error_message
     try:
-        info_hash = _add_to_client(session, job, target, torrent_path, save_path)
+        info_hash = _add_to_client(session, job, target, torrent_path, save_path, hold=True, allowed=allowed)
     except Exception as exc:
         session.rollback()
+        target.error_message = previous if previous in SEED_RETRYABLE else "seed_failed"
         upload_jobs.log_event(session, job, "seed_failed", level="error", target=target,
                               error=upload_jobs.error_text(exc))
         session.commit()
@@ -708,9 +819,57 @@ def retry_seed(session: Session, job: UploadJob, target: UploadTarget, data_dir:
         session.commit()
         raise UploadJobError("upload_seed_retry_failed", error="no_client")
     target.info_hash = info_hash
-    target.error_message = None
     upload_jobs.log_event(session, job, "seed_retried", target=target, client=target.torrent_client.label)
     session.commit()
+
+
+def _recheck_held(session: Session, job: UploadJob, target: UploadTarget) -> bool:
+    """Il nuovo tentativo dopo un recheck fallito, se il client ha ancora il
+    torrent: un nuovo recheck, fermo, e il target di nuovo in attesa. False
+    se il client non l'ha più (o il client non c'è più): va riaggiunto. Il
+    client che rifiuta il recheck è un nuovo tentativo fallito."""
+    row = _client_row(session, target)
+    if row is None or not target.info_hash:
+        return False
+    adapter = adapter_factory.build_torrent_client_adapter(row)
+    try:
+        try:
+            # Un adapter che non sa cercare un torrent solo (un plugin col
+            # default di get_torrent_info) direbbe sempre "non c'è": lì solo
+            # il recheck, e un torrent che non c'è più lo rifiuta il client.
+            if can_look_up_torrent(adapter) and adapter.get_torrent_info(target.info_hash) is None:
+                return False
+            recheck = getattr(adapter, "recheck", None)
+            if not callable(recheck):
+                raise NotImplementedError
+            _stop_before_recheck(adapter, target.info_hash, job.id, row.label)
+            recheck(target.info_hash)
+        except NotImplementedError as exc:
+            raise UploadJobError("upload_seed_retry_failed",
+                                 error="this client cannot be asked for a recheck: recheck it in the client") from exc
+        except Exception as exc:
+            raise UploadJobError("upload_seed_retry_failed", error=upload_jobs.error_text(exc)) from exc
+    finally:
+        adapter_factory.close_adapter(adapter)
+    target.error_message = SEED_RECHECK_PENDING
+    upload_jobs.log_event(session, job, "seed_recheck_requested", target=target, client=row.label)
+    session.commit()
+    return True
+
+
+def _readd_reseed(session: Session, job: UploadJob, target: UploadTarget) -> None:
+    """Un reseed fallito al recheck il cui torrent non è più nel client: lo
+    stesso .torrent del tracker, nella stessa cartella di prima (dentro le
+    cartelle di seeding), di nuovo fermo e col recheck. Niente si ricrea:
+    se i file non sono più giusti il recheck fallisce di nuovo, fermo."""
+    params = _hold_params(job, target)
+    save_path = params.get("save_path")
+    if not target.torrent_path or not os.path.isfile(target.torrent_path) or not isinstance(save_path, str):
+        raise UploadJobError("upload_seed_retry_unavailable")
+    if not os.path.isdir(save_path) or not _inside(os.path.join(save_path, "x"), seeding_area(job)):
+        raise UploadJobError("upload_seed_files_missing")
+    session.commit()
+    _retry_add(session, job, target, target.torrent_path, save_path, allowed=int(params.get("allowed") or 0))
 
 
 def _upload_pairs(job: UploadJob, torrent: torf.Torrent, root: str) -> list[tuple[str, str]]:
@@ -870,13 +1029,14 @@ def run_reseed(session: Session, job: UploadJob, target: UploadTarget, ctx: dict
     upload_jobs.set_target_status(target, upload_jobs.TargetStatus.SEEDING)
     session.commit()
     locate = build_locator(job, parsed)
-    located = []
+    located, missing = [], []
     for entry in parsed.files:
         local, _where = locate(entry)
         if local is None:
             if is_video(entry.path):
                 raise UploadJobError("upload_reseed_missing_video", path=entry.path)
-            continue  # un extra mancante lo scarica il client dopo il recheck
+            missing.append(entry)  # un extra mancante lo scarica il client dopo il recheck
+            continue
         located.append((local, entry.path))
 
     def destinations(base: str) -> list[tuple[str, str]]:
@@ -897,8 +1057,133 @@ def run_reseed(session: Session, job: UploadJob, target: UploadTarget, ctx: dict
         save_path = ctx["seed_root"]()
         link_files(destinations(save_path), save_path)
     _remember_seeded(ctx, target, [dst for _src, dst in destinations(save_path)])
-    target.info_hash = _add_to_client(session, job, target, torrent_path, save_path)
+    allowed = expected_missing_bytes(sum(e.length for e in missing), len(missing), parsed.piece_length)
+    target.info_hash = _add_to_client(session, job, target, torrent_path, save_path, hold=True, allowed=allowed)
     upload_jobs.log_event(session, job, "reseeded", target=target, torrent=target.reseed_torrent_id)
+
+
+def reconcile_held_seeds(session: Session, data_dir: str | None = None) -> int:
+    """L'esito del recheck dei torrent aggiunti fermi dal flusso degli upload
+    (hold: i reseed e "Riprova il seed"; decisione dell'utente, 2026-10-19),
+    dallo scheduler ogni HELD_SEEDS_INTERVAL_SECONDS: riuscito, il torrent
+    parte; fallito, resta fermo, e "Riprova il seed" lo fa ricontrollare.
+    Mai mentre il worker lavora quel job (lo stesso target, due sessioni).
+    Ritorna quanti target ha guardato."""
+    targets = (
+        session.query(UploadTarget).join(UploadJob, UploadJob.id == UploadTarget.job_id)
+        .filter(UploadTarget.error_message == SEED_RECHECK_PENDING, UploadTarget.status == "done",
+                UploadTarget.info_hash.isnot(None), UploadJob.status.notin_(upload_jobs.WORKER_STATES))
+        .order_by(UploadTarget.id).all()
+    )
+    for target in targets:
+        try:
+            _reconcile_held(session, target.job, target, data_dir)
+        except Exception:
+            session.rollback()
+            logger.warning("Upload %s: esito del recheck di %s non letto", target.job_id, target.info_hash,
+                           exc_info=True)
+    return len(targets)
+
+
+def _reconcile_held(session: Session, job: UploadJob, target: UploadTarget, data_dir: str | None) -> None:
+    row = _client_row(session, target)
+    if row is None:
+        if target.torrent_client_id is None:  # il client tolto da Nazgarr: nessuno lo seguirà più
+            target.error_message = SEED_RECHECK_FAILED
+            upload_jobs.log_event(session, job, "seed_recheck_no_client", level="error", target=target)
+            session.commit()
+        return  # spento: si aspetta che torni
+    client = row.label
+    adapter = adapter_factory.build_torrent_client_adapter(row)
+    try:
+        try:
+            status = adapter.get_torrent_status(target.info_hash)
+        except Exception:
+            if not torrent_missing(adapter, target.info_hash):
+                logger.warning("Upload %s: stato di %s non letto in %s", job.id, target.info_hash, client,
+                               exc_info=True)
+            elif not _missing_long_enough(job, target):
+                logger.info("Upload %s: %s non (ancora) in %s, riprovo dopo", job.id, target.info_hash, client)
+            else:
+                _missing_since.pop(target.id, None)
+                target.error_message = SEED_RECHECK_FAILED
+                upload_jobs.log_event(session, job, "seed_recheck_torrent_gone", level="error", target=target,
+                                      client=client)
+                session.commit()
+            return
+        _missing_since.pop(target.id, None)
+        outcome = recheck_outcome(status, _hold_params(job, target).get("allowed"))
+        if outcome == "pending":
+            return
+        if outcome == "ok":
+            result, error = ("started", None)
+            if is_stopped_state(status.state):
+                result, error = start_torrent(adapter, target.info_hash)
+            if result == "failed":  # si riprova al giro dopo
+                logger.warning("Upload %s: recheck di %s riuscito, avvio rifiutato da %s", job.id,
+                               target.info_hash, client, exc_info=error)
+                return
+            target.error_message = None
+            upload_jobs.log_event(session, job, "seed_recheck_passed" if result == "started"
+                                  else "seed_recheck_passed_start_by_hand", target=target, client=client)
+            session.commit()
+            return
+        stopped = "stopped" if is_stopped_state(status.state) else stop_torrent(adapter, target.info_hash)[0]
+        restored = _restore_partial_names(job, target, adapter, data_dir)
+        target.error_message = SEED_RECHECK_FAILED
+        upload_jobs.log_event(session, job, "seed_recheck_failed" if stopped == "stopped"
+                              else "seed_recheck_failed_running", level="error", target=target, client=client,
+                              state=status.state)
+        if restored:
+            upload_jobs.log_event(session, job, "seed_partial_names_restored", level="warning", target=target,
+                                  client=client, count=len(restored))
+        session.commit()
+        logger.warning("Upload %s: recheck di %s fallito in %s (%s), lasciato fermo", job.id, target.info_hash,
+                       client, status.state)
+    finally:
+        adapter_factory.close_adapter(adapter)
+
+
+# Da quando questo processo vede mancare dal client il torrent di un
+# target in attesa (id del target -> momento). Sparito solo dopo
+# MISSING_TORRENT_GRACE di fila, contati anche dall'ultima messa in attesa,
+# come i reseed del motore (audit 2026-10-18): un client appena riavviato
+# (un riavvio di tutto il compose, con il reconcile dopo 30 secondi) può
+# non aver ancora ricaricato i suoi torrent, e il target restava fallito
+# con un recheck che sarebbe riuscito. Solo in memoria: dopo un riavvio di
+# Nazgarr si riparte da capo, e aspettare costa solo l'attesa (il torrent
+# è fermo).
+_missing_since: dict[int, datetime] = {}
+# Gli eventi dopo cui il torrent di un target è (di nuovo) in attesa.
+_HELD_AGAIN_EVENTS = (*_HOLD_EVENTS, "seed_recheck_requested")
+
+
+def _missing_long_enough(job: UploadJob, target: UploadTarget) -> bool:
+    now = datetime.now(UTC)
+    since = _missing_since.setdefault(target.id, now)
+    held = max((e.created_at for e in job.events if e.target_id == target.id and e.code in _HELD_AGAIN_EVENTS
+                and e.created_at is not None), default=None)
+    if held is not None:
+        since = max(since, held if held.tzinfo is not None else held.replace(tzinfo=UTC))
+    return now - since >= MISSING_TORRENT_GRACE
+
+
+def _restore_partial_names(job: UploadJob, target: UploadTarget, adapter, data_dir: str | None) -> list[str]:
+    """Dopo un recheck fallito, il nome ai file di questo target che il
+    client ha rinominato perché incompleti (Transmission, "<nome>.part";
+    decisione dell'utente, 2026-10-19): solo quelli registrati quando il
+    target li ha messi in seed (_remember_seeded: percorso, dispositivo e
+    inode), dentro le cartelle di seeding (nazgarr/torrents/partial_files.py)."""
+    suffix = partial_files.suffix_of(adapter)
+    if suffix is None:
+        return []
+    job_dir = upload_jobs.job_folder(data_dir, job.id) if data_dir else (
+        os.path.dirname(target.torrent_path) if target.torrent_path else None)
+    seeded = _journaled_seeded(job_dir, target.id)
+    folders = list(seeding_area(job))
+    with contextlib.suppress(UploadJobError):
+        folders.append(seed_root(job))
+    return partial_files.restore_names(list(seeded.values()), set(seeded), suffix, folders)
 
 
 def _remember_seeded(ctx: dict, target: UploadTarget, paths: list[str]) -> None:
