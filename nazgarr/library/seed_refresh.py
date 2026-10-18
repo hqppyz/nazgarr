@@ -36,19 +36,63 @@ from nazgarr.torrents.indexer import client_disks, store_client_torrents
 logger = logging.getLogger(__name__)
 
 
-def _hardlink_paths(seed_job: SeedJob, mf: MediaFile) -> list[tuple[str, int | None]]:
-    """(percorso relativo al disco, media_file_id) di ogni file del torrent
-    nella cartella dei nuovi hardlink — gli stessi percorsi dell'executor."""
+def _stat(disk, relative_path: str) -> os.stat_result | None:
+    """Il file del disco, mai fuori (cartella e nomi vengono dal tracker) né
+    attraverso un link simbolico; None se non c'è."""
+    try:
+        return os.stat(resolve_scoped(disk.root_path, relative_path), follow_symlinks=False)
+    except (OSError, ScopeViolation):
+        return None
+
+
+def _same_file(a: os.stat_result | None, b: os.stat_result | None) -> bool:
+    return a is not None and b is not None and (a.st_dev, a.st_ino) == (b.st_dev, b.st_ino)
+
+
+def _placements(candidate, names: list[str]) -> list[str]:
+    """Le cartelle in cui l'executor può aver messo i file del torrent
+    dentro la cartella dei nuovi hardlink, secondo il layout del contenuto
+    del client (nazgarr/reseed/executor.py::_placement): "Original" (la
+    cartella del torrent), "Subfolder" su un torrent a file singolo senza
+    cartella (il nome del file senza estensione), "NoSubfolder" su un
+    torrent con la cartella (nessuna cartella). Il seed_job non salva quale:
+    si riconosce da dove sta l'hardlink."""
+    out = [candidate.folder or ""]
+    if not candidate.folder and len(names) == 1:
+        out.append(os.path.splitext(names[0])[0] or names[0])
+    if candidate.folder:
+        out.append("")
+    return out
+
+
+def _hardlink_paths(seed_job: SeedJob, mf: MediaFile) -> list[tuple[str, MediaFile | None]]:
+    """(percorso relativo al disco, media_file) di ogni file del torrent
+    nella cartella dei nuovi hardlink, dove l'executor li ha messi. Prima si
+    ricostruiva sempre la cartella del torrent: con il layout "Subfolder" o
+    "NoSubfolder" di qBittorrent e qui (audit 2026-10-18) non si trovava
+    nessun hardlink, e l'elemento restava orfano fino alla scansione dopo.
+    Vale la disposizione in cui il file della libreria da cui è partito il
+    reseed ha il suo hardlink (stesso inode); se nessuna, quella del torrent."""
     candidate = seed_job.candidate
-    base = mf.disk.effective_new_torrent_rel_path or ""
-
-    def rel(torrent_path: str) -> str:
-        return os.path.normpath(os.path.join(base, candidate.folder or "", torrent_path))
-
+    disk = mf.disk
+    base = disk.effective_new_torrent_rel_path or ""
     if candidate.files:
-        return [(rel(f.torrent_path), f.media_file_id) for f in candidate.files]
-    names = json.loads(candidate.file_list_json) if candidate.file_list_json else []
-    return [(rel(names[0] if names else os.path.basename(mf.relative_path)), mf.id)]
+        entries = [(f.torrent_path, f.media_file) for f in candidate.files]
+    else:
+        names = json.loads(candidate.file_list_json) if candidate.file_list_json else []
+        entries = [(names[0] if names else os.path.basename(mf.relative_path), mf)]
+    placements = _placements(candidate, [path for path, _ in entries])
+
+    def rel(prefix: str, torrent_path: str) -> str:
+        return os.path.normpath(os.path.join(base, prefix, torrent_path))
+
+    anchor = next(((path, media) for path, media in entries if media is not None and media.id == mf.id), None)
+    chosen = placements[0]
+    if anchor is not None and len(placements) > 1:
+        library = _stat(disk, mf.relative_path)
+        chosen = next((prefix for prefix in placements if _same_file(_stat(disk, rel(prefix, anchor[0])), library)),
+                      placements[0])
+    return [(rel(chosen, path), media) for path, media in entries]
 
 
 def _register_hardlinks(session: Session, seed_job: SeedJob, scan_id: int) -> int:
@@ -59,15 +103,16 @@ def _register_hardlinks(session: Session, seed_job: SeedJob, scan_id: int) -> in
     scan_id = latest_scan_by_disk(session, SeedFile).get(disk.id) or scan_id
     now = datetime.now(UTC)
     rows = []
-    for relative_path, media_file_id in _hardlink_paths(seed_job, mf):
-        try:
-            # Cartella e nomi vengono dal tracker: mai fuori dal disco.
-            st = os.stat(resolve_scoped(disk.root_path, relative_path))
-        except (OSError, ScopeViolation):
+    for relative_path, media in _hardlink_paths(seed_job, mf):
+        st = _stat(disk, relative_path)
+        if st is None:
             continue  # extra non ancora scaricato dal client: lo vedrà il prossimo scan
+        # Collegato al file della libreria solo se è davvero il suo hardlink:
+        # un altro file allo stesso percorso non diventa "in seed" per lui.
+        linked = media is not None and _same_file(st, _stat(disk, media.relative_path))
         rows.append({
             "disk_id": disk.id, "relative_path": relative_path, "size_bytes": st.st_size,
-            "st_dev": st.st_dev, "inode": st.st_ino, "media_file_id": media_file_id,
+            "st_dev": st.st_dev, "inode": st.st_ino, "media_file_id": media.id if linked else None,
             "last_scan_id": scan_id, "last_seen_at": now,
         })
     bulk_upsert(
