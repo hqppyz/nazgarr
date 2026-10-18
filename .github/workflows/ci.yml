@@ -43,9 +43,10 @@ jobs:
           cache: "npm"
           cache-dependency-path: frontend/package-lock.json
 
+      # Senza script di installazione dei pacchetti, come nel Dockerfile.
       - name: Install dependencies
         working-directory: frontend
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: Lint (oxlint)
         working-directory: frontend

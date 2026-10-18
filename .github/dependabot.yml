@@ -10,11 +10,16 @@ updates:
     directory: /
     schedule:
       interval: weekly
+  # cooldown (pip e npm): una versione nuova si propone solo dopo 7 giorni,
+  # quando un rilascio compromesso di solito è già stato scoperto e ritirato
+  # (audit 2026-10-18). Gli aggiornamenti di sicurezza non aspettano.
   - package-ecosystem: pip
     directory: /
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
   - package-ecosystem: docker
     directory: /
     schedule:
@@ -24,3 +29,5 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7

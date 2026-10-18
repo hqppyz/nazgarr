@@ -13,7 +13,10 @@ FROM --platform=$BUILDPLATFORM node:22-slim@sha256:43ac6c60b8f89723f746e8a92ce91
 WORKDIR /frontend
 
 COPY frontend/package.json frontend/package-lock.json ./
-RUN npm ci
+# --ignore-scripts: nessuno script di installazione dei pacchetti (la via
+# solita di un pacchetto compromesso); nessuna dipendenza ne ha bisogno su
+# Linux (audit 2026-10-18).
+RUN npm ci --ignore-scripts
 
 COPY frontend .
 RUN npm run build
