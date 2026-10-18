@@ -156,6 +156,35 @@ def _torrent_to_add(session: Session, candidate: Candidate, fetch_torrent: Fetch
     return _CheckedTorrent(content=content, info_hash=info_hash)
 
 
+def _structure_from_torrent(session: Session, candidate: Candidate, fetch_torrent: FetchTorrent | None) -> FetchTorrent:
+    """Un candidato il cui .torrent il matching non ha mai letto (niente info
+    hash: il download era fallito, e il controllo completo prima di eseguire
+    è spento): la cartella e i nomi dei file vengono solo dal catalogo del
+    tracker, cioè da chi ha caricato il torrent. Prima di decidere dove vanno
+    gli hardlink, la struttura vera dal .torrent: la cartella si corregge (il
+    catalogo UNIT3D spesso non la riporta), e i file devono essere gli
+    stessi, altrimenti niente (audit 2026-10-18: un nome del catalogo poteva
+    mettere l'hardlink nella cartella di un altro torrent). Restituisce i
+    byte già scaricati, per non riscaricarli."""
+    content = (fetch_torrent or _download_torrent)(candidate)
+    try:
+        parsed = parse_torrent_info(content)
+    except TorrentMetainfoError as exc:
+        raise ExecutionError(f"The tracker sent an invalid .torrent: {exc}") from exc
+    if sorted(f.torrent_path for f in candidate.files) != sorted(e.path for e in parsed.files):
+        raise ExecutionError(
+            "The files of the torrent are not the ones the tracker's catalogue listed: nothing created. "
+            "Search it again (Search now) to read its real structure"
+        )
+    folder = parsed.name if parsed.is_multi_file else None
+    if candidate.folder != folder:
+        logger.info("Candidate %s: cartella del torrent %r invece di %r (dal .torrent)",
+                    candidate.id, folder, candidate.folder)
+        candidate.folder = folder
+        session.commit()
+    return lambda _candidate: content
+
+
 def _labels(session: Session, torrent_client_id: int | None, candidate, review: MatchReview | None = None) -> dict:
     """Categoria (per tipo di contenuto) e tag per i reseed del client
     (nazgarr/torrents/client_labels.py). TMDB, per sapere se è un anime, solo se il
@@ -465,6 +494,9 @@ def _execute_layout_media_to_torrent(
     _require_every_video(candidate)
     disk = anchor.disk
     target_root = _new_torrents_root(disk)
+    if not candidate.info_hash:
+        _require_download_link(candidate)
+        fetch_torrent = _structure_from_torrent(session, candidate, fetch_torrent)
 
     placement = _placement(adapter, candidate, candidate.files[0].torrent_path if len(candidate.files) == 1 else None)
     links: list[tuple[str, str]] = []
@@ -501,6 +533,8 @@ def _execute_layout_torrent_to_client(
     _require_every_video(candidate)
     _require_download_link(candidate)
     disk = anchor.disk
+    if not candidate.info_hash:
+        fetch_torrent = _structure_from_torrent(session, candidate, fetch_torrent)
 
     anchor_row = next((f for f in candidate.files if f.seed_file_id == anchor.id), None)
     if anchor_row is None:
