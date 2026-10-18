@@ -43,6 +43,7 @@ from nazgarr.reseed import pipeline, review
 from nazgarr.upload import profiles as upload_profiles
 from nazgarr.upload.worker import UploadWorker
 from nazgarr.web import auth
+from nazgarr.web.body_limit import BodyLimitMiddleware
 from nazgarr.web.frontend import mount_frontend
 from nazgarr.web.security_headers import SecurityMiddleware
 
@@ -105,6 +106,9 @@ app = FastAPI(title="Nazgarr", lifespan=lifespan)
 # migliaia di file): compressi in gzip pesano una frazione in rete.
 app.add_middleware(GZipMiddleware, minimum_size=1024)
 app.add_middleware(SecurityMiddleware)
+# Per ultimo, quindi il più esterno: un corpo troppo grande si ferma prima di
+# qualunque altra cosa, login compreso (nazgarr/web/body_limit.py).
+app.add_middleware(BodyLimitMiddleware)
 app.include_router(auth_router)
 # I webhook di Radarr/Sonarr: fuori dal login, con la password del webhook di
 # ogni istanza (nazgarr/api/arr_hooks.py).

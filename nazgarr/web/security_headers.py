@@ -14,9 +14,10 @@
 
 from urllib.parse import urlsplit
 
-from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.datastructures import MutableHeaders
 from starlette.requests import Request
 from starlette.responses import JSONResponse
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from nazgarr.core.errors import coded_detail
 
@@ -48,11 +49,30 @@ def cross_site(request: Request) -> bool:
     return urlsplit(origin).netloc.lower() != host.lower()
 
 
-class SecurityMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
+class SecurityMiddleware:
+    """Middleware ASGI puro, non BaseHTTPMiddleware: quello passa ogni lettura
+    del corpo da un task group, e un errore lì (il 413 di
+    nazgarr/web/body_limit.py) arrivava a FastAPI dentro un ExceptionGroup,
+    cioè come un 400 qualunque."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        async def send_with_headers(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                headers = MutableHeaders(scope=message)
+                for name, value in HEADERS.items():
+                    headers.setdefault(name, value)
+            await send(message)
+
+        request = Request(scope)
         if request.method in UNSAFE_METHODS and cross_site(request):
-            return JSONResponse({"detail": coded_detail("cross_site_request")}, status_code=403)
-        response = await call_next(request)
-        for name, value in HEADERS.items():
-            response.headers.setdefault(name, value)
-        return response
+            response = JSONResponse({"detail": coded_detail("cross_site_request")}, status_code=403)
+            await response(scope, receive, send_with_headers)
+            return
+        await self.app(scope, receive, send_with_headers)
