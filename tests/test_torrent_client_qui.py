@@ -336,17 +336,28 @@ def test_a_torrent_added_meanwhile_by_another_tool_is_never_taken_for_ours(tmp_p
     mock.pages[0] = [{"hash": "other-tool", "name": "o", "save_path": "/o", "state": "downloading", "progress": 0}]
 
     real = mock.handler
+    # Al primo elenco dopo l'aggiunta il solo torrent nuovo è quello
+    # dell'altro strumento, il nostro compare dal secondo: il "primo torrent
+    # nuovo" di prima sbaglia sempre, non a seconda dell'ordine di un set.
+    state = {"ours": None, "polls": 0}
 
     def handler(request):
+        listing = request.method == "GET" and request.url.path.endswith("/torrents")
+        if listing and state["ours"] is not None and request.url.params.get("page", "0") == "0":
+            state["polls"] += 1
+            if state["polls"] == 2:
+                mock.pages[0].append(state["ours"])
+                state["ours"] = None
         response = real(request)
         if request.method == "POST" and request.url.path.endswith("/torrents"):
+            state["ours"] = mock.pages[0].pop()  # quello che il mock ha appena aggiunto
             mock.pages[0].insert(0, {"hash": "second-tool", "name": "s", "save_path": "/s", "state": "metaDL"})
         return response
 
     mock.handler = handler
     info_hash = _adapter(mock).add_torrent(str(torrent_path), save_path="/torrents/movie")
 
-    assert info_hash == ours
+    assert info_hash == ours and state["polls"] == 2  # aspettato il nostro, non preso l'altro
     assert [a["hashes"] for a in mock.bulk_actions] == [[ours], [ours]]
 
 

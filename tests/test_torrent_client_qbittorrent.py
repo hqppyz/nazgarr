@@ -292,14 +292,33 @@ def test_a_torrent_added_meanwhile_by_another_tool_is_never_taken_for_ours(tmp_p
     ours = compute_info_hash(torrent.read_bytes())
 
     class BusyClient(FakeQbtClient):
+        """Al primo controllo dopo l'aggiunta il solo torrent nuovo è quello
+        dell'altro strumento; il nostro compare dal secondo. Così il "primo
+        torrent nuovo" di prima sbaglia sempre, non a seconda dell'ordine
+        di un set."""
+
+        def __init__(self):
+            super().__init__()
+            self.pending = None
+            self.polls = 0
+
         def torrents_add(self, **kwargs):
-            self._torrents.append(FakeTorrent(hash="other-tool"))  # arriva prima del nostro
+            self._torrents.append(FakeTorrent(hash="other-tool"))
             super().torrents_add(**kwargs)
+            self.pending = self._torrents.pop()
+
+        def torrents_info(self, torrent_hashes=None):
+            if self.pending is not None:
+                self.polls += 1
+                if self.polls == 2:
+                    self._torrents.append(self.pending)
+                    self.pending = None
+            return super().torrents_info(torrent_hashes)
 
     client = BusyClient()
     info_hash = _adapter(client).add_torrent(str(torrent), save_path="/downloads/movie")
 
-    assert info_hash == ours
+    assert info_hash == ours and client.polls == 2  # aspettato il nostro, non preso l'altro
     assert client.rechecked == [ours] and client.started == [ours]
 
 
