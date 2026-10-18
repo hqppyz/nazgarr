@@ -314,3 +314,24 @@ def test_the_folder_goes_once_every_season_is_out(db_session, tmp_path, from_wat
     assert not folder.exists()
     removed = next(e for e in seasons[2].events if e.code == "watch_folder_removed")
     assert json.loads(removed.params_json)["files"] == ["Show.nfo"]
+
+
+def test_a_split_into_seasons_failing_halfway_leaves_only_the_complete_pack(db_session, from_watch, monkeypatch):
+    """Audit 2026-10-18: la seconda stagione non si crea (la cartella
+    sparita, un errore del DB): via anche la prima, il complete pack va
+    avanti da solo."""
+    real_create = upload_jobs.create_job
+    calls = []
+
+    def create_job(*args, **kwargs):
+        calls.append(1)
+        if len(calls) == 3:  # il pack, la S01, poi la S02 fallisce
+            raise OSError("folder gone")
+        return real_create(*args, **kwargs)
+
+    monkeypatch.setattr(upload_jobs, "create_job", create_job)
+    job, kicked = from_watch()
+
+    assert (job.status, job.kind) == ("analyzing", "complete_pack")
+    assert db_session.query(UploadJob).count() == 1 and kicked == []
+    assert job.events[-1].code == "split_seasons_failed"

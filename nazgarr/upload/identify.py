@@ -351,12 +351,19 @@ def _watch_split(session: Session, job: UploadJob, details: dict | None) -> list
 
 def _try_split(session: Session, job: UploadJob, split, details: dict | None, failed: str) -> list[UploadJob] | None:
     """Una divisione che non riesce lascia il job com'è (è in analisi): meglio
-    un pack che un upload fermo."""
+    un pack che un upload fermo. I nuovi creati fin lì li toglie la
+    divisione stessa (nazgarr/upload/split.py). Un job annullato
+    dall'utente nel frattempo resta annullato, senza un "divisione non
+    riuscita" che non è vero (audit 2026-10-18)."""
     try:
         return split(session, job, details)
     except Exception:
-        logger.exception("Upload %s: divisione non riuscita", job.id)
         session.rollback()
+        session.refresh(job)
+        if job.status != "analyzing":
+            logger.info("Upload %s: annullato durante la divisione", job.id)
+            return []
+        logger.exception("Upload %s: divisione non riuscita", job.id)
         upload_jobs.log_event(session, job, failed, level="warning")
         session.commit()
         return None

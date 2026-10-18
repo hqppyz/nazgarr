@@ -319,3 +319,43 @@ def test_only_episodes_the_season_has_count_towards_completeness():
             assert upload_split.is_incomplete(job, details)
     job, details = _counted(list(range(1, 13)), 12, snapshot)
     assert upload_split.season_count(job, details) == (12, 12) and not upload_split.is_incomplete(job, details)
+
+
+def test_a_source_error_halfway_leaves_only_the_pack(db_session, tmp_path, monkeypatch):
+    """Un errore di I/O (non un UploadJobError) sul secondo episodio: via
+    anche il primo, il pack va avanti da solo (audit 2026-10-18)."""
+    real_scan = upload_split.scan_source
+    calls = []
+
+    def scan_source(path, *args, **kwargs):
+        calls.append(path)
+        if len(calls) == 2:
+            raise OSError("disk gone")
+        return real_scan(path, *args, **kwargs)
+
+    monkeypatch.setattr(upload_split, "scan_source", scan_source)
+    job, kicked, _finished = _identified(db_session, tmp_path, monkeypatch)
+
+    assert (job.status, job.kind) == ("analyzing", "season_pack")
+    assert db_session.query(UploadJob).count() == 1 and kicked == []
+    assert job.events[-1].code == "split_failed"
+
+
+def test_a_cancel_during_the_split_is_honoured(db_session, tmp_path, monkeypatch):
+    """L'utente annulla il pack mentre si divide: niente episodi rimasti, e
+    niente "divisione non riuscita" nel registro (audit 2026-10-18)."""
+    real_close = upload_split._close
+
+    def close(session, job, code, children):
+        other = session.__class__(bind=session.get_bind())
+        upload_jobs.cancel_job(other, other.get(UploadJob, job.id))
+        other.close()
+        session.expire(job)
+        real_close(session, job, code, children)
+
+    monkeypatch.setattr(upload_split, "_close", close)
+    job, kicked, _finished = _identified(db_session, tmp_path, monkeypatch)
+
+    assert job.status == "cancelled" and kicked == []
+    assert db_session.query(UploadJob).count() == 1
+    assert "split_failed" not in [e.code for e in job.events]

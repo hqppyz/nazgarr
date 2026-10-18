@@ -344,6 +344,7 @@ export const upload = {
   'upload.event.split_failed': 'Divisione in episodi non riuscita: va avanti come season pack.',
   'upload.event.pack_from_seasons': 'Solo {seasons} dalla cartella: {count} video nell’upload, gli altri {left} restano fuori.',
   'upload.event.job_split_seasons': 'Più stagioni: divise in {count} upload, uno per stagione (upload {jobs}).',
+  'upload.event.split_skipped_untranslated': "Non diviso in episodi: alcuni episodi dei file non si traducono nell'ordinamento scelto, quindi non si sa se la stagione è completa. Va avanti come season pack.",
   'upload.event.split_from_seasons': '{season} della cartella con più stagioni dell’upload #{upload}.',
   'upload.event.split_seasons_failed': 'Divisione in stagioni non riuscita: va avanti come complete pack.',
   'upload.event.watch_folder_removed': 'Nessun episodio rimasto: tolta dalla cartella osservata {folder}, con {count} file fuori dai torrent.',
