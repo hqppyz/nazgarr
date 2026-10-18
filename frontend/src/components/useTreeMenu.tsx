@@ -1,5 +1,5 @@
 import { EyeOffIcon, UploadIcon } from 'lucide-react'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { useExcludeFile } from '@/api/hooks/library'
@@ -33,60 +33,65 @@ export function useTreeMenu(orphanState: string): { actions: TreeRowActions; dia
   const navigate = useNavigate()
   const exclude = useExcludeFile()
   const [pending, setPending] = useState<Pending | null>(null)
-  const isOrphan = (file: TreeFileEntry) => file.state === orphanState && !file.excluded
+  // Le stesse azioni finché non cambia la vista: l'albero (memo) non si
+  // ridisegna per un dialog aperto o una mutation in corso. Le voci si
+  // calcolano solo quando un menu si apre (FileTree, menuFor).
+  const actions = useMemo<TreeRowActions>(() => {
+    const isOrphan = (file: TreeFileEntry) => file.state === orphanState && !file.excluded
 
-  function fileReason(file: TreeFileEntry): string | null {
-    if (file.excluded) return t('library.menu.reasonExcluded')
-    if (file.disk_id == null) return t('library.menu.reasonNoDisk')
-    if (file.state === 'seeding') return t('library.menu.reasonSeeding')
-    if (file.state === 'ignored') return t('library.menu.reasonInClient')
-    return isOrphan(file) ? null : t('library.menu.reasonNotOrphan')
-  }
-
-  function uploadItem(reason: string | null, to: () => string): RowMenuItem {
-    return {
-      label: t('itemDetail.uploadOrReseed'),
-      icon: <UploadIcon />,
-      disabled: reason !== null,
-      hint: reason ?? undefined,
-      onSelect: () => navigate(to()),
+    function fileReason(file: TreeFileEntry): string | null {
+      if (file.excluded) return t('library.menu.reasonExcluded')
+      if (file.disk_id == null) return t('library.menu.reasonNoDisk')
+      if (file.state === 'seeding') return t('library.menu.reasonSeeding')
+      if (file.state === 'ignored') return t('library.menu.reasonInClient')
+      return isOrphan(file) ? null : t('library.menu.reasonNotOrphan')
     }
-  }
 
-  const actions: TreeRowActions = {
-    file: (file) => [
-      uploadItem(fileReason(file), () =>
-        newUploadLink({ diskId: file.disk_id as number, path: file.relative_path, isDir: false }),
-      ),
-      {
-        label: t('library.menu.excludeFile'),
-        icon: <EyeOffIcon />,
-        disabled: file.excluded,
-        hint: file.excluded ? t('library.menu.alreadyExcluded') : undefined,
-        onSelect: () => setPending({ path: file.relative_path, isDir: false, count: 1 }),
-      },
-    ],
-    folder: (node: TreeNode) => {
-      const files = filesUnder(node)
-      const disks = new Set(files.map((f) => f.disk_id))
-      const reason = !files.some(isOrphan)
-        ? t('library.menu.reasonNoOrphans')
-        : disks.size !== 1 || files[0].disk_id == null
-          ? t('library.menu.reasonManyDisks')
-          : null
-      const allExcluded = files.every((f) => f.excluded)
-      return [
-        uploadItem(reason, () => newUploadLink({ diskId: files[0].disk_id as number, path: node.path, isDir: true })),
+    function uploadItem(reason: string | null, to: () => string): RowMenuItem {
+      return {
+        label: t('itemDetail.uploadOrReseed'),
+        icon: <UploadIcon />,
+        disabled: reason !== null,
+        hint: reason ?? undefined,
+        onSelect: () => navigate(to()),
+      }
+    }
+
+    return {
+      file: (file) => [
+        uploadItem(fileReason(file), () =>
+          newUploadLink({ diskId: file.disk_id as number, path: file.relative_path, isDir: false }),
+        ),
         {
-          label: t('library.menu.excludeFolder'),
+          label: t('library.menu.excludeFile'),
           icon: <EyeOffIcon />,
-          disabled: allExcluded,
-          hint: allExcluded ? t('library.menu.alreadyExcluded') : undefined,
-          onSelect: () => setPending({ path: node.path, isDir: true, count: files.length }),
+          disabled: file.excluded,
+          hint: file.excluded ? t('library.menu.alreadyExcluded') : undefined,
+          onSelect: () => setPending({ path: file.relative_path, isDir: false, count: 1 }),
         },
-      ]
-    },
-  }
+      ],
+      folder: (node: TreeNode) => {
+        const files = filesUnder(node)
+        const disks = new Set(files.map((f) => f.disk_id))
+        const reason = !files.some(isOrphan)
+          ? t('library.menu.reasonNoOrphans')
+          : disks.size !== 1 || files[0].disk_id == null
+            ? t('library.menu.reasonManyDisks')
+            : null
+        const allExcluded = files.every((f) => f.excluded)
+        return [
+          uploadItem(reason, () => newUploadLink({ diskId: files[0].disk_id as number, path: node.path, isDir: true })),
+          {
+            label: t('library.menu.excludeFolder'),
+            icon: <EyeOffIcon />,
+            disabled: allExcluded,
+            hint: allExcluded ? t('library.menu.alreadyExcluded') : undefined,
+            onSelect: () => setPending({ path: node.path, isDir: true, count: files.length }),
+          },
+        ]
+      },
+    }
+  }, [navigate, orphanState])
 
   const dialog = (
     <Dialog open={pending !== null} onOpenChange={(open) => !open && setPending(null)}>

@@ -85,7 +85,12 @@ export function usePackSelection(): PackSelection {
     if (!on) setSelected(new Map())
   }, [])
   const files = useMemo(() => [...selected.values()].sort((a, b) => a.path.localeCompare(b.path)), [selected])
-  return { active, setActive, files, has: (file) => selected.has(packKey(file)), toggle, pick, setMany, clear }
+  // Lo stesso oggetto finché la selezione non cambia: chi lo riceve (l'albero,
+  // memo) non si ridisegna a ogni render di chi lo tiene.
+  return useMemo(
+    () => ({ active, setActive, files, has: (file: PackFile) => selected.has(packKey(file)), toggle, pick, setMany, clear }),
+    [active, setActive, files, selected, toggle, pick, setMany, clear],
+  )
 }
 
 // La pagina del nuovo upload con il pack già scelto (nello state della
