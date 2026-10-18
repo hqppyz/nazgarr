@@ -434,25 +434,31 @@ def test_an_oversized_or_forbidden_answer_skips_the_instance(db_session, monkeyp
     2026-10-18): un corpo enorme o un gzip che si espande non entra tutto
     in memoria, e l'istanza si salta come una irraggiungibile. Un indirizzo
     che ora si risolve nei metadati del cloud non si chiama."""
-    import gzip
-
     import httpx
 
     from nazgarr.integrations import arr
+    from tests.http_helpers import chunked, gzip_bomb, peak_bytes
 
     calls = []
+    # ~64 KB sul filo a pezzi da 16 KiB, 64 MB decompressi: in streaming,
+    # perché un corpo dato coi byte httpx lo decomprime tutto da sé.
+    stream, sent, total = chunked(gzip_bomb(64 * 1024 * 1024, prefix=b"["), 16 * 1024)
 
     def handler(request):
         calls.append(str(request.url))
         assert request.headers["Accept-Encoding"] == "gzip, deflate"
-        return httpx.Response(200, content=gzip.compress(b"[" + b" " * (2 * 1024 * 1024) + b"]"),
-                              headers={"Content-Encoding": "gzip"})
+        return httpx.Response(200, content=stream(), headers={"Content-Encoding": "gzip"})
 
     monkeypatch.setattr(arr, "MAX_RESPONSE_BYTES", 1024 * 1024)
     instance = RadarrInstance(id=1, label="r", base_url="http://radarr", api_key="k")
     api = arr.ArrApi(instance, client=httpx.Client(transport=httpx.MockTransport(handler), base_url="http://radarr"))
-    with pytest.raises(ValueError, match="bigger than 1 MB"):
-        api.get("/api/v3/movie")
+
+    def refused():
+        with pytest.raises(ValueError, match="bigger than 1 MB"):
+            api.get("/api/v3/movie")
+
+    assert peak_bytes(refused) < 8 * 1024 * 1024  # a passi da 1 MB, mai un pezzo espanso intero
+    assert total >= 4 and len(sent) == 1  # fermato al primo pezzo, non a fine corpo
 
     db_session.add(RadarrInstance(label="cloud", base_url="http://169.254.169.254", api_key="k", enabled=True))
     db_session.commit()

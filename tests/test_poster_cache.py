@@ -48,13 +48,18 @@ def test_an_oversized_or_interrupted_download_leaves_no_poster_behind(tmp_path, 
 
     from nazgarr.library import poster_cache
 
+    from tests.http_helpers import chunked
+
     monkeypatch.setattr(poster_cache, "MAX_POSTER_BYTES", 100)
-    client = httpx.Client(transport=httpx.MockTransport(lambda request: httpx.Response(200, content=b"x" * 101)))
+    # A pezzi, come dalla rete: un corpo dato coi byte httpx lo legge tutto da sé.
+    stream, sent, total = chunked(b"x" * 1000, 40)
+    client = httpx.Client(transport=httpx.MockTransport(lambda request: httpx.Response(200, content=stream())))
     posters_dir = str(tmp_path / "posters")
 
     with pytest.raises(httpx.HTTPError, match="bigger than 100 bytes"):
         download_poster(posters_dir, "movie", 1, "/big.jpg", client=client)
     assert os.listdir(posters_dir) == []
+    assert len(sent) == 3 < total  # fermato appena passato il tetto, non a fine corpo
 
     def broken(request):
         raise httpx.ReadError("connection reset")
