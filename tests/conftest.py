@@ -1,5 +1,6 @@
 import base64
 import os
+import socket
 
 import pytest
 from fastapi.testclient import TestClient
@@ -7,6 +8,30 @@ from fastapi.testclient import TestClient
 from nazgarr.core import crypto as crypto_module
 from nazgarr.core import db as db_module
 from nazgarr.core import migrations
+
+_real_getaddrinfo = socket.getaddrinfo
+
+
+def _offline_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
+    """Indirizzi IP (anche nelle forme decimali/esadecimali) e localhost si
+    risolvono come sempre, ogni altro nome come un nome che non esiste."""
+    try:
+        return _real_getaddrinfo(host, port, family, type, proto, flags | socket.AI_NUMERICHOST)
+    except socket.gaierror:
+        if host in ("localhost", b"localhost"):
+            return _real_getaddrinfo(host, port, family, type, proto, flags)
+        raise
+
+
+@pytest.fixture(autouse=True)
+def _no_dns(monkeypatch):
+    """Nessun test dipende dal DNS (audit 2026-10-18): net_guard e la
+    validazione degli URL risolvevano davvero t.example, qbit, evil... Un
+    test che ha bisogno di nomi li sostituisce col suo monkeypatch
+    (test_instances, test_net_guard). I test sui client veri in Docker
+    (NAZGARR_IT_CLIENTS=1) usano il DNS vero."""
+    if not os.environ.get("NAZGARR_IT_CLIENTS"):
+        monkeypatch.setattr(socket, "getaddrinfo", _offline_getaddrinfo)
 
 
 @pytest.fixture

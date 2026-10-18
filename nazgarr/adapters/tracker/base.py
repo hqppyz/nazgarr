@@ -23,7 +23,7 @@ from urllib.parse import parse_qs, urljoin, urlsplit
 
 import httpx
 
-from nazgarr.core import http_limits
+from nazgarr.core import http_limits, net_guard
 
 logger = logging.getLogger(__name__)
 
@@ -443,6 +443,7 @@ class Unit3dTrackerAdapter(TrackerAdapter):
             raise UploadError(f"Could not read the .torrent to upload: {exc}") from exc
         files = {"torrent": ("torrent.torrent", torrent_bytes, "application/x-bittorrent")}
 
+        self._check_destination("/api/torrents/upload")
         self._rate_limiter.wait(self._sleep)
         try:
             with self._client.stream(
@@ -502,12 +503,19 @@ class Unit3dTrackerAdapter(TrackerAdapter):
         # potrebbe anche puntare fuori da base_url. E un link che punta a un
         # altro host non si segue affatto: arriva dal tracker (o da chi ci ha
         # caricato un torrent), e farebbe chiamare al server indirizzi interni.
+        # Lo schema conta quanto l'host: un link http:// su un tracker https://
+        # manderebbe la passkey in chiaro, e un altro schema non è un .torrent.
         tracker_host = host_of_url(self.base_url)
-        link_host = host_of_url(urljoin(self.base_url + "/", url))
+        full_url = urljoin(self.base_url + "/", url)
+        link_host = host_of_url(full_url)
         if not link_host or not tracker_host or not (
             link_host == tracker_host or link_host.endswith("." + tracker_host)
         ):
             raise UploadError(f"Download link outside the tracker ({link_host}): not followed")
+        scheme, tracker_scheme = urlsplit(full_url).scheme.lower(), urlsplit(self.base_url).scheme.lower()
+        if scheme not in ("http", "https") or (tracker_scheme == "https" and scheme != "https"):
+            raise UploadError(
+                f"Download link with scheme {scheme or 'none'!r} on a {tracker_scheme} tracker: not followed")
         try:
             return self._get(url, authenticated=False, limit=self.MAX_TORRENT_BYTES)
         except _BodyTooLarge as exc:
@@ -528,6 +536,15 @@ class Unit3dTrackerAdapter(TrackerAdapter):
             wait = self._BASE_BACKOFF_SECONDS * (2**attempt)
         return min(max(wait, 1.0), self._MAX_RETRY_WAIT_SECONDS)
 
+    def _check_destination(self, path: str) -> None:
+        """net_guard prima di ogni richiesta, non solo quando base_url si
+        salva: un nome del tracker che dopo si risolve nei metadati del cloud
+        (o un link di download su un suo sottodominio) non si chiama."""
+        try:
+            net_guard.check_url(urljoin(self.base_url + "/", path))
+        except net_guard.ForbiddenDestination as exc:
+            raise UploadError(f"Request to the UNIT3D tracker refused: {exc}") from exc
+
     def _deadline(self) -> float:
         return time.monotonic() + self.RESPONSE_DEADLINE_SECONDS
 
@@ -547,6 +564,7 @@ class Unit3dTrackerAdapter(TrackerAdapter):
         chiamante traduce in un UploadError col suo messaggio."""
         headers = {"Authorization": f"Bearer {self.api_token}"} if authenticated else None
         limit = self.MAX_JSON_BYTES if limit is None else limit
+        self._check_destination(path)
         for attempt in range(self._MAX_429_RETRIES + 1):
             self._rate_limiter.wait(self._sleep)
             try:

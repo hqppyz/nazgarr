@@ -411,3 +411,35 @@ def test_a_tracker_repeating_the_same_cursor_does_not_loop():
 
     results = _adapter(handler).search_by_tmdb(7)
     assert len(calls) == 2 and catalog_truncated(results) is False
+
+
+def test_a_download_link_downgraded_to_http_or_another_scheme_is_not_followed():
+    seen = []
+    adapter = _adapter(lambda r: (seen.append(r), httpx.Response(200, content=b"d4:infod4:name1:xee"))[1])
+
+    for link in ("http://tracker.example/torrent/download/1.key",   # la passkey in chiaro
+                 "ftp://tracker.example/torrent/download/1.key"):
+        with pytest.raises(UploadError, match="scheme"):
+            adapter.download_torrent(link)
+    assert seen == []
+
+
+def test_a_tracker_name_that_now_resolves_to_the_cloud_metadata_is_not_called(monkeypatch):
+    # Il base_url si controlla quando si salva; un DNS cambiato dopo restava
+    # libero di portare le richieste (col token) a 169.254.169.254.
+    import socket
+
+    from nazgarr.core import net_guard
+
+    def resolve(host, *args, **kwargs):
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("169.254.169.254", 0))]
+
+    monkeypatch.setattr(net_guard.socket, "getaddrinfo", resolve)
+    seen = []
+    adapter = _adapter(lambda r: (seen.append(r), httpx.Response(200, json={"data": []}))[1])
+
+    with pytest.raises(UploadError, match="refused"):
+        adapter.search_by_tmdb(1)
+    with pytest.raises(UploadError, match="refused"):
+        adapter.download_torrent("https://dl.tracker.example/torrent/download/1.x")
+    assert seen == []
