@@ -92,6 +92,17 @@ def test_unknown_filters_do_not_restrict_anything():
     assert tracker_scope.normalize("bogus") == "all"
     assert tracker_scope.normalize(None) == "all"
     assert tracker_scope.normalize("7") == "7"
+    # Una forma sola per id (audit 2026-10-18), e mai un valore che fa fallire int() o SQLite.
+    assert tracker_scope.normalize("007") == "7"
+    assert tracker_scope.normalize("²") == "all"
+    assert tracker_scope.normalize("9" * 10) == "all"
+
+
+def test_a_tracker_that_does_not_exist_is_all(db_session, world):
+    assert tracker_scope.resolve(db_session, str(world["itt"].id)) == str(world["itt"].id)
+    assert tracker_scope.resolve(db_session, "0" + str(world["itt"].id)) == str(world["itt"].id)
+    assert tracker_scope.resolve(db_session, "987654") == "all"
+    assert tracker_scope.resolve(db_session, "configured") == "configured"
 
 
 def test_scans_save_the_history_of_every_filter(db_session, world):

@@ -240,3 +240,29 @@ def test_bodies_of_a_past_version_leave_memory_and_the_cache_is_bounded(db_sessi
     assert [k.rsplit("|", 1)[1] for k in response_cache._cache] == ["big"]
     assert response_cache._cached_bytes == sum(len(body) for _v, _e, body in response_cache._cache.values())
     assert response_cache._computing == {}  # i lock per chiave non restano
+
+
+def test_tracker_values_share_one_canonical_key(client, monkeypatch):
+    """'1' e '01' sono lo stesso tracker, un id che non esiste vale "all" e
+    '²' non è più un 500: ogni valore diverso era un corpo in più in memoria."""
+    from nazgarr.library import states as library
+
+    tracker_id = client.post("/api/trackers", json={
+        "label": "T", "base_url": "https://t.example", "announce_url": "https://t.example/announce/x",
+        "adapter_type": "unit3d", "api_token": "tok"}).json()["id"]
+    calls = []
+    real = library.media_file_states
+    monkeypatch.setattr(library, "media_file_states", lambda *a, **k: calls.append(k["tracker"]) or real(*a, **k))
+
+    etags = {value: client.get("/api/media-files", params={"tracker": value}).headers["etag"]
+             for value in (str(tracker_id), f"0{tracker_id}", "987654321", "all", "²", "9" * 5000)}
+
+    assert etags[str(tracker_id)] == etags[f"0{tracker_id}"]
+    assert etags["987654321"] == etags["all"] == etags["²"] == etags["9" * 5000]
+    assert calls == [str(tracker_id), "all"]
+
+
+def test_an_unknown_disk_is_a_404(client):
+    assert client.get("/api/media-files", params={"disk_id": 999}).status_code == 404
+    assert client.get("/api/library/items", params={"disk_id": 999}).status_code == 404
+    assert client.get("/api/dashboard", params={"disk_id": 999}).json()["detail"]["code"] == "disk_not_found"

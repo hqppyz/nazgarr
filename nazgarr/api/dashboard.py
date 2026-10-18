@@ -11,11 +11,11 @@ from pydantic import BaseModel
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
-from nazgarr.core.models import FileChange, NotImportedTorrent, RunLog, TrackerHealthSnapshot
+from nazgarr.core.models import Disk, FileChange, NotImportedTorrent, RunLog, TrackerHealthSnapshot
 from nazgarr.library import health, not_imported
 from nazgarr.torrents import tracker_scope
 from nazgarr.web import response_cache
-from nazgarr.web.deps import get_session
+from nazgarr.web.deps import get_or_404, get_session
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
@@ -157,8 +157,11 @@ def get_dashboard(
 ):
     """La dashboard si interroga ogni 15 secondi: la risposta resta in cache
     finché i dati non cambiano (nazgarr/web/response_cache.py), invece di
-    ricalcolare la salute di tutta la libreria a ogni giro."""
-    scope = tracker_scope.normalize(tracker)
+    ricalcolare la salute di tutta la libreria a ogni giro. Un tracker che
+    non c'è vale "all", un disco che non c'è è un 404 (audit 2026-10-18)."""
+    if disk_id is not None:
+        get_or_404(session, Disk, disk_id, "disk_not_found", id=disk_id)
+    scope = tracker_scope.resolve(session, tracker)
     return response_cache.cached_json(
         request, session, f"dashboard|{disk_id}|{scope}",
         lambda: _dashboard(session, disk_id, scope).model_dump(mode="json"),
@@ -197,8 +200,9 @@ def get_history(
     """Dalla più recente. `days`: solo le scansioni finite negli ultimi N
     giorni (finestra 7d/30d/90d della dashboard), fino a 1000; senza, le
     ultime `limit`. `tracker`: lo storico di quel filtro, che parte dalla
-    prima scansione dopo la sua introduzione."""
-    scope = tracker_scope.normalize(tracker)
+    prima scansione dopo la sua introduzione; uno che non c'è, quello globale
+    come i numeri della dashboard."""
+    scope = tracker_scope.resolve(session, tracker)
     query = _scoped_history(session, scope)
     if days is not None:
         query = query.filter(RunLog.finished_at >= datetime.now(UTC) - timedelta(days=days))

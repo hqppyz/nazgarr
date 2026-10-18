@@ -16,7 +16,7 @@ from nazgarr.api.reviews import ReviewResponse
 from nazgarr.api.uploads import EpisodeOrdersResponse
 from nazgarr.core import settings_repo
 from nazgarr.core.errors import coded_detail
-from nazgarr.core.models import MediaFile, MediaItem, Tracker
+from nazgarr.core.models import Disk, MediaFile, MediaItem, Tracker
 from nazgarr.integrations import adapter_factory
 from nazgarr.library import detail as library_detail
 from nazgarr.library import duplicates
@@ -26,7 +26,7 @@ from nazgarr.library.poster_cache import poster_file
 from nazgarr.reseed import matching, pipeline
 from nazgarr.torrents import tracker_scope
 from nazgarr.web import response_cache
-from nazgarr.web.deps import get_session
+from nazgarr.web.deps import get_or_404, get_session
 
 router = APIRouter(prefix="/api", tags=["library"])
 
@@ -108,11 +108,20 @@ class MediaItemOverview(BaseModel):
 # da nazgarr/web/response_cache.py: ETag sulla versione dei dati, 304 se il browser
 # ha già quella versione, ricalcolo una sola volta quando cambia. Il
 # response_model resta per lo schema OpenAPI (tipi del frontend).
+def _view_scope(session: Session, disk_id: int | None, tracker: str | None) -> str:
+    """Il filtro per tracker in forma unica, un tracker che non c'è come "all"
+    (nazgarr/torrents/tracker_scope.py), e un disco che non c'è è un 404: ogni
+    valore diverso è una risposta in più in memoria (audit 2026-10-18)."""
+    if disk_id is not None:
+        get_or_404(session, Disk, disk_id, "disk_not_found", id=disk_id)
+    return tracker_scope.resolve(session, tracker)
+
+
 @router.get("/media-files", response_model=list[MediaFileState])
 def list_media_files(
     request: Request, disk_id: int | None = None, tracker: str | None = None, session: Session = Depends(get_session)
 ):
-    tracker = tracker_scope.normalize(tracker)  # filtro per tracker (nazgarr/torrents/tracker_scope.py)
+    tracker = _view_scope(session, disk_id, tracker)
     return response_cache.cached_json(
         request, session, f"media-files:{disk_id}:{tracker}",
         lambda: library.media_file_states(
@@ -125,7 +134,7 @@ def list_media_files(
 def list_seed_files(
     request: Request, disk_id: int | None = None, tracker: str | None = None, session: Session = Depends(get_session)
 ):
-    tracker = tracker_scope.normalize(tracker)  # filtro per tracker (nazgarr/torrents/tracker_scope.py)
+    tracker = _view_scope(session, disk_id, tracker)
     return response_cache.cached_json(
         request, session, f"seed-files:{disk_id}:{tracker}",
         lambda: library.seed_file_states(
@@ -138,7 +147,7 @@ def list_seed_files(
 def list_library_items(
     request: Request, disk_id: int | None = None, tracker: str | None = None, session: Session = Depends(get_session)
 ):
-    tracker = tracker_scope.normalize(tracker)  # filtro per tracker (nazgarr/torrents/tracker_scope.py)
+    tracker = _view_scope(session, disk_id, tracker)
     return response_cache.cached_json(
         request, session, f"items:{disk_id}:{tracker}",
         lambda: library.media_items_overview(
@@ -156,6 +165,7 @@ def list_unmatched(disk_id: int | None = None, session: Session = Depends(get_se
 def list_duplicates(request: Request, disk_id: int | None = None, session: Session = Depends(get_session)):
     """Copie non intenzionali dello stesso contenuto su inode diversi —
     file già hardlinkati fra loro non compaiono qui (nazgarr/library/duplicates.py)."""
+    _view_scope(session, disk_id, None)
     return response_cache.cached_json(
         request, session, f"duplicates:{disk_id}",
         lambda: duplicates.find_duplicate_media_files(session, disk_id=disk_id),
