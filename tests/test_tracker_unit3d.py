@@ -537,3 +537,17 @@ def test_a_tracker_name_that_now_resolves_to_the_cloud_metadata_is_not_called(mo
     with pytest.raises(UploadError, match="refused"):
         adapter.download_torrent("https://dl.tracker.example/torrent/download/1.x")
     assert seen == []
+
+
+def test_a_download_link_with_an_invalid_host_label_is_an_upload_error():
+    # "x..tracker.example" passa la regola dell'host (finisce con
+    # .tracker.example), ma getaddrinfo solleva un UnicodeError, non un
+    # gaierror: usciva grezzo da download_torrent e fermava il matching.
+    seen = []
+    adapter = _adapter(lambda r: (seen.append(r), httpx.Response(200, content=b"d4:infod4:name1:xee"))[1])
+
+    for link in ("https://x..tracker.example/torrent/download/1",
+                 "https://" + "a" * 70 + ".tracker.example/torrent/download/1"):
+        with pytest.raises(UploadError, match="Invalid host"):
+            adapter.download_torrent(link)
+    assert seen == []

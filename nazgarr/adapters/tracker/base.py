@@ -578,7 +578,7 @@ class Unit3dTrackerAdapter(TrackerAdapter):
                     if response.status_code != 429:
                         return self._read_body(response, limit)
                     wait = self._retry_wait_seconds(response, attempt)
-            except httpx.HTTPError as exc:
+            except (httpx.HTTPError, httpx.InvalidURL) as exc:  # InvalidURL non è un HTTPError
                 raise UploadError(f"Request to the UNIT3D tracker failed: {exc}") from exc
             if attempt == self._MAX_429_RETRIES:
                 raise TrackerRateLimitedError(

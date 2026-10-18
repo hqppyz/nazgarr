@@ -49,5 +49,9 @@ def check_url(url: str) -> None:
         addresses = {info[4][0] for info in socket.getaddrinfo(host, None)}
     except socket.gaierror:
         return
+    except UnicodeError as exc:
+        # Un'etichetta vuota o di più di 63 caratteri (x..tracker.example):
+        # getaddrinfo non la codifica in IDNA, e non è un gaierror.
+        raise ForbiddenDestination(f"Invalid host {host!r}") from exc
     if any(_forbidden(address) for address in addresses):
         raise ForbiddenDestination(f"{host} is not a destination Nazgarr calls")

@@ -58,3 +58,11 @@ def test_a_name_is_checked_on_every_address_it_resolves_to(monkeypatch):
 def test_a_name_that_does_not_resolve_passes_and_fails_at_the_request(monkeypatch):
     monkeypatch.setattr(net_guard.socket, "getaddrinfo", _resolver({}))
     net_guard.check_url("https://nowhere.example/")
+
+
+def test_a_host_that_cannot_be_encoded_is_refused_not_a_raw_unicode_error():
+    # getaddrinfo solleva UnicodeError (non gaierror) per un'etichetta vuota o
+    # più lunga di 63 caratteri: usciva grezzo da chi chiama check_url.
+    for url in ("https://x..tracker.example/", "https://" + "a" * 70 + ".example/"):
+        with pytest.raises(net_guard.ForbiddenDestination, match="Invalid host"):
+            net_guard.check_url(url)
