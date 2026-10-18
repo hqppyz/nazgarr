@@ -22,7 +22,7 @@ sbagliati), ma trattato con la stessa severità — soglia più alta di
 default, mai un bypass "perché il file esiste già"."""
 
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import exists, func, select
 from sqlalchemy.orm import Session, selectinload
@@ -610,12 +610,36 @@ def _after_verification(session: Session, state, result, decided_by: str) -> Non
 
 def reset_interrupted_verifications(session: Session) -> int:
     """All'avvio: un controllo "verifying" era in memoria in un processo che
-    non c'è più. La review torna in coda com'era, da approvare di nuovo."""
+    non c'è più. La review torna in coda com'era, da approvare di nuovo.
+    Insieme, le esecuzioni rimaste a metà (close_interrupted_seed_jobs)."""
     rows = session.query(MatchReview).filter(MatchReview.verify_status == "verifying").all()
     for row in rows:
         row.verify_status, row.verify_detail, row.verify_check_id = None, None, None
     if rows:
         session.commit()
+    close_interrupted_seed_jobs(session)
+    return len(rows)
+
+
+INTERRUPTED_SEED_JOB = ("Interrupted by a restart while it was being added to the client: retry it "
+                        "(it follows the torrent if the client got it), or delete it")
+
+
+def close_interrupted_seed_jobs(session: Session) -> int:
+    """All'avvio nessuna esecuzione è in corso: un seed_job "in_progress"
+    senza info_hash è stato interrotto (un riavvio o un crash) fra la sua
+    creazione e la risposta del client. Nessuno lo riprendeva mai: il
+    controllo dei recheck guarda solo quelli con un info_hash e il retry
+    solo i falliti, e il torrent restava "occupato" per sempre (audit
+    2026-10-18). Diventa fallito, così si ritenta (il retry segue il
+    torrent se il client l'aveva ricevuto) o si elimina. Niente cambia nel
+    client o sui file."""
+    rows = session.query(SeedJob).filter(SeedJob.final_status == "in_progress", SeedJob.info_hash.is_(None)).all()
+    for row in rows:
+        row.final_status, row.error_message = "failed", INTERRUPTED_SEED_JOB
+    if rows:
+        session.commit()
+        logger.warning("%d esecuzioni interrotte da un riavvio segnate come fallite", len(rows))
     return len(rows)
 
 
@@ -970,6 +994,12 @@ def reconcile_pending_seed_jobs(session: Session, progress=NULL_PROGRESS) -> dic
     try:
         for seed_job in pending:
             progress.advance()
+            if seed_job.torrent_client_id is not None and not _client_enabled(session, seed_job.torrent_client_id):
+                # Il primo client abilitato non ha quel torrent: chiederlo a
+                # lui dava un errore a ogni giro, per sempre.
+                _give_up(session, seed_job, "The client it was added to is disabled or deleted: "
+                                            "enable it again, then retry")
+                continue
             key = (seed_job.torrent_client_id if seed_job.torrent_client_id is not None
                    else -seed_job.candidate.tracker_id)
             if key not in adapters:
@@ -985,6 +1015,14 @@ def reconcile_pending_seed_jobs(session: Session, progress=NULL_PROGRESS) -> dic
                 reconcile_seed_job(session, seed_job, adapter)
                 reconciled += 1
             except Exception:
+                session.rollback()
+                if _missing_from_client(adapter, seed_job):
+                    if _added_before(seed_job, MISSING_TORRENT_GRACE):
+                        _give_up(session, seed_job, "The torrent is no longer in the client: retry it to add it "
+                                                    "again, or delete it")
+                    else:
+                        logger.info("Seed_job %s: torrent non (ancora) nel client, riprovo dopo", seed_job.id)
+                    continue
                 logger.exception("Reconcile fallito per seed_job %s", seed_job.id)
                 errors += 1
                 continue
@@ -1000,6 +1038,42 @@ def reconcile_pending_seed_jobs(session: Session, progress=NULL_PROGRESS) -> dic
             if adapter is not None:
                 close_adapter(adapter)
     return {"reconciled": reconciled, "errors": errors}
+
+
+# Quanto si aspetta un torrent che il client dice di non avere prima di dare
+# l'esecuzione per fallita: un client appena riavviato può non averlo ancora
+# ricaricato.
+MISSING_TORRENT_GRACE = timedelta(minutes=10)
+
+
+def _client_enabled(session: Session, torrent_client_id: int) -> bool:
+    row = session.get(TorrentClient, torrent_client_id)
+    return row is not None and bool(row.enabled)
+
+
+def _missing_from_client(adapter, seed_job: SeedJob) -> bool:
+    """Il client risponde, e quel torrent non ce l'ha (get_torrent_info None,
+    il contratto degli adapter). Un client che non risponde non è "mancante"."""
+    try:
+        return adapter.get_torrent_info(seed_job.info_hash) is None
+    except Exception:
+        return False
+
+
+def _added_before(seed_job: SeedJob, grace: timedelta) -> bool:
+    added = seed_job.torrent_added_at
+    if added is None:
+        return True
+    added = added if added.tzinfo is not None else added.replace(tzinfo=UTC)
+    return datetime.now(UTC) - added >= grace
+
+
+def _give_up(session: Session, seed_job: SeedJob, message: str) -> None:
+    """Un'esecuzione che non arriverà mai a un esito: fallita, con il
+    perché, così si ritenta o si elimina dalla pagina Reseeding."""
+    seed_job.final_status, seed_job.error_message = "failed", message
+    session.commit()
+    logger.warning("Seed_job %s: %s", seed_job.id, message)
 
 
 def has_pending_seed_jobs(session: Session) -> bool:

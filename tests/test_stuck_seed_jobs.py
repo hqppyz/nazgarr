@@ -1,0 +1,93 @@
+"""Esecuzioni che non arrivavano mai a un esito (audit 2026-10-18, finding
+113): interrotte da un riavvio prima dell'info hash, col torrent sparito dal
+client, o nel client di un client poi spento."""
+
+from datetime import UTC, datetime, timedelta
+
+from nazgarr.core.models import Candidate, MatchReview, MediaItem, SeedJob, TorrentClient, Tracker
+from nazgarr.reseed import review
+
+
+def _job(session, *, info_hash="abc", added_minutes_ago=60, client=None):
+    tracker = Tracker(label="t", adapter_type="unit3d", base_url="https://t.example", api_token="x")
+    item = MediaItem(content_type="movie", tmdb_id=1)
+    session.add_all([tracker, item])
+    session.commit()
+    candidate = Candidate(media_item_id=item.id, tracker_id=tracker.id, torrent_id_remote="1", name="x",
+                          size_bytes=1, source="catalog_search", direction="media_to_torrent", confidence=0.9)
+    session.add(candidate)
+    session.commit()
+    session.add(MatchReview(candidate_id=candidate.id, status="approved"))
+    job = SeedJob(candidate_id=candidate.id, final_status="in_progress", info_hash=info_hash,
+                  torrent_client_id=client.id if client else None,
+                  torrent_added_at=datetime.now(UTC) - timedelta(minutes=added_minutes_ago))
+    session.add(job)
+    session.commit()
+    return job
+
+
+def _client(session, enabled=True):
+    row = TorrentClient(label="q", adapter_type="qbittorrent", base_url="http://q", enabled=enabled)
+    session.add(row)
+    session.commit()
+    return row
+
+
+class _Gone:
+    """Il client risponde, ma quel torrent non ce l'ha più."""
+
+    def __init__(self):
+        self.status_calls = 0
+
+    def get_torrent_status(self, info_hash):
+        self.status_calls += 1
+        raise ValueError(f"Torrent {info_hash} non trovato")
+
+    def get_torrent_info(self, info_hash):
+        return None
+
+
+def test_an_execution_interrupted_before_the_info_hash_fails_at_startup(db_session):
+    job = _job(db_session, info_hash=None)
+    other = SeedJob(candidate_id=job.candidate_id, final_status="in_progress", info_hash="def")
+    db_session.add(other)
+    db_session.commit()
+
+    review.reset_interrupted_verifications(db_session)
+
+    assert (job.final_status, job.error_message) == ("failed", review.INTERRUPTED_SEED_JOB)
+    assert other.final_status == "in_progress"  # col suo info hash la segue il controllo dei recheck
+
+
+def test_a_torrent_gone_from_the_client_ends_the_execution(db_session, monkeypatch):
+    client = _client(db_session)
+    job = _job(db_session, client=client)
+    gone = _Gone()
+    monkeypatch.setattr(review, "build_torrent_client_adapter", lambda row: gone)
+
+    assert review.reconcile_pending_seed_jobs(db_session) == {"reconciled": 0, "errors": 0}
+    assert job.final_status == "failed" and "no longer in the client" in job.error_message
+    assert review.has_pending_seed_jobs(db_session) is False  # niente più controlli ogni 2 minuti
+
+
+def test_a_torrent_just_added_gets_a_grace_period(db_session, monkeypatch):
+    client = _client(db_session)
+    job = _job(db_session, client=client, added_minutes_ago=1)
+    monkeypatch.setattr(review, "build_torrent_client_adapter", lambda row: _Gone())
+
+    review.reconcile_pending_seed_jobs(db_session)
+
+    assert job.final_status == "in_progress"
+
+
+def test_an_execution_of_a_disabled_client_is_not_asked_to_another_client(db_session, monkeypatch):
+    disabled = _client(db_session, enabled=False)
+    _client(db_session)  # quello abilitato, che non ha il torrent
+    job = _job(db_session, client=disabled)
+    asked = []
+    monkeypatch.setattr(review, "build_torrent_client_adapter", lambda row: asked.append(row.id) or _Gone())
+
+    review.reconcile_pending_seed_jobs(db_session)
+
+    assert asked == []
+    assert job.final_status == "failed" and "disabled or deleted" in job.error_message
