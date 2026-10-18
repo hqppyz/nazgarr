@@ -24,6 +24,7 @@ db.rebuild_tables_from_schema, che rifà la tabella com'è in schema.sql
 (passo 10).
 """
 
+import json
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -85,6 +86,45 @@ def clean_stale_candidates(engine: Engine) -> dict[str, int]:
     return {"removed": removed, "stripped": stripped}
 
 
+def strip_dupe_download_keys(engine: Engine) -> dict[str, int]:
+    """Una tantum (audit 2026-10-18): il dupe check degli upload salvava in
+    upload_target.dupes_json il link di download di ogni torrent trovato sul
+    tracker con la chiave personale (rsskey) in chiaro. Ora si salva senza,
+    e la chiave torna solo quando il full hash check o il reseed scaricano
+    il .torrent (nazgarr/upload/verify.py dupe_torrent); qui si toglie dalle
+    righe già salvate. Solo i tracker UNIT3D, come per i candidati (passo
+    11): un plugin che non sa rimettere la chiave tiene il link com'è.
+    Idempotente; una riga che non si legge resta com'è."""
+    from nazgarr.reseed.download_links import strip_key
+
+    stripped = 0
+    with engine.begin() as conn:
+        rows = conn.execute(text(
+            "SELECT u.id, u.dupes_json FROM upload_target u JOIN tracker t ON t.id = u.tracker_id "
+            "WHERE t.adapter_type = 'unit3d' AND u.dupes_json LIKE '%/torrent/download/%'"
+        )).all()
+        for target_id, raw in rows:
+            try:
+                dupes = json.loads(raw)
+            except ValueError:
+                continue
+            if not isinstance(dupes, list):
+                continue
+            changed = False
+            for dupe in dupes:
+                link = dupe.get("download_link") if isinstance(dupe, dict) else None
+                if isinstance(link, str) and strip_key(link) != link:
+                    dupe["download_link"] = strip_key(link)
+                    changed = True
+            if changed:
+                conn.execute(text("UPDATE upload_target SET dupes_json = :dupes WHERE id = :id"),
+                             {"dupes": json.dumps(dupes), "id": target_id})
+                stripped += 1
+    if stripped:
+        logger.info("Database: chiave tolta dai link dei dupe di %d upload", stripped)
+    return {"stripped": stripped}
+
+
 def _vacuum(engine: Engine) -> None:
     """Restituisce al disco lo spazio delle righe tolte. Un di più: serve
     spazio libero quanto il database, e se manca l'avvio continua."""
@@ -126,6 +166,7 @@ MIGRATIONS: tuple[Migration, ...] = (
               db.migrate_foreign_key_actions, before_schema=True),
     Migration(11, "candidati doppi tolti, link di download senza chiave", clean_stale_candidates,
               before_schema=False),
+    Migration(12, "link dei dupe degli upload senza chiave", strip_dupe_download_keys, before_schema=False),
 )
 
 LATEST = MIGRATIONS[-1].version

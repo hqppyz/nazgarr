@@ -206,7 +206,10 @@ class UploadTargetResponse(BaseModel):
             torrent_client_id=t.torrent_client_id,
             torrent_client_label=t.torrent_client.label if t.torrent_client else None,
             status=t.status, suggested_action=t.suggested_action, action=t.action,
-            dupes=_loads(t.dupes_json, []), reseed_torrent_id=t.reseed_torrent_id,
+            # Mai il link di download: nessuno lo usa da qui, e quelli salvati
+            # prima avevano la chiave personale del tracker (audit 2026-10-18).
+            dupes=[{k: v for k, v in d.items() if k != "download_link"} for d in _loads(t.dupes_json, [])],
+            reseed_torrent_id=t.reseed_torrent_id,
             proposed_name=t.proposed_name, approved_name=t.approved_name,
             flags=_loads(t.flags_json, {}), freeleech_options=upload_profiles.freeleech_options(profile),
             category_id=t.category_id, type_id=t.type_id,

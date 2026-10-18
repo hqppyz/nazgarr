@@ -73,7 +73,7 @@ from nazgarr.upload import watch as upload_watch
 from nazgarr.upload.decision import MAX_SCREENSHOTS
 from nazgarr.upload.description import render_description
 from nazgarr.upload.jobs import UploadJobError
-from nazgarr.upload.verify import build_locator
+from nazgarr.upload.verify import build_locator, dupe_torrent
 
 logger = logging.getLogger(__name__)
 
@@ -841,7 +841,7 @@ def run_reseed(session: Session, job: UploadJob, target: UploadTarget, ctx: dict
     upload_jobs.set_target_status(target, upload_jobs.TargetStatus.PREPARING)
     session.commit()
     with adapter_factory.tracker(target.tracker) as adapter:
-        content = adapter.download_torrent(dupe["download_link"])
+        content = dupe_torrent(adapter, dupe)  # la chiave del tracker rimessa qui
     # Il controllo completo vale per il .torrent che ha letto: quello che si
     # aggiunge al client dev'essere lo stesso, non uno riscaricato e cambiato
     # nel frattempo sul tracker.

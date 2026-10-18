@@ -309,6 +309,28 @@ def test_reseed_links_the_files_with_the_tracker_names(db_session, tmp_path, env
     assert env["trackers"]["a"].uploads == []  # un reseed non pubblica niente
 
 
+def test_a_reseed_puts_the_trackers_key_back_into_the_stored_link(db_session, tmp_path, env):
+    """Audit 2026-10-18 (finding 55): i link dei dupe si salvano senza la
+    chiave personale del tracker; il reseed la rimette solo per scaricare."""
+    job, _video = _reseed_job(db_session, tmp_path, env)
+    target = job.targets[0]
+    dupes = json.loads(target.dupes_json)
+    dupes[0]["download_link"] = "https://a.example/torrent/download/7.rsskey"
+    target.dupes_json = json.dumps(dupes)
+    db_session.commit()
+    tracker = env["trackers"]["a"]
+    tracker.rss_key = "CurrentKey"
+    tracker.rewrite_download_link = lambda url: url.replace(".rsskey", ".CurrentKey")
+    seen, download = [], tracker.download_torrent
+    tracker.download_torrent = lambda url: (seen.append(url), download(url))[1]
+
+    _run(db_session, tmp_path, job)
+
+    assert job.status == "done", [e.code for e in job.events]
+    assert seen == ["https://a.example/torrent/download/7.CurrentKey"]
+    assert "CurrentKey" not in job.targets[0].dupes_json
+
+
 def test_a_reseed_refuses_a_torrent_other_than_the_verified_one(db_session, tmp_path, env):
     # Il controllo completo ha letto un altro .torrent: quello riscaricato
     # non entra nel client, e niente hardlink.

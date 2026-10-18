@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 import pytest
 from sqlalchemy import text
 
-from nazgarr.adapters.tracker.base import TorrentCandidate
+from nazgarr.adapters.tracker.base import TorrentCandidate, Unit3dTrackerAdapter
 from nazgarr.core.models import ClientTorrent, ClientTorrentFile, RunLog, SeedFile, UploadJob
 from nazgarr.integrations.arr import ArrGrab
 from nazgarr.torrents import create as torrent_create
@@ -336,51 +336,84 @@ def test_a_truncated_catalogue_is_said_at_the_decision(db_session, tmp_path, mon
     assert (event.target_id, event.level, json.loads(event.params_json)) == (b.id, "warning", {"results": 1})
 
 
-def test_the_download_key_is_kept_encrypted_and_a_keyless_link_is_rebuilt(db_session, tmp_path, monkeypatch,
-                                                                         analyzing_job):
+class _Unit3dLike(_FakeTracker):
+    """Come UNIT3D: la chiave personale nei link di download, e
+    rewrite_download_link che rimette quella attuale."""
+
+    base_url = "https://a.example"
+    _DOWNLOAD_KEY_RE = Unit3dTrackerAdapter._DOWNLOAD_KEY_RE
+
+    def __init__(self, *args, rss_key=None, learns=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.rss_key, self.learns = rss_key, learns
+
+    def search_by_tmdb(self, tmdb_id):
+        self.rss_key = self.learns or self.rss_key  # dalle risposte dell'API, come _learn_rss_key
+        return super().search_by_tmdb(tmdb_id)
+
+    def rewrite_download_link(self, url):
+        return Unit3dTrackerAdapter.rewrite_download_link(self, url)
+
+
+def test_the_download_key_never_reaches_the_db_and_comes_back_for_the_full_hash_check(
+    db_session, tmp_path, monkeypatch, analyzing_job,
+):
     """Audit 2026-10-18 (finding 55): il link di download di UNIT3D ha la
-    chiave personale. La chiave imparata dalle risposte del tracker resta sul
-    tracker, cifrata; un link salvato senza (stored_link) si ricostruisce
-    con lei per il full hash check o il reseed (download_link)."""
-    from nazgarr.upload import dupes as upload_dupes
+    chiave personale, e finiva in chiaro nel dupes_json di ogni target (e
+    nella risposta dell'API). Si salva senza; la chiave imparata resta sul
+    tracker, cifrata, e torna solo quando il full hash check scarica il
+    .torrent."""
+    from nazgarr.api.uploads import UploadTargetResponse
 
+    source = analyzing_job.source_path
+    torrent_path, _ = torrent_create.create_torrent(source, "https://a.example/announce", str(tmp_path / "t.torrent"))
+    with open(torrent_path, "rb") as f:
+        torrent_bytes = f.read()
     link = "https://a.example/torrent/download/77.SeCrEtKey123"
-    candidate = _candidate("Movie.Name.2024.1080p.WEB-DL.DDP5.1.H.264-OTHER", 59 * MB, "77")
+    candidate = _candidate("Movie.Name.2024.1080p.WEB-DL-GRP", os.path.getsize(source), "77")
     candidate = type(candidate)(**{**candidate.__dict__, "download_link": link})
-    learning = _FakeTracker([candidate])
-    learning.rss_key = "SeCrEtKey123"
-    monkeypatch.setattr(upload_analysis.adapter_factory, "build_tracker_adapter", lambda t: learning)
+    fake = _Unit3dLike([candidate], torrent_bytes=torrent_bytes, learns="SeCrEtKey123")
 
-    _run(db_session, tmp_path, analyzing_job)
+    def build(tracker):
+        fake.rss_key = tracker.rss_key  # come plugins/builtin.py: la chiave salvata sul tracker
+        return fake
+
+    monkeypatch.setattr(upload_analysis.adapter_factory, "build_tracker_adapter", build)
+    worker = _run(db_session, tmp_path, analyzing_job)
+    fake.learns = None  # il full hash check non cerca: la chiave è solo quella del tracker
 
     target = analyzing_job.targets[0]
+    assert "SeCrEtKey123" not in target.dupes_json
+    assert json.loads(target.dupes_json)[0]["download_link"] == "https://a.example/torrent/download/77.rsskey"
+    assert "SeCrEtKey123" not in UploadTargetResponse.from_model(target).model_dump_json()
     db_session.refresh(target.tracker)
     assert target.tracker.rss_key == "SeCrEtKey123"
     raw = db_session.execute(text("SELECT rss_key FROM tracker WHERE id = :id"), {"id": target.tracker_id}).scalar()
     assert raw and "SeCrEtKey123" not in raw  # cifrata nel DB
 
-    keyless = upload_dupes.stored_link(link)
-    assert keyless == "https://a.example/torrent/download/77.rsskey"
-    assert upload_dupes.stored_link("https://t/dl?id=1") == "https://t/dl?id=1"
-    dupe = {"torrent_id_remote": "77", "download_link": keyless}
+    upload_verify.start(db_session, analyzing_job, target, "77", worker)
 
-    class Unit3d:
-        rss_key = "NewKey9"
+    db_session.refresh(target)
+    assert json.loads(target.dupes_json)[0]["verification"]["status"] == "passed"
+    assert fake.downloads == [link]  # la chiave rimessa solo per scaricare
 
-        def rewrite_download_link(self, url):
-            return url.rsplit(".", 1)[0] + "." + self.rss_key
 
-    assert upload_dupes.download_link(Unit3d(), dupe) == "https://a.example/torrent/download/77.NewKey9"
+def test_a_dupe_torrent_comes_from_its_link_as_stored_or_from_the_torrent_detail():
+    """verify.dupe_torrent: un link salvato prima, con la chiave dentro, o di
+    un tracker che non la usa, si scarica com'è; senza una chiave nota, il
+    link del dettaglio del torrent sul tracker."""
+    tracker = _Unit3dLike(torrent_bytes=b"t")
+    keyed = "https://a.example/torrent/download/5.OldKey"
+    assert upload_verify.dupe_torrent(tracker, {"torrent_id_remote": "5", "download_link": keyed}) == b"t"
+    assert upload_verify.dupe_torrent(tracker, {"download_link": "https://t/dl?id=1"}) == b"t"
+    assert tracker.downloads == [keyed, "https://t/dl?id=1"]
 
-    class NoKey:
-        rss_key = None
-
-        def get_torrent_detail(self, torrent_id):
-            return type("T", (), {"download_link": f"https://a.example/torrent/download/{torrent_id}.FromApi"})()
-
-    assert upload_dupes.download_link(NoKey(), dupe) == "https://a.example/torrent/download/77.FromApi"
-    # Senza chiave e senza dettaglio: nessun link, mai quello col segnaposto.
-    assert upload_dupes.download_link(type("Bare", (), {"rss_key": None})(), dupe) is None
-    # Un link salvato con la chiave dentro, o di un tracker senza chiave, resta com'è.
-    assert upload_dupes.download_link(NoKey(), {"download_link": link}) == link
-    assert upload_dupes.download_link(NoKey(), {"download_link": "https://t/dl?id=1"}) == "https://t/dl?id=1"
+    detail = "https://a.example/torrent/download/5.FromApi"
+    tracker.get_torrent_detail = lambda torrent_id: TorrentCandidate(
+        torrent_id_remote=torrent_id, info_hash=None, name="x", size_bytes=1, file_list=None,
+        mediainfo_unique_id=None, download_link=detail)
+    upload_verify.dupe_torrent(tracker, {"torrent_id_remote": "5",
+                                         "download_link": "https://a.example/torrent/download/5.rsskey"})
+    assert tracker.downloads[-1] == detail
+    with pytest.raises(upload_jobs.UploadJobError):
+        upload_verify.dupe_torrent(tracker, {"torrent_id_remote": "5", "download_link": None})
