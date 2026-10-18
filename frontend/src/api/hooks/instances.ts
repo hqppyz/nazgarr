@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { api, unwrap, type Schemas } from '@/api/client'
 import { getToken } from '@/lib/authToken'
+import { TOAST_ERRORS } from '@/lib/mutationErrors'
 
 export type Instance = Schemas['InstanceResponse']
 
@@ -39,6 +40,7 @@ export function useUpdateInstance() {
 export function useDeleteInstance() {
   const queryClient = useQueryClient()
   return useMutation({
+    meta: TOAST_ERRORS,
     mutationFn: (id: number) =>
       unwrap(api.DELETE('/api/instances/{instance_id}', { params: { path: { instance_id: id } } })),
     onSuccess: () => invalidate(queryClient),

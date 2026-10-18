@@ -15,6 +15,7 @@ import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { installChunkReload } from '@/lib/chunkReload'
+import { reportMutationError } from '@/lib/mutationErrors'
 import { CACHE_BUSTER, CACHE_MAX_AGE_MS, queryPersister, shouldPersistQuery } from '@/lib/queryPersistence'
 import './index.css'
 
@@ -33,6 +34,7 @@ const queryClient: QueryClient = new QueryClient({
   defaultOptions: { queries: { retry: shouldRetryQuery } },
   mutationCache: new MutationCache({
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['setup-status'] }),
+    onError: (error, _variables, _context, mutation) => reportMutationError(error, mutation),
   }),
 })
 // gcTime almeno quanto la cache persistita, ma solo per le query persistite

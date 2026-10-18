@@ -31,6 +31,7 @@ export const common = {
   'common.loadingLine7': 'Waiting for the eagles…',
   'common.loadingLine8': 'Your preciousss is on its way…',
   'common.loadingLine9': 'One step out the door, and who knows where the data will sweep you…',
+  'common.actionFailed': 'Failed: {message}',
   'common.saveFailed': 'Save failed: {message}',
   'common.leaveBlank': 'Leave blank to keep it unchanged',
   'common.workInProgress': 'Work in progress',

@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { api, unwrap } from '@/api/client'
 import type { Schemas } from '@/api/client'
+import { TOAST_ERRORS } from '@/lib/mutationErrors'
 
 export function useDisks() {
   return useQuery({
@@ -65,6 +66,7 @@ export function useRemoveDiskFolder() {
 export function useDeleteDisk() {
   const queryClient = useQueryClient()
   return useMutation({
+    meta: TOAST_ERRORS,
     mutationFn: (diskId: number) => unwrap(api.DELETE('/api/disks/{disk_id}', { params: { path: { disk_id: diskId } } })),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['disks'] })

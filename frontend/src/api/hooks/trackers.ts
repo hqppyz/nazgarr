@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { api, ApiError, unwrap } from '@/api/client'
 import type { Schemas } from '@/api/client'
+import { TOAST_ERRORS } from '@/lib/mutationErrors'
 
 export function useTrackers() {
   return useQuery({
@@ -30,6 +31,7 @@ export function useUpdateTracker() {
 export function useDeleteTracker() {
   const queryClient = useQueryClient()
   return useMutation({
+    meta: TOAST_ERRORS,
     mutationFn: (id: number) => unwrap(api.DELETE('/api/trackers/{tracker_id}', { params: { path: { tracker_id: id } } })),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['trackers'] }),
   })
@@ -62,6 +64,7 @@ export function useUploadProfile(trackerId: number) {
 export function useCreateUploadProfile(trackerId: number) {
   const queryClient = useQueryClient()
   return useMutation({
+    meta: TOAST_ERRORS,
     mutationFn: (body: Schemas['UploadProfileCreateRequest']) =>
       unwrap(api.POST('/api/trackers/{tracker_id}/upload-profile', { params: { path: { tracker_id: trackerId } }, body })),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['trackers', trackerId, 'upload-profile'] }),
@@ -85,6 +88,7 @@ export function useUpdateUploadProfile(trackerId: number) {
 export function useDeleteUploadProfile(trackerId: number) {
   const queryClient = useQueryClient()
   return useMutation({
+    meta: TOAST_ERRORS,
     mutationFn: () =>
       unwrap(api.DELETE('/api/trackers/{tracker_id}/upload-profile', { params: { path: { tracker_id: trackerId } } })),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['trackers', trackerId, 'upload-profile'] }),

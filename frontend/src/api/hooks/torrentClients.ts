@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { api, unwrap } from '@/api/client'
 import type { Schemas } from '@/api/client'
+import { TOAST_ERRORS } from '@/lib/mutationErrors'
 
 export function useTorrentClients() {
   return useQuery({
@@ -30,6 +31,7 @@ export function useUpdateTorrentClient() {
 export function useDeleteTorrentClient() {
   const queryClient = useQueryClient()
   return useMutation({
+    meta: TOAST_ERRORS,
     mutationFn: (id: number) =>
       unwrap(api.DELETE('/api/torrent-clients/{torrent_client_id}', { params: { path: { torrent_client_id: id } } })),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['torrent-clients'] }),

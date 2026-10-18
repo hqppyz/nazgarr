@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { api, unwrap } from '@/api/client'
 import type { Schemas } from '@/api/client'
+import { TOAST_ERRORS } from '@/lib/mutationErrors'
 
 export type Webhook = Schemas['WebhookResponse']
 
@@ -38,6 +39,7 @@ export function useUpdateWebhook() {
 
 export function useRotateWebhookSecret() {
   return useMutation({
+    meta: TOAST_ERRORS,
     mutationFn: (id: number) =>
       unwrap(api.POST('/api/webhooks/{webhook_id}/rotate-secret', { params: { path: { webhook_id: id } } })),
   })

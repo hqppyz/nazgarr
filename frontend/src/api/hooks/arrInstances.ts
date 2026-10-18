@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { api, unwrap } from '@/api/client'
 import type { Schemas } from '@/api/client'
+import { TOAST_ERRORS } from '@/lib/mutationErrors'
 
 export function useRadarrInstances() {
   return useQuery({
@@ -30,6 +31,7 @@ export function useUpdateRadarrInstance() {
 export function useDeleteRadarrInstance() {
   const queryClient = useQueryClient()
   return useMutation({
+    meta: TOAST_ERRORS,
     mutationFn: (id: number) =>
       unwrap(api.DELETE('/api/radarr-instances/{instance_id}', { params: { path: { instance_id: id } } })),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['radarr-instances'] }),
@@ -79,6 +81,7 @@ export function useUpdateSonarrInstance() {
 export function useDeleteSonarrInstance() {
   const queryClient = useQueryClient()
   return useMutation({
+    meta: TOAST_ERRORS,
     mutationFn: (id: number) =>
       unwrap(api.DELETE('/api/sonarr-instances/{instance_id}', { params: { path: { instance_id: id } } })),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['sonarr-instances'] }),
@@ -108,6 +111,7 @@ export type ArrKind = 'radarr' | 'sonarr'
 export function useSetupArrWebhook(kind: ArrKind) {
   const queryClient = useQueryClient()
   return useMutation({
+    meta: TOAST_ERRORS,
     mutationFn: (id: number) =>
       kind === 'radarr'
         ? unwrap(api.POST('/api/radarr-instances/{instance_id}/webhook', { params: { path: { instance_id: id } } }))
@@ -119,6 +123,7 @@ export function useSetupArrWebhook(kind: ArrKind) {
 export function useRemoveArrWebhook(kind: ArrKind) {
   const queryClient = useQueryClient()
   return useMutation({
+    meta: TOAST_ERRORS,
     mutationFn: (id: number) =>
       kind === 'radarr'
         ? unwrap(api.DELETE('/api/radarr-instances/{instance_id}/webhook', { params: { path: { instance_id: id } } }))

@@ -31,6 +31,7 @@ export const common = {
   'common.loadingLine7': 'Si aspettano le aquile…',
   'common.loadingLine8': 'Il tuo tesssoro sta arrivando…',
   'common.loadingLine9': 'Un passo fuori dalla porta, e chissà dove ti portano i dati…',
+  'common.actionFailed': 'Non riuscito: {message}',
   'common.saveFailed': 'Salvataggio non riuscito: {message}',
   'common.leaveBlank': 'Lascia vuoto per non cambiarlo',
   'common.workInProgress': 'Lavori in corso',
