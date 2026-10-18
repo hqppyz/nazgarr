@@ -111,6 +111,47 @@ def test_positions_stay_when_the_dates_agree_within_a_few_days():
     assert netflix.seasons[1][6].refs == [(1, 7)]
 
 
+def test_a_one_day_release_on_one_side_only_keeps_the_positions():
+    """Audit 2026-10-18 (verifica del fix): TVDB con tutti gli episodi nel
+    giorno dello streaming, TMDB con le settimane della trasmissione. Per
+    data andrebbero tutti su (1, 1); le date di una parte non distinguono
+    le posizioni, e restano quelle. Anche al contrario."""
+    weekly = {(1, n): d for n, d in enumerate(_weekly("2021-03-01", 8), 1)}
+    drop = {(1, n): "2021-03-01" for n in range(1, 9)}
+    tvdb = _order("tvdb:official", {1: 8}, "tvdb", refs=False, dates=drop)
+    eo.align_to(tvdb, _order("tmdb:default", {1: 8}, dates=weekly))
+    assert [e.refs for e in tvdb.seasons[1]] == [[(1, n)] for n in range(1, 9)]
+    eo.clear_cache()
+    tvdb = _order("tvdb:official", {1: 8}, "tvdb", refs=False, dates=weekly)
+    eo.align_to(tvdb, _order("tmdb:default", {1: 8}, dates=drop))
+    assert [e.refs for e in tvdb.seasons[1]] == [[(1, n)] for n in range(1, 9)]
+
+
+def test_a_few_dated_pairs_do_not_decide_for_the_whole_show():
+    """Audit 2026-10-18 (verifica del fix): 20 episodi, solo 3 con la data da
+    tutte e due le parti, 2 lontani. Per data 19 su 20 restavano senza
+    riferimenti: meno di metà delle coppie con le date non decide."""
+    days = _weekly("2021-03-01", 20)
+    tmdb = _order("tmdb:default", {1: 20}, dates={(1, n): d for n, d in enumerate(days, 1)})
+    tvdb = _order("tvdb:official", {1: 20}, "tvdb", refs=False,
+                  dates={(1, 1): days[0], (1, 5): "2022-06-01", (1, 9): "2023-01-01"})
+    eo.align_to(tvdb, tmdb)
+    assert [e.refs for e in tvdb.seasons[1]] == [[(1, n)] for n in range(1, 21)]
+
+
+def test_halves_aired_together_still_fall_back_to_dates():
+    """Le due metà di un episodio con la stessa data contano una volta: la
+    metà sfasata torna per data anche col controllo delle date ripetute."""
+    days = _weekly("2022-01-05", 6)
+    tmdb = _order("tmdb:default", {1: 5}, dates={(1, n): days[n] for n in range(1, 6)})  # dalla seconda settimana
+    halves = _order("tvdb:dvd", {1: 10}, "tvdb", refs=False,
+                    dates={(1, n): days[(n - 1) // 2] for n in range(1, 11)})
+    eo.align_to(halves, tmdb)
+    refs = [e.refs for e in halves.seasons[1]]
+    assert refs[:2] == [[], []]  # la prima settimana: TMDB non ce l'ha
+    assert refs[2:4] == [[(1, 1)], [(1, 1)]] and refs[8:] == [[(1, 4)], [(1, 4)]]
+
+
 def test_titles_still_win_after_the_fall_back_to_dates():
     tmdb, sonarr = _pilot_and_split_finale()
     tmdb.seasons[1][4].titles = ["The Long Night"]

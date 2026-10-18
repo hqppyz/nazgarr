@@ -158,7 +158,8 @@ def align(episodes: list[tuple[int, OrderEpisode]], reference: list[tuple[int, O
 # che una fonte tiene nella stagione 1 e l'altra fra gli speciali, più un
 # finale diviso in due da una parte sola, e i conteggi tornano lo stesso).
 DATE_TOLERANCE_DAYS = 3
-# Con meno coppie con le due date di così le date non decidono niente.
+# Con meno coppie con le due date di così (o meno di metà delle coppie)
+# le date non decidono niente.
 MIN_DATED_PAIRS = 2
 
 
@@ -173,19 +174,40 @@ def _dates_disagree(episodes: list[tuple[int, OrderEpisode]], reference: list[tu
     """Le coppie fatte per posizione hanno, per la maggior parte, date di
     uscita lontane più di DATE_TOLERANCE_DAYS (contano solo quelle con la
     data da tutte e due le parti; per un episodio con due riferimenti, il
-    più vicino). Una serie uscita tutta in un giorno non lo dice mai: lì
-    le date non distinguono le posizioni, e restano quelle."""
+    più vicino). Mai se le date non distinguono le posizioni da una delle
+    due parti (audit 2026-10-18): una serie uscita tutta in un giorno anche
+    da una parte sola (lo streaming da una, le settimane della trasmissione
+    dall'altra) per data andrebbe tutta sullo stesso riferimento. Né se le
+    coppie con le due date sono meno di metà: poche date non decidono per
+    tutta la serie."""
     ref_days = {(season, ep.number): _day(ep.air_date) for season, ep in reference}
+    # Le date per unità dell'allineamento: le due metà di un episodio
+    # (lo stesso riferimento) contano una volta, come i riferimenti usati
+    # da più episodi, così il doppio e la metà non sembrano date ripetute.
+    mine_by_unit: dict[tuple[Ref, ...], date] = {}
+    theirs_by_ref: dict[Ref, date] = {}
     dated = far = 0
     for _season, ep in episodes:
         mine = _day(ep.air_date)
-        theirs = [d for d in (ref_days.get(r) for r in ep.refs) if d is not None]
-        if mine is None or not theirs:
+        if mine is None:
             continue
+        theirs = [(abs((mine - d).days), d, r) for r in ep.refs if (d := ref_days.get(r)) is not None]
+        if not theirs:
+            continue
+        distance, day, ref = min(theirs)
         dated += 1
-        if min(abs((mine - d).days) for d in theirs) > DATE_TOLERANCE_DAYS:
+        mine_by_unit.setdefault(tuple(ep.refs), mine)
+        theirs_by_ref[ref] = day
+        if distance > DATE_TOLERANCE_DAYS:
             far += 1
-    return dated >= MIN_DATED_PAIRS and far * 2 > dated
+    if dated < MIN_DATED_PAIRS or dated * 2 < len(episodes):
+        return False
+    # Metà delle date diverse o meno, da una delle due parti: troppo
+    # poche per distinguere le posizioni.
+    for days in (mine_by_unit.values(), theirs_by_ref.values()):
+        if len(set(days)) * 2 <= len(days):
+            return False
+    return far * 2 > dated
 
 
 def _align_by_shape(episodes: list[tuple[int, OrderEpisode]], reference: list[tuple[int, OrderEpisode]]) -> None:
