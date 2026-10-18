@@ -261,12 +261,28 @@ def clear_cache() -> None:
         _cache.clear()
 
 
+def _int(value) -> int | None:
+    """Un numero di stagione o di episodio come arriva da TMDB, Sonarr o
+    TVDB: solo un intero vero (audit 2026-10-18). Un null o un testo
+    passavano e facevano fallire ordinamento e risposta con un TypeError,
+    per quella serie finché la fonte non si correggeva."""
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def _titles(value) -> list[str]:
+    return [value if isinstance(value, str) else ""]
+
+
+def _date(value) -> str | None:
+    return value if isinstance(value, str) and value else None
+
+
 def tmdb_orders(client, tmdb_id: int) -> list[EpisodeOrder]:
     """Le stagioni di default (con gli episodi: una chiamata ogni 20
     stagioni) e i gruppi di episodi, che portano i numeri di default."""
     def fetch() -> list[EpisodeOrder]:
         show = client.get(f"/tv/{tmdb_id}")
-        numbers = [s["season_number"] for s in show.get("seasons") or []]
+        numbers = [n for n in (_int(s.get("season_number")) for s in show.get("seasons") or []) if n is not None]
         default = EpisodeOrder(TMDB_DEFAULT, "TMDB", "tmdb")
         for start in range(0, len(numbers), 20):
             chunk = numbers[start:start + 20]
@@ -274,9 +290,9 @@ def tmdb_orders(client, tmdb_id: int) -> list[EpisodeOrder]:
             for n in chunk:
                 season = body.get(f"season/{n}") or {}
                 default.seasons[n] = [
-                    OrderEpisode(number=e["episode_number"], titles=[e.get("name") or ""],
-                                 air_date=e.get("air_date"), refs=[(n, e["episode_number"])])
-                    for e in season.get("episodes") or []
+                    OrderEpisode(number=number, titles=_titles(e.get("name")), air_date=_date(e.get("air_date")),
+                                 refs=[(n, number)])
+                    for e in season.get("episodes") or [] if (number := _int(e.get("episode_number"))) is not None
                 ]
         orders = [default]
         for group in client.get(f"/tv/{tmdb_id}/episode_groups").get("results") or []:
@@ -292,10 +308,12 @@ def tmdb_orders(client, tmdb_id: int) -> list[EpisodeOrder]:
                 season = _group_season(part, index, parts)
                 if season in order.seasons:
                     continue  # due gruppi con lo stesso numero: tiene il primo
+                episodes = [e for e in part.get("episodes") or []
+                            if _int(e.get("season_number")) is not None and _int(e.get("episode_number")) is not None]
                 order.seasons[season] = [
-                    OrderEpisode(number=pos + 1, titles=[e.get("name") or ""], air_date=e.get("air_date"),
+                    OrderEpisode(number=pos + 1, titles=_titles(e.get("name")), air_date=_date(e.get("air_date")),
                                  refs=[(e["season_number"], e["episode_number"])])
-                    for pos, e in enumerate(sorted(part.get("episodes") or [], key=lambda e: e.get("order", 0)))
+                    for pos, e in enumerate(sorted(episodes, key=lambda e: _int(e.get("order")) or 0))
                 ]
             if order.seasons:
                 orders.append(order)
@@ -365,10 +383,11 @@ def sonarr_order(session: Session, tmdb_id: int, tvdb_id: int | None, api_factor
                                lambda: api.get("/api/v3/episode", seriesId=series["id"]) or [],
                                ttl=SONARR_CACHE_SECONDS)
             for e in episodes:
-                if e.get("seasonNumber") is None or e.get("episodeNumber") is None:
+                season, number = _int(e.get("seasonNumber")), _int(e.get("episodeNumber"))
+                if season is None or number is None:
                     continue
-                order.seasons.setdefault(e["seasonNumber"], []).append(
-                    OrderEpisode(number=e["episodeNumber"], titles=[e.get("title") or ""], air_date=e.get("airDate")))
+                order.seasons.setdefault(season, []).append(
+                    OrderEpisode(number=number, titles=_titles(e.get("title")), air_date=_date(e.get("airDate"))))
             for eps in order.seasons.values():
                 eps.sort(key=lambda ep: ep.number)
             return order
@@ -423,10 +442,11 @@ def tvdb_orders(api: TvdbApi, tvdb_id: int) -> list[EpisodeOrder]:
             while page is not None and page < 50:
                 body = api.get(f"/series/{tvdb_id}/episodes/{kind}", page=page)
                 for e in body.get("episodes") or []:
-                    if e.get("seasonNumber") is None or e.get("number") is None:
+                    season, number = _int(e.get("seasonNumber")), _int(e.get("number"))
+                    if season is None or number is None:
                         continue
-                    order.seasons.setdefault(e["seasonNumber"], []).append(
-                        OrderEpisode(number=e["number"], titles=[e.get("name") or ""], air_date=e.get("aired")))
+                    order.seasons.setdefault(season, []).append(
+                        OrderEpisode(number=number, titles=_titles(e.get("name")), air_date=_date(e.get("aired"))))
                 page = page + 1 if (body.get("episodes") and len(body["episodes"]) >= 500) else None
             for eps in order.seasons.values():
                 eps.sort(key=lambda ep: ep.number)
@@ -520,7 +540,15 @@ def collect(session: Session, tmdb_id: int, tvdb_id: int | None, found: dict[int
     if default is not None:
         for order in orders:
             if order.source in ("sonarr", "tvdb"):
-                align_to(order, default)
+                try:
+                    align_to(order, default)
+                except Exception:
+                    # Un ordinamento che non si allinea resta senza
+                    # riferimenti (non si traduce), gli altri no.
+                    logger.warning("Ordinamento %s di %s non allineato a TMDB", order.key, tmdb_id, exc_info=True)
+                    for eps in order.seasons.values():
+                        for ep in eps:
+                            ep.refs = []
     return orders
 
 

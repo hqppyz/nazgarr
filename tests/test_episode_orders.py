@@ -494,3 +494,67 @@ def test_the_cache_keeps_a_bounded_number_of_entries(monkeypatch):
     for n in range(5):
         eo._cached(("k", n), lambda n=n: n)
     assert list(eo._cache) == [("k", 2), ("k", 3), ("k", 4)]
+
+
+def test_malformed_numbers_and_titles_from_the_sources_are_skipped(db_session):
+    """Audit 2026-10-18: un episode_number null o un titolo non testo da
+    TMDB o Sonarr facevano fallire build() (e le API sopra) con un TypeError."""
+    from nazgarr.core.models import SonarrInstance
+
+    class Tmdb:
+        def get(self, path, **params):
+            if path == "/tv/5" and not params:
+                return {"seasons": [{"season_number": 1}, {"season_number": None}]}
+            if path == "/tv/5":
+                return {"season/1": {"episodes": [
+                    {"episode_number": 1, "name": "Pilot", "air_date": "2020-01-01"},
+                    {"episode_number": None, "name": "Broken"},
+                    {"episode_number": "3", "name": "Text"},
+                    {"episode_number": 2, "name": 42, "air_date": 7},
+                ]}}
+            if path == "/tv/5/episode_groups":
+                return {"results": [{"id": "g", "name": "G", "type": 4, "episode_count": 2}]}
+            if path == "/tv/episode_group/g":
+                return {"groups": [{"order": 0, "name": "Season 1", "episodes": [
+                    {"season_number": 1, "episode_number": 1, "order": 0},
+                    {"season_number": None, "episode_number": 2, "order": 1}]}]}
+            raise AssertionError(path)
+
+    class Sonarr:
+        def __init__(self, instance):
+            pass
+
+        def get(self, path, **params):
+            if path == "/api/v3/series":
+                return [{"id": 1, "tmdbId": 5}]
+            return [{"seasonNumber": 1, "episodeNumber": 1, "title": ["not", "text"]},
+                    {"seasonNumber": 1, "episodeNumber": "2", "title": "Two"},
+                    {"seasonNumber": 1, "episodeNumber": 2, "title": 99}]
+
+    alone = eo.build(db_session, 5, None, {1: [1, 2]}, pack=True, tmdb_api=Tmdb())
+    tmdb = next(o for o in alone["orders"] if o["key"] == "tmdb:default")
+    assert [(e["number"], e["titles"], e["air_date"]) for e in tmdb["seasons"][0]["episodes"]] == [
+        (1, ["Pilot"], "2020-01-01"), (2, [""], None)]
+    group = next(o for o in alone["orders"] if o["key"] == "tmdb:group:g")
+    assert [e["refs"] for e in group["seasons"][0]["episodes"]] == [[[1, 1]]]
+
+    db_session.add(SonarrInstance(label="s", base_url="http://s", api_key="k"))
+    db_session.commit()
+    eo.clear_cache()
+    result = eo.build(db_session, 5, None, {1: [1, 2]}, pack=True, tmdb_api=Tmdb(), sonarr_factory=Sonarr)
+    sonarr = next(o for o in result["orders"] if o["key"] == "sonarr:aired")
+    assert [(e["number"], e["titles"], e["refs"]) for e in sonarr["seasons"][0]["episodes"]] == [
+        (1, [""], [[1, 1]]), (2, [""], [[1, 2]])]
+
+
+def test_an_order_that_fails_to_align_is_left_without_references(db_session, monkeypatch):
+    from nazgarr.core.models import SonarrInstance
+
+    db_session.add(SonarrInstance(label="sonarr", base_url="http://s", api_key="k"))
+    db_session.commit()
+    monkeypatch.setattr(eo, "align", lambda episodes, reference: 1 / 0)
+
+    result = eo.build(db_session, 96677, 375921, {1: [1]}, pack=False, tmdb_api=FakeTmdb(), sonarr_factory=FakeSonarr)
+
+    sonarr = next(o for o in result["orders"] if o["key"] == "sonarr:aired")
+    assert all(e["refs"] == [] for s in sonarr["seasons"] for e in s["episodes"])
