@@ -61,7 +61,8 @@ def db_session(tmp_path, monkeypatch):
 
 @pytest.fixture
 def _quiet_background(request, monkeypatch):
-    """L'app dei test (client, anon_client) non fa lavoro in background
+    """L'app dei test (client, anon_client, e ogni test che entra nella
+    lifespan con un suo TestClient e chiede questo fixture) non fa lavoro in background
     (audit 2026-10-18): lo scheduler parte in pausa (i job ci sono, get_job
     e reschedule funzionano, nessuno gira) e il worker di upload non riprende
     i job interrotti. Prima ogni test delle API girava con i thread veri: un
