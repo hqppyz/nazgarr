@@ -29,7 +29,7 @@ from collections import defaultdict
 from sqlalchemy import or_, tuple_
 from sqlalchemy.orm import Session
 
-from nazgarr.core.fs_scope import resolve_scoped
+from nazgarr.core.fs_scope import ScopeViolation, resolve_scoped
 from nazgarr.core.models import MediaFile, SeedFile
 from nazgarr.library.scan_state import latest_scan_by_disk
 
@@ -96,27 +96,54 @@ logger = logging.getLogger(__name__)
 class LinkProblem(Exception):
     """Un hardlink che non si può creare. code: source_not_a_file (un symlink
     o niente), cross_device (un hardlink non attraversa i filesystem),
-    target_exists (un altro file al suo posto: mai sovrascritto)."""
+    target_exists (un altro file al suo posto, o un link simbolico: mai
+    sovrascritto né seguito)."""
 
     def __init__(self, code: str, path: str, detail: str = ""):
         super().__init__(f"{code}: {path}")
         self.code, self.path, self.detail = code, path, detail
 
 
+def _refuse_symlinks(root: str, target: str) -> None:
+    """Nessun link simbolico fra root e la destinazione, sul percorso così
+    come è scritto (audit 2026-10-18). resolve_scoped lo risolve, e prima il
+    controllo guardava il percorso già risolto: un link simbolico al posto
+    della destinazione veniva seguito, e l'hardlink nasceva dove puntava (il
+    percorso approvato restava un link simbolico), o un link verso un
+    hardlink già lì passava per un cross-seed da riusare. La destinazione è
+    un target_exists; una cartella sopra è fuori scope, anche se punta
+    dentro root: il torrent la vedrebbe da un'altra parte."""
+    path = root
+    parts = [part for part in os.path.relpath(target, root).split(os.sep) if part not in ("", ".")]
+    for i, part in enumerate(parts):
+        path = os.path.join(path, part)
+        if not os.path.islink(path):
+            if not os.path.lexists(path):
+                return  # da qui in giù non c'è niente: lo crea create_links
+            continue
+        if i == len(parts) - 1:
+            raise LinkProblem("target_exists", target)
+        raise ScopeViolation(path)
+
+
 def check_link(source: str, target: str, root: str) -> str | None:
     """Prima di creare: la sorgente è un file vero (non un link simbolico),
     sullo stesso filesystem di root; la destinazione resta dentro root anche
-    a percorso risolto (ScopeViolation, nazgarr/core/fs_scope.py) ed è libera.
-    Restituisce la destinazione risolta, o None se c'è già lo stesso file
-    (un cross-seed con lo stesso nome: si riusa)."""
+    a percorso risolto (ScopeViolation, nazgarr/core/fs_scope.py), nessun
+    link simbolico la porta altrove (_refuse_symlinks) ed è libera.
+    Restituisce la destinazione risolta, da passare a create_links, o None
+    se c'è già lo stesso file (un cross-seed con lo stesso nome: si riusa).
+    Il percorso va passato così come è scritto, mai già risolto: risolto, un
+    link simbolico al suo posto non si vede più."""
     if os.path.islink(source) or not os.path.isfile(source):
         raise LinkProblem("source_not_a_file", source)
     source_dev, root_dev = os.stat(source).st_dev, os.stat(root).st_dev
     if source_dev != root_dev:
         raise LinkProblem("cross_device", source, f"{source_dev} != {root_dev}")
     resolved = resolve_scoped(root, os.path.relpath(target, root))
+    _refuse_symlinks(root, target)
     if os.path.lexists(resolved):
-        if os.path.islink(resolved) or not os.path.samefile(source, resolved):
+        if not os.path.samefile(source, resolved):
             raise LinkProblem("target_exists", target)
         return None
     return resolved
@@ -143,7 +170,7 @@ def make_dirs(path: str) -> None:
     _like_parent(path, parent)
 
 
-def _like_parent(path: str, parent: str) -> None:
+def _inherit(model: os.stat_result, current: os.stat_result, chmod, chown, label: str) -> None:
     """Aggiunge a una cartella appena creata i permessi di quella sopra, senza
     mai toglierne: rwx per Nazgarr restano sempre. Sulle condivisioni con le
     ACL (Synology, i dataset NFSv4 di TrueNAS) i bit di quella sopra possono
@@ -151,29 +178,105 @@ def _like_parent(path: str, parent: str) -> None:
     la cartella a 0000, e l'hardlink dopo falliva con EACCES a ogni tentativo.
     Lì non si tocca niente: decide l'ACL ereditata."""
     try:
-        model = os.stat(parent)
         model_bits = stat.S_IMODE(model.st_mode)
         if model_bits & 0o777:
-            current = stat.S_IMODE(os.stat(path).st_mode)
-            wanted = current | (model_bits & 0o2777) | stat.S_IRWXU  # mai setuid o sticky
-            if wanted != current:
-                os.chmod(path, wanted)
-        if os.stat(path).st_gid != model.st_gid:
-            os.chown(path, -1, model.st_gid)
+            bits = stat.S_IMODE(current.st_mode)
+            wanted = bits | (model_bits & 0o2777) | stat.S_IRWXU  # mai setuid o sticky
+            if wanted != bits:
+                chmod(wanted)
+        if current.st_gid != model.st_gid:
+            chown(model.st_gid)
     except OSError as exc:  # SMB decide i permessi al mount; un gruppo non nostro: EPERM
+        logger.debug("Permessi di %s non copiati dalla cartella sopra: %s", label, exc)
+
+
+def _like_parent(path: str, parent: str) -> None:
+    try:
+        model, current = os.stat(parent), os.stat(path)
+    except OSError as exc:
         logger.debug("Permessi di %s non copiati da %s: %s", path, parent, exc)
+        return
+    _inherit(model, current, lambda bits: os.chmod(path, bits), lambda gid: os.chown(path, -1, gid), path)
+
+
+# Gli hardlink si creano e si tolgono attraverso le cartelle aperte una per
+# una, dalla radice del filesystem, senza mai seguire un link simbolico
+# (O_NOFOLLOW): check_link guarda il percorso prima, ma fra il controllo e il
+# link (una commit del DB, per l'esecutore) una cartella poteva diventare un
+# link simbolico, e makedirs e link l'avrebbero seguito fuori dalla
+# cartella approvata; lo stesso per un unlink dopo (audit 2026-10-18). Le
+# destinazioni sono quelle che restituisce check_link, già risolte: un link
+# simbolico che compare lungo il percorso vuol dire che qualcosa è cambiato,
+# e l'operazione fallisce (ELOOP/ENOTDIR) invece di seguirlo.
+_DIR_FLAGS = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+_FD_OPS = (hasattr(os, "O_DIRECTORY") and hasattr(os, "O_NOFOLLOW")
+           and all(f in os.supports_dir_fd for f in (os.open, os.mkdir, os.link, os.unlink, os.rmdir)))
+
+
+def _open_parent(path: str, create: bool) -> int:
+    """Il descrittore della cartella che contiene path, aperta componente
+    per componente senza seguire link simbolici; con create le cartelle che
+    mancano si creano (con i permessi di quella sopra, come make_dirs)."""
+    parts = [part for part in os.path.dirname(os.path.abspath(path)).split(os.sep) if part]
+    fd = os.open(os.sep, _DIR_FLAGS)
+    try:
+        for part in parts:
+            try:
+                child = os.open(part, _DIR_FLAGS, dir_fd=fd)
+            except FileNotFoundError:
+                if not create:
+                    raise
+                try:
+                    os.mkdir(part, dir_fd=fd)
+                    made = True
+                except FileExistsError:
+                    made = False  # creata da qualcun altro nel frattempo: la sua resta com'è
+                child = os.open(part, _DIR_FLAGS, dir_fd=fd)
+                if made:
+                    _inherit(os.fstat(fd), os.fstat(child), lambda bits, c=child: os.fchmod(c, bits),
+                             lambda gid, c=child: os.fchown(c, -1, gid), part)
+            os.close(fd)
+            fd = child
+        return fd
+    except BaseException:
+        os.close(fd)
+        raise
+
+
+def _link(source: str, target: str) -> None:
+    if not _FD_OPS:  # una piattaforma senza linkat/openat: per percorso, come prima
+        make_dirs(os.path.dirname(target))
+        os.link(source, target, follow_symlinks=False)
+        return
+    fd = _open_parent(target, create=True)
+    try:
+        os.link(source, os.path.basename(target), dst_dir_fd=fd, follow_symlinks=False)
+    finally:
+        os.close(fd)
+
+
+def _unlink(path: str, directory: bool = False) -> None:
+    remove = os.rmdir if directory else os.unlink
+    if not _FD_OPS:
+        remove(path)
+        return
+    fd = _open_parent(path, create=False)
+    try:
+        remove(os.path.basename(path), dir_fd=fd)
+    finally:
+        os.close(fd)
 
 
 def create_links(pairs: list[tuple[str, str]]) -> list[str]:
     """Crea gli hardlink (sorgente, destinazione) già controllati con
-    check_link, senza mai seguire link simbolici. Se uno fallisce, toglie
-    quelli appena creati e rilancia: mai un torrent ricreato a metà.
-    Restituisce le destinazioni create."""
+    check_link (la destinazione che ha restituito), senza mai seguire link
+    simbolici, nemmeno nelle cartelle sopra. Se uno fallisce, toglie quelli
+    appena creati e rilancia: mai un torrent ricreato a metà. Restituisce le
+    destinazioni create."""
     created: list[str] = []
     try:
         for source, target in pairs:
-            make_dirs(os.path.dirname(target))
-            os.link(source, target, follow_symlinks=False)
+            _link(source, target)
             created.append(target)
     except OSError:
         remove_links(created)
@@ -181,10 +284,25 @@ def create_links(pairs: list[tuple[str, str]]) -> list[str]:
     return created
 
 
-def remove_links(paths: list[str]) -> None:
-    """Toglie hardlink creati da questa esecuzione (mai i file di partenza)."""
+def remove_links(paths: list[str], prune_up_to: str | None = None) -> None:
+    """Toglie hardlink creati da questa esecuzione (mai i file di partenza),
+    senza seguire link simbolici nelle cartelle sopra: una cartella diventata
+    un link simbolico dopo la creazione non porta a togliere un file con lo
+    stesso nome altrove. prune_up_to: toglie anche le cartelle rimaste vuote
+    fra il file e quella cartella (esclusa)."""
     for path in paths:
         try:
-            os.unlink(path)
+            _unlink(path)
         except OSError:
             logger.warning("Impossibile rimuovere l'hardlink %s", path)
+            continue
+        if prune_up_to is None:
+            continue
+        stop = os.path.abspath(prune_up_to)
+        parent = os.path.dirname(os.path.abspath(path))
+        while parent.startswith(stop + os.sep):
+            try:
+                _unlink(parent, directory=True)  # solo se vuota
+            except OSError:
+                break
+            parent = os.path.dirname(parent)
