@@ -29,6 +29,7 @@ from nazgarr.upload import file_names as upload_file_names
 from nazgarr.upload import identify as upload_identify
 from nazgarr.upload import jobs as upload_jobs
 from nazgarr.upload import match_score as upload_match_score
+from nazgarr.upload import naming_rules
 from nazgarr.upload import pack as upload_pack
 from nazgarr.upload import profiles as upload_profiles
 from nazgarr.upload import split as upload_split
@@ -497,8 +498,20 @@ def get_file_naming(session: Session = Depends(get_session)) -> dict:
     return {"rules": upload_file_names.rules(session), "default": upload_file_names.DEFAULT_RULES}
 
 
+def _check_naming_rules(rules: dict) -> None:
+    """Regole con la forma che naming.py si aspetta, o un 400 che dice quale
+    chiave (audit 2026-10-18): salvate storte facevano fallire l'analisi di
+    ogni upload, e l'anteprima rispondeva 500. Come per i profili
+    (nazgarr/api/trackers.py)."""
+    try:
+        naming_rules.validate(rules)
+    except naming_rules.NamingRulesError as exc:
+        raise HTTPException(status_code=400, detail=from_coded_error(exc)) from exc
+
+
 @router.put("/file-naming")
 def put_file_naming(body: FileNamingRequest, session: Session = Depends(get_session)) -> dict:
+    _check_naming_rules(body.rules)
     settings_repo.set_setting(session, upload_file_names.SETTING, json.dumps(body.rules))
     return get_file_naming(session)
 
@@ -507,6 +520,7 @@ def put_file_naming(body: FileNamingRequest, session: Session = Depends(get_sess
 def preview_file_naming(body: FileNamingRequest, session: Session = Depends(get_session)) -> dict:
     """Le regole in modifica sugli esempi (e sull'ultimo upload), con i nomi
     puliti come diventano i file: niente ":" né accenti, un punto alla volta."""
+    _check_naming_rules(body.rules)
     preview = upload_decision.preview_names(session, body.rules)
     preview["names"] = {key: upload_file_names.sanitize(name) + ".mkv" for key, name in preview["names"].items()}
     for example in preview.get("examples", []):

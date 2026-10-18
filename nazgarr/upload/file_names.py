@@ -22,6 +22,7 @@ e calcola gli hash da lì.
 """
 
 import json
+import logging
 import os
 import re
 import unicodedata
@@ -35,8 +36,11 @@ from nazgarr.core.file_types import is_video
 from nazgarr.core.models import ClientTorrent, ClientTorrentFile, SeedFile, TrackerUploadProfile, UploadJob
 from nazgarr.library import episode_orders
 from nazgarr.upload import inventory as upload_inventory
+from nazgarr.upload import naming_rules
 from nazgarr.upload import pack as upload_pack
 from nazgarr.upload.naming import build_name, detect_with_fallback, release_values, with_tracker_language
+
+logger = logging.getLogger(__name__)
 
 MODES = ("hardlink", "generated", "original")
 SETTING = "upload_file_naming_rules"
@@ -64,10 +68,19 @@ DEFAULT_RULES = {
 
 
 def rules(session: Session) -> dict:
+    """Le regole salvate (PUT /api/uploads/file-naming), o quelle di default
+    se non ce ne sono o non hanno più la forma attesa
+    (nazgarr/upload/naming_rules.py): regole storte salvate prima del
+    controllo facevano fallire l'analisi di ogni upload, con un TypeError
+    lontano dalla modifica che le aveva causate (audit 2026-10-18)."""
     raw = settings_repo.get_setting(session, SETTING)
+    if not raw:
+        return DEFAULT_RULES
     try:
-        return json.loads(raw) if raw else DEFAULT_RULES
-    except ValueError:
+        return naming_rules.validate(json.loads(raw))
+    except (ValueError, naming_rules.NamingRulesError) as exc:
+        logger.warning("Regole dei nomi dei file salvate non valide (%s): si usano quelle di default",
+                       getattr(exc, "params", None) or exc)
         return DEFAULT_RULES
 
 

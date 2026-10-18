@@ -1,3 +1,4 @@
+import json
 import os
 
 import pytest
@@ -430,6 +431,41 @@ def test_the_file_naming_pattern_is_editable_and_previewed(client):
 
     mine = {**current["rules"], "templates": {"default": "{title} {year} {group}"}}
     assert client.put("/api/uploads/file-naming", json={"rules": mine}).json()["rules"] == mine
+
+
+@pytest.mark.parametrize("bad", [{"templates": 5}, {"separator": 3}, {"audio_languages": "all"},
+                                 {"audio_codecs": "x"}, {"audio_languages": {"multi_from": "4"}}])
+def test_file_naming_rules_without_the_expected_form_are_refused(client, bad):
+    """Audit 2026-10-18 (finding 50): si salvavano senza controllo, e poi
+    ogni analisi di un upload falliva con un TypeError."""
+    rules = {**client.get("/api/uploads/file-naming").json()["rules"], **bad}
+    for response in (client.put("/api/uploads/file-naming", json={"rules": rules}),
+                     client.post("/api/uploads/file-naming/preview", json={"rules": rules})):
+        assert response.status_code == 400
+        assert response.json()["detail"]["code"] == "upload_invalid_naming_rules"
+    assert client.get("/api/uploads/file-naming").json()["rules"]["separator"] == "."
+
+
+def test_stored_naming_rules_that_no_longer_fit_fall_back_to_the_defaults(client, caplog):
+    """Regole storte già salvate (prima del controllo, o a mano nel DB): le
+    regole di default con un avviso, mai un errore per ogni upload."""
+    from nazgarr.core.models import Tracker, TrackerUploadProfile
+    from nazgarr.upload import decision as upload_decision
+    from nazgarr.upload import file_names as upload_file_names
+
+    session = client.app.state.session_factory()
+    settings_repo.set_setting(session, upload_file_names.SETTING, json.dumps({"templates": 5}))
+    session.commit()
+    assert upload_file_names.rules(session) == upload_file_names.DEFAULT_RULES
+    assert "non valide" in caplog.text
+    tracker = Tracker(label="t", adapter_type="unit3d", base_url="https://t.example", api_token="x")
+    session.add(tracker)
+    session.commit()
+    profile = TrackerUploadProfile(tracker_id=tracker.id, naming_convention="scene",
+                                   naming_rules_json=json.dumps({"separator": 3}))
+    assert upload_decision.profile_rules(profile) == upload_decision.rules_from_convention("scene")
+    session.close()
+    assert client.get("/api/uploads/file-naming").json()["rules"] == upload_file_names.DEFAULT_RULES
 
 
 
