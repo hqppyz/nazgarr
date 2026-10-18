@@ -160,3 +160,162 @@ def test_split_from_the_match_by_hand(client, tmp_path, monkeypatch):
     children = response.json()["job_ids"]
     assert len(children) == 2 and kicked == children
     assert client.get(f"/api/uploads/{job_id}").json()["status"] == "cancelled"
+
+
+class _PartsTmdb:
+    """Lupin come su TMDB: default 10 + 7, e il gruppo "Parts" 5 / 5 / 7."""
+
+    def __init__(self, dates=None):
+        self.dates = dates or {}
+
+    def get(self, path, **params):
+        if path == "/tv/96677" and not params:
+            return {"seasons": [{"season_number": 1}, {"season_number": 2}]}
+        if path == "/tv/96677":
+            return {f"season/{n}": {"episodes": [
+                {"episode_number": e, "name": f"Chapter {n}x{e}", "air_date": self.dates.get((n, e))}
+                for e in range(1, c + 1)]} for n, c in ((1, 10), (2, 7))}
+        if path == "/tv/96677/external_ids":
+            return {"tvdb_id": 1}
+        if path == "/tv/96677/episode_groups":
+            return {"results": [{"id": "g1", "name": "Parts", "type": 4, "episode_count": 17}]}
+        if path == "/tv/episode_group/g1":
+            def part(order, refs):
+                return {"order": order, "name": f"Part {order}", "episodes": [
+                    {"season_number": s, "episode_number": e, "order": i} for i, (s, e) in enumerate(refs)]}
+            return {"groups": [part(1, [(1, e) for e in range(1, 6)]), part(2, [(1, e) for e in range(6, 11)]),
+                               part(3, [(2, e) for e in range(1, 8)])]}
+        raise AssertionError(path)
+
+
+def _sonarr(episodes):
+    class Sonarr:
+        def __init__(self, instance):
+            pass
+
+        def get(self, path, **params):
+            return [{"id": 7, "tmdbId": 96677}] if path == "/api/v3/series" else episodes
+
+    return Sonarr
+
+
+def _lupin_watch(db_session, tmp_path, monkeypatch, files, tmdb_api, sonarr_episodes):
+    from nazgarr.core.models import SonarrInstance
+    from nazgarr.upload import file_names as upload_file_names
+
+    episode_orders.clear_cache()
+    db_session.add(SonarrInstance(label="sonarr", base_url="http://s", api_key="k"))
+    db_session.commit()
+    real_for_job = episode_orders.for_job
+    monkeypatch.setattr(episode_orders, "for_job", lambda session, job, tmdb_id, tvdb_id=None, **k: real_for_job(
+        session, job, tmdb_id, 1, tmdb_api=tmdb_api, sonarr_factory=_sonarr(sonarr_episodes)))
+    monkeypatch.setattr(upload_identify.adapter_factory, "build_media_resolver",
+                        lambda session, arr_index=None: type("R", (), {"SOURCE": "x", "resolve": lambda s, p: None})())
+    show = tmdb_result(96677, "Lupin", 2021, "tv")
+    details = {**show, "tvdb_id": 1, "seasons": [{"season_number": 1, "episode_count": 10},
+                                                 {"season_number": 2, "episode_count": 7}]}
+    fake = FakeTMDB(search={("tv", "Lupin", 2021): [show]}, details={("tv", 96677): details})
+    monkeypatch.setattr(upload_identify, "tmdb_client", lambda session: fake)
+    settings_repo.set_setting(db_session, upload_identify.AUTO_MATCH_SETTING, "0.5")
+    folder = "Lupin.2021.S02.1080p.NF.WEB-DL-GRP"
+    for name in files:
+        write_video(tmp_path / "releases" / folder / name)
+    make_tracker(db_session)
+    job = upload_jobs.create_job(db_session, make_disk(db_session, tmp_path), f"releases/{folder}", origin="watch")
+    upload_identify.handle(db_session, job, None)
+    children = db_session.query(UploadJob).filter(UploadJob.split_from_id == job.id).order_by(UploadJob.id).all()
+    names = [upload_file_names.plan(db_session, c, "generated").content_name for c in children]
+    return job, children, names
+
+
+def test_episodes_split_from_a_pack_keep_the_numbering_of_the_pack(db_session, tmp_path, monkeypatch):
+    """Audit 2026-10-18: ogni episodio ricalcolava gli ordinamenti dal suo
+    file solo, dove combaciano tutti: la numerazione dei file diventava
+    quella che vince a parità (TVDB aired) e la Parte 2 S02E01-03 finiva
+    in S03E01-03."""
+    sonarr = [{"seasonNumber": s, "episodeNumber": e, "title": f"Chapitre {s}x{e}"}
+              for s, c in ((1, 10), (2, 7)) for e in range(1, c + 1)]
+    files = [f"Lupin.2021.S02E0{e}.1080p.NF.WEB-DL-GRP.mkv" for e in (1, 2, 3)]
+
+    job, children, names = _lupin_watch(db_session, tmp_path, monkeypatch, files, _PartsTmdb(), sonarr)
+
+    assert (job.status, job.episode_order) == ("cancelled", "tmdb:group:g1")
+    assert [(json.loads(c.seasons_json), c.episode, c.episode_order) for c in children] == [
+        ([2], 1, "tmdb:group:g1"), ([2], 2, "tmdb:group:g1"), ([2], 3, "tmdb:group:g1")]
+    assert [json.loads(c.episode_order_json)["files"]["key"] for c in children] == ["tmdb:group:g1"] * 3
+    assert all(f".S02E0{e}." in name for e, name in zip((1, 2, 3), names, strict=True)), names
+
+
+class _CoursTmdb:
+    """Una serie in due cour su TMDB (S1 13 + S2 13), senza gruppi."""
+
+    def __init__(self, dates):
+        self.dates = dates
+
+    def get(self, path, **params):
+        if path == "/tv/96677" and not params:
+            return {"seasons": [{"season_number": 1}, {"season_number": 2}]}
+        if path == "/tv/96677":
+            return {f"season/{n}": {"episodes": [
+                {"episode_number": e, "name": f"Chapter {n}x{e}", "air_date": self.dates[(n, e)]}
+                for e in range(1, 14)]} for n in (1, 2)}
+        if path == "/tv/96677/episode_groups":
+            return {"results": []}
+        raise AssertionError(path)
+
+
+def test_an_episode_that_does_not_translate_leaves_the_season_count_unknown(db_session, tmp_path, monkeypatch):
+    """Audit 2026-10-18: un episodio che la traduzione perde contava come
+    mancante, e una stagione completa si divideva in episodi. Qui la seconda
+    cour, numerata di seguito come Sonarr (S01E14-26), con un episodio che
+    per TVDB è uscito un giorno dopo."""
+    from datetime import date, timedelta
+
+    def week(n):
+        return (date(2021, 1, 1) + timedelta(weeks=n)).isoformat()
+
+    dates = {(s, e): week((s - 1) * 13 + e) for s in (1, 2) for e in range(1, 14)}
+    sonarr = [{"seasonNumber": 1, "episodeNumber": n, "title": f"Titre {n}",
+               "airDate": week(n) if n != 20 else (date.fromisoformat(week(n)) + timedelta(days=1)).isoformat()}
+              for n in range(1, 28)]  # 27: uno in più, alla fine
+    files = [f"Lupin.2021.S01E{e:02d}.1080p.NF.WEB-DL-GRP.mkv" for e in range(14, 27)]
+
+    def no_split(session, job, *args, **kwargs):
+        raise AssertionError("una stagione completa non si divide")
+
+    monkeypatch.setattr(upload_split, "split", no_split)
+    job, children, _names = _lupin_watch(db_session, tmp_path, monkeypatch, files, _CoursTmdb(dates), sonarr)
+
+    assert children == [] and job.status == "analyzing"
+    assert (job.kind, json.loads(job.seasons_json), job.episode_order) == ("season_pack", [2], "tmdb:default")
+    assert upload_split.season_count(job, None) is None and upload_split.untranslated(job, None)
+    codes = [e.code for e in job.events]
+    assert "split_skipped_untranslated" in codes and "episode_order_untranslated" in codes
+    # Il video che non si traduce resta nel pack con i suoi vicini, non finisce fuori come "stagione 1".
+    assert "pack_from_seasons" not in codes and len(json.loads(job.layout_json)["videos"]) == 13
+
+
+def _counted(episodes, expected, snapshot=None):
+    from types import SimpleNamespace
+
+    layout = {"episodes_by_season": {"1": episodes}}
+    return SimpleNamespace(kind="season_pack", seasons_json="[1]", layout_json=json.dumps(layout),
+                           episode_order="tmdb:default" if snapshot else None,
+                           episode_order_json=json.dumps(snapshot) if snapshot else None), \
+        {"seasons": [{"season_number": 1, "episode_count": expected}]}
+
+
+def test_only_episodes_the_season_has_count_towards_completeness():
+    """Audit 2026-10-18: un E00 o un E13 di una stagione da 12 coprivano il
+    dodicesimo mancante, e la stagione incompleta restava un pack."""
+    from tests.test_episode_orders import _order
+
+    tmdb = _order("tmdb:default", {1: 12})
+    snapshot = {"chosen": tmdb.to_dict(), "files": tmdb.to_dict()}
+    for extra in (0, 13):
+        for snap in (None, snapshot):
+            job, details = _counted([extra, *range(1, 12)], 12, snap)
+            assert upload_split.season_count(job, details) == (11, 12)
+            assert upload_split.is_incomplete(job, details)
+    job, details = _counted(list(range(1, 13)), 12, snapshot)
+    assert upload_split.season_count(job, details) == (12, 12) and not upload_split.is_incomplete(job, details)

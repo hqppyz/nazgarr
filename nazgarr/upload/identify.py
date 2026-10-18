@@ -334,9 +334,14 @@ def _watch_split(session: Session, job: UploadJob, details: dict | None) -> list
     started = []
     for season in seasons:
         episodes = None
-        if season.status == "analyzing" and upload_split.enabled(session) \
-                and upload_split.is_incomplete(season, details):
-            episodes = _try_split(session, season, upload_split.split, details, "split_failed")
+        if season.status == "analyzing" and upload_split.enabled(session):
+            if upload_split.untranslated(season, details):
+                # Il conto non si sa (un episodio dei file non si traduce):
+                # meglio il pack che episodi con i numeri sbagliati.
+                upload_jobs.log_event(session, season, "split_skipped_untranslated", level="warning")
+                session.commit()
+            elif upload_split.is_incomplete(season, details):
+                episodes = _try_split(session, season, upload_split.split, details, "split_failed")
         if episodes:
             started.extend(episodes)
         elif season is not job:

@@ -47,30 +47,90 @@ def seasons_enabled(session: Session) -> bool:
     return settings_registry.get_bool(session, SEASONS_SETTING)
 
 
-def season_count(job: UploadJob, details: dict | None) -> tuple[int, int] | None:
-    """(episodi trovati, episodi della stagione) di un season pack
-    confermato, nella numerazione scelta al match; None se non si sa."""
+UNKNOWN = "unknown"
+
+
+def _count(job: UploadJob, details: dict | None) -> tuple[int, int] | str | None:
+    """season_count, con UNKNOWN quando la traduzione nell'ordinamento
+    scelto perde episodi."""
     seasons = json.loads(job.seasons_json or "[]")
     if job.kind != "season_pack" or len(seasons) != 1:
         return None
     season = seasons[0]
     found = episode_orders.found_in_layout(job.layout_json)
-    snapshot = json.loads(job.episode_order_json or "null")
-    if snapshot and snapshot.get("chosen", {}).get("seasons") is not None:
-        chosen = episode_orders.EpisodeOrder.from_dict(snapshot["chosen"])
-        files = episode_orders.EpisodeOrder.from_dict(snapshot.get("files") or snapshot["chosen"])
-        have = len(episode_orders.translate_found(files, chosen, found).get(season, []))
-        expected = len(chosen.seasons.get(season, []))
+    parent = _orders_of(job)
+    if parent is not None:
+        _snapshot, chosen, files = parent
+        numbers = {e.number for e in chosen.seasons.get(season, [])}
+        known = files.episodes()
+        lookup = episode_orders.translator(files, chosen)
+        targets: set[tuple[int, int]] = set()
+        inputs = 0
+        for file_season, eps in found.items():
+            for e in eps:
+                if (file_season, e) not in known:
+                    continue  # un E00 o un extra: non è un episodio di quell'ordinamento
+                refs = lookup(file_season, e)
+                if not refs:
+                    return UNKNOWN  # un episodio che non si traduce non è un episodio mancante
+                inputs += 1
+                targets.update(refs)
+        have, expected = len({e for s, e in targets if s == season} & numbers), len(numbers)
+        if len(targets) < inputs and have < expected:
+            return UNKNOWN  # due file sullo stesso episodio: forse uno è finito nel posto sbagliato
     else:
-        have = len(found.get(season, []))
         expected = next((s.get("episode_count") or 0 for s in (details or {}).get("seasons") or []
                          if s.get("season_number") == season), 0)
+        have = len(set(found.get(season, [])) & set(range(1, expected + 1)))
     return (have, expected) if expected else None
+
+
+def season_count(job: UploadJob, details: dict | None) -> tuple[int, int] | None:
+    """(episodi trovati, episodi della stagione) di un season pack
+    confermato, nella numerazione scelta al match; None se non si sa.
+    Contano solo gli episodi che la stagione ha (audit 2026-10-18: un E00 o
+    un E13 di una stagione da 12 coprivano l'episodio mancante), e un
+    episodio dei file che non si traduce nell'ordinamento scelto rende il
+    conto incerto invece di contare come mancante (dividendo in episodi una
+    stagione completa)."""
+    count = _count(job, details)
+    return count if isinstance(count, tuple) else None
+
+
+def untranslated(job: UploadJob, details: dict | None) -> bool:
+    """Il conto della stagione non si sa perché la traduzione perde episodi:
+    niente divisione automatica, e il registro lo dice."""
+    return _count(job, details) == UNKNOWN
 
 
 def is_incomplete(job: UploadJob, details: dict | None) -> bool:
     count = season_count(job, details)
     return count is not None and 0 < count[0] < count[1]
+
+
+def _orders_of(job: UploadJob) -> tuple[dict, episode_orders.EpisodeOrder, episode_orders.EpisodeOrder] | None:
+    """L'ordinamento scelto al match di un job e quello dei file (il suo
+    snapshot), se ne ha uno."""
+    snapshot = json.loads(job.episode_order_json or "null")
+    if not job.episode_order or not snapshot or (snapshot.get("chosen") or {}).get("seasons") is None:
+        return None
+    files = snapshot.get("files") or snapshot["chosen"]
+    return ({"chosen": snapshot["chosen"], "files": files}, episode_orders.EpisodeOrder.from_dict(snapshot["chosen"]),
+            episode_orders.EpisodeOrder.from_dict(files))
+
+
+def _child_orders(parent, child: UploadJob) -> dict | None:
+    """Gli ordinamenti di un episodio diviso: quelli del pack, con i numeri
+    del suo file tradotti come nel pack (audit 2026-10-18). Ricalcolati dal
+    suo file solo, ogni ordinamento combaciava e la numerazione dei file
+    diventava quella che vince a parità (preferenza, TVDB aired, TMDB): la
+    Parte 2 S02E01-03 diventava S03E01-03."""
+    if parent is None:
+        return None
+    snapshot, chosen, files = parent
+    found = episode_orders.found_in_layout(child.layout_json)
+    return {"orders": [snapshot["chosen"], snapshot["files"]], "files_order": files.key,
+            "found": {chosen.key: episode_orders.translate_found(files, chosen, found)}}
 
 
 def _child_overrides(job: UploadJob) -> dict:
@@ -107,6 +167,7 @@ def split(session: Session, job: UploadJob, details: dict | None) -> list[Upload
     # Le stagioni scelte di una cartella con più stagioni (nazgarr/upload/pack.py):
     # nel layout i video hanno il nome nel pack, il percorso è nel pack.
     in_pack = {posixpath.basename(f): f for f in json.loads(job.pack_json or "{}").get("files", [])}
+    parent_orders = _orders_of(job)
     children: list[UploadJob] = []
     try:
         for video in layout.get("videos") or []:
@@ -123,7 +184,8 @@ def split(session: Session, job: UploadJob, details: dict | None) -> list[Upload
             try:
                 identify.confirm(session, child, content_type="tv", tmdb_id=job.tmdb_id, kind=source.kind,
                                  seasons=source.seasons, episode=episode, details=details,
-                                 order_key=job.episode_order, translate=True)
+                                 order_key=job.episode_order, orders=_child_orders(parent_orders, child),
+                                 translate=True)
             except (upload_jobs.UploadJobError, episode_orders.EpisodeOrderError) as exc:
                 session.rollback()
                 child = session.get(UploadJob, child.id)
@@ -190,10 +252,11 @@ def split_seasons(session: Session, job: UploadJob, details: dict | None) -> lis
     choices = _tracker_choices(job)
     source = scan_source(job.source_path)
     # L'ordinamento scelto per il complete pack, senza chiederlo di nuovo alle fonti.
-    snapshot = json.loads(job.episode_order_json or "null")
+    parent_orders = _orders_of(job)
     orders = None
-    if job.episode_order and snapshot:
-        orders = {"orders": [snapshot["chosen"], snapshot["files"]], "files_order": snapshot["files"]["key"]}
+    if parent_orders is not None:
+        orders = {"orders": [parent_orders[0]["chosen"], parent_orders[0]["files"]],
+                  "files_order": parent_orders[2].key}
     children: list[UploadJob] = []
     try:
         for season in seasons:
