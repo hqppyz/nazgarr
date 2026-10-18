@@ -216,7 +216,7 @@ def _generated(session: Session, job: UploadJob, files: list[tuple[str, str]], m
     title_mode, local_title = _tracker_title(session, job, analysis or {})
     if title_mode is not None:
         rules_ = {**rules_, "title": title_mode}
-    base_values = release_values(job, detected, mediainfo, overrides, rules_, local_title)
+    base_values = release_values(_single_episode(job) or job, detected, mediainfo, overrides, rules_, local_title)
     base = sanitize(build_name(rules_, base_values))
     if not job.title or not base:
         # Senza un titolo (nessun match TMDB) non c'è un nome da costruire:
@@ -243,8 +243,13 @@ def _generated(session: Session, job: UploadJob, files: list[tuple[str, str]], m
             continue
         ext = os.path.splitext(relative)[1].lower()
         season, numbers = episodes.get(relative, (None, []))
-        if job.content_type == "tv" and numbers:
-            one = _EpisodeJob(job, season, numbers)
+        one = _EpisodeJob(job, season, numbers) if job.content_type == "tv" and numbers else None
+        if one is not None and one.untranslated:
+            # Un episodio che l'ordinamento scelto non ha (evento
+            # episode_order_untranslated): il suo nome, non un numero dei
+            # file sotto l'etichetta dell'altro ordinamento (audit 2026-10-18).
+            name = sanitize(os.path.splitext(os.path.basename(relative))[0])
+        elif one is not None:
             name = sanitize(build_name(rules_, release_values(one, detected, mediainfo, overrides, rules_,
                                                               local_title)))
         elif len(videos) == 1:
@@ -280,8 +285,14 @@ class _EpisodeJob:
     def __init__(self, job: UploadJob, season: int | None, episodes: list[int]):
         self._job = job
         self.kind = "episode"
+        # Un episodio dei file che l'ordinamento scelto non ha: resta col suo numero.
+        self.untranslated = False
         if season is not None:
-            refs = [ref for e in episodes for ref in episode_orders.translate_files(job, season, e)]
+            refs = []
+            for e in episodes:
+                found = episode_orders.translate_files(job, season, e, strict=True)
+                self.untranslated = self.untranslated or not found
+                refs.extend(found or [(season, e)])
             season = refs[0][0]
             episodes = sorted({e for s, e in refs if s == season})
         self.episode = episodes if len(episodes) > 1 else episodes[0]
@@ -289,6 +300,27 @@ class _EpisodeJob:
 
     def __getattr__(self, name):
         return getattr(self._job, name)
+
+
+def _single_episode(job: UploadJob) -> _EpisodeJob | None:
+    """Un upload di un episodio solo il cui video ne ha più d'uno, tradotti
+    nell'ordinamento scelto: un episodio accorpato (E03E04) o un file
+    S01E01E02. Il nome li dice tutti, come per lo stesso file in un pack
+    (audit 2026-10-18: diceva solo il primo, job.episode). Solo se
+    cominciano dalla stagione e dall'episodio confermati al match: un
+    episodio corretto a mano resta il suo. Il campo episodio del tracker
+    resta job.episode."""
+    if job.content_type != "tv" or job.kind != "episode" or job.episode is None:
+        return None
+    videos = json.loads(job.layout_json or "{}").get("videos") or []
+    if len(videos) != 1 or videos[0].get("season") is None or not videos[0].get("episodes"):
+        return None
+    one = _EpisodeJob(job, videos[0]["season"], videos[0]["episodes"])
+    if one.untranslated or not isinstance(one.episode, list):
+        return None
+    if json.loads(one.seasons_json) != json.loads(job.seasons_json or "[]")[:1] or one.episode[0] != job.episode:
+        return None
+    return one
 
 
 class NameInputs:

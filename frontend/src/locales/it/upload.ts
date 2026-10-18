@@ -490,6 +490,7 @@ export const upload = {
   'upload.event.auto_matched': 'Match automatico: {title} ({year}).',
   'upload.event.auto_match_skipped': 'Nessun match automatico: il titolo migliore non è abbastanza sicuro.',
   'upload.event.episode_order_not_tvdb_aired': "Ordinamento degli episodi scelto in automatico: {order}, perché i file non seguono TVDB Aired (l'ordine di Sonarr).",
+  'upload.event.episode_order_untranslated': '{count} episodi dei file non ci sono in {order} e restano con la numerazione dei file: {episodes}. Controlla i nomi prima di approvare.',
   'upload.event.auto_match_failed': 'Match automatico impossibile: scegli il titolo a mano.',
   'upload.event.match_reopened': 'Match riaperto: scegli di nuovo il titolo.',
   'upload.notice.detected': 'Nuova release rilevata',

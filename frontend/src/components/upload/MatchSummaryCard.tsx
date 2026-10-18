@@ -1,4 +1,4 @@
-import { EyeIcon, FileVideoIcon, FolderIcon, Undo2Icon } from 'lucide-react'
+import { EyeIcon, FileVideoIcon, FolderIcon, TriangleAlertIcon, Undo2Icon } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { posterUrl, useMetadataDetails } from '@/api/hooks/metadata'
@@ -10,7 +10,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { t } from '@/lib/i18n'
-import { sourceLabel } from '@/lib/upload'
+import { eventMessage, sourceLabel } from '@/lib/upload'
 
 // Dopo il match: il contenuto confermato. Poster a sinistra; a destra
 // titolo, percorso della sorgente, tipo e stato, trama e i link ai servizi.
@@ -18,6 +18,10 @@ export function MatchSummaryCard({ job }: { job: UploadJob }) {
   const details = useMetadataDetails(job.tmdb_id ? job.content_type : null, job.tmdb_id ?? null)
   const rematch = useRematch(job.id)
   const autoMatched = job.events?.find((e) => e.code === 'auto_matched')
+  // Episodi dei file che l'ordinamento scelto non ha (dall'ultimo match):
+  // restano coi numeri dei file, da guardare prima di approvare.
+  const lastMatch = Math.max(-1, ...(job.events ?? []).filter((e) => e.code === 'match_confirmed').map((e) => e.id))
+  const untranslated = job.events?.find((e) => e.code === 'episode_order_untranslated' && e.id > lastMatch)
   return (
     <Card className="min-w-0">
       <CardContent className="flex min-w-0 gap-4">
@@ -68,6 +72,12 @@ export function MatchSummaryCard({ job }: { job: UploadJob }) {
               </Badge>
             )}
           </div>
+          {untranslated && (
+            <p className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-xs">
+              <TriangleAlertIcon className="mt-0.5 size-3.5 shrink-0 text-amber-500" />
+              {eventMessage(untranslated)}
+            </p>
+          )}
           {details.data?.overview && <p className="line-clamp-3 text-xs leading-relaxed">{details.data.overview}</p>}
           <div className="mt-auto flex flex-wrap items-end justify-between gap-2 pt-2">
             <MetadataLinks job={job} />

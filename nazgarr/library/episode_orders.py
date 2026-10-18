@@ -690,17 +690,23 @@ def build(session: Session, tmdb_id: int, tvdb_id: int | None, found: dict[int, 
     # Di default quello che combacia meglio con i file (decisione dell'utente, 2026-10-04).
     chosen = best_fit(orders, found, pack, preferred)
     recommended = chosen.key if chosen is not None else None
+    # La numerazione dei numeri dei file (per tradurli): quella in cui
+    # esistono, che può non essere quella proposta (es. Sonarr in TVDB aired
+    # con tre segmenti per file, e i file che sono gli episodi di un'altra).
+    numbering = best_fit(orders, found, pack, preferred, by="coverage") if found else chosen
+    files_order = numbering.key if numbering is not None else recommended
+    if files_order and not any(o.key == TMDB_DEFAULT for o in orders):
+        # Senza le stagioni di default di TMDB (niente chiave, o un errore)
+        # nessun ordinamento ha i riferimenti: da quello dei file non si
+        # traduce, e proporne un altro lasciava i numeri dei file sotto
+        # l'etichetta di quell'altro (audit 2026-10-18).
+        recommended = files_order
     # L'avviso solo se i file non seguono TVDB aired, l'ordine di Sonarr, e
     # solo se TVDB aired si conosce (Sonarr o la chiave TVDB).
     warning = None
     if found and recommended and tvdb_aired and recommended != tvdb_aired \
             and fits[recommended]["score"] > fits[tvdb_aired]["score"] + WARNING_MARGIN:
         warning = {"code": "files_not_tvdb_aired", "order": recommended, "tvdb": tvdb_aired}
-    # La numerazione dei numeri dei file (per tradurli): quella in cui
-    # esistono, che può non essere quella proposta (es. Sonarr in TVDB aired
-    # con tre segmenti per file, e i file che sono gli episodi di un'altra).
-    numbering = best_fit(orders, found, pack, preferred, by="coverage") if found else chosen
-    files_order = numbering.key if numbering is not None else recommended
     by_key = {o.key: o for o in orders}
     return {
         "sources": status,
@@ -787,6 +793,19 @@ def numbers_in(result: dict, order_key: str, kind: str | None, seasons: list[int
     return translated, episode
 
 
+def untranslated(order_snapshot: dict | None, found: dict[int, list[int]]) -> list[Ref]:
+    """Gli episodi dei file (nella loro numerazione) che non si traducono
+    nell'ordinamento scelto di un job: restano coi numeri dei file (nomi e
+    campi del tracker), e va detto (audit 2026-10-18). Vuoto se i file
+    seguono l'ordinamento scelto."""
+    data = order_snapshot or {}
+    chosen, files = data.get("chosen") or {}, data.get("files") or {}
+    if chosen.get("seasons") is None or files.get("seasons") is None or chosen.get("key") == files.get("key"):
+        return []
+    lookup = translator(EpisodeOrder.from_dict(data["files"]), EpisodeOrder.from_dict(data["chosen"]))
+    return [(season, e) for season, eps in sorted(found.items()) for e in sorted(eps) if not lookup(season, e)]
+
+
 def remember(session: Session, tmdb_id: int, order_key: str) -> None:
     """La scelta diventa la proposta per la stessa serie la prossima volta."""
     from nazgarr.core.db_utils import bulk_upsert
@@ -806,13 +825,14 @@ def _files_translator(episode_order_json: str) -> Callable[[int, int], list[Ref]
     return translator(EpisodeOrder.from_dict(data["files"]), EpisodeOrder.from_dict(data["chosen"]))
 
 
-def translate_files(job, season: int, episode: int) -> list[Ref]:
+def translate_files(job, season: int, episode: int, strict: bool = False) -> list[Ref]:
     """Un episodio come lo numerano i file -> come lo numera l'ordinamento
-    scelto al match. Senza ordinamento scelto (o senza traduzione) resta com'è."""
+    scelto al match. Senza ordinamento scelto resta com'è; senza traduzione
+    anche, o vuoto con strict (chi deve saperlo: i nomi generati)."""
     lookup = _files_translator(job.episode_order_json or "")
     if lookup is None:
         return [(season, episode)]
-    return lookup(season, episode) or [(season, episode)]
+    return lookup(season, episode) or ([] if strict else [(season, episode)])
 
 
 def group(episodes) -> dict[int, list[int]]:

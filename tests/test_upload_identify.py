@@ -185,7 +185,7 @@ def test_auto_match_confirms_the_numbers_of_the_chosen_ordering(db_session, monk
     from nazgarr.upload import jobs as upload_jobs
 
     job = SimpleNamespace(id=1, kind="episode", seasons_json="[2]", episode=1, forced_ids_json="{}",
-                          title=None, year=None)
+                          title=None, year=None, layout_json=None)
     orders = {
         "recommended": "tmdb:group:1", "warning": None,
         "orders": [{"key": "tmdb:group:1"}], "files_order": "tvdb:aired",
@@ -231,7 +231,7 @@ def test_confirm_translates_only_when_asked_and_remembers_only_a_user_choice(db_
     monkeypatch.setattr(episode_orders, "remember", lambda session, tmdb_id, key: remembered.append(key))
 
     def job():
-        return SimpleNamespace(forced_ids_json="{}", episode_order=None, episode_order_json=None)
+        return SimpleNamespace(forced_ids_json="{}", episode_order=None, episode_order_json=None, layout_json=None)
 
     manual, auto = job(), job()
     upload_identify.confirm(db_session, manual, content_type="tv", tmdb_id=1, kind="episode", seasons=[1],

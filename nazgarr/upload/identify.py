@@ -284,6 +284,14 @@ def confirm(
                               count=videos, left=before - videos)
     job.episode_order = order_key if snapshot is not None else None
     job.episode_order_json = json.dumps(snapshot) if snapshot is not None else None
+    if snapshot is not None:
+        # Episodi dei file che l'ordinamento scelto non ha: tengono i numeri
+        # dei file, e la decisione lo deve dire (audit 2026-10-18).
+        missing = episode_orders.untranslated(snapshot, episode_orders.found_in_layout(job.layout_json))
+        if missing:
+            upload_jobs.log_event(session, job, "episode_order_untranslated", level="warning",
+                                  order=snapshot["chosen"]["label"], count=len(missing),
+                                  episodes=", ".join(f"S{s:02d}E{e:02d}" for s, e in missing[:10]))
     if snapshot is not None and remember:
         episode_orders.remember(session, tmdb_id, order_key)
 
