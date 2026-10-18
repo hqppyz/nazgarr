@@ -378,6 +378,7 @@ export const upload = {
   'upload.event.job_queued': 'Approvato e messo in coda (posizione {position}).',
   'upload.event.execution_started': 'Esecuzione avviata.',
   'upload.event.torrent_created': 'Torrent creato.',
+  'upload.event.file_links_kept': '{count} link fatti per i nomi restano: li usa un torrent del client o un reseed.',
   'upload.event.upload_extra_files_left_out': 'Lasciati fuori dal torrent: già nella sua cartella per gli upload, ma non di questo upload ({files}).',
   'upload.event.screenshots_done': '{count} screenshot caricati.',
   'upload.steps.hashing': 'Torrent',

@@ -1580,3 +1580,68 @@ def test_a_torrent_that_differs_from_the_plan_never_reaches_the_tracker(db_sessi
     assert (target.status, target.error_message) == ("failed", "upload_torrent_files_mismatch")
     assert env["trackers"]["a"].uploads == []
     assert "upload_extra_files_left_out" not in [e.code for e in job.events]
+
+
+# --- i link creati per i nomi che usa qualcun altro (audit 2026-10-18) ---------
+
+
+@pytest.mark.parametrize("user, kept", [("index", True), ("reseed", True), ("old_reseed", False)])
+def test_links_another_torrent_uses_survive_a_failed_upload(db_session, tmp_path, env, user, kept):
+    """Un reseed del motore approvato durante l'upload, con lo stesso nome,
+    riusa l'hardlink appena creato (stesso inode): la pulizia dopo un upload
+    fallito lo toglieva da sotto al suo torrent."""
+    from nazgarr.core.models import (
+        Candidate,
+        CandidateFile,
+        ClientTorrent,
+        ClientTorrentFile,
+        MediaItem,
+        RunLog,
+        SeedFile,
+        SeedJob,
+    )
+    from nazgarr.upload import file_names as upload_file_names
+    from tests.fakes import make_media_file
+
+    video = write_video(env["root"] / "media" / "The Matrix (1999).mkv", 300 * KB)
+    job = _approved(db_session, env, "media/" + video.name, {"a": _upload("Matrix A"), "b": {"action": "skip"}},
+                    file_naming="generated")
+    name = upload_file_names.plan(db_session, job).content_name
+    link = env["root"] / "torrents" / name
+    run = RunLog(run_type="manual", started_at=datetime.now(UTC))
+    db_session.add(run)
+    db_session.commit()
+    if user == "index":
+        seed = SeedFile(disk_id=env["disk"].id, relative_path=f"torrents/{name}", size_bytes=300 * KB, st_dev=1,
+                        inode=1, last_scan_id=run.id, last_seen_at=datetime.now(UTC))
+        torrent = ClientTorrent(torrent_client_id=env["client_row"].id, info_hash="h", name=name,
+                                save_path=str(env["root"] / "torrents"), state="uploading",
+                                last_polled_at=datetime.now(UTC))
+        db_session.add_all([seed, torrent])
+        db_session.commit()
+        db_session.add(ClientTorrentFile(client_torrent_id=torrent.id, path_in_torrent=name, size_bytes=300 * KB,
+                                         seed_file_id=seed.id, last_scan_id=run.id))
+    else:
+        media = make_media_file(db_session, env["disk"], "media/" + video.name, run, inode=video.stat().st_ino)
+        item = MediaItem(content_type="movie", tmdb_id=603)
+        db_session.add(item)
+        db_session.commit()
+        candidate = Candidate(media_item_id=item.id, tracker_id=job.targets[1].tracker_id, torrent_id_remote="7",
+                              name=name, size_bytes=300 * KB, source="catalog_search", direction="media_to_torrent",
+                              confidence=0.9)
+        db_session.add(candidate)
+        db_session.commit()
+        db_session.add(CandidateFile(candidate_id=candidate.id, torrent_path=name, is_video=True,
+                                     media_file_id=media.id))
+        old = datetime(2026, 1, 1, tzinfo=UTC)
+        db_session.add(SeedJob(candidate_id=candidate.id, final_status="in_progress" if user == "reseed" else "seeding",
+                               hardlink_created_at=None if user == "reseed" else old))
+    db_session.commit()
+    env["trackers"]["a"].error = _rejected()
+
+    _run(db_session, tmp_path, job)
+
+    assert job.status == "failed"
+    assert link.exists() is kept
+    assert video.is_file()
+    assert ("file_links_kept" in [e.code for e in job.events]) is kept

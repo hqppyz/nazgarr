@@ -33,6 +33,7 @@ from datetime import UTC, datetime
 
 import httpx
 import torf
+from sqlalchemy import or_
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
@@ -44,7 +45,17 @@ from nazgarr.core.errors import CodedError
 from nazgarr.core.file_types import is_video
 from nazgarr.core.fs_scope import ScopeViolation, resolve_scoped
 from nazgarr.core.logs import safe_error
-from nazgarr.core.models import TorrentClient, TrackerUploadProfile, UploadJob, UploadTarget
+from nazgarr.core.models import (
+    CandidateFile,
+    ClientTorrentFile,
+    MediaFile,
+    SeedFile,
+    SeedJob,
+    TorrentClient,
+    TrackerUploadProfile,
+    UploadJob,
+    UploadTarget,
+)
 from nazgarr.core.version import CREATED_BY
 from nazgarr.integrations import adapter_factory
 from nazgarr.integrations.adapter_factory import ImageHostConfigError
@@ -171,6 +182,8 @@ def prepare_content(session: Session, job: UploadJob, ctx: dict) -> str:
     root = ctx["seed_root"]()
     base = os.path.join(root, *plan.folder.split("/")) if plan.folder else root
     pairs = [(source, os.path.join(base, *target.split("/"))) for source, target in plan.files]
+    # Da qui un reseed del motore approvato nel frattempo può riusarli (_used_elsewhere).
+    ctx["links_at"] = datetime.now(UTC)
     ctx["created_links"] = link_files(pairs, root)
     ctx["save_path"] = base
     # Nel torrent solo questi: la cartella può avere già altro (hash_pieces).
@@ -857,6 +870,9 @@ def _cleanup_unused_links(session: Session, job: UploadJob, ctx: dict, overrides
         return
     keep = {path for paths in _seeded_by_done(job, ctx).values() for path in paths}
     unused = [path for path in created if os.path.realpath(path) not in keep]
+    if unused:
+        used = _used_elsewhere(session, job, unused, ctx.get("links_at"))
+        unused = [path for path in unused if path not in used]
     if not unused:
         return
     root = os.path.realpath(ctx["seed_root"]())
@@ -872,6 +888,67 @@ def _cleanup_unused_links(session: Session, job: UploadJob, ctx: dict, overrides
             parent = os.path.dirname(parent)
     upload_jobs.log_event(session, job, "file_links_removed", count=len(unused))
     session.commit()
+
+
+_LIVE_SEED_JOBS = ("in_progress", "seeding")
+
+
+def _used_elsewhere(session: Session, job: UploadJob, paths: list[str], since: datetime | None) -> set[str]:
+    """Dei link creati da questo job, quelli che usa già qualcun altro: un
+    torrent del client (l'indice, nazgarr/torrents/indexer.py) o un reseed
+    del motore. Il motore riusa una destinazione che è già lo stesso file
+    (hardlinks.check_link): un suo reseed approvato durante i minuti di hash
+    e screenshot, con lo stesso nome, seeda proprio da uno di questi, e
+    toglierlo lo lasciava senza dati (audit 2026-10-18, finding 1). Nel
+    dubbio un link resta: al massimo un hardlink orfano, mai un file tolto
+    da sotto a un client."""
+    disk = job.disk
+    if disk is None:
+        return set()
+    base = os.path.realpath(disk.root_path)
+    by_relative: dict[str, str] = {}
+    by_inode: dict[int, list[str]] = {}
+    for path in paths:
+        real = os.path.realpath(path)
+        if real.startswith(base + os.sep):
+            by_relative[os.path.relpath(real, base)] = path
+        with contextlib.suppress(OSError):
+            by_inode.setdefault(os.stat(path).st_ino, []).append(path)
+    used: set[str] = set()
+    if by_relative:
+        relatives = list(by_relative)
+        indexed = (
+            session.query(SeedFile.relative_path)
+            .join(ClientTorrentFile, ClientTorrentFile.seed_file_id == SeedFile.id)
+            .filter(SeedFile.disk_id == disk.id, SeedFile.relative_path.in_(relatives))
+        )
+        # Un reseed dal file già nella cartella di seeding (torrent_to_client).
+        reseeding = (
+            session.query(SeedFile.relative_path)
+            .join(CandidateFile, CandidateFile.seed_file_id == SeedFile.id)
+            .join(SeedJob, SeedJob.candidate_id == CandidateFile.candidate_id)
+            .filter(SeedFile.disk_id == disk.id, SeedFile.relative_path.in_(relatives),
+                    SeedJob.final_status.in_(_LIVE_SEED_JOBS))
+        )
+        used |= {by_relative[row[0]] for row in indexed.union(reseeding).all() if row[0] in by_relative}
+    if by_inode and since is not None:
+        # Un reseed con hardlink dal file in libreria (media_to_torrent): la
+        # sua destinazione non è nel DB, ma è lo stesso inode, e un reseed
+        # nato dopo questi link può averne riusato uno.
+        linked = (
+            session.query(MediaFile.inode)
+            .join(CandidateFile, CandidateFile.media_file_id == MediaFile.id)
+            .join(SeedJob, SeedJob.candidate_id == CandidateFile.candidate_id)
+            .filter(MediaFile.disk_id == disk.id, MediaFile.inode.in_(list(by_inode)),
+                    SeedJob.final_status.in_(_LIVE_SEED_JOBS),
+                    or_(SeedJob.hardlink_created_at.is_(None), SeedJob.hardlink_created_at >= since))
+        )
+        for (inode,) in linked.all():
+            used.update(by_inode.get(inode, ()))
+    if used:
+        upload_jobs.log_event(session, job, "file_links_kept", count=len(used))
+        session.commit()
+    return used
 
 
 def _source_files(path: str) -> list[str]:
