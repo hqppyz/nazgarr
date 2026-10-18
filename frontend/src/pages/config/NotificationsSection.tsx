@@ -15,13 +15,8 @@ import {
 } from '@/api/hooks/notifications'
 import { usePlugins } from '@/api/hooks/plugins'
 import { useDeleteWebhook, useWebhookDeliveries, useWebhooks, type Webhook } from '@/api/hooks/webhooks'
-import {
-  AdapterConfigFields,
-  configPayload,
-  initialConfigValues,
-  missingRequired,
-  type ConfigValues,
-} from '@/components/AdapterConfigFields'
+import { AdapterConfigFields } from '@/components/AdapterConfigFields'
+import { configPayload, initialConfigValues, missingRequired, type ConfigValues } from '@/lib/adapterConfig'
 import { OneTimeSecretDialog } from '@/components/OneTimeSecretDialog'
 import { SettingsHeader } from '@/components/SettingsHeader'
 import { Badge } from '@/components/ui/badge'

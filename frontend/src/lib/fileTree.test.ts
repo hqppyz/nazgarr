@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { buildTree, type TreeFileEntry } from '@/components/FileTree'
+import { buildTree, type TreeFileEntry } from '@/lib/fileTree'
 
 function file(overrides: Partial<TreeFileEntry> & { relative_path: string }): TreeFileEntry {
   return { state: 'seeding', excluded: false, linked_paths: [], size_bytes: 0, ...overrides }

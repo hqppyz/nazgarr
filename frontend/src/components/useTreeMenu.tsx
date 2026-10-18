@@ -3,7 +3,7 @@ import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { useExcludeFile } from '@/api/hooks/library'
-import { filesUnder, type TreeFileEntry, type TreeNode, type TreeRowActions } from '@/components/FileTree'
+import type { TreeRowActions } from '@/components/FileTree'
 import type { RowMenuItem } from '@/components/RowContextMenu'
 import { Button } from '@/components/ui/button'
 import {
@@ -14,6 +14,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { filesUnder, type TreeFileEntry, type TreeNode } from '@/lib/fileTree'
 import { t } from '@/lib/i18n'
 import { newUploadLink } from '@/lib/upload'
 

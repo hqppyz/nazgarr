@@ -1,7 +1,8 @@
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
-import { FileTree, type TreeFileEntry } from '@/components/FileTree'
+import { FileTree } from '@/components/FileTree'
+import type { TreeFileEntry } from '@/lib/fileTree'
 
 const file = (relative_path: string, overrides: Partial<TreeFileEntry>): TreeFileEntry => ({
   relative_path, state: 'orphan_torrent', excluded: false, linked_paths: [], size_bytes: 1, ...overrides,

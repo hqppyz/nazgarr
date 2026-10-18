@@ -14,13 +14,8 @@ import { useState } from 'react'
 
 import type { Schemas } from '@/api/client'
 import { useAdapterConfig, usePlugins, useSaveAdapterConfig, useSetPluginEnabled } from '@/api/hooks/plugins'
-import {
-  AdapterConfigFields,
-  configPayload,
-  initialConfigValues,
-  missingRequired,
-  type ConfigValues,
-} from '@/components/AdapterConfigFields'
+import { AdapterConfigFields } from '@/components/AdapterConfigFields'
+import { configPayload, initialConfigValues, missingRequired, type ConfigValues } from '@/lib/adapterConfig'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'

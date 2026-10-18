@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import type { TreeFileEntry } from '@/components/FileTree'
+import type { TreeFileEntry } from '@/lib/fileTree'
 import { DEFAULT_FILTERS, fileKey, filterFiles, formatBytes, summarizeByState } from '@/lib/library-filters'
 
 function file(overrides: Partial<TreeFileEntry> & { relative_path: string }): TreeFileEntry {

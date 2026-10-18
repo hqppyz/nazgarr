@@ -10,80 +10,10 @@ import { StateBadge, StatusBadge, StoppedBadge } from "@/components/StateBadge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { t } from "@/lib/i18n";
 import { fileKey, formatBytes } from "@/lib/library-filters";
+import { buildTree, filesUnder, packable, packFile, sortedChildren, type TreeFileEntry, type TreeNode } from "@/lib/fileTree";
 import { isVideoPath, type PackSelection } from "@/lib/pack";
 import { useInfoPopoverHandle, useRowMenuHandle, type InfoPopoverHandle, type RowMenuHandle } from "@/lib/popupHandles";
 import { cn } from "@/lib/utils";
-
-export interface TreeFileEntry {
-  disk_id?: number;
-  relative_path: string;
-  state: string;
-  stopped?: boolean;
-  excluded: boolean;
-  linked_paths: string[];
-  // Solo Torrent files: orfano, ma lo stesso file è in seed da questi percorsi.
-  seeding_copies?: string[];
-  size_bytes: number;
-  // Contenuto del file (scheda di dettaglio al clic), assente se il file
-  // non ha un'identità: non risolto, nfo, immagini.
-  content_type?: string | null;
-  tmdb_id?: number | null;
-}
-
-export interface TreeNode {
-  name: string;
-  path: string;
-  file: TreeFileEntry | null;
-  children: Map<string, TreeNode>;
-  // Aggregati ricorsivi: per una cartella la somma dei file sottostanti,
-  // per un file i suoi soli valori.
-  sizeBytes: number;
-  fileCount: number;
-}
-
-function emptyNode(name: string, path: string): TreeNode {
-  return { name, path, file: null, children: new Map(), sizeBytes: 0, fileCount: 0 };
-}
-
-export function buildTree(files: TreeFileEntry[]): TreeNode {
-  const root = emptyNode("", "");
-  for (const file of files) {
-    const segments = file.relative_path.split("/");
-    let node = root;
-    node.sizeBytes += file.size_bytes;
-    node.fileCount += 1;
-    segments.forEach((segment, i) => {
-      const isLast = i === segments.length - 1;
-      const path = segments.slice(0, i + 1).join("/");
-      let child = node.children.get(segment);
-      if (!child) {
-        child = emptyNode(segment, path);
-        node.children.set(segment, child);
-      }
-      child.sizeBytes += file.size_bytes;
-      child.fileCount += 1;
-      if (isLast) child.file = file;
-      node = child;
-    });
-  }
-  return root;
-}
-
-// Stesse estensioni di nazgarr/core/file_types.py: solo l'icona, lo stato arriva dal backend.
-const VIDEO_EXTENSIONS = [".mkv", ".mp4", ".avi", ".m2ts", ".ts", ".wmv", ".mov"];
-
-function isVideo(path: string): boolean {
-  const lower = path.toLowerCase();
-  return VIDEO_EXTENSIONS.some((ext) => lower.endsWith(ext));
-}
-
-// Cartelle prima dei file, poi alfabetico.
-function sortedChildren(node: TreeNode): TreeNode[] {
-  return [...node.children.values()].sort((a, b) => {
-    if (!!a.file !== !!b.file) return a.file ? 1 : -1;
-    return a.name.localeCompare(b.name);
-  });
-}
 
 interface FlatRow {
   node: TreeNode;
@@ -91,27 +21,11 @@ interface FlatRow {
   open: boolean;
 }
 
-// I file di una cartella dell'albero, a qualunque profondità.
-export function filesUnder(node: TreeNode): TreeFileEntry[] {
-  const out: TreeFileEntry[] = []
-  const walk = (n: TreeNode) => {
-    if (n.file) out.push(n.file)
-    n.children.forEach(walk)
-  }
-  walk(node)
-  return out
-}
-
 // Voci facoltative del menu contestuale di una riga (tasto destro), es.
 // "Upload / reseed" sui torrent orfani: nessuna voce, nessun menu.
 export interface TreeRowActions {
   file?: (file: TreeFileEntry) => RowMenuItem[]
   folder?: (node: TreeNode) => RowMenuItem[]
-}
-
-// Un video che può entrare in un pack (nazgarr/upload/pack.py): su un disco, non escluso.
-export function packable(file: TreeFileEntry): boolean {
-  return file.disk_id != null && !file.excluded && isVideoPath(file.relative_path);
 }
 
 // I video sceglibili sotto una cartella, calcolati una volta per nodo: i
@@ -126,8 +40,6 @@ function packableUnder(node: TreeNode): TreeFileEntry[] {
   }
   return videos;
 }
-
-export const packFile = (file: TreeFileEntry) => ({ diskId: file.disk_id as number, path: file.relative_path });
 
 // onPick riceve SHIFT (dal clic, non dal change: lì non c'è). Più grande su
 // touch: a 14 px una casella è difficile da centrare col dito.
@@ -313,7 +225,7 @@ const TreeRow = memo(function TreeRow({
             CHECKBOX_SPACER
           ))}
           {picking && <span className="w-1" />}
-          {isVideo(node.name) ? <FileVideoIcon className="size-3.5 shrink-0 text-muted-foreground" /> : <FileIcon className="size-3.5 shrink-0 text-muted-foreground" />}
+          {isVideoPath(node.name) ? <FileVideoIcon className="size-3.5 shrink-0 text-muted-foreground" /> : <FileIcon className="size-3.5 shrink-0 text-muted-foreground" />}
           {/* Su touch il nome intero va a capo: il title lì non si vede. Con
               una scheda da aprire il nome è un pulsante, raggiungibile da tastiera. */}
           {openable && !picking ? (

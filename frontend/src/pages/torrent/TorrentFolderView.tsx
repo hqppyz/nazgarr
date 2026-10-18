@@ -2,7 +2,7 @@ import { useSeedFiles } from '@/api/hooks/library'
 import { FileBrowser } from '@/components/FileBrowser'
 import { TorrentViewSwitch } from '@/components/LibraryViewSwitch'
 import { useTreeMenu } from '@/components/useTreeMenu'
-import { useRingLoader } from '@/components/RingLoader'
+import { useRingLoader } from '@/hooks/use-ring-loader'
 import { t } from '@/lib/i18n'
 import type { StatusOption } from '@/lib/library-filters'
 

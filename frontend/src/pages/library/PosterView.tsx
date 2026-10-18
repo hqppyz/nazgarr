@@ -2,41 +2,21 @@ import { SearchIcon } from 'lucide-react'
 import { useMemo, useState } from 'react'
 
 import { useLibraryItems } from '@/api/hooks/library'
-import type { Schemas } from '@/api/client'
 import { AuthedPoster } from '@/components/AuthedPoster'
 import { LibrarySummaryCards } from '@/components/LibrarySummaryCards'
 import { LibraryViewSwitch } from '@/components/LibraryViewSwitch'
 import { Input } from '@/components/ui/input'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { useRingLoader } from '@/components/RingLoader'
+import { useRingLoader } from '@/hooks/use-ring-loader'
 import { useIncrementalCount } from '@/hooks/use-incremental'
 import { t } from '@/lib/i18n'
 import { DUPLICATES_STATUS, type StateSummary, type StatusOption } from '@/lib/library-filters'
 import { STATUS_STYLES } from '@/lib/status-styles'
 import { cn } from '@/lib/utils'
 import { ItemDetailSheet, type OpenItem } from '@/pages/library/ItemDetailSheet'
-
-type MediaItemOverview = Schemas['MediaItemOverview']
+import { toCards, type PosterCard, type StatusKey } from '@/pages/library/posterCards'
 
 const PAGE_SIZE = 40
-
-// Una card per film, una per SERIE (non per episodio: a parità di
-// poster sarebbero migliaia di card identiche).
-interface PosterCard {
-  key: string
-  content_type: string
-  tmdb_id: number
-  title: string | null
-  year: number | null
-  has_poster: boolean
-  episodes: number
-  sizeBytes: number
-  counts: Record<StatusKey, number>
-}
-
-// Pallini di stato, contati per file (per una serie: per episodio). I
-// file esclusi non contano mai, come nel resto dell'interfaccia.
-type StatusKey = 'seeding' | 'orphan' | 'review' | 'duplicate'
 
 const STATUS_DOTS: { key: StatusKey; className: string }[] = (
   ['seeding', 'orphan', 'review', 'duplicate'] as const
@@ -56,36 +36,6 @@ function StatusDots({ counts, showCounts }: { counts: Record<StatusKey, number>;
         </span>
       ))}
     </div>
-  )
-}
-
-export function toCards(items: MediaItemOverview[]): PosterCard[] {
-  const cards = new Map<string, PosterCard>()
-  for (const item of items) {
-    const key = `${item.content_type}-${item.tmdb_id}`
-    const card = cards.get(key) ?? {
-      key, content_type: item.content_type, tmdb_id: item.tmdb_id, title: null, year: null,
-      has_poster: false, episodes: 0, sizeBytes: 0, counts: { seeding: 0, orphan: 0, review: 0, duplicate: 0 },
-    }
-    card.title ??= item.title ?? null
-    card.year ??= item.year ?? null
-    card.has_poster ||= item.has_poster
-    card.episodes += 1
-    for (const f of item.files) {
-      if (f.excluded) continue
-      card.sizeBytes += f.size_bytes ?? 0
-      if (f.state === 'seeding') card.counts.seeding += 1
-      else card.counts.orphan += 1
-      if (f.in_review) card.counts.review += 1
-      if (f.duplicate) card.counts.duplicate += 1
-    }
-    cards.set(key, card)
-  }
-  // Un titolo con soli file esclusi (es. un sample o un extra identificato
-  // come film) è fuori da ogni controllo come i suoi file: senza questo
-  // contava nel Total senza essere né seeding né orfano.
-  return [...cards.values()].filter((c) => c.counts.seeding + c.counts.orphan > 0).sort((a, b) =>
-    (a.title ?? '\uffff').localeCompare(b.title ?? '\uffff') || a.tmdb_id - b.tmdb_id,
   )
 }
 

@@ -15,13 +15,8 @@ import {
 } from '@/api/hooks/torrentClients'
 import type { Schemas } from '@/api/client'
 import { usePlugins } from '@/api/hooks/plugins'
-import {
-  AdapterConfigFields,
-  configPayload,
-  initialConfigValues,
-  missingRequired,
-  type ConfigValues,
-} from '@/components/AdapterConfigFields'
+import { AdapterConfigFields } from '@/components/AdapterConfigFields'
+import { configPayload, initialConfigValues, missingRequired, type ConfigValues } from '@/lib/adapterConfig'
 import { ClientCategorySelect } from '@/components/ClientCategorySelect'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'

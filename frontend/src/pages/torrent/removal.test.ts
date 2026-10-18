@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { Schemas } from '@/api/client'
-import { canRemove } from '@/pages/torrent/RemoveTorrentDialog'
+import { canRemove } from '@/pages/torrent/removal'
 
 type Torrent = Schemas['NotImportedItem']
 
