@@ -18,9 +18,9 @@ import { installChunkReload } from '@/lib/chunkReload'
 import { reportMutationError } from '@/lib/mutationErrors'
 import {
   activeTrackerFilter,
+  applyPersistedDefaults,
   CACHE_BUSTER,
   CACHE_MAX_AGE_MS,
-  PERSISTED_KEYS,
   queryPersister,
   shouldPersistQuery,
 } from '@/lib/queryPersistence'
@@ -44,12 +44,9 @@ const queryClient: QueryClient = new QueryClient({
     onError: (error, _variables, _context, mutation) => reportMutationError(error, mutation),
   }),
 })
-// gcTime almeno quanto la cache persistita, ma solo per le query persistite
-// (le liste della libreria e il filtro per tracker, src/lib/queryPersistence.ts):
-// una query ripristinata da IndexedDB non deve essere scartata dopo i 5
-// minuti di default. Le altre (schede di dettaglio, ricerche, anteprime dei
-// nomi) restano ai 5 minuti, invece di restare in memoria per tutta la sessione.
-for (const queryKey of PERSISTED_KEYS) queryClient.setQueryDefaults(queryKey, { gcTime: CACHE_MAX_AGE_MS })
+// Le liste della libreria e il filtro per tracker restano in memoria quanto
+// la cache persistita (src/lib/queryPersistence.ts).
+applyPersistedDefaults(queryClient)
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

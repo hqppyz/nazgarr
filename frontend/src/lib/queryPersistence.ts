@@ -26,13 +26,23 @@ const LIST_VIEWS = new Set(['items', 'media-files', 'seed-files', 'duplicates', 
 const TRACKER_VIEWS = new Set(['items', 'media-files', 'seed-files'])
 const TRACKER_SETTING_KEY = ['settings', TRACKER_FILTER_SETTING]
 
-// Le chiavi che restano in memoria quanto la cache persistita: una query
-// ripristinata da IndexedDB non deve essere scartata dopo i 5 minuti di
-// default (main.tsx, setQueryDefaults).
-export const PERSISTED_KEYS: readonly (readonly string[])[] = [
-  ...[...LIST_VIEWS].map((view) => ['library', view]),
-  TRACKER_SETTING_KEY,
-]
+// Le liste della libreria pesano MB: anche quando il server risponde 304, il
+// browser passa a JS il corpo in cache, che va riletto e confrontato (decine
+// di ms, di più su un telefono). Per 30 s dopo l'ultima lettura passare da
+// una vista all'altra, o tornare alla scheda, non le richiede di nuovo; le
+// invalidazioni (un seed finito, un'esclusione) le richiedono comunque.
+export const LIBRARY_STALE_MS = 30_000
+
+// gcTime almeno quanto la cache persistita, ma solo per le query persistite:
+// una query ripristinata da IndexedDB non deve essere scartata dopo i 5
+// minuti di default. Le altre (schede di dettaglio, ricerche, anteprime dei
+// nomi) restano ai 5 minuti, invece di restare in memoria per tutta la sessione.
+export function applyPersistedDefaults(queryClient: QueryClient): void {
+  for (const view of LIST_VIEWS) {
+    queryClient.setQueryDefaults(['library', view], { gcTime: CACHE_MAX_AGE_MS, staleTime: LIBRARY_STALE_MS })
+  }
+  queryClient.setQueryDefaults(TRACKER_SETTING_KEY, { gcTime: CACHE_MAX_AGE_MS })
+}
 
 // Il filtro per tracker scelto, dalla cache: lo stesso valore di useTrackerFilter.
 export function activeTrackerFilter(queryClient: QueryClient): string {

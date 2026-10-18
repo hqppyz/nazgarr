@@ -1,8 +1,8 @@
-import type { Query } from '@tanstack/react-query'
+import { QueryClient, type Query } from '@tanstack/react-query'
 import type { PersistedClient, Persister } from '@tanstack/react-query-persist-client'
 import { describe, expect, it, vi } from 'vitest'
 
-import { shouldPersistQuery, skipUnchanged } from '@/lib/queryPersistence'
+import { applyPersistedDefaults, CACHE_MAX_AGE_MS, LIBRARY_STALE_MS, shouldPersistQuery, skipUnchanged } from '@/lib/queryPersistence'
 
 const query = (key: unknown[], status: string) => ({ queryKey: key, state: { status } }) as unknown as Query
 
@@ -77,5 +77,17 @@ describe('skipUnchanged', () => {
     await persister.removeClient()
     await persister.persistClient(client([{ queryHash: 'media', data: files }]))
     expect(inner.persistClient).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('applyPersistedDefaults', () => {
+  it('keeps the persisted lists for the cache lifetime, and the detail sheets for the usual five minutes', () => {
+    const queryClient = new QueryClient()
+    applyPersistedDefaults(queryClient)
+    const media = queryClient.getQueryDefaults(['library', 'media-files', undefined, 'all'])
+    expect(media.gcTime).toBe(CACHE_MAX_AGE_MS)
+    expect(media.staleTime).toBe(LIBRARY_STALE_MS)
+    expect(queryClient.getQueryDefaults(['library', 'detail', 'movie', 603]).gcTime).toBeUndefined()
+    expect(queryClient.getQueryDefaults(['settings', 'tracker_filter']).gcTime).toBe(CACHE_MAX_AGE_MS)
   })
 })
