@@ -183,6 +183,10 @@ def test_the_endpoint_wants_the_password_of_that_instance(client):
 
     assert client.post(setup["path"], json={"eventType": "Test"}, headers=anonymous).status_code == 401
     assert client.post(setup["path"], json={"eventType": "Test"}, headers=_basic("wrong")).status_code == 401
+    # Non ASCII: un 401 come un'altra password sbagliata, non un 500 (audit 2026-10-18).
+    assert client.post(setup["path"], json={"eventType": "Test"}, headers=_basic("città")).status_code == 401
+    assert client.post(f"{setup['path']}?token=%C3%A9", json={"eventType": "Test"},
+                       headers=anonymous).status_code == 401
     assert client.post(setup["path"], json={"eventType": "Test"}, headers=_basic(setup["token"])).json() == {
         "status": "accepted"}
     assert client.post(f"{setup['path']}?token={setup['token']}", json={"eventType": "Grab"},

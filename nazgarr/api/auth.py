@@ -1,7 +1,9 @@
 """Endpoint di login — deliberatamente MAI dietro app.auth.require_auth
 (altrimenti nessuno potrebbe mai autenticarsi la prima volta). change-password
-è protetto esplicitamente, sugli altri la sicurezza sta nel loro stesso
-comportamento (setup rifiuta se già configurato, login verifica l'hash)."""
+e logout-everywhere sono protetti esplicitamente, e solo dal login: una API key
+non tocca mai il login stesso (docs/SDK.md, audit 2026-10-18). Sugli altri la
+sicurezza sta nel loro stesso comportamento (setup rifiuta se già
+configurato, login verifica l'hash)."""
 
 import hmac
 import threading
@@ -84,7 +86,9 @@ def setup(body: SetupRequest, request: Request, session: Session = Depends(get_s
         if auth.is_auth_configured(session):
             raise HTTPException(status_code=409, detail=coded_detail("auth_already_configured"))
         expected = getattr(request.app.state, "setup_code", None)
-        if not expected or not hmac.compare_digest(body.setup_code.strip(), expected):
+        # In byte: compare_digest su due str con caratteri non ASCII solleva
+        # TypeError (un 500 a chiunque mandasse una "é").
+        if not expected or not hmac.compare_digest(body.setup_code.strip().encode(), expected.encode()):
             raise _failed(request, 403, "auth_setup_code_invalid")
         if not body.username.strip():
             raise HTTPException(status_code=400, detail=coded_detail("auth_username_required"))
@@ -124,7 +128,7 @@ def me(request: Request, session: Session = Depends(get_session)):
 @router.post("/change-password", status_code=204)
 def change_password(
     body: ChangePasswordRequest, request: Request, session: Session = Depends(get_session),
-    _: str | None = Depends(auth.require_auth),
+    _: str | None = Depends(auth.require_login),
 ):
     _check_limit(request)
     stored_hash = settings_repo.get_setting(session, "auth_password_hash")
@@ -139,6 +143,8 @@ def change_password(
 
 
 @router.post("/logout-everywhere", status_code=204)
-def logout_everywhere(session: Session = Depends(get_session), _: str | None = Depends(auth.require_auth)):
-    """Esce da tutti i dispositivi: ogni token emesso finora smette di valere."""
+def logout_everywhere(session: Session = Depends(get_session), _: str | None = Depends(auth.require_login)):
+    """Esce da tutti i dispositivi: ogni token emesso finora smette di valere.
+    Solo col login: una API key di scrittura rubata, in un ciclo, avrebbe
+    buttato fuori l'amministratore a ogni nuovo accesso."""
     auth.revoke_all_tokens(session)

@@ -137,3 +137,14 @@ def test_the_window_forgets_old_failures():
         login_limiter.failed("1.2.3.4", now=100.0 + i)
     assert login_limiter.retry_after("1.2.3.4", now=110.0) is not None
     assert login_limiter.retry_after("1.2.3.4", now=100.0 + login_limiter.WINDOW_SECONDS + 1) is None
+
+
+def test_a_setup_code_with_accents_is_just_wrong(anon_client):
+    # compare_digest su str non ASCII sollevava TypeError: un 500, non un 403.
+    assert _setup(anon_client, setup_code="é-non-ascii").status_code == 403
+    assert _setup(anon_client).status_code == 201
+
+
+def test_a_non_ascii_setup_code_from_the_environment_still_works(anon_client):
+    anon_client.app.state.setup_code = "codice-città"
+    assert _setup(anon_client, setup_code="codice-città").status_code == 201
