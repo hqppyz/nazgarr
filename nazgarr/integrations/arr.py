@@ -26,8 +26,10 @@ titolo. Verificato sul formato delle API reali (Radarr 6.3, Sonarr 4.0),
 non ancora sulla corrispondenza con i dischi di un'istanza vera.
 """
 
+import json
 import logging
 import re
+import time
 from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -36,6 +38,7 @@ from urllib.parse import urlsplit
 import httpx
 from sqlalchemy.orm import Session
 
+from nazgarr.core import http_limits, net_guard
 from nazgarr.core.models import RadarrInstance, SonarrInstance
 
 logger = logging.getLogger(__name__)
@@ -48,6 +51,12 @@ HISTORY_PAGE_SIZE = 1000
 SERIES_WORKERS = 8
 HISTORY_WORKERS = 4
 DEFAULT_TIMEOUT_SECONDS = 15
+# Una risposta di Radarr/Sonarr letta con un tetto (nazgarr/core/http_limits.py):
+# l'elenco dei film di Radarr è la più grande, qualche KB per film, quindi
+# decine di MB per una libreria molto grande; ben sotto, e lontano da un
+# gzip che si espande a GB nel processo unico (audit 2026-10-18).
+MAX_RESPONSE_BYTES = 256 * 1024 * 1024
+RESPONSE_DEADLINE_SECONDS = 300.0
 
 # Ultima parte del path di un URL di download UNIT3D: "<id>.<passkey>".
 _TORRENT_ID_IN_URL_RE = re.compile(r"/(\d+)\.[^/]+$")
@@ -61,10 +70,27 @@ def path_key(path: str) -> str:
     return "/".join(parts[-2:]).lower()
 
 
+_DEFAULT_PORTS = {"http": 80, "https": 443}
+
+
 def host_of(url: str | None) -> str | None:
+    """L'host di un URL per confrontare un grab della history (guid) col
+    tracker: come host_of_url di nazgarr/adapters/tracker/base.py (netloc in
+    minuscolo, senza "www."), ma senza la porta di default dello schema
+    (":443" su https, ":80" su http), che un guid può scrivere e base_url no:
+    altrimenti la scorciatoia della history si perdeva e il matching tornava
+    a cercare sul tracker (audit 2026-10-18). Una porta diversa resta: i
+    controlli di sicurezza del tracker usano host_of_url, mai questa."""
     if not url:
         return None
-    host = urlsplit(url).netloc.lower()
+    try:
+        parts = urlsplit(url)
+        port = parts.port
+    except ValueError:
+        return None
+    host = parts.netloc.lower()
+    if port is not None and _DEFAULT_PORTS.get(parts.scheme.lower()) == port:
+        host = host.rsplit(":", 1)[0]
     return host.removeprefix("www.") or None
 
 
@@ -168,8 +194,10 @@ class ArrApi:
         )
         self.label = instance.label
         self.instance_id = instance.id
+        self.base_url = instance.base_url.rstrip("/")
+        self._checked = False
         self._client = client or httpx.Client(
-            base_url=instance.base_url.rstrip("/"),
+            base_url=self.base_url,
             headers={"X-Api-Key": instance.api_key},
             timeout=instance.timeout_seconds or DEFAULT_TIMEOUT_SECONDS,
             auth=auth,
@@ -185,9 +213,24 @@ class ArrApi:
         self.close()
 
     def get(self, path: str, **params) -> object:
-        response = self._client.get(path, params=params or None)
-        response.raise_for_status()
-        return response.json()
+        """Il JSON di una GET, letto in streaming con un tetto
+        (MAX_RESPONSE_BYTES, RESPONSE_DEADLINE_SECONDS): prima httpx lo
+        scaricava e decomprimeva tutto in memoria. net_guard una volta per
+        indice (quando l'API fa la prima richiesta), non solo quando
+        l'indirizzo si salva: un nome che ora si risolve nei metadati del
+        cloud non si chiama."""
+        if not self._checked:
+            net_guard.check_url(self.base_url)  # ForbiddenDestination è un ValueError: istanza saltata
+            self._checked = True
+        with self._client.stream("GET", path, params=params or None,
+                                 headers={"Accept-Encoding": http_limits.ACCEPT_ENCODING}) as response:
+            response.raise_for_status()
+            try:
+                body = http_limits.read_limited(response, MAX_RESPONSE_BYTES,
+                                                time.monotonic() + RESPONSE_DEADLINE_SECONDS)
+            except http_limits.ResponseLimitExceeded as exc:
+                raise ValueError(f"{self.label} sent an answer {exc}") from exc
+        return json.loads(body)
 
     def _history_page(self, event_type: int, page: int) -> dict:
         return self.get(
@@ -304,34 +347,41 @@ def _index_sonarr(api: ArrApi, index: ArrIndex) -> None:
     # alla volta (rete locale) — sequenziali costavano ~18s su ~110 serie.
     # L'indice si aggiorna solo qui, nel thread chiamante.
     series_list = [s for s in api.get("/api/v3/series") if s.get("tmdbId")]  # senza tmdbId: resolver di default
-    with ThreadPoolExecutor(max_workers=SERIES_WORKERS) as pool:
-        fetched = list(pool.map(lambda s: _series_files(api, s), series_list))
     content: dict[int, tuple] = {}  # episode id -> contenuto, per la history
-    for series, episodes, episode_files in fetched:
-        episode_by_file: dict[int, tuple[int, int]] = {}
-        for episode in episodes:
-            if episode.get("id") and episode.get("seasonNumber") is not None:
-                content[episode["id"]] = ("tv", series["tmdbId"], episode["seasonNumber"], episode.get("episodeNumber"))
-            file_id = episode.get("episodeFileId")
-            if file_id:
-                # File multi-episodio: vale il primo, come fa FilenameParserResolver.
-                key = (episode["seasonNumber"], episode["episodeNumber"])
-                episode_by_file[file_id] = min(episode_by_file.get(file_id, key), key)
-        for episode_file in episode_files:
-            numbers = episode_by_file.get(episode_file.get("id"))
-            if numbers is None or not episode_file.get("path") or not episode_file.get("size"):
-                continue
-            index.add_identity(
-                episode_file["path"], episode_file["size"],
-                ArrIdentity(
-                    source="sonarr", content_type="tv", tmdb_id=series["tmdbId"],
-                    season_number=numbers[0], episode_number=numbers[1],
-                    title=series.get("title"), year=series.get("year") or None,
-                    imdb_id=series.get("imdbId") or None, instance_id=api.instance_id, slug=series.get("titleSlug"),
-                    scene_name=_scene_name(episode_file),
-                ),
-            )
+    # Ogni serie si indicizza appena arriva e la sua risposta si lascia
+    # andare: in memoria restano le poche serie scaricate in anticipo, non
+    # gli episodi e i file di tutta la libreria (audit 2026-10-18).
+    with ThreadPoolExecutor(max_workers=SERIES_WORKERS) as pool:
+        for series, episodes, episode_files in pool.map(lambda s: _series_files(api, s), series_list):
+            _index_series(api, index, content, series, episodes, episode_files)
     _index_history(api, index, lambda event: content.get(event.get("episodeId")))
+
+
+def _index_series(api: ArrApi, index: ArrIndex, content: dict[int, tuple], series: dict, episodes: list[dict],
+                  episode_files: list[dict]) -> None:
+    episode_by_file: dict[int, tuple[int, int]] = {}
+    for episode in episodes:
+        if episode.get("id") and episode.get("seasonNumber") is not None:
+            content[episode["id"]] = ("tv", series["tmdbId"], episode["seasonNumber"], episode.get("episodeNumber"))
+        file_id = episode.get("episodeFileId")
+        if file_id:
+            # File multi-episodio: vale il primo, come fa FilenameParserResolver.
+            key = (episode["seasonNumber"], episode["episodeNumber"])
+            episode_by_file[file_id] = min(episode_by_file.get(file_id, key), key)
+    for episode_file in episode_files:
+        numbers = episode_by_file.get(episode_file.get("id"))
+        if numbers is None or not episode_file.get("path") or not episode_file.get("size"):
+            continue
+        index.add_identity(
+            episode_file["path"], episode_file["size"],
+            ArrIdentity(
+                source="sonarr", content_type="tv", tmdb_id=series["tmdbId"],
+                season_number=numbers[0], episode_number=numbers[1],
+                title=series.get("title"), year=series.get("year") or None,
+                imdb_id=series.get("imdbId") or None, instance_id=api.instance_id, slug=series.get("titleSlug"),
+                scene_name=_scene_name(episode_file),
+            ),
+        )
 
 
 def build_arr_index(session: Session, api_factory: Callable[..., ArrApi] = ArrApi) -> ArrIndex:
