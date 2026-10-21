@@ -585,11 +585,16 @@ def delete_job(session: Session, job: UploadJob, data_dir: str, active: bool = F
     worker sta lavorando va prima annullato, e uno annullato aspetta che il
     tracker in invio finisca. Con lui va la sua cartella: il client ha già
     la sua copia del .torrent, e SQLite può ridare lo stesso id al prossimo
-    upload, che non deve trovarci i file di questo."""
+    upload, che non deve trovarci i file di questo. Prima, gli hardlink che
+    il job ha creato per i nomi del torrent e che non seedano niente
+    (execute.release_links, audit 2026-10-18)."""
+    from nazgarr.upload import execute as upload_execute  # qui: execute importa questo modulo
+
     if job.status in WORKER_STATES:
         raise UploadJobError("upload_job_wrong_status", status=job.status)
     _refuse_if_busy(job, active)
     _refuse_if_seed_pending(job)
+    upload_execute.release_links(session, job, data_dir)
     job_id = job.id
     session.delete(job)
     session.commit()
