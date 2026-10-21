@@ -219,7 +219,7 @@ Two kinds of settings ask for your password, because an API key is not allowed t
 
 The CLI then logs in for that single change and does not keep the token. Safety settings also ask for confirmation. A secret is never read back, not even with the password: `settings get tmdb_api_key` only says whether it is set.
 
-Some keys are not settings of this command: `schedule_cron` is changed with `nazgarr schedule set`; the file naming rules of uploads, the instance name and the plugin switch from the web UI; Nazgarr's own state (the update check, the release notes seen) only by Nazgarr. `settings set` and `config import` refuse them and say where they are changed.
+Some keys are not settings of this command: `schedule_cron` is changed with `nazgarr schedule set`; the file naming rules of uploads, the instance name and the plugin switch from the web UI; Nazgarr's own state (the update check, the release notes seen) only by Nazgarr. `settings set` and `config import` refuse them and say where they are changed. A key that is not a Nazgarr setting at all is refused by the server (`setting_unknown`): `settings get` and `settings set` say so, and `config import` stops while it builds its plan, before changing anything. The web UI's own state (the tracker filter, the library's default view, the first-access tour) is not listed by `settings ls`, but `settings get`/`set` reach it.
 
 ### Other instances
 

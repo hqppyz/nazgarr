@@ -512,6 +512,17 @@ def tmdb_orders(client, tmdb_id: int) -> list[EpisodeOrder]:
 
 _SPECIALS = re.compile(r"\b(specials?|speciali|extras?)\b", re.IGNORECASE)
 _NUMBER = re.compile(r"(\d+)")
+# I numeri degli episodi nel nome di un gruppo ("Episodes 13-24", "Ep. 25",
+# "Season 2 (1-12)"): posizioni, mai una stagione. Prima "Episodes 13-24"
+# diventava la stagione 13 (revisione dell'audit 2026-10-18).
+_EPISODE_NUMBERS = re.compile(
+    r"\b(?:episodes?|episodi|eps?)\b\.?\s*#?\d+(?:\s*(?:-|–|—|~|to)\s*\d+)?|\d+\s*(?:-|–|—|~)\s*\d+",
+    re.IGNORECASE,
+)
+
+
+def _season_number(name: str) -> re.Match | None:
+    return _NUMBER.search(_EPISODE_NUMBERS.sub(" ", name))
 
 
 def _group_seasons(parts: list[dict], where: str = "") -> list[int]:
@@ -522,11 +533,12 @@ def _group_seasons(parts: list[dict], where: str = "") -> list[int]:
     speciali, da 1 (audit 2026-10-18: "Season 1 Part 1" e "Season 1 Part 2"
     diventavano entrambi la stagione 1 e il secondo spariva, e un gruppo
     senza numero davanti agli speciali in fondo diventava la stagione 0).
+    I numeri degli episodi non contano ("Episodes 13-24": _EPISODE_NUMBERS).
     Un gruppo senza numero nel nome prende la sua posizione, o il primo
     numero libero dopo."""
     names = [part.get("name") or "" for part in parts]
     named = {i: int(match.group(1)) for i, name in enumerate(names)
-             if not _SPECIALS.search(name) and (match := _NUMBER.search(name))}
+             if not _SPECIALS.search(name) and (match := _season_number(name))}
     # "Season 0" è la stagione degli speciali, come quelli col nome: se no
     # spostava di uno tutte le altre ("Season 1" diventava la 2).
     regular = [i for i, name in enumerate(names) if not _SPECIALS.search(name) and named.get(i) != 0]

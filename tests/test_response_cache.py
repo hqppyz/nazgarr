@@ -112,6 +112,61 @@ def test_requests_that_arrive_together_compute_the_view_once(client):
     assert len(bodies) == 6 and len(set(bodies)) == 1
 
 
+
+def test_waiters_reuse_a_body_that_a_commit_kept_out_of_the_cache(client):
+    """Un commit (e una data_version dopo) durante il calcolo: _store non
+    tiene il corpo, e ognuno di quelli in coda con lo stesso ETag lo
+    ricalcolava, uno dopo l'altro, proprio alla fine di una scansione
+    (audit 2026-10-18). Ora lo prendono dalla voce di _computing."""
+    import threading
+    import time
+
+    from starlette.requests import Request
+
+    from nazgarr.core.models import AppSetting
+    from nazgarr.web import response_cache
+
+    calls = []
+    started = threading.Event()
+    go = threading.Event()
+
+    def compute():
+        calls.append(1)
+        started.set()
+        assert go.wait(5)
+        return {"rows": list(range(10))}
+
+    bodies = []
+
+    def request_view():
+        session = client.app.state.session_factory()
+        try:
+            request = Request({"type": "http", "headers": []})
+            bodies.append(response_cache.cached_json(request, session, "test:late", compute).body)
+        finally:
+            session.close()
+
+    first = threading.Thread(target=request_view)
+    first.start()
+    assert started.wait(5)
+    waiters = [threading.Thread(target=request_view) for _ in range(3)]
+    for thread in waiters:
+        thread.start()
+    time.sleep(0.2)  # in coda sul lock della chiave, con la versione di prima
+    with client.app.state.session_factory() as session:
+        session.add(AppSetting(key="mid_compute", value="1"))
+        session.commit()
+    with client.app.state.session_factory() as session:
+        response_cache.data_version(session)  # la versione corrente va avanti
+    go.set()
+    for thread in [first, *waiters]:
+        thread.join()
+
+    assert len(calls) == 1
+    assert len(bodies) == 4 and len(set(bodies)) == 1
+    assert not any(key.endswith("|test:late") for key in response_cache._cache)
+    assert response_cache._computing == {}
+
 # --- la versione vede ogni scrittura (audit 2026-10-18) -----------------------------------
 
 

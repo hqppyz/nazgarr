@@ -290,6 +290,17 @@ function HistoryList({ jobs, onOpen, more }: {
   onOpen: (id: number) => void
   more: ReturnType<typeof useUploadHistory>
 }) {
+  if (jobs.length === 0 && more.isError) {
+    return (
+      <div role="alert" className="grid justify-items-center gap-2 py-10 text-center text-sm">
+        <p>{t('common.listLoadFailed')}</p>
+        <p className="text-xs text-muted-foreground">{more.error.message}</p>
+        <Button variant="outline" size="sm" disabled={more.isFetching} onClick={() => void more.refetch()}>
+          {t('common.retry')}
+        </Button>
+      </div>
+    )
+  }
   if (jobs.length === 0) return <p className="py-10 text-center text-sm text-muted-foreground">{t('upload.noUploadsYet')}</p>
   return (
     <>
@@ -326,13 +337,15 @@ export function UploadQueuePage() {
   const historyQuery = useUploadHistory()
   const { data } = query
   // La coda e la prima pagina dello storico insieme: la scheda di partenza
-  // dipende da entrambe.
+  // dipende da entrambe. Solo la coda però fa cadere l'anello: uno storico
+  // che non arriva (un'istanza remota che non lo sa dare) lo dice la sua
+  // scheda, e la coda resta usabile (audit 2026-10-18).
   const loader = useRingLoader({
-    data: data !== undefined && historyQuery.data !== undefined ? data : undefined,
+    data: data !== undefined && (historyQuery.data !== undefined || historyQuery.isError) ? data : undefined,
     isPending: query.isPending || historyQuery.isPending,
-    isError: query.isError || historyQuery.isError,
-    isFetching: query.isFetching || historyQuery.isFetching,
-    error: query.error ?? historyQuery.error,
+    isError: query.isError,
+    isFetching: query.isFetching,
+    error: query.error,
     refetch: () => Promise.all([query.refetch(), historyQuery.refetch()]),
   })
   const navigate = useNavigate()

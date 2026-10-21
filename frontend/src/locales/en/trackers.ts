@@ -97,7 +97,7 @@ export const trackers = {
   'trackers.deletePreview.uploadTargets': 'Uploads to it',
   'trackers.deletePreview.uploadProfile': 'Its upload profile',
   'trackers.deletePreview.untouched': 'Nothing changes on the tracker, on your disks or in your torrent clients.',
-  'trackers.deletePreview.busy': 'An execution or an upload of this tracker is in progress: wait for it to finish, cancel the upload, or delete the stuck execution in Reseeding, then delete it.',
+  'trackers.deletePreview.busy': 'An execution or an upload of this tracker is in progress, or one of its reseeds is stopped in the client waiting for its recheck: wait for it to finish, cancel the upload, or delete the stuck execution in Reseeding, then delete it.',
   'trackers.deleteProfileTitle': 'Delete the upload profile of {trackerLabel}?',
   'trackers.deleteProfileDescription': 'The naming, description and defaults of this profile are lost. You can create a new one from scratch or from a bundled profile.',
 } as const

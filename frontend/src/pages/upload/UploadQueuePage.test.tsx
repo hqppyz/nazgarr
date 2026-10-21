@@ -15,6 +15,8 @@ const job = (id: number, status: string, extra = {}) => ({
 
 const fetchNextPage = vi.fn()
 const history = { hasNextPage: true, isFetchingNextPage: false }
+const refetchHistory = vi.fn()
+let historyError: Error | null = null
 
 vi.mock('@/api/hooks/uploads', () => ({
   // La coda: solo i job non finiti (GET /api/uploads?scope=active).
@@ -27,7 +29,10 @@ vi.mock('@/api/hooks/uploads', () => ({
     ],
   }),
   // Lo storico, a pagine (GET /api/uploads/history): la prima, di 41 in tutto.
-  useUploadHistory: () => ({
+  useUploadHistory: () => historyError ? {
+    isPending: false, isError: true, error: historyError, data: undefined, isFetching: false, refetch: refetchHistory,
+    hasNextPage: false, isFetchingNextPage: false, fetchNextPage,
+  } : ({
     isPending: false,
     data: {
       pages: [{
@@ -97,6 +102,24 @@ describe('UploadQueuePage', () => {
     fireEvent.click(screen.getAllByRole('button', { name: /Remove the upload/ })[0])
     await vi.waitFor(() => expect(remove).toHaveBeenCalledWith(2))
     expect(cancel).toHaveBeenCalledWith(2)
+  })
+
+  it('keeps the queue usable when the history fails (a remote instance that cannot give it)', () => {
+    historyError = new Error('Not Found')
+    try {
+      render(<MemoryRouter><UploadQueuePage /></MemoryRouter>)
+      // Non l'anello caduto al posto della pagina: la coda c'è.
+      expect(screen.getByText('Movie 1 (2024)')).toBeTruthy()
+      cleanup()
+
+      render(<MemoryRouter initialEntries={['/?tab=history']}><UploadQueuePage /></MemoryRouter>)
+      expect(screen.getByText('This list could not be loaded.')).toBeTruthy()
+      expect(screen.queryByText('No uploads yet.')).toBeNull()
+      fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+      expect(refetchHistory).toHaveBeenCalledTimes(1)
+    } finally {
+      historyError = null
+    }
   })
 
   it('shows how many uploads the history holds and loads it a page at a time', () => {

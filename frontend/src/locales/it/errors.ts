@@ -17,6 +17,7 @@ export const errors = {
   'errors.auth_invalid_credentials': 'Credenziali non valide.',
   'errors.auth_required': 'Autenticazione richiesta.',
   'errors.auth_wrong_current_password': 'La password attuale non è corretta.',
+  'errors.auth_text_invalid': 'Nome utente e password non possono contenere caratteri non validi.',
 
   'errors.poster_not_cached': 'Locandina non in cache.',
 
@@ -56,7 +57,7 @@ export const errors = {
   'errors.full_check_seed_job_mismatch': "L'esecuzione {seed_job_id} non è del candidato torrent {candidate_id}.",
 
   'errors.tracker_not_found': 'Tracker {id} non trovato.',
-  'errors.tracker_busy': '{label} ha un’esecuzione o un upload in corso: aspetta che finisca, annulla l’upload o elimina l’esecuzione bloccata in Reseeding, poi eliminalo',
+  'errors.tracker_busy': '{label} ha un’esecuzione o un upload in corso, o un reseed fermo nel suo client in attesa del recheck: aspetta che finisca, annulla l’upload o elimina l’esecuzione bloccata in Reseeding, poi eliminalo',
   'errors.tracker_in_use': '{label} è ancora usato da altri dati e non si può eliminare: disattivalo invece',
   'errors.secret_required_for_new_host':
     'L’indirizzo punta a un altro host: inserisci di nuovo {fields}, così non vengono mai inviati per errore a un nuovo server',
@@ -64,6 +65,7 @@ export const errors = {
   'errors.request_too_large': 'La richiesta è troppo grande: al massimo {limit} byte',
   'errors.setting_safety_for_api_key': 'Le API key non possono cambiare le impostazioni di sicurezza: accedi per cambiarle',
   'errors.setting_invalid_value': '{key}: valore non valido per questa impostazione.',
+  'errors.setting_unknown': '{key} non è un’impostazione di Nazgarr.',
   'errors.setting_protected': 'Questa impostazione si gestisce dalla sua pagina',
   'errors.setting_secret_for_api_key': 'Le API key non possono leggere o cambiare le impostazioni segrete',
   'errors.webhook_event_unknown': 'Evento sconosciuto: {event}',

@@ -19,6 +19,11 @@ describe('canRemove', () => {
     expect(canRemove(torrent([{ code: 'something_new', params: {}, blocking: true }]))).toBe(false)
   })
 
+  it('treats a warning without the flag as blocking (a response cached before it existed)', () => {
+    const old = { code: 'shared_files', params: {} } as unknown as Schemas['RemovalWarning']
+    expect(canRemove(torrent([old]))).toBe(false)
+  })
+
   it('needs the seed requirement met', () => {
     expect(canRemove(torrent([], 'not_met'))).toBe(false)
   })

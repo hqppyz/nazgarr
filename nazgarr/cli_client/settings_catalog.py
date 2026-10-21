@@ -1,13 +1,16 @@
 """Le impostazioni che la web UI espone, con un aiuto per il CLI (nazgarr
-settings ls). Una chiave non in elenco si legge e scrive lo stesso con
-settings get/set: l'elenco serve a trovarle.
+settings ls). Non ci sono quelle che sono solo stato dell'interfaccia
+(SettingSpec.ui nel registro: il filtro per tracker, il tour, ...), che si
+leggono e scrivono lo stesso con settings get/set. Una chiave che non è
+un'impostazione il server la rifiuta (setting_unknown, audit 2026-10-18).
 
 secret: chiavi segrete, che una API key non legge né scrive; safety: le
 protezioni (verifica, esecuzione automatica, soglie), che una API key legge
 ma non cambia (nazgarr/api/settings.py). Per entrambe il CLI chiede la password.
 
-Ogni chiave di nazgarr/core/settings_registry.py è qui, con un tipo
-compatibile (tests/test_consistency.py): prima l'elenco era divergente
+Ogni chiave di nazgarr/core/settings_registry.py (tranne quelle ui) è qui,
+con un tipo compatibile: "text" del registro è text, lines o secret qui
+(tests/test_consistency.py). Prima l'elenco era divergente
 (rematch_interval_days intero qui e decimale sul server, due chiavi
 mancanti) e il CLI rifiutava valori validi (audit 2026-10-18). I controlli
 veri li fa il server: qui solo quanto serve a dire subito un errore di
@@ -72,7 +75,7 @@ CATALOG = [
             "bool"),
     Setting("update_check_auto", "Check GitHub for a new version every 12 hours (off by default).", "bool"),
     # Interfaccia
-    Setting("size_units", "decimal (GB) or binary (GiB)."),
+    Setting("size_units", "decimal (GB) or binary (GiB).", "choice", choices=("decimal", "binary")),
     Setting("ui_timezone", "Time zone of the dates in the UI (e.g. Europe/Rome)."),
     Setting("ui_date_format", "Date format of the UI."),
     Setting("ui_time_format", "Time format of the UI."),

@@ -384,7 +384,8 @@ function ReviewCard() {
   // A pagine dal server, altre scorrendo: una prima run su una libreria
   // grande può lasciare migliaia di review in coda. Dopo un'approvazione si
   // ricaricano solo le pagine già lette, e chi ha scorso resta dov'era.
-  const { data, isPending, hasNextPage, isFetchingNextPage, fetchNextPage } = useReviewQueue()
+  const { data, isPending, isSuccess, isError, error, isFetching, refetch, hasNextPage, isFetchingNextPage, fetchNextPage } =
+    useReviewQueue()
   const reviews = useMemo(() => data?.pages.flatMap((page) => page.items) ?? [], [data])
   const total = data?.pages[0]?.total ?? 0
   const groups = useMemo(() => groupBySeason(reviews), [reviews])
@@ -409,7 +410,18 @@ function ReviewCard() {
         )}
         {hasNextPage && <NextPageSentinel onVisible={loadMore} />}
         {isFetchingNextPage && <p className="p-3 text-sm text-muted-foreground">{t('common.loading')}</p>}
-        {!isPending && reviews.length === 0 && (
+        {/* "Nessuna review" solo con la coda letta: una coda che non arriva
+            (la rete, un 5xx) non è una coda vuota (audit 2026-10-18). */}
+        {isError && reviews.length === 0 && (
+          <div role="alert" className="flex flex-wrap items-center gap-2 p-3 text-sm">
+            <span>{t('common.listLoadFailed')}</span>
+            <span className="text-xs text-muted-foreground">{error?.message}</span>
+            <Button size="xs" variant="outline" disabled={isFetching} onClick={() => void refetch()}>
+              {t('common.retry')}
+            </Button>
+          </div>
+        )}
+        {isSuccess && reviews.length === 0 && (
           <p className="p-3 text-sm text-muted-foreground">{t('reseeding.noPendingReviews')}</p>
         )}
       </CardContent>

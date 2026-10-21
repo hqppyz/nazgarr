@@ -10,6 +10,8 @@ const retry = vi.fn()
 let reviews: unknown[] = []
 let seedJobs: unknown[] = []
 let hasNextPage = false
+let queueError: Error | null = null
+const refetch = vi.fn()
 const toast = vi.hoisted(() => ({ info: vi.fn(), success: vi.fn(), error: vi.fn() }))
 vi.mock('sonner', () => ({ toast }))
 
@@ -21,10 +23,15 @@ const review = (id: number, name: string) => ({
 })
 
 vi.mock('@/api/hooks/reviews', () => ({
-  useReviewQueue: () => ({
-    data: { pages: [{ items: reviews, total: reviews.length, offset: 0, next_offset: hasNextPage ? reviews.length : null }] },
-    isPending: false, hasNextPage, isFetchingNextPage: false, fetchNextPage,
-  }),
+  useReviewQueue: () =>
+    queueError
+      ? { data: undefined, isPending: false, isSuccess: false, isError: true, error: queueError, isFetching: false, refetch,
+          hasNextPage: false, isFetchingNextPage: false, fetchNextPage }
+      : {
+          data: { pages: [{ items: reviews, total: reviews.length, offset: 0, next_offset: hasNextPage ? reviews.length : null }] },
+          isPending: false, isSuccess: true, isError: false, error: null, isFetching: false, refetch,
+          hasNextPage, isFetchingNextPage: false, fetchNextPage,
+        },
   useApproveReview: () => ({ mutate: approve, isPending: false }),
   useRejectReview: () => ({ mutate: reject, isPending: false }),
   useDecideReviews: () => ({ mutate: vi.fn(), isPending: false }),
@@ -42,6 +49,25 @@ vi.mock('@/api/hooks/fullChecks', () => ({
 vi.mock('@/api/hooks/torrentClients', () => ({ useTorrentClientCategories: () => ({ data: undefined }) }))
 
 describe('ReseedingPage review queue', () => {
+  it('says the queue is empty only when it was read', () => {
+    reviews = []
+    render(<ReseedingPage />)
+    expect(screen.getByText('No pending reviews.')).toBeTruthy()
+  })
+
+  it('shows a queue that failed to load as an error with Retry, not as an empty queue', () => {
+    queueError = new Error('Service Unavailable')
+    try {
+      render(<ReseedingPage />)
+      expect(screen.queryByText('No pending reviews.')).toBeNull()
+      expect(screen.getByText('This list could not be loaded.')).toBeTruthy()
+      fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+      expect(refetch).toHaveBeenCalledTimes(1)
+    } finally {
+      queueError = null
+    }
+  })
+
   it('approves and rejects the review of the row clicked', () => {
     reviews = [review(1, 'First.Movie.mkv'), review(2, 'Second.Movie.mkv')]
     render(<ReseedingPage />)

@@ -420,6 +420,22 @@ def test_config_import_explains_a_bad_setting_value(cli_env, client, capsys):
     assert client.get("/api/settings/rematch_interval_days").json()["value"] == "1.5"
 
 
+
+def test_a_key_that_is_not_a_setting_stops_before_any_change(cli_env, client, capsys):
+    """Il server rifiuta le chiavi fuori dal registro (audit 2026-10-18):
+    settings set lo dice, e config import si ferma mentre fa il piano,
+    prima di cambiare qualunque cosa del file."""
+    _login(capsys)
+    code, _out, err = run(capsys, "settings", "set", "not_a_setting", "x")
+    assert code != 0 and "not_a_setting is not a Nazgarr setting" in err
+    code, _out, err = run(capsys, "settings", "set", "tracker_filter", "configured")  # dell'interfaccia: si salva
+    assert code == 0, err
+    file = cli_env / "nazgarr.yaml"
+    file.write_text("version: 1\nsettings:\n  upload_screenshot_count: 6\n  not_a_setting: x\n")
+    code, _out, err = run(capsys, "config", "import", str(file), "--yes")
+    assert code != 0 and "not_a_setting is not a Nazgarr setting" in err
+    assert client.get("/api/settings/upload_screenshot_count").json()["value"] is None
+
 def _profiles_file(cli_env):
     profiles.save("default", {
         "default": profiles.Profile("default", "http://nas:3019", api_key="KEY-FOR-NAS", key_id=1),

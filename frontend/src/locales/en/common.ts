@@ -16,6 +16,7 @@ export const common = {
   'common.loading': 'Loading…',
   'common.loadMore': 'Load more',
   'common.loadFailed': 'This page could not be loaded.',
+  'common.listLoadFailed': 'This list could not be loaded.',
   'common.retry': 'Retry',
   'common.reload': 'Reload page',
   'common.crashTitle': 'Something went wrong',

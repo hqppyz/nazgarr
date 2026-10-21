@@ -17,6 +17,7 @@ export const errors = {
   'errors.auth_invalid_credentials': 'Invalid credentials.',
   'errors.auth_required': 'Authentication required.',
   'errors.auth_wrong_current_password': 'Current password is incorrect.',
+  'errors.auth_text_invalid': 'Username and password cannot contain invalid characters.',
 
   'errors.poster_not_cached': 'Poster not cached.',
 
@@ -56,7 +57,7 @@ export const errors = {
   'errors.full_check_seed_job_mismatch': 'Execution {seed_job_id} does not belong to torrent candidate {candidate_id}.',
 
   'errors.tracker_not_found': 'Tracker {id} not found.',
-  'errors.tracker_busy': '{label} has an execution or an upload in progress: wait for it to finish, cancel the upload, or delete the stuck execution in Reseeding, then delete it',
+  'errors.tracker_busy': '{label} has an execution or an upload in progress, or a reseed stopped in its client waiting for its recheck: wait for it to finish, cancel the upload, or delete the stuck execution in Reseeding, then delete it',
   'errors.tracker_in_use': '{label} is still referenced by other data and cannot be deleted: disable it instead',
   'errors.secret_required_for_new_host':
     'The address points to another host: enter {fields} again, so they are never sent to a new server by mistake',
@@ -64,6 +65,7 @@ export const errors = {
   'errors.request_too_large': 'The request is too large: at most {limit} bytes',
   'errors.setting_safety_for_api_key': 'API keys cannot change the safety settings: log in to change them',
   'errors.setting_invalid_value': '{key}: value not valid for this setting.',
+  'errors.setting_unknown': '{key} is not a Nazgarr setting.',
   'errors.setting_protected': 'This setting is managed from its own page',
   'errors.setting_secret_for_api_key': 'API keys cannot read or change secret settings',
   'errors.webhook_event_unknown': 'Unknown event: {event}',

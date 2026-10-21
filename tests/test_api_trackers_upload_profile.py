@@ -81,6 +81,38 @@ def test_patch_upload_profile_updates_fields(client):
     assert body["category_id_map"]["movie"] == 1  # invariato
 
 
+
+def test_a_description_template_is_compiled_before_it_is_saved(client):
+    """Prima si salvava qualunque testo, e un template rotto o enorme falliva
+    solo al primo upload verso il tracker (audit 2026-10-18)."""
+    from nazgarr.upload.description import MAX_TEMPLATE_LENGTH
+
+    tracker_id = _create_tracker(client)
+    client.post(f"/api/trackers/{tracker_id}/upload-profile", json={"profile_key": "itt"})
+    for template in ("{% for x in %}", "{{ mediainfo|no_such_filter }}", "x" * (MAX_TEMPLATE_LENGTH + 1)):
+        response = client.patch(f"/api/trackers/{tracker_id}/upload-profile", json={"description_template": template})
+        assert response.status_code == 400
+        assert response.json()["detail"]["code"] == "upload_description_template_invalid"
+    assert client.get(f"/api/trackers/{tracker_id}/upload-profile").json()["description_template"] != "x"
+    ok = client.patch(f"/api/trackers/{tracker_id}/upload-profile",
+                      json={"description_template": "{% for u in screenshot_urls %}[img]{{ u }}[/img]{% endfor %}"})
+    assert ok.status_code == 200
+
+
+def test_a_deeply_nested_description_template_is_a_400_not_a_500(client):
+    # Il parser di Jinja scende in ricorsione: 3000 parentesi una dentro
+    # l'altra erano un RecursionError non preso, cioè un 500 col traceback.
+    tracker_id = _create_tracker(client)
+    client.post(f"/api/trackers/{tracker_id}/upload-profile", json={"profile_key": "itt"})
+    before = client.get(f"/api/trackers/{tracker_id}/upload-profile").json()["description_template"]
+    for opening, closing in (("(", ")"), ("[", "]")):
+        template = "{{ " + opening * 3000 + "1" + closing * 3000 + " }}"
+        response = client.patch(f"/api/trackers/{tracker_id}/upload-profile", json={"description_template": template})
+        assert response.status_code == 400
+        assert response.json()["detail"]["code"] == "upload_description_template_invalid"
+    assert client.get(f"/api/trackers/{tracker_id}/upload-profile").json()["description_template"] == before
+
+
 def test_delete_upload_profile(client):
     tracker_id = _create_tracker(client)
     client.post(f"/api/trackers/{tracker_id}/upload-profile", json={"profile_key": "itt"})

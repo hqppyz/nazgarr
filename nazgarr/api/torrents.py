@@ -271,9 +271,11 @@ def list_not_imported(session: Session) -> NotImportedResponse:
 
 @router.post("/not-imported/refresh", response_model=NotImportedResponse)
 def refresh_not_imported(session: Session = Depends(get_session)):
-    """Ricalcola subito, senza aspettare uno scan: rilegge la history di
-    Radarr/Sonarr e i dati già indicizzati. Sola lettura su file e client.
-    Mai insieme a una run o ad altro lavoro a lato (nazgarr/reseed/exclusive.py)."""
+    """Ricalcola subito, senza aspettare uno scan: rilegge Radarr/Sonarr (della
+    history solo quello che è arrivato dopo l'ultima lettura, di questa o della
+    run: nazgarr/integrations/arr.py) e i dati già indicizzati. Sola lettura su
+    file e client. Mai insieme a una run o ad altro lavoro a lato
+    (nazgarr/reseed/exclusive.py)."""
     try:
         with exclusive.side_work(session):
             try:

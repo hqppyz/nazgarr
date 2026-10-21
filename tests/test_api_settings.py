@@ -98,3 +98,21 @@ def test_only_secret_keys_are_decrypted(db_session):
     stored = db_session.get(AppSetting, "tmdb_api_key").value
     assert stored != "enc:looks-encrypted" and "looks-encrypted" not in stored
     assert settings_repo.get_setting(db_session, "tmdb_api_key") == "enc:looks-encrypted"
+
+
+def test_a_key_that_is_not_a_setting_is_a_400_and_nothing_is_saved(client):
+    """Prima PUT /api/settings/{key} salvava qualunque chiave: una nuova di
+    stato interno di un modulo era scrivibile finché qualcuno non la
+    aggiungeva a MANAGED_KEYS (audit 2026-10-18)."""
+    from nazgarr.core.models import AppSetting
+
+    response = client.put("/api/settings/not_a_setting", json={"value": "x"})
+    assert response.status_code == 400
+    assert response.json()["detail"] == {"code": "setting_unknown", "params": {"key": "not_a_setting"}}
+    assert client.get("/api/settings/not_a_setting").json()["detail"]["code"] == "setting_unknown"
+    with client.app.state.session_factory() as session:
+        assert session.get(AppSetting, "not_a_setting") is None
+    # Lo stato dell'interfaccia è nel registro: si salva.
+    assert client.put("/api/settings/onboarding_state", json={"value": '{"status":"done"}'}).status_code == 200
+    assert client.put("/api/settings/tracker_filter", json={"value": "3"}).json()["value"] == "3"
+    assert client.put("/api/settings/library_default_view", json={"value": "poster"}).status_code == 200

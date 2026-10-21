@@ -29,6 +29,7 @@ non ancora sulla corrispondenza con i dischi di un'istanza vera.
 import json
 import logging
 import re
+import threading
 import time
 from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
@@ -266,6 +267,133 @@ class ArrApi:
             for body in pool.map(lambda page: self._history_page(event_type, page), range(2, pages + 1)):
                 yield from body.get("records") or []
 
+    def history_newer(self, event_type: int, newest_id: int) -> Iterator[dict]:
+        """Solo gli eventi più nuovi di newest_id (gli id della history
+        crescono), dal più recente: una pagina alla volta fino al primo già
+        letto, di solito la prima e basta. _HistoryReset se la history non
+        continua quella letta (svuotata, o un'altra istanza allo stesso
+        indirizzo: il più recente è più vecchio di newest_id) o se un evento
+        non ha id: va riletta tutta."""
+        page = 1
+        while True:
+            body = self._history_page(event_type, page)
+            records = body.get("records") or []
+            if page == 1 and newest_id > 0 and (not records or (_record_id(records[0]) or 0) < newest_id):
+                raise _HistoryReset
+            for record in records:
+                record_id = _record_id(record)
+                if record_id is None:
+                    raise _HistoryReset
+                if record_id <= newest_id:
+                    return
+                yield record
+            if not records or page * HISTORY_PAGE_SIZE >= (body.get("totalRecords") or 0):
+                return
+            page += 1
+
+
+class _HistoryReset(Exception):
+    """La history di un'istanza non continua quella già letta."""
+
+
+def _record_id(record: dict) -> int | None:
+    value = record.get("id")
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+# La history già letta di ogni istanza (audit 2026-10-18): prima ogni indice
+# la riscaricava tutta, grab e import, a ogni run, a ogni "Aggiorna" di Not
+# imported (sincrono nella richiesta) e a ogni indice degli upload scaduto;
+# decine di secondi per un'istanza vecchia e grande. Ora si legge tutta una
+# volta per processo, poi solo quello che è arrivato dopo (history_newer),
+# per tutti quelli che costruiscono un indice. In memoria solo quello che
+# l'indice usa: il grab per downloadId, e per ogni import downloadId, le due
+# chiavi dei percorsi, la dimensione e il film o episodio. Un evento della
+# history non cambia mai: uno tolto là resta qui, ed è comunque successo.
+# Chiave: (DB, tipo, id dell'istanza, indirizzo, tipo di evento); un
+# indirizzo cambiato, o un'istanza spenta o tolta, riparte da capo.
+@dataclass(frozen=True)
+class _CachedHistory:
+    newest_id: int
+    value: object  # dict di grab o lista di import: mai modificati dopo
+
+
+_history_cache: dict[tuple, _CachedHistory] = {}
+_history_locks: dict[tuple, threading.Lock] = {}
+_history_guard = threading.Lock()
+
+
+class _Ids:
+    """L'id più recente degli eventi che passano, mentre passano: la history
+    resta letta a pagine, mai tutta in memoria in una volta."""
+
+    def __init__(self, newest: int = 0):
+        self.newest, self.complete, self.seen = newest, True, 0
+
+    def track(self, records: Iterator[dict]) -> Iterator[dict]:
+        for record in records:
+            record_id = _record_id(record)
+            if record_id is None:
+                self.complete = False  # senza id non si sa da dove ripartire: niente cache
+            elif record_id > self.newest:
+                self.newest = record_id
+            self.seen += 1
+            yield record
+
+
+def _history_value(api, key: tuple | None, event_type: int, parse: Callable[[Iterator[dict]], object],
+                   merge: Callable[[object, object], object]):
+    """Quello che parse ricava dalla history di quel tipo: tutta la prima
+    volta, poi solo gli eventi nuovi, uniti con merge(nuovi, già letti)."""
+    if key is None:
+        return parse(api.history(event_type))
+    full_key = (*key, event_type)
+    with _history_guard:
+        lock = _history_locks.setdefault(full_key, threading.Lock())
+    with lock:  # due indici insieme della stessa istanza: il secondo legge quello che il primo ha appena preso
+        cached = _history_cache.get(full_key)
+        value = None
+        if cached is not None:
+            ids = _Ids(cached.newest_id)
+            try:
+                new = parse(ids.track(api.history_newer(event_type, cached.newest_id)))
+                value = merge(new, cached.value) if ids.seen else cached.value
+            except _HistoryReset:
+                logger.info("History di %r non continua quella letta: riletta tutta", getattr(api, "label", "?"))
+                cached = None
+        if cached is None:
+            ids = _Ids()
+            value = parse(ids.track(api.history(event_type)))
+        # Si scrive sotto il guard, come legge _forget_history: un indice di
+        # un altro thread che inserisce una chiave mentre quello scorre il
+        # dizionario era un RuntimeError a metà run. E solo se la chiave è
+        # ancora questa: tolta intanto (istanza spenta o cambiata), un indice
+        # partito prima non la rimette (e non tocca quella che un indice
+        # partito dopo, con un lock nuovo, ha già scritto).
+        with _history_guard:
+            if _history_locks.get(full_key) is not lock:
+                pass
+            elif ids.complete:
+                _history_cache[full_key] = _CachedHistory(ids.newest, value)
+            else:
+                _history_cache.pop(full_key, None)
+        return value
+
+
+def _forget_history(db: str, keep: set[tuple]) -> None:
+    """Toglie la history delle istanze di quel DB che non si indicizzano più."""
+    with _history_guard:
+        # Anche le chiavi di una prima lettura in corso, che hanno solo il lock.
+        for full_key in [k for k in {*_history_cache, *_history_locks} if k[0] == db and k[:4] not in keep]:
+            _history_cache.pop(full_key, None)
+            _history_locks.pop(full_key, None)
+
+
+def clear_history_cache() -> None:
+    with _history_guard:
+        _history_cache.clear()
+        _history_locks.clear()
+
 
 def _grab_from_event(event: dict) -> ArrGrab | None:
     data = event.get("data") or {}
@@ -283,24 +411,44 @@ def _grab_from_event(event: dict) -> ArrGrab | None:
     )
 
 
-def _index_history(api: ArrApi, index: ArrIndex, content_of: Callable[[dict], tuple | None] = lambda e: None) -> None:
-    grabs_by_download_id: dict[str, ArrGrab] = {}
-    for event in api.history(EVENT_GRABBED):
+def _grabs_of(events: Iterator[dict]) -> dict[str, ArrGrab]:
+    """downloadId -> grab, dal più recente: vince il primo visto."""
+    grabs: dict[str, ArrGrab] = {}
+    for event in events:
         download_id = event.get("downloadId")
         grab = _grab_from_event(event)
         if download_id and grab is not None:
-            grabs_by_download_id.setdefault(download_id, grab)
+            grabs.setdefault(download_id, grab)
+    return grabs
 
-    for event in api.history(EVENT_DOWNLOAD_FOLDER_IMPORTED):
-        grab = grabs_by_download_id.get(event.get("downloadId") or "")
+
+def _imports_of(events: Iterator[dict], ref_field: str) -> list[tuple]:
+    """(downloadId, chiave del file importato, chiave del file scaricato,
+    dimensione, id del film o dell'episodio) per ogni import, dal più recente."""
+    rows = []
+    for event in events:
         data = event.get("data") or {}
         try:
             size = int(data.get("size"))
         except (TypeError, ValueError):
             continue
         imported, dropped = data.get("importedPath"), data.get("droppedPath")
+        rows.append((event.get("downloadId") or "", path_key(imported) if imported else None,
+                     path_key(dropped) if dropped else None, size, event.get(ref_field)))
+    return rows
+
+
+def _index_history(api: ArrApi, index: ArrIndex, ref_field: str, content: dict, history_key: tuple | None = None
+                   ) -> None:
+    # I nuovi sono più recenti: vincono sui grab già letti, e gli import
+    # vanno davanti (l'indice tiene il primo che vede).
+    grabs = _history_value(api, history_key, EVENT_GRABBED, _grabs_of, lambda new, old: {**old, **new})
+    imports = _history_value(api, history_key, EVENT_DOWNLOAD_FOLDER_IMPORTED,
+                             lambda events: _imports_of(events, ref_field), lambda new, old: new + old)
+    for download_id, imported, dropped, size, ref in imports:
+        grab = grabs.get(download_id)
         if imported and dropped:
-            index.add_import(dropped, imported, size, content_of(event))
+            index.add_import(dropped, imported, size, content.get(ref))
         if grab is None:
             continue
         for path in (imported, dropped):
@@ -329,7 +477,7 @@ def _scene_name(media_file: dict) -> str | None:
     return name.rsplit(".", 1)[0] if "." in name else name
 
 
-def _index_radarr(api: ArrApi, index: ArrIndex) -> None:
+def _index_radarr(api: ArrApi, index: ArrIndex, history_key: tuple | None = None) -> None:
     movies = api.get("/api/v3/movie")
     # Anche i film senza file (sostituiti, cancellati): la history li cita per id.
     content = {m["id"]: ("movie", m["tmdbId"], None, None) for m in movies if m.get("id") and m.get("tmdbId")}
@@ -346,7 +494,7 @@ def _index_radarr(api: ArrApi, index: ArrIndex) -> None:
                 scene_name=_scene_name(movie_file),
             ),
         )
-    _index_history(api, index, lambda event: content.get(event.get("movieId")))
+    _index_history(api, index, "movieId", content, history_key)
 
 
 def _series_files(api: ArrApi, series: dict) -> tuple[dict, list[dict], list[dict]]:
@@ -357,7 +505,7 @@ def _series_files(api: ArrApi, series: dict) -> tuple[dict, list[dict], list[dic
     )
 
 
-def _index_sonarr(api: ArrApi, index: ArrIndex) -> None:
+def _index_sonarr(api: ArrApi, index: ArrIndex, history_key: tuple | None = None) -> None:
     # Episodi e file di ogni serie: due GET per serie, fatte SERIES_WORKERS
     # alla volta (rete locale) — sequenziali costavano ~18s su ~110 serie.
     # L'indice si aggiorna solo qui, nel thread chiamante.
@@ -369,7 +517,7 @@ def _index_sonarr(api: ArrApi, index: ArrIndex) -> None:
     with ThreadPoolExecutor(max_workers=SERIES_WORKERS) as pool:
         for series, episodes, episode_files in pool.map(lambda s: _series_files(api, s), series_list):
             _index_series(api, index, content, series, episodes, episode_files)
-    _index_history(api, index, lambda event: content.get(event.get("episodeId")))
+    _index_history(api, index, "episodeId", content, history_key)
 
 
 def _index_series(api: ArrApi, index: ArrIndex, content: dict[int, tuple], series: dict, episodes: list[dict],
@@ -405,17 +553,22 @@ def build_arr_index(session: Session, api_factory: Callable[..., ArrApi] = ArrAp
     Istanze con priority più alta indicizzate per prime, quindi vincono se
     due istanze conoscono lo stesso file."""
     index = ArrIndex()
-    instances: list[tuple[RadarrInstance | SonarrInstance, Callable[[ArrApi, ArrIndex], None]]] = []
+    instances: list[tuple[RadarrInstance | SonarrInstance, Callable[..., None]]] = []
     for model, indexer in ((RadarrInstance, _index_radarr), (SonarrInstance, _index_sonarr)):
         for instance in session.query(model).filter_by(enabled=True).all():
             instances.append((instance, indexer))
     instances.sort(key=lambda pair: -(pair[0].priority or 0))
+    # La history già letta si riusa (_history_value): per istanza di questo DB.
+    db = str(session.get_bind().url)
+    keys = [(db, instance.__tablename__, instance.id, instance.base_url) for instance, _ in instances]
+    _forget_history(db, set(keys))
 
-    for instance, indexer in instances:
+    for (instance, indexer), key in zip(instances, keys, strict=True):
         api = None
         try:
             api = api_factory(instance)
-            indexer(api, index)
+            # Un'API finta dei test (senza history_newer) si legge tutta ogni volta.
+            indexer(api, index, key if hasattr(api, "history_newer") else None)
         except (httpx.HTTPError, ValueError, KeyError, TypeError, AttributeError):
             logger.warning("Istanza %r (%s) non indicizzata", instance.label, instance.base_url, exc_info=True)
         finally:

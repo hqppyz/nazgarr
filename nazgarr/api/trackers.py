@@ -24,6 +24,7 @@ from nazgarr.core.models import (
     MatchAttempt,
     MatchReview,
     SeedJob,
+    TorrentClient,
     Tracker,
     TrackerUploadProfile,
     UploadJob,
@@ -33,6 +34,7 @@ from nazgarr.plugins import REGISTRY
 from nazgarr.plugins import config as plugin_config
 from nazgarr.torrents import tracker_icons
 from nazgarr.upload import decision as upload_decision
+from nazgarr.upload import description as upload_description
 from nazgarr.upload import jobs as upload_jobs
 from nazgarr.upload import naming_rules
 from nazgarr.upload import profiles as upload_profiles
@@ -254,7 +256,14 @@ def _tracker_busy(session: Session, tracker_id: int) -> bool:
     che il worker sta portando avanti (o un suo tracker in invio): la
     cancellazione a cascata toglierebbe la riga su cui l'esecutore o il
     worker scriveranno, lasciando un hardlink o un torrent nel client senza
-    traccia (docs/SPEC.md, "Deleting a tracker, a disk or a client")."""
+    traccia (docs/SPEC.md, "Deleting a tracker, a disk or a client").
+
+    Anche un target col torrent fermo nel client in attesa del suo recheck
+    (un reseed del flusso degli upload, o un Retry seed): il reconcile segue
+    solo quella riga per avviarlo, e tolta a cascata restava fermo per
+    sempre, come per l'eliminazione del job (upload_jobs._refuse_if_seed_pending).
+    Come lì, non con il client spento: il reconcile non lo segue comunque, e
+    un client spento per sempre bloccherebbe la cancellazione (audit 2026-10-18)."""
     executing = (
         session.query(SeedJob.id).join(Candidate, SeedJob.candidate_id == Candidate.id)
         .filter(Candidate.tracker_id == tracker_id, SeedJob.final_status == "in_progress")
@@ -269,7 +278,17 @@ def _tracker_busy(session: Session, tracker_id: int) -> bool:
                     UploadTarget.status.in_(upload_jobs.BUSY_TARGET_STATES)))
         .first()
     )
-    return uploading is not None
+    if uploading is not None:
+        return True
+    held = (
+        session.query(UploadTarget.id)
+        .join(TorrentClient, UploadTarget.torrent_client_id == TorrentClient.id)
+        .filter(UploadTarget.tracker_id == tracker_id, UploadTarget.status == upload_jobs.TargetStatus.DONE,
+                UploadTarget.error_message == upload_jobs.SEED_RECHECK_PENDING,
+                TorrentClient.enabled.is_(True))
+        .first()
+    )
+    return held is not None
 
 
 class TrackerDeletePreview(BaseModel):
@@ -284,7 +303,7 @@ class TrackerDeletePreview(BaseModel):
     match_attempts: int  # le ricerche fatte per ogni file
     upload_targets: int  # upload verso di lui (il job resta per gli altri tracker)
     upload_profile: bool
-    busy: bool  # un'esecuzione o un upload suo in corso: il DELETE risponde 409 tracker_busy
+    busy: bool  # un'esecuzione, un upload o un recheck di un suo reseed in corso: il DELETE risponde 409 tracker_busy
 
 
 @router.get("/{tracker_id}/delete-preview", response_model=TrackerDeletePreview)
@@ -453,6 +472,12 @@ def update_upload_profile(
         profile.naming_rules_json = json.dumps(body.naming_rules)
         profile.naming_customized = True
     if body.description_template is not None:
+        # Si compila prima di salvarlo (audit 2026-10-18): un template rotto o
+        # enorme falliva solo al primo upload, durante la preparazione.
+        try:
+            upload_description.check_template(body.description_template)
+        except upload_description.DescriptionTemplateError as exc:
+            raise HTTPException(status_code=400, detail=from_coded_error(exc)) from exc
         profile.description_template = body.description_template
     if body.default_anonymous is not None:
         profile.default_anonymous = body.default_anonymous

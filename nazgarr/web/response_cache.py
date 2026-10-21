@@ -35,7 +35,11 @@ corso aspettano il suo risultato invece di rifarlo. Alla fine di una
 scansione ogni pagina aperta ricarica insieme, e i calcoli doppi in
 parallelo (ognuno con tutta la libreria in memoria) portavano il processo
 da ~190 a ~430 MB con 18.000 file, memoria che Python poi non restituisce
-(misurato il 2026-10-10).
+(misurato il 2026-10-10). Chi aspettava con lo stesso ETag prende il corpo
+appena calcolato anche quando _store non lo tiene (un commit arrivato
+durante il calcolo): prima ognuno lo ricalcolava, uno dopo l'altro, proprio
+alla fine di una scansione (audit 2026-10-18). Il corpo resta sulla voce di
+_computing, che se ne va con l'ultimo che la usa.
 
 Memoria limitata (audit 2026-10-18): una risposta di una versione passata
 non si serve più, quindi esce appena si calcola quella nuova (e un calcolo
@@ -86,7 +90,8 @@ _lock = threading.Lock()
 # chiave -> (versione, etag, corpo JSON), dalla meno usata di recente
 _cache: OrderedDict[str, tuple[str, str, bytes]] = OrderedDict()
 _cached_bytes = 0
-_computing: dict[str, list] = {}  # chiave -> [lock di chi la calcola, quanti lo usano]
+# chiave -> [lock di chi la calcola, quanti lo usano, (etag, corpo) dell'ultimo calcolo]
+_computing: dict[str, list] = {}
 # (generazione letta, versione) dell'ultima data_version: la sola versione che
 # _store accetta. Un calcolo lento su una versione già superata non entra e
 # non toglie i corpi freschi.
@@ -180,23 +185,28 @@ def cached_json(request: Request, session: Session, key: str, compute: Callable[
         return Response(status_code=304, headers=headers)
     body = _cached_body(key, etag)
     if body is None:
-        with _computing_lock(key):
-            # Chi aspettava trova il risultato di chi ha calcolato prima.
+        with _computing_lock(key) as entry:
+            # Chi aspettava trova il risultato di chi ha calcolato prima: in
+            # cache, o sulla voce se _store non l'ha tenuto (è della stessa
+            # versione che questa richiesta ha letto, quindi buono per lei).
             body = _cached_body(key, etag)
+            if body is None and entry[2] is not None and entry[2][0] == etag:
+                body = entry[2][1]
             if body is None:
                 body = json.dumps(compute(), separators=(",", ":"), default=str).encode()
                 _store(key, version, etag, body)
+                entry[2] = (etag, body)
     return Response(content=body, media_type="application/json", headers=headers)
 
 
 @contextmanager
-def _computing_lock(key: str) -> Iterator[None]:
+def _computing_lock(key: str) -> Iterator[list]:
     with _lock:
-        entry = _computing.setdefault(key, [threading.Lock(), 0])
+        entry = _computing.setdefault(key, [threading.Lock(), 0, None])
         entry[1] += 1
     try:
         with entry[0]:
-            yield
+            yield entry
     finally:
         with _lock:
             entry[1] -= 1

@@ -92,8 +92,9 @@ def set_setting(
         raise fail(str(exc), EXIT_USAGE) from exc
     if entry is not None and entry.safety:
         confirm(f"{key} is a safety setting ({entry.help}) Change it to {value}?", yes)
-    if entry is None:
-        err_console.print(f"[yellow]Note:[/yellow] {key} is not a known setting; it is saved anyway.")
+    # Una chiave fuori dall'elenco la decide il server: una dell'interfaccia
+    # (tracker_filter, ...) si salva, una che non è un'impostazione è un 400
+    # setting_unknown (audit 2026-10-18: prima si salvava qualunque cosa).
     client = login_api(ctx) if catalog.needs_login(key, writing=True) else api(ctx)
     client.put(f"/api/settings/{key}", {"value": value})
     console.print(f"{key} saved.")
