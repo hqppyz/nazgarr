@@ -67,6 +67,7 @@ from nazgarr.adapters.torrent_client.base import (
     seeders,
     wait_for_hash,
 )
+from nazgarr.core import net_guard
 
 logger = logging.getLogger(__name__)
 
@@ -111,12 +112,10 @@ class DelugeAdapter(TorrentClientAdapter):
         self.connect_timeout = connect_timeout
         self._id = 0
         self._ready = False
-        if http_client is not None:
-            self._client = http_client
-        else:
-            import httpx
-
-            self._client = httpx.Client(timeout=60.0)
+        # net_guard.http_client: connesso solo all'indirizzo controllato nel
+        # momento della connessione, come ogni URL scritto da un utente. La
+        # LAN resta raggiungibile: lì vivono i client.
+        self._client = http_client if http_client is not None else net_guard.http_client(timeout=60.0)
 
     # --- trasporto -------------------------------------------------------------
 

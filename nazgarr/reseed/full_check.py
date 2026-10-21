@@ -28,6 +28,7 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
+from typing import NamedTuple
 
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -220,8 +221,24 @@ def _anchor(session: Session, candidate: Candidate, seed_job: SeedJob | None, me
     return videos[0] if len(videos) == 1 else None
 
 
+def _existing(path: str | None, partial_suffix: str | None) -> str | None:
+    """Il file, o lo stesso col suffisso che il client dà ai file incompleti
+    (Transmission, rename-partial-files: "<nome>.part", anche durante il
+    recheck di un torrent fermo): rinominato, è sempre lo stesso file."""
+    if path is None:
+        return None
+    if os.path.isfile(path):
+        return path
+    if partial_suffix and os.path.isfile(path + partial_suffix):
+        return path + partial_suffix
+    return None
+
+
 def build_locator(session: Session, candidate: Candidate, seed_job: SeedJob | None,
-                  media_file_id: int | None = None) -> Locator:
+                  media_file_id: int | None = None, partial_suffix: str | None = None) -> Locator:
+    """partial_suffix: il suffisso con cui il client rinomina i file
+    incompleti, se lo fa (nazgarr/torrents/partial_files.py), per trovarli
+    anche dopo il suo recheck."""
     by_path = {f.torrent_path: f for f in candidate.files}
     anchor = None if candidate.files else _anchor(session, candidate, seed_job, media_file_id)
     if not candidate.files and anchor is None:
@@ -244,7 +261,8 @@ def build_locator(session: Session, candidate: Candidate, seed_job: SeedJob | No
                 seeded = resolve_scoped(seed_root, entry.path)
             except ScopeViolation:
                 seeded = None
-            if seeded and os.path.isfile(seeded):
+            seeded = _existing(seeded, partial_suffix)
+            if seeded:
                 return seeded, "seed"
         matched = by_path.get(entry.path)
         if matched is None and candidate.files:
@@ -254,8 +272,8 @@ def build_locator(session: Session, candidate: Candidate, seed_job: SeedJob | No
         if local is None:
             return None, None
         location = "seed" if isinstance(local, SeedFile) else "library"
-        path = _abs(local.disk, local.relative_path)
-        return (path, location) if os.path.isfile(path) else (None, None)
+        path = _existing(_abs(local.disk, local.relative_path), partial_suffix)
+        return (path, location) if path else (None, None)
 
     return locate
 
@@ -303,7 +321,7 @@ def run_full_check(
     expected_info_hash = (seed_job.info_hash if seed_job is not None else None) or candidate.info_hash
     _sync_folder(session, candidate, parsed)
     _learn_info_hash(session, candidate, info_hash)
-    locate = build_locator(session, candidate, seed_job, media_file_id)
+    locate, identities = _recording(build_locator(session, candidate, seed_job, media_file_id))
     on_start(parsed.total_length)
     files, bad = verify_all_pieces(parsed, locate, on_progress, cancelled)
     # bad_pieces è troncato per la risposta: i totali si contano su tutti.
@@ -312,7 +330,7 @@ def run_full_check(
     unreadable = len(bad_set & unreadable_set)
     mismatched = len(bad_set) - unreadable
     ok = len(parsed.pieces) - len(bad_set)
-    return CheckResult(
+    result = CheckResult(
         torrent_name=parsed.name,
         info_hash=info_hash,
         expected_info_hash=expected_info_hash,
@@ -324,6 +342,9 @@ def run_full_check(
         bad_pieces=bad[:MAX_BAD_PIECES_LISTED],
         files=files,
     )
+    if verdict(result)[0]:
+        _remember_passed(candidate.id, info_hash, identities, files)
+    return result
 
 
 def verdict(result: CheckResult) -> tuple[bool, str | None]:
@@ -377,6 +398,206 @@ def _download_torrent(candidate: Candidate) -> bytes:
         raise FullCheckError(f"Could not download the .torrent from {candidate.tracker.label}: {exc}") from exc
 
 
+# --- La tolleranza degli extra mancanti (decisione dell'utente, 2026-10-21) ----
+#
+# Un reseed della coda a cui il client, dopo il recheck, dice di dover
+# scaricare solo i byte degli extra che si sapeva mancare
+# (seed_job.expected_missing_bytes) partiva. Ma il client dice solo quanti
+# byte mancano, non quali piece: un piece diverso del video che stava in
+# quel margine passava per un extra, e il client lo riscriveva dentro gli
+# hardlink, cioè nel file della libreria. La tolleranza vale solo per i
+# piece che toccano gli extra mancanti, e lo decide Nazgarr leggendo lui
+# ogni altro piece. Senza rileggere niente quando un controllo completo è
+# già passato per proprio questi file (stesso dispositivo, inode,
+# dimensione e data di modifica di allora: _passed).
+
+Identity = tuple[int, int, int, int]
+# Per ogni file del torrent, l'identità che aveva quando un controllo
+# passato l'ha letto (_identity); None se non c'era e i suoi piece erano
+# scusati (solo check_outside_missing: _unchanged).
+Record = dict[str, Identity | None]
+# I controlli passati, per (candidato, info hash del .torrent letto). In
+# memoria come i controlli: dopo un riavvio la tolleranza rilegge.
+_passed: dict[tuple[int, str], Record] = {}
+MAX_REMEMBERED_PASSES = 200
+
+
+def _identity(path: str | None) -> Identity | None:
+    """(dispositivo, inode, dimensione, modifica in ns) del file, None se non
+    c'è: un file scritto dopo (anche sul posto, con la stessa dimensione) ha
+    un'altra data di modifica; un hardlink ha quella del file della libreria."""
+    if path is None:
+        return None
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    return st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns
+
+
+def _recording(locate: Locator) -> tuple[Locator, dict[str, Identity | None]]:
+    """Il locator, che si segna l'identità di ogni file trovato prima che
+    verify_all_pieces lo legga (lo chiama per ogni file, prima di leggere)."""
+    identities: dict[str, Identity | None] = {}
+
+    def recording(entry: TorrentFileEntry) -> tuple[str | None, str | None]:
+        path, where = locate(entry)
+        identities[entry.path] = _identity(path)
+        return path, where
+
+    return recording, identities
+
+
+def _unchanged(identities: dict[str, Identity | None], files: list[FileCheck], absent: bool = False) -> Record | None:
+    """Le identità dei file letti, se nessuno è cambiato mentre lo si
+    leggeva; None se uno sì. absent: anche i file che non c'erano, come
+    None, per un controllo passato che ne ha scusato ogni piece
+    (check_outside_missing: o un extra mancante, o un file i cui piece
+    toccano tutti un extra mancante). Prima non si segnavano, e un file così
+    non era mai "lo stesso di allora": la tolleranza rileggeva l'intero pack
+    a ogni reconcile. Un controllo completo (run_full_check) non li segna:
+    i loro piece non li ha verificati nessuno."""
+    out: Record = {}
+    for f in files:
+        if f.local_path is None:
+            if absent:
+                out[f.torrent_path] = None
+            continue
+        identity = identities.get(f.torrent_path)
+        if identity is None or _identity(f.local_path) != identity:
+            return None
+        out[f.torrent_path] = identity
+    return out
+
+
+def _remember_passed(candidate_id: int, info_hash: str, identities: dict[str, Identity | None],
+                     files: list[FileCheck], absent: bool = False) -> Record | None:
+    """Si ricorda un controllo passato, se i file letti non sono cambiati
+    mentre li leggeva: ritorna quel che si è segnato (_unchanged), None se
+    uno è cambiato."""
+    unchanged = _unchanged(identities, files, absent)
+    if unchanged is None:
+        return None
+    key = (candidate_id, info_hash.lower())
+    with _lock:
+        _passed.pop(key, None)
+        _passed[key] = unchanged
+        while len(_passed) > MAX_REMEMBERED_PASSES:
+            _passed.pop(next(iter(_passed)))
+    return unchanged
+
+
+def identities_now(session: Session, candidate: Candidate, seed_job: SeedJob, skip: set[str],
+                   partial_suffix: str | None = None) -> dict[str, Identity | None]:
+    """L'identità, adesso, di ogni file del torrent tranne skip, dove lo
+    legge il client (gli hardlink dell'esecuzione, o il file lato torrent)."""
+    locate = build_locator(session, candidate, seed_job, partial_suffix=partial_suffix)
+    return {f.torrent_path: _identity(locate(TorrentFileEntry(f.torrent_path, f.size_bytes or 0, 0))[0])
+            for f in candidate.files if f.torrent_path not in skip}
+
+
+def verified_for(session: Session, candidate: Candidate, seed_job: SeedJob, skip: set[str],
+                 partial_suffix: str | None = None) -> bool:
+    """Un controllo completo passato per questo torrent (l'info hash del
+    seed job) ha letto proprio questi file, tranne skip, e nessuno è
+    cambiato da allora: ogni loro piece è già verificato."""
+    recorded = _passed.get((candidate.id, (seed_job.info_hash or "").lower()))
+    return unchanged_since(session, candidate, seed_job, skip, recorded, partial_suffix)
+
+
+def unchanged_since(session: Session, candidate: Candidate, seed_job: SeedJob, skip: set[str],
+                    recorded: Record | None, partial_suffix: str | None = None) -> bool:
+    """Ogni file del torrent tranne skip è com'era in recorded (quel che un
+    controllo passato ha segnato): la stessa identità, o assente come allora
+    se recorded lo segna assente (_unchanged). Almeno uno deve esserci."""
+    if recorded is None or not candidate.files:
+        return False
+    now = identities_now(session, candidate, seed_job, skip, partial_suffix)
+    return (any(identity is not None for identity in now.values())
+            and all(path in recorded and recorded[path] == identity for path, identity in now.items()))
+
+
+def pieces_touching(parsed: TorrentInfo, paths: set[str]) -> set[int]:
+    """I piece che toccano almeno uno di quei file del torrent."""
+    out: set[int] = set()
+    for entry in parsed.files:
+        if entry.path in paths and entry.length > 0:
+            out.update(range(entry.offset // parsed.piece_length,
+                             (entry.offset + entry.length - 1) // parsed.piece_length + 1))
+    return out
+
+
+def _files_of(parsed: TorrentInfo, pieces: list[int], skip: set[str]) -> list[str]:
+    """I file del torrent (tranne skip) toccati da quei piece."""
+    out = []
+    for entry in parsed.files:
+        if entry.path in skip or entry.length == 0:
+            continue
+        first = entry.offset // parsed.piece_length
+        last = (entry.offset + entry.length - 1) // parsed.piece_length
+        if any(first <= index <= last for index in pieces):
+            out.append(entry.path)
+    return out
+
+
+class ExtrasCheck(NamedTuple):
+    """L'esito di check_outside_missing: recorded è quel che ha letto (come
+    _passed), solo se è passato."""
+    result: CheckResult | None
+    passed: bool
+    reason: str | None
+    recorded: Record | None = None
+
+
+def check_outside_missing(
+    session: Session, candidate: Candidate, seed_job: SeedJob, missing: set[str],
+    fetch_torrent: Callable[[Candidate], bytes] | None = None, partial_suffix: str | None = None,
+    on_start: Callable[[int], None] = lambda _: None, on_progress: Callable[[int], None] = lambda _: None,
+    cancelled: Callable[[], bool] = lambda: False,
+) -> ExtrasCheck:
+    """Ogni piece che non tocca un extra mancante (missing: i loro percorsi
+    nel torrent) coincide con il torrent nel client, letto dai file dove li
+    legge il client. Gli extra mancanti non si leggono (un client che li ha
+    già creati vuoti o preallocati li farebbe sembrare diversi), e i piece a
+    cavallo fra uno di loro e un altro file non si possono verificare da
+    nessuno finché il client non scarica l'extra: sono quelli che il margine
+    copre. Il .torrent (fetch_torrent: quello aggiunto al client, se
+    l'esecutore ce l'ha ancora, se no riscaricato dal tracker) deve essere
+    quello nel client (l'info hash del seed job), se no non si legge niente."""
+    content = (fetch_torrent or _download_torrent)(candidate)
+    parsed = parse_torrent_info(content)
+    info_hash = compute_info_hash(content)
+    expected = (seed_job.info_hash or "").lower()
+    if info_hash != expected:
+        return ExtrasCheck(None, False, f"the tracker's .torrent (info hash {info_hash}) is not the one in the "
+                                        f"client ({expected}), so its pieces could not be checked")
+    found, identities = _recording(build_locator(session, candidate, seed_job, partial_suffix=partial_suffix))
+
+    def outside(entry: TorrentFileEntry) -> tuple[str | None, str | None]:
+        return (None, None) if entry.path in missing else found(entry)
+
+    on_start(parsed.total_length)
+    files, bad = verify_all_pieces(parsed, outside, on_progress, cancelled)
+    excused = pieces_touching(parsed, missing)
+    wrong = [index for index in bad if index not in excused]
+    checked = len(parsed.pieces) - len(excused)
+    unreadable = unreadable_pieces(parsed, files)
+    result = CheckResult(
+        torrent_name=parsed.name, info_hash=info_hash, expected_info_hash=expected,
+        piece_length=parsed.piece_length, pieces=len(parsed.pieces), ok=len(parsed.pieces) - len(bad),
+        mismatched=len([i for i in bad if i not in unreadable]), unreadable=len([i for i in bad if i in unreadable]),
+        bad_pieces=wrong[:MAX_BAD_PIECES_LISTED], files=files,
+    )
+    if wrong:
+        names = ", ".join(f"'{path}'" for path in _files_of(parsed, wrong, missing)[:3])
+        return ExtrasCheck(result, False, f"pieces outside the missing extras do not match the torrent "
+                                          f"({len(wrong)} of {checked}, in {names}), and the client would rewrite them")
+    recorded = _remember_passed(candidate.id, info_hash, identities, files, absent=True)
+    if recorded is None:
+        return ExtrasCheck(result, False, "a file changed while it was being checked")
+    return ExtrasCheck(result, True, None, recorded)
+
+
 # --- Esecuzione in background -------------------------------------------------
 
 
@@ -396,7 +617,9 @@ class CheckState:
     finished_at: datetime | None = None
     cancel_requested: bool = False
     # "manual" (pulsante Full hash check) | "verify" (prima di eseguire una
-    # review approvata, nazgarr/reseed/review.py::request_approval).
+    # review approvata, nazgarr/reseed/review.py::request_approval) |
+    # "extras" (la tolleranza degli extra mancanti dopo il recheck del
+    # client, start_extras_check).
     purpose: str = "manual"
     review_id: int | None = None
     stage: str = "verifying"  # verifying | executing (solo purpose="verify", dopo un controllo superato)
@@ -404,6 +627,9 @@ class CheckState:
     verdict_reason: str | None = None
     execution: str | None = None  # added | failed | no_client | skipped
     execution_error: str | None = None
+    # Solo purpose="extras", passato: quel che ha letto (ExtrasCheck.recorded),
+    # perché il reconcile dopo veda se da allora è cambiato qualcosa.
+    recorded: Record | None = None
 
 
 _lock = threading.Lock()
@@ -495,13 +721,74 @@ def start_check(session_factory: sessionmaker, session: Session, candidate_id: i
         id=uuid.uuid4().hex[:12], candidate_id=candidate_id, seed_job_id=seed_job_id,
         media_file_id=media_file_id, label=candidate.name, purpose=purpose, review_id=review_id,
     )
+    _keep(state)
+    _executor.submit(_run, session_factory, state, fetch_torrent, after)
+    return state
+
+
+def _keep(state: CheckState) -> None:
     with _lock:
         _checks[state.id] = state
         finished = sorted((c for c in _checks.values() if c.finished_at), key=lambda c: c.finished_at)
         for old in finished[: max(len(_checks) - MAX_KEPT_CHECKS, 0)]:
             _checks.pop(old.id, None)
-    _executor.submit(_run, session_factory, state, fetch_torrent, after)
+
+
+def start_extras_check(session_factory: sessionmaker, seed_job: SeedJob, missing: set[str],
+                       fetch_torrent: Callable[[Candidate], bytes] | None = None,
+                       partial_suffix: str | None = None) -> CheckState:
+    """check_outside_missing in background, nella stessa coda dei controlli
+    completi (uno alla volta sul disco): la tolleranza di un reseed il cui
+    recheck ha lasciato solo gli extra mancanti (nazgarr/reseed/executor.py).
+    L'esito lo legge il reconcile dopo, da get_check; verdict "passed" o
+    "failed" con il perché, status "failed" se il controllo non è arrivato
+    in fondo (il .torrent non si scarica, per esempio)."""
+    state = CheckState(
+        id=uuid.uuid4().hex[:12], candidate_id=seed_job.candidate_id, seed_job_id=seed_job.id,
+        media_file_id=None, label=seed_job.candidate.name, purpose="extras",
+    )
+    _keep(state)
+    _executor.submit(_run_extras, session_factory, state, frozenset(missing), fetch_torrent, partial_suffix)
     return state
+
+
+def _run_extras(session_factory: sessionmaker, state: CheckState, missing: frozenset[str], fetch_torrent,
+                partial_suffix: str | None) -> None:
+    if state.cancel_requested:
+        state.status, state.finished_at = "cancelled", datetime.now(UTC)
+        return
+    state.status = "running"
+    session = session_factory()
+    try:
+        candidate = session.get(Candidate, state.candidate_id)
+        seed_job = session.get(SeedJob, state.seed_job_id)
+        if candidate is None or seed_job is None:
+            raise FullCheckError("The execution no longer exists")
+
+        def on_start(total: int) -> None:
+            state.bytes_total = total
+
+        def on_progress(done: int) -> None:
+            state.bytes_done = done
+
+        checked = check_outside_missing(
+            session, candidate, seed_job, set(missing), fetch_torrent, partial_suffix,
+            on_start=on_start, on_progress=on_progress, cancelled=lambda: state.cancel_requested,
+        )
+        state.result = _result_dict(checked.result) if checked.result is not None else None
+        state.recorded = checked.recorded
+        state.verdict, state.verdict_reason = ("passed" if checked.passed else "failed"), checked.reason
+        logger.info("Tolleranza degli extra di %r: %s%s", state.label, state.verdict,
+                    f" ({checked.reason})" if checked.reason else "")
+        state.status = "done"
+    except CheckCancelled:
+        state.status = "cancelled"
+    except Exception as exc:
+        logger.warning("Controllo dei piece fuori dagli extra di %r fallito", state.label, exc_info=True)
+        state.status, state.error = "failed", safe_error(exc)
+    finally:
+        state.finished_at = datetime.now(UTC)
+        session.close()
 
 
 def get_check(check_id: str) -> CheckState | None:

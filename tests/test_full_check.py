@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 
 from nazgarr.core.models import Candidate, CandidateFile, Disk, MediaFile, MediaItem, SeedJob, Tracker
 from nazgarr.reseed import full_check, pipeline
+from nazgarr.torrents.metainfo import compute_info_hash
 
 PIECE = 16
 
@@ -326,3 +327,108 @@ def test_a_torrent_other_than_the_matched_one_never_passes(db_session, tmp_path)
     passed, reason = full_check.verdict(result)
     assert passed is False and "not the expected one" in reason
     assert candidate.info_hash == "0" * 40  # mai sovrascritto
+
+
+# --- La tolleranza degli extra mancanti (decisione dell'utente, 2026-10-21) ------
+
+
+def test_a_file_the_client_renamed_as_incomplete_is_still_found(db_session, tmp_path):
+    """Transmission (rename-partial-files) rinomina "<nome>.part" un file
+    incompleto, anche durante il recheck di un torrent fermo: è lo stesso
+    file, e la verifica degli extra lo legge lì."""
+    disk, candidate = _setup(db_session, tmp_path, FILES)
+    video = next(f for f in candidate.files if f.is_video)
+    seed_dir = tmp_path / "disk/torrents/Movie"
+    seed_dir.mkdir()
+    os.link(tmp_path / "disk" / video.media_file.relative_path, seed_dir / "Movie.2001.mkv.part")
+    job = SeedJob(candidate_id=candidate.id, source_media_file_id=video.media_file_id, final_status="in_progress")
+    db_session.add(job)
+    db_session.commit()
+    parsed = full_check.parse_torrent_info(_torrent("Movie", FILES))
+    entry = next(e for e in parsed.files if e.path == video.torrent_path)
+
+    assert full_check.build_locator(db_session, candidate, job)(entry) == (
+        str(tmp_path / "disk" / video.media_file.relative_path), "library")
+    assert full_check.build_locator(db_session, candidate, job, partial_suffix=".part")(entry) == (
+        str(seed_dir / "Movie.2001.mkv.part"), "seed")
+
+
+def test_a_passed_check_is_remembered_only_for_the_files_it_read(db_session, tmp_path):
+    _, candidate = _setup(db_session, tmp_path, FILES)
+    result = _check(db_session, candidate)
+    job = SeedJob(candidate_id=candidate.id, final_status="in_progress", info_hash=result.info_hash.upper())
+    db_session.add(job)
+    db_session.commit()
+
+    assert full_check.verified_for(db_session, candidate, job, set())
+    nfo = tmp_path / "disk/media/Movie (2001)/Movie.2001.nfo"
+    stat = os.stat(nfo)
+    os.utime(nfo, ns=(stat.st_atime_ns, stat.st_mtime_ns + 5_000_000_000))  # riscritto dopo il controllo
+    assert not full_check.verified_for(db_session, candidate, job, set())
+    assert full_check.verified_for(db_session, candidate, job, {"Movie.2001.nfo"})  # un extra mancante non conta
+    job.info_hash = "0" * 40  # un altro torrent
+    assert not full_check.verified_for(db_session, candidate, job, {"Movie.2001.nfo"})
+
+
+def test_a_full_check_never_vouches_for_a_file_it_could_not_read(db_session, tmp_path):
+    """Un controllo completo passa anche senza un extra (lo scarica il
+    client), ma i suoi piece, e quello a cavallo col video, non li ha letti:
+    per la tolleranza degli extra non è verificato."""
+    _, candidate = _setup(db_session, tmp_path, FILES)
+    (tmp_path / "disk/media/Movie (2001)/Movie.2001.nfo").unlink()
+    result = _check(db_session, candidate)
+    assert full_check.verdict(result) == (True, None)
+    job = SeedJob(candidate_id=candidate.id, final_status="in_progress", info_hash=result.info_hash)
+    db_session.add(job)
+    db_session.commit()
+
+    assert not full_check.verified_for(db_session, candidate, job, set())
+    assert full_check.verified_for(db_session, candidate, job, {"Movie.2001.nfo"})
+
+
+def test_a_file_whose_pieces_were_all_excused_counts_only_while_it_is_still_absent(db_session, tmp_path):
+    """Un file senza copia locale i cui piece toccano tutti un extra mancante
+    (scusati) non era mai "lo stesso di allora", e la tolleranza rileggeva
+    l'intero torrent a ogni reconcile. Assente allora e adesso è lo stesso;
+    comparso dopo, no."""
+    files = {**FILES, "Movie.2001.srt": b"srt"}  # nfo 40..55 e srt 55..58: piece 2 e 3, con l'nfo
+    _, candidate = _setup(db_session, tmp_path, files)
+    srt = tmp_path / "disk/media/Movie (2001)/Movie.2001.srt"
+    srt.unlink()
+    content = _torrent("Movie", files)
+    job = SeedJob(candidate_id=candidate.id, final_status="in_progress", info_hash=compute_info_hash(content))
+    db_session.add(job)
+    db_session.commit()
+
+    checked = full_check.check_outside_missing(db_session, candidate, job, {"Movie.2001.nfo"},
+                                               fetch_torrent=lambda _: content)
+
+    assert checked.passed and checked.recorded["Movie.2001.srt"] is None
+    assert full_check.verified_for(db_session, candidate, job, {"Movie.2001.nfo"})
+    srt.write_bytes(b"srt")
+    assert not full_check.verified_for(db_session, candidate, job, {"Movie.2001.nfo"})
+
+
+def test_a_failed_check_is_never_remembered(db_session, tmp_path):
+    changed = dict(FILES)
+    changed["Movie.2001.mkv"] = b"X" + FILES["Movie.2001.mkv"][1:]
+    _, candidate = _setup(db_session, tmp_path, changed)
+    result = _check(db_session, candidate)
+    job = SeedJob(candidate_id=candidate.id, final_status="in_progress", info_hash=result.info_hash)
+    db_session.add(job)
+    db_session.commit()
+
+    assert not full_check.verified_for(db_session, candidate, job, set())
+
+
+def test_the_extras_check_never_reads_a_torrent_other_than_the_one_in_the_client(db_session, tmp_path, monkeypatch):
+    _, candidate = _setup(db_session, tmp_path, FILES)
+    job = SeedJob(candidate_id=candidate.id, final_status="in_progress", info_hash="0" * 40)
+    db_session.add(job)
+    db_session.commit()
+    monkeypatch.setattr(full_check, "verify_all_pieces", lambda *a, **k: (_ for _ in ()).throw(AssertionError))
+
+    result, passed, reason, _recorded = full_check.check_outside_missing(
+        db_session, candidate, job, set(), fetch_torrent=lambda _: _torrent("Movie", FILES))
+
+    assert (result, passed) == (None, False) and "is not the one in the client" in reason

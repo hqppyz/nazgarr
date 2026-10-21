@@ -46,6 +46,7 @@ from nazgarr.adapters.torrent_client.base import (
     seeders,
     wait_for_hash,
 )
+from nazgarr.core import net_guard
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +81,14 @@ class QBittorrentAdapter(TorrentClientAdapter):
         else:
             import qbittorrentapi
 
+            # qbittorrent-api va con requests, che net_guard non sa agganciare
+            # alla connessione (gli altri adapter usano net_guard.http_client):
+            # l'indirizzo si ricontrolla qui, a ogni adapter costruito (uno per
+            # operazione), non solo quando si salva. Un DNS cambiato dopo il
+            # salvataggio verso i metadati del cloud non passa; resta la
+            # finestra fra questo controllo e la connessione di requests. Un
+            # host senza schema (qbittorrent-api lo accetta) vale come http.
+            net_guard.check_url(base_url if "://" in base_url else f"http://{base_url}")
             self._client = qbittorrentapi.Client(host=base_url, username=username, password=password)
 
     def close(self) -> None:

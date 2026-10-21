@@ -8,9 +8,9 @@ from nazgarr.core.models import Candidate, MatchReview, MediaItem, SeedJob, Torr
 from nazgarr.reseed import review
 
 
-def _job(session, *, info_hash="abc", added_minutes_ago=60, client=None):
+def _job(session, *, info_hash="abc", added_minutes_ago=60, client=None, tmdb_id=1):
     tracker = Tracker(label="t", adapter_type="unit3d", base_url="https://t.example", api_token="x")
-    item = MediaItem(content_type="movie", tmdb_id=1)
+    item = MediaItem(content_type="movie", tmdb_id=tmdb_id)
     session.add_all([tracker, item])
     session.commit()
     candidate = Candidate(media_item_id=item.id, tracker_id=tracker.id, torrent_id_remote="1", name="x",
@@ -109,3 +109,26 @@ def test_a_client_whose_adapter_cannot_look_up_one_torrent_is_never_called_missi
 
     assert review.reconcile_pending_seed_jobs(db_session) == {"reconciled": 0, "errors": 1}
     assert job.final_status == "in_progress"
+
+
+def test_a_client_that_cannot_be_built_does_not_stop_the_reconcile_of_the_others(db_session, monkeypatch):
+    """Un qBittorrent il cui host ora risolve ai metadati del cloud: il suo
+    adapter non si costruisce (net_guard, audit 2026-10-18), e fermava il
+    giro intero, senza più avviare i reseed degli altri client."""
+    from nazgarr.adapters.torrent_client.base import TorrentStatus
+    from tests.fakes import RecordingClient
+
+    rebound = TorrentClient(label="q", adapter_type="qbittorrent", base_url="http://169.254.169.254:8080",
+                            enabled=True)
+    db_session.add(rebound)
+    db_session.commit()
+    other = _client(db_session)
+    stuck = _job(db_session, client=rebound)
+    job = _job(db_session, info_hash="def", client=other, tmdb_id=2)
+    fine = RecordingClient(status=TorrentStatus("def", "uploading", "ok", 1.0))
+    real = review.build_torrent_client_adapter
+    monkeypatch.setattr(review, "build_torrent_client_adapter",
+                        lambda row: real(row) if row.id == rebound.id else fine)
+
+    assert review.reconcile_pending_seed_jobs(db_session) == {"reconciled": 1, "errors": 1}
+    assert stuck.final_status == "in_progress" and job.final_status == "seeding"

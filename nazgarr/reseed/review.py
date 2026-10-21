@@ -75,6 +75,7 @@ from nazgarr.reseed.executor import (
     torrent_missing,
 )
 from nazgarr.torrents import client_labels
+from nazgarr.upload.jobs import SEED_RECHECK_PENDING
 
 logger = logging.getLogger(__name__)
 
@@ -274,9 +275,13 @@ def _own_uploads(session: Session) -> tuple[set[tuple[int, str]], set[str]]:
     in quella finestra: i target in corso, e quelli finiti senza errori dopo
     l'inizio dell'ultima run conclusa (l'ultima indicizzazione). Dopo, il
     torrent è fra quelli dei client, o l'utente l'ha tolto e va riproposto
-    come ogni altro; un target fallito non ha messo niente in seed."""
+    come ogni altro; un target fallito non ha messo niente in seed. Conta
+    anche un target finito col torrent fermo in attesa del suo recheck
+    (SEED_RECHECK_PENDING, il reseed del flusso degli upload): è nel client,
+    e "Cerca ora" lo proponeva come un reseed da rifare (audit 2026-10-18)."""
     last_index = session.query(func.max(RunLog.started_at)).filter(RunLog.finished_at.isnot(None)).scalar()
-    finished = (UploadTarget.status == "done") & UploadTarget.error_message.is_(None)
+    finished = (UploadTarget.status == "done") & (
+        UploadTarget.error_message.is_(None) | (UploadTarget.error_message == SEED_RECHECK_PENDING))
     if last_index is not None:
         finished &= UploadTarget.finished_at > last_index
     rows = session.query(UploadTarget.tracker_id, UploadTarget.action, UploadTarget.torrent_id_remote,
@@ -1228,6 +1233,7 @@ def reconcile_pending_seed_jobs(session: Session, progress=NULL_PROGRESS) -> dic
     # client registrato: quello del tracker, o il primo abilitato). Un adapter
     # per client, non uno per job.
     adapters: dict[int | None, tuple] = {}
+    broken: set[int | None] = set()
     try:
         for seed_job in pending:
             progress.advance()
@@ -1240,13 +1246,24 @@ def reconcile_pending_seed_jobs(session: Session, progress=NULL_PROGRESS) -> dic
             key = (seed_job.torrent_client_id if seed_job.torrent_client_id is not None
                    else -seed_job.candidate.tracker_id)
             if key not in adapters:
-                adapters[key] = (
-                    _client_for(session, seed_job.torrent_client_id)
-                    if seed_job.torrent_client_id is not None
-                    else _client_for_candidate(session, seed_job.candidate)
-                )
+                try:
+                    adapters[key] = (
+                        _client_for(session, seed_job.torrent_client_id)
+                        if seed_job.torrent_client_id is not None
+                        else _client_for_candidate(session, seed_job.candidate)
+                    )
+                except Exception:
+                    # Un client che non si costruisce (il suo host ora risolve
+                    # a una destinazione vietata, net_guard) fermava il giro
+                    # intero: nessun reseed degli altri client si avviava più.
+                    logger.exception("Client del seed_job %s non costruito: i suoi reseed restano in corso",
+                                     seed_job.id)
+                    adapters[key] = (None, None)
+                    broken.add(key)
             adapter, torrent_client_id = adapters[key]
             if adapter is None:
+                if key in broken:
+                    errors += 1
                 continue
             try:
                 reconcile_seed_job(session, seed_job, adapter)

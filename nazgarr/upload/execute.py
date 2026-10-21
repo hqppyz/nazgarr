@@ -1067,6 +1067,8 @@ def reconcile_held_seeds(session: Session, data_dir: str | None = None) -> int:
     (hold: i reseed e "Riprova il seed"; decisione dell'utente, 2026-10-19),
     dallo scheduler ogni HELD_SEEDS_INTERVAL_SECONDS: riuscito, il torrent
     parte; fallito, resta fermo, e "Riprova il seed" lo fa ricontrollare.
+    Ogni esito, una volta, diventa anche l'evento upload.seed_checked per
+    webhook e notifiche (decisione dell'utente, 2026-10-21).
     Mai mentre il worker lavora quel job (lo stesso target, due sessioni).
     Ritorna quanti target ha guardato."""
     targets = (
@@ -1091,6 +1093,7 @@ def _reconcile_held(session: Session, job: UploadJob, target: UploadTarget, data
         if target.torrent_client_id is None:  # il client tolto da Nazgarr: nessuno lo seguirà più
             target.error_message = SEED_RECHECK_FAILED
             upload_jobs.log_event(session, job, "seed_recheck_no_client", level="error", target=target)
+            upload_jobs.emit_seed_checked(session, job, target, "gone")
             session.commit()
         return  # spento: si aspetta che torni
     client = row.label
@@ -1109,6 +1112,7 @@ def _reconcile_held(session: Session, job: UploadJob, target: UploadTarget, data
                 target.error_message = SEED_RECHECK_FAILED
                 upload_jobs.log_event(session, job, "seed_recheck_torrent_gone", level="error", target=target,
                                       client=client)
+                upload_jobs.emit_seed_checked(session, job, target, "gone", client=client)
                 session.commit()
             return
         _missing_since.pop(target.id, None)
@@ -1126,6 +1130,8 @@ def _reconcile_held(session: Session, job: UploadJob, target: UploadTarget, data
             target.error_message = None
             upload_jobs.log_event(session, job, "seed_recheck_passed" if result == "started"
                                   else "seed_recheck_passed_start_by_hand", target=target, client=client)
+            upload_jobs.emit_seed_checked(session, job, target, "started" if result == "started" else "start_by_hand",
+                                          client=client)
             session.commit()
             return
         stopped = "stopped" if is_stopped_state(status.state) else stop_torrent(adapter, target.info_hash)[0]
@@ -1137,6 +1143,8 @@ def _reconcile_held(session: Session, job: UploadJob, target: UploadTarget, data
         if restored:
             upload_jobs.log_event(session, job, "seed_partial_names_restored", level="warning", target=target,
                                   client=client, count=len(restored))
+        upload_jobs.emit_seed_checked(session, job, target, "recheck_failed", client=client, state=status.state,
+                                      stopped=stopped == "stopped")
         session.commit()
         logger.warning("Upload %s: recheck di %s fallito in %s (%s), lasciato fermo", job.id, target.info_hash,
                        client, status.state)
@@ -1269,7 +1277,8 @@ def _cleanup_unused_links(session: Session, job: UploadJob, ctx: dict, overrides
     Ognuno si ricontrolla subito prima (audit 2026-10-18): deve essere
     ancora un file vero con l'inode di quando è nato (_still_our_link), e
     si toglie con hardlinks.remove_links, che non segue mai un link
-    simbolico nelle cartelle sopra. Prima un unlink per percorso: un altro
+    simbolico nelle cartelle sopra e ricontrolla quell'inode nella cartella
+    da cui toglie il file. Prima un unlink per percorso: un altro
     file messo con lo stesso nome nel frattempo, o una cartella diventata
     un link simbolico, portavano a cancellare un file non nostro."""
     created = ctx.get("created_links") or []
@@ -1292,9 +1301,11 @@ def _cleanup_unused_links(session: Session, job: UploadJob, ctx: dict, overrides
             removable.append(path)
         elif ours is False:
             changed.append(path)
-    hardlinks.remove_links(removable, prune_up_to=root)
-    # Quelli che remove_links non ha potuto togliere (lo scrive nel log) non contano.
-    removed = [path for path in removable if not os.path.lexists(path)]
+    # Con l'identità di quando sono nati anche lì (expected): fra il
+    # controllo qui sopra e l'unlink un altro file può prendere il posto di
+    # un link, e remove_links lo guarda di nuovo nella cartella da cui lo
+    # toglie. Quelli che non ha potuto togliere (lo scrive nel log) non contano.
+    removed = hardlinks.remove_links(removable, prune_up_to=root, expected=recorded)
     if changed:
         upload_jobs.log_event(session, job, "file_links_changed", level="warning", count=len(changed),
                               files=[os.path.relpath(path, root) for path in changed[:10]])

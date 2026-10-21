@@ -21,7 +21,12 @@ from nazgarr.library import file_changes, resolution, scanner
 from nazgarr.library.scan_state import is_current, latest_scan_by_disk
 from nazgarr.reseed import pipeline
 
-LATER = datetime.now(UTC) + timedelta(minutes=1)  # oltre la quiete di QUIET
+
+def _later() -> datetime:
+    """Oltre la quiete di QUIET da adesso. Era una costante presa all'import
+    del modulo: quando i test prima di questi duravano più di 50 secondi,
+    gli eventi ricevuti dopo non erano ancora "quieti" e restavano pending."""
+    return datetime.now(UTC) + timedelta(minutes=1)
 
 
 def _finish(session, run):
@@ -60,7 +65,7 @@ def _radarr(db_session):
 
 def _event(db_session, source, instance, payload):
     arr_webhooks.receive(db_session, source, instance, payload)
-    arr_webhooks.process_pending(db_session, now=LATER)
+    arr_webhooks.process_pending(db_session, now=_later())
     return db_session.query(ArrWebhookEvent).order_by(ArrWebhookEvent.id.desc()).first()
 
 
@@ -250,7 +255,7 @@ def test_events_wait_while_a_run_is_in_progress(db_session, tmp_path):
     arr_webhooks.receive(db_session, "radarr", radarr, {"eventType": "Test"})
     pipeline.start_run(db_session, "manual")  # una run in corso
 
-    assert arr_webhooks.process_pending(db_session, now=LATER) == 0
+    assert arr_webhooks.process_pending(db_session, now=_later()) == 0
     assert db_session.query(ArrWebhookEvent).one().status == "pending"
 
 
@@ -300,7 +305,7 @@ def test_an_import_gets_its_poster_and_shows_on_the_dashboard_as_from_radarr(db_
     payload["movie"]["images"] = [{"coverType": "poster", "remoteUrl": "https://image.tmdb.org/t/p/original/abc.jpg"}]
 
     arr_webhooks.receive(db_session, "radarr", _radarr(db_session), payload)
-    arr_webhooks.process_pending(db_session, now=LATER, data_dir=str(tmp_path / "data"))
+    arr_webhooks.process_pending(db_session, now=_later(), data_dir=str(tmp_path / "data"))
 
     media_file = db_session.query(MediaFile).filter_by(
         relative_path="media/movies/Movie (2020)/Movie (2020).mkv").one()

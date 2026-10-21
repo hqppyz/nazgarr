@@ -39,6 +39,25 @@ def _no_dns(monkeypatch):
         monkeypatch.setattr(socket, "getaddrinfo", _offline_getaddrinfo)
 
 
+@pytest.fixture(autouse=True)
+def _no_check_memory():
+    """Le verifiche in memoria del processo (i controlli completi passati,
+    le verifiche della tolleranza degli extra per seed job e i loro
+    .torrent): da zero a ogni test. Gli id dei seed job ripartono da 1 in
+    ogni DB dei test, e la verifica di un test precedente passava per
+    quella del seed job nuovo."""
+    from nazgarr.reseed import executor, full_check
+
+    def clear():
+        executor._extras_checks.clear()
+        executor._added_torrents.clear()
+        full_check._passed.clear()
+
+    clear()
+    yield
+    clear()
+
+
 @pytest.fixture
 def db_session(tmp_path, monkeypatch):
     monkeypatch.setenv("APP_SECRET_KEY", base64.urlsafe_b64encode(os.urandom(32)).decode())

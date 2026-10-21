@@ -28,11 +28,12 @@ import json
 import logging
 import os
 import tempfile
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from nazgarr.adapters.torrent_client.base import (
     CONTENT_LAYOUTS,
@@ -52,7 +53,7 @@ from nazgarr.core.models import Candidate, Disk, DiskTorrentClient, MatchReview,
 from nazgarr.integrations import adapter_factory
 from nazgarr.library import disk_folders, hardlinks
 from nazgarr.library.tmdb_client import TMDBClient
-from nazgarr.reseed import download_links
+from nazgarr.reseed import download_links, full_check
 from nazgarr.reseed.placement import Placement, placement_for
 from nazgarr.torrents import client_labels, client_paths, partial_files
 from nazgarr.torrents.layout import expected_missing_bytes
@@ -411,6 +412,7 @@ def _seed(
         labels = _labels(session, torrent_client_id, candidate, review)
         add_sent = True
         info_hash = _add_to_client(adapter, torrent, client_save_path, seed_job, skip_recheck, labels, layout)
+        _keep_added_torrent(seed_job, torrent.content)
         seed_job.info_hash = info_hash
         seed_job.torrent_added_at = datetime.now(UTC)
         seed_job.recheck_status = "pending"
@@ -448,6 +450,7 @@ def _new_seed_job(session: Session, candidate, torrent_client_id: int | None, **
     )
     session.add(seed_job)
     session.commit()
+    _forget_seed_job(seed_job.id)  # SQLite può ridare l'id di un seed job eliminato
     return seed_job
 
 
@@ -634,8 +637,9 @@ def recheck_outcome(status: TorrentStatus, allowed: int | None) -> str:
     """L'esito di un recheck: quello del client, salvo un recheck finito a
     cui mancano solo i file extra che si sapeva di non avere (nfo,
     sottotitoli, sample: allowed byte, expected_missing_bytes), che è "ok":
-    il client li scarica dopo l'avvio. Lo stesso per i reseed del motore e
-    per quelli del flusso degli upload (nazgarr/upload/execute.py)."""
+    il client li scarica dopo l'avvio. Così per i reseed del flusso degli
+    upload (nazgarr/upload/execute.py); per quelli della coda decide poi
+    Nazgarr, piece per piece (_recheck_outcome)."""
     allowed = allowed or 0
     if (
         status.recheck_status == "failed" and status.incomplete and allowed > 0
@@ -645,30 +649,208 @@ def recheck_outcome(status: TorrentStatus, allowed: int | None) -> str:
     return status.recheck_status
 
 
-def _recheck_outcome(seed_job: SeedJob, status: TorrentStatus) -> str:
+def _recheck_outcome(session: Session, seed_job: SeedJob, status: TorrentStatus,
+                     adapter: TorrentClientAdapter) -> tuple[str, str | None]:
+    """L'esito del recheck di un reseed della coda, e il perché quando lo
+    decide Nazgarr. Un recheck fallito a cui mancano byte entro il margine
+    degli extra mancanti (recheck_outcome) è riuscito solo se ogni piece
+    che non tocca quegli extra coincide (decisione dell'utente, 2026-10-21):
+    il client dice solo quanti byte mancano, e un piece diverso del video
+    in quel margine passava per un extra, e partiva a riscriverlo dentro
+    gli hardlink. Lo decide _extras_gate. Anche un 100% del client mentre
+    quella verifica non è passata: un torrent che girava (un plugin senza
+    can_add_stopped, o avviato a mano) può aver scaricato proprio quei byte,
+    e il 100% non dice niente dei piece che aveva prima."""
     outcome = recheck_outcome(status, seed_job.expected_missing_bytes)
-    if outcome == "ok" and status.recheck_status == "failed":
-        logger.info(
-            "Seed_job %s: recheck ok, il client scarica %d byte di file extra mancanti",
-            seed_job.id, status.amount_left,
-        )
-    return outcome
+    if outcome != "ok" or (status.recheck_status != "failed" and not _extras_check_open(seed_job.id)):
+        return outcome, None
+    try:
+        outcome, detail = _extras_gate(session, seed_job, adapter)
+    except Exception:
+        # Mai un avvio senza la verifica: si riprova al reconcile dopo.
+        logger.warning("Seed_job %s: piece fuori dagli extra mancanti non controllati", seed_job.id, exc_info=True)
+        return "pending", EXTRAS_NOT_CHECKED
+    if outcome == "ok":
+        logger.info("Seed_job %s: recheck ok, il client scarica %d byte di file extra mancanti",
+                    seed_job.id, status.amount_left or 0)
+    return outcome, detail
+
+
+@dataclass
+class _ExtrasGate:
+    """La verifica di Nazgarr per la tolleranza degli extra mancanti di un
+    seed job: l'ultima avviata (nazgarr/reseed/full_check.py, tenuta qui
+    anche quando la lista dei controlli la dimentica) e quante se ne sono
+    avviate dall'ultimo retry."""
+    state: full_check.CheckState | None = None
+    started: int = 0
+
+
+# Per seed job, in memoria come i controlli: dopo un riavvio se ne fa una nuova.
+_extras_checks: dict[int, _ExtrasGate] = {}
+# Le verifiche per seed job, fra errori (il .torrent non si scarica) e file
+# cambiati dopo una verifica passata: ognuna legge l'intero pack, e prima
+# una che non poteva tornare "uguale" ripartiva a ogni reconcile, per sempre.
+MAX_EXTRAS_CHECKS = 3
+EXTRAS_CHECKING = ("The client's recheck left only the extras known to be missing: Nazgarr is checking every other "
+                   "piece itself before starting it")
+EXTRAS_NOT_CHECKED = ("The client's recheck left only the extras known to be missing, but Nazgarr could not check the "
+                      "other pieces yet: it tries again at the next check, and starts nothing before")
+
+# Il .torrent aggiunto al client, per i seed job che possono arrivare alla
+# tolleranza (expected_missing_bytes): la verifica legge quei byte, già
+# scaricati e controllati da _torrent_to_add, invece di riscaricarli dal
+# tracker, che irraggiungibile o col rate limit faceva fallire un reseed
+# che sarebbe partito. Gli ultimi MAX_KEPT_TORRENTS; dopo un riavvio, o
+# per uno più vecchio, si riscarica.
+_added_torrents: dict[int, bytes] = {}
+MAX_KEPT_TORRENTS = 50
+_added_lock = threading.Lock()
+
+
+def _keep_added_torrent(seed_job: SeedJob, content: bytes) -> None:
+    if not seed_job.expected_missing_bytes:
+        return
+    with _added_lock:
+        _added_torrents.pop(seed_job.id, None)
+        _added_torrents[seed_job.id] = content
+        while len(_added_torrents) > MAX_KEPT_TORRENTS:
+            _added_torrents.pop(next(iter(_added_torrents)))
+
+
+def _forget_seed_job(seed_job_id: int) -> None:
+    """Verifica e .torrent di un seed job appena creato: SQLite può ridargli
+    l'id di uno eliminato, e quelli erano dell'altro."""
+    _extras_checks.pop(seed_job_id, None)
+    with _added_lock:
+        _added_torrents.pop(seed_job_id, None)
+
+
+def _extras_check_open(seed_job_id: int) -> bool:
+    """Una verifica degli extra per questo seed job è partita e non è
+    (ancora) passata."""
+    gate = _extras_checks.get(seed_job_id)
+    if gate is None:
+        return False
+    state = gate.state
+    return state is None or not (state.status == "done" and state.verdict == "passed")
+
+
+def _missing_extras(candidate: Candidate) -> set[str]:
+    """Gli extra del torrent senza file locale, quelli di expected_missing_bytes
+    (_missing_bytes_for): i loro percorsi nel torrent."""
+    return {f.torrent_path for f in candidate.files
+            if not f.is_video and f.media_file_id is None and f.seed_file_id is None}
+
+
+def _fetch_for_check(seed_job: SeedJob) -> Callable[[Candidate], bytes]:
+    """Il .torrent per la verifica: quello aggiunto al client se c'è ancora
+    (e ha l'info hash del seed job), se no quello del tracker."""
+    info_hash = (seed_job.info_hash or "").lower()
+    seed_job_id = seed_job.id
+
+    def fetch(candidate: Candidate) -> bytes:
+        with _added_lock:
+            content = _added_torrents.get(seed_job_id)
+        if content is not None and compute_info_hash(content) == info_hash:
+            return content
+        return _download_torrent(candidate)
+
+    return fetch
+
+
+def _extras_gate(session: Session, seed_job: SeedJob, adapter: TorrentClientAdapter) -> tuple[str, str | None]:
+    """"ok" se un controllo completo passato ha già letto proprio questi
+    file (nessuna rilettura), o se la verifica di Nazgarr dei piece fuori
+    dagli extra mancanti è passata e i file sono ancora quelli che ha letto;
+    "pending" mentre gira (in background, nella coda dei controlli completi:
+    legge l'intero video) o dopo un suo errore (si riprova al reconcile
+    dopo); "failed" col perché se un piece non coincide, se è stata
+    annullata, o dopo MAX_EXTRAS_CHECKS verifiche senza un esito che valga.
+    L'esito resta finché il seed job non si ritenta (adopt_for_retry lo
+    dimentica)."""
+    candidate = seed_job.candidate
+    missing = _missing_extras(candidate)
+    suffix = partial_files.suffix_of(adapter)  # Transmission rinomina i file incompleti anche fermo
+    if full_check.verified_for(session, candidate, seed_job, missing, suffix):
+        return "ok", None
+    gate = _extras_checks.setdefault(seed_job.id, _ExtrasGate())
+    state = gate.state
+    if state is not None and state.status == "done" and state.verdict == "passed":
+        if full_check.unchanged_since(session, candidate, seed_job, missing, state.recorded, suffix):
+            return "ok", None
+        if gate.started >= MAX_EXTRAS_CHECKS:
+            return "failed", ("the client only lacks the extras known to be missing, but the files changed after "
+                              f"Nazgarr checked their pieces, {gate.started} times: Retry checks them again")
+        state = None  # cambiati dopo: una nuova, sui file di adesso
+    if state is None:
+        # Mai fatta, dimenticata (un riavvio, un retry), andata in errore al
+        # giro prima, o passata su file che da allora sono cambiati: una nuova.
+        factory = sessionmaker(bind=session.get_bind(), autoflush=False, autocommit=False, future=True)
+        state = full_check.start_extras_check(factory, seed_job, missing, _fetch_for_check(seed_job), suffix)
+        gate.state, gate.started = state, gate.started + 1
+        logger.info("Seed_job %s: recheck entro il margine degli extra, Nazgarr controlla gli altri piece (%d)",
+                    seed_job.id, gate.started)
+    if state.status in ("queued", "running"):
+        return "pending", EXTRAS_CHECKING
+    if state.status == "done":
+        if state.verdict == "passed":
+            return "ok", None
+        return "failed", ("the client only lacks the extras known to be missing, but Nazgarr's own check of the "
+                          f"other pieces failed: {state.verdict_reason}")
+    if state.status == "failed":
+        # Un errore, non un esito (il .torrent non si scarica, il disco non
+        # risponde): una nuova al reconcile dopo, che fa anche da attesa.
+        if gate.started >= MAX_EXTRAS_CHECKS:
+            return "failed", ("the client only lacks the extras known to be missing, but Nazgarr could not check "
+                              f"the other pieces, {gate.started} times ({state.error}): Retry checks them again")
+        gate.state = None
+        return "pending", f"{EXTRAS_NOT_CHECKED} (last error: {state.error})"
+    return "failed", ("the client only lacks the extras known to be missing, and Nazgarr's check of the other "
+                      "pieces was cancelled: Retry checks them again")
+
+
+def _stop_while_checking(adapter: TorrentClientAdapter, seed_job: SeedJob, state: str | None) -> str:
+    """Un reseed che gira mentre Nazgarr verifica i suoi piece (_extras_gate:
+    un plugin senza can_add_stopped, o un torrent avviato a mano) si ferma,
+    come dopo un recheck fallito (_stop_after_failed_recheck, un'azione di
+    protezione che l'utente ha accettato): intanto scaricherebbe i byte
+    "mancanti", e con loro un piece diverso del video, dentro gli hardlink.
+    Fermo, _start_after_recheck lo avvia quando la verifica passa. Ritorna
+    la coda del messaggio del seed job ("" se era già fermo)."""
+    if is_stopped_state(state):
+        return ""
+    result, error = stop_torrent(adapter, seed_job.info_hash)
+    if result == "stopped":
+        logger.info("Seed_job %s: torrent %s fermato mentre Nazgarr controlla i piece", seed_job.id,
+                    seed_job.info_hash)
+        return "; stopped in the client meanwhile, so it downloads nothing into the linked files"
+    logger.warning("Seed_job %s: torrent %s non fermato durante la verifica dei piece", seed_job.id,
+                   seed_job.info_hash, exc_info=error)
+    if result == "unsupported":
+        return "; this client cannot be told to stop it: stop it by hand, or it downloads into the linked files"
+    return "; it could not be stopped in the client: stop it by hand, or it downloads into the linked files"
 
 
 def _reconcile_with(session: Session, seed_job: SeedJob, adapter: TorrentClientAdapter,
                     status: TorrentStatus) -> SeedJob:
-    recheck_status = _recheck_outcome(seed_job, status)
+    recheck_status, detail = _recheck_outcome(session, seed_job, status, adapter)
     seed_job.recheck_status = recheck_status
+    if recheck_status == "pending" and detail:  # la verifica di Nazgarr (_extras_gate)
+        seed_job.error_message = detail + _stop_while_checking(adapter, seed_job, status.state)
     if recheck_status == "ok":
         seed_job.error_message = None  # un retry riuscito: il fallimento di prima non vale più
         if is_stopped_state(status.state) and not _start_after_recheck(adapter, seed_job):
             session.commit()
             return seed_job  # resta in corso: il prossimo reconcile riprova ad avviarlo
         seed_job.final_status = "seeding"
+        with _added_lock:
+            _added_torrents.pop(seed_job.id, None)
         logger.info("Recheck ok, seed_job %s in seeding (info_hash=%s)", seed_job.id, seed_job.info_hash)
     elif recheck_status == "failed":
         seed_job.final_status = "failed"
-        seed_job.error_message = f"Recheck failed, client state: {status.state}" + _stop_after_failed_recheck(
+        why = f"client state: {status.state}" if detail is None else f"{detail} (client state: {status.state})"
+        seed_job.error_message = f"Recheck failed, {why}" + _stop_after_failed_recheck(
             adapter, seed_job, status.state) + _restore_partial_names(session, seed_job, adapter)
         logger.warning("Recheck fallito per seed_job %s: stato client %s", seed_job.id, status.state)
     session.commit()
@@ -852,9 +1034,10 @@ def adopt_for_retry(session: Session, seed_job: SeedJob, adapter: TorrentClientA
     job torna in corso e il reconcile dopo lo avvia solo se riesce."""
     if seed_job.info_hash:
         logger.info("Retry seed_job %s: info_hash già presente, reinterrogo il client", seed_job.id)
+        _extras_checks.pop(seed_job.id, None)  # un retry è un controllo nuovo, anche di Nazgarr
         status = adapter.get_torrent_status(seed_job.info_hash)
-        if _recheck_outcome(seed_job, status) == "failed" and is_stopped_state(status.state) and _recheck_for_retry(
-                adapter, seed_job):
+        outcome, _detail = _recheck_outcome(session, seed_job, status, adapter)
+        if outcome == "failed" and is_stopped_state(status.state) and _recheck_for_retry(adapter, seed_job):
             seed_job.final_status, seed_job.recheck_status, seed_job.error_message = "in_progress", "pending", None
             session.commit()
             return seed_job

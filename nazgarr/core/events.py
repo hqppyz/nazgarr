@@ -33,6 +33,8 @@ CATALOG: dict[str, str] = {
     "upload.detected": "A new release in a watched folder started an upload.",
     "upload.ready": "An upload is analysed and waits for your decision.",
     "upload.finished": "An upload job finished: done, partial, failed or cancelled.",
+    "upload.seed_checked": "A torrent the upload flow added stopped (a reseed, or Retry seeding) got the outcome of "
+                           "its recheck: started, or left stopped.",
     "test": "Sent by \"Send a test\", to try a webhook or a notification service.",
 }
 ALL = "*"

@@ -186,6 +186,31 @@ def _emit_finished(session: Session, job: UploadJob) -> None:
     session.commit()
 
 
+# L'esito del recheck di un torrent aggiunto fermo (upload.seed_checked):
+# avviato, passato ma da avviare a mano (il client non sa farlo), fallito
+# (resta fermo, o gira se non si è potuto fermare), sparito dal client (o
+# il client tolto da Nazgarr).
+SEED_CHECK_OUTCOMES = ("started", "start_by_hand", "recheck_failed", "gone")
+
+
+def emit_seed_checked(session: Session, job: UploadJob, target: UploadTarget, outcome: str,
+                      client: str | None = None, state: str | None = None, stopped: bool | None = None) -> None:
+    """upload.seed_checked (nazgarr/core/events.py, decisione dell'utente
+    2026-10-21): una volta, quando il recheck di un torrent aggiunto fermo
+    dal flusso degli upload (un reseed, o "Riprova il seed") ha un esito.
+    upload.finished arriva prima, col job finito e il target ancora in
+    attesa. Senza commit: lo fa il chiamante, insieme all'esito."""
+    from nazgarr.core import events
+
+    assert outcome in SEED_CHECK_OUTCOMES, outcome
+    events.emit(session, "upload.seed_checked", {
+        "job_id": job.id, "target_id": target.id, "title": job.title, "year": job.year,
+        "tracker": target.tracker.label if target.tracker else None, "action": target.action,
+        "torrent_id_remote": target.torrent_id_remote or target.reseed_torrent_id, "info_hash": target.info_hash,
+        "client": client, "outcome": outcome, "state": state, "stopped": stopped,
+    })
+
+
 def as_utc(value: datetime | None) -> datetime | None:
     """SQLite restituisce le date senza fuso: sono UTC."""
     if value is None:
