@@ -24,15 +24,17 @@ come se fossero percorsi nostri produrrebbe risultati arbitrari, non un
 errore esplicito.
 """
 
+import inspect
 import logging
 import os
+import zlib
 from collections.abc import Callable
 from datetime import UTC, datetime
 from urllib.parse import urlsplit
 
 from sqlalchemy.orm import Session
 
-from nazgarr.adapters.torrent_client.base import ClientTorrentInfo, TorrentClientAdapter
+from nazgarr.adapters.torrent_client.base import ClientTorrentFileInfo, ClientTorrentInfo, TorrentClientAdapter
 from nazgarr.core.db_utils import as_utc, bulk_upsert
 from nazgarr.core.models import (
     ClientTorrent,
@@ -99,15 +101,59 @@ def index_torrent_client(
     (disk_torrent_client), o di tutti i dischi se non ne ha nessuno
     associato (stessi percorsi fra client e Nazgarr)."""
     logger.debug("Client %r: chiamata adapter.list_torrents()...", torrent_client.label)
+    options: dict = {"on_progress": on_progress} if on_progress is not None else {}
+    if _accepts_known(adapter):
+        options["known"] = known_torrents(session, torrent_client, run.id)
     listed_at = datetime.now(UTC)
-    torrents: list[ClientTorrentInfo] = (
-        adapter.list_torrents(on_progress=on_progress) if on_progress is not None else adapter.list_torrents()
-    )
+    torrents: list[ClientTorrentInfo] = adapter.list_torrents(**options)
     logger.debug("Client %r: adapter.list_torrents() ha restituito %d torrent", torrent_client.label, len(torrents))
 
     counts = store_client_torrents(session, torrent_client, torrents, run.id)
     counts["torrents_removed"] = prune_missing_torrents(session, torrent_client, torrents, run.id, listed_at)
     return counts
+
+
+# Un torrent non cambiato riusa i file dell'ultima indicizzazione (known,
+# base.reusable_files), ma un file rinominato dentro una cartella non cambia
+# niente di quello che il client dice del torrent: a ogni indicizzazione se
+# ne richiedono comunque i file di un ottavo, a turno per info hash, così
+# ognuno si rilegge almeno ogni FILES_REFRESH_RUNS indicizzazioni.
+FILES_REFRESH_RUNS = 8
+
+
+def _accepts_known(adapter: TorrentClientAdapter) -> bool:
+    """list_torrents dell'adapter ha il parametro known (gli adapter inclusi
+    che chiedono i file un torrent alla volta; un plugin che lo dichiara)."""
+    try:
+        return "known" in inspect.signature(adapter.list_torrents).parameters
+    except (TypeError, ValueError):
+        return False
+
+
+def _refresh_now(info_hash: str, run_id: int) -> bool:
+    return zlib.crc32(info_hash.lower().encode()) % FILES_REFRESH_RUNS == run_id % FILES_REFRESH_RUNS
+
+
+def known_torrents(session: Session, torrent_client: TorrentClient, run_id: int) -> dict[str, ClientTorrentInfo]:
+    """I torrent di questo client all'ultima indicizzazione, coi loro file
+    (client_torrent_file, che la potatura tiene uguali all'ultimo elenco),
+    tranne quelli il cui turno di rilettura è questa run (_refresh_now)."""
+    rows = (
+        session.query(ClientTorrent.info_hash, ClientTorrent.name, ClientTorrent.save_path, ClientTorrent.state,
+                      ClientTorrentFile.path_in_torrent, ClientTorrentFile.size_bytes)
+        .join(ClientTorrentFile, ClientTorrentFile.client_torrent_id == ClientTorrent.id)
+        .filter(ClientTorrent.torrent_client_id == torrent_client.id)
+    )
+    known: dict[str, ClientTorrentInfo] = {}
+    for info_hash, name, save_path, state, path, size in rows:
+        entry = known.get(info_hash)
+        if entry is None:
+            if _refresh_now(info_hash, run_id):
+                continue
+            entry = known[info_hash] = ClientTorrentInfo(info_hash=info_hash, name=name, save_path=save_path,
+                                                         state=state)
+        entry.files.append(ClientTorrentFileInfo(path_in_torrent=path, size_bytes=size))
+    return known
 
 
 def prune_missing_torrents(

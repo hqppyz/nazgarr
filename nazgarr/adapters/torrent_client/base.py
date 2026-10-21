@@ -254,7 +254,13 @@ class TorrentClientAdapter(ABC):
         client_torrent/client_torrent_file (Fase 2) — mai per aggiungere o
         modificare nulla sul client. `on_progress(fatti, totale)` dopo ogni
         torrent, per l'avanzamento della run: il totale è noto appena il
-        client restituisce l'elenco, i file arrivano poi uno a uno."""
+        client restituisce l'elenco, i file arrivano poi uno a uno.
+
+        Un adapter che chiede i file un torrent alla volta può accettare
+        anche `known` (SDK 1.7): {info_hash: ClientTorrentInfo} dell'ultima
+        indicizzazione, coi file, per riusare quelli di un torrent che non è
+        cambiato (reusable_files) invece di richiederli. L'indicizzazione lo
+        passa solo a chi ha il parametro (nazgarr/torrents/indexer.py)."""
         raise NotImplementedError
 
     def list_largest_files(self, limit: int | None = None) -> list[ClientTorrentInfo]:
@@ -278,6 +284,55 @@ class TorrentClientAdapter(ABC):
         torrent solo per contarli). Default: list_torrents(), per un plugin
         che non lo implementa."""
         return len(self.list_torrents())
+
+
+def reusable_files(
+    known: ClientTorrentInfo | None, *, name: str, save_path: str, state: str | None, total_size: int | None,
+    content_path: str | None = None,
+) -> list[ClientTorrentFileInfo] | None:
+    """I file dell'ultima indicizzazione (known) di un torrent, se valgono
+    ancora per quello che il client ne dice adesso, None se vanno richiesti
+    (audit 2026-10-18, finding 35: qBittorrent ha una richiesta dei file per
+    torrent, e un client di 10.000 torrent costava minuti a ogni run).
+    Valgono se il torrent ha lo stesso nome e la stessa cartella, era ed è
+    completo ("uploading" e gli stati "*UP" di qBittorrent: i file
+    incompleti possono avere un altro nome, es. ".!qB"), la somma dei file è
+    la sua dimensione totale e, se il client lo dice, il percorso del
+    contenuto è lo stesso (un file o la cartella radice rinominati). Un file
+    rinominato più in fondo non si vede da qui: l'indicizzazione li richiede
+    comunque tutti, a turno (indexer.FILES_REFRESH_RUNS)."""
+    if known is None or not known.files or total_size is None:
+        return None
+    if (known.name, known.save_path) != (name, save_path):
+        return None
+    if not (_complete(known.state) and _complete(state)):
+        return None
+    if sum(f.size_bytes for f in known.files) != total_size:
+        return None
+    if content_path:
+        expected = _content_path(known)
+        if expected is None or os.path.normpath(content_path) != os.path.normpath(expected):
+            return None
+    return known.files
+
+
+def _complete(state: str | None) -> bool:
+    # qBittorrent (e qui): "uploading" e gli stati "*UP" (stalledUP, stoppedUP,
+    # pausedUP, queuedUP, forcedUP, checkingUP) sono di un torrent completo.
+    return state == "uploading" or (state or "").endswith("UP")
+
+
+def _content_path(info: ClientTorrentInfo) -> str | None:
+    """Il percorso del contenuto come lo riporta qBittorrent (content_path):
+    il file, per un torrent con un file solo; la cartella radice, se tutti i
+    file ne hanno una; None se non si sa dire."""
+    paths = [f.path_in_torrent for f in info.files]
+    if len(paths) == 1:
+        return os.path.join(info.save_path, paths[0])
+    roots = {p.split("/", 1)[0] for p in paths if "/" in p}
+    if len(roots) == 1 and all("/" in p for p in paths):
+        return os.path.join(info.save_path, roots.pop())
+    return None
 
 
 def largest_file_only(info: ClientTorrentInfo) -> ClientTorrentInfo:

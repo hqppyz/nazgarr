@@ -21,6 +21,8 @@ class FakeTorrent:
     progress: float = 1.0
     category: str = ""
     tracker: str = ""
+    total_size: int | None = None
+    content_path: str | None = None
 
 
 @dataclass
@@ -389,3 +391,67 @@ def test_the_live_path_check_asks_the_files_of_only_the_torrents_it_looks_at():
     assert sorted(asked) == ["h0", "h1"]
     assert [(t.info_hash, [(f.path_in_torrent, f.size_bytes) for f in t.files]) for t in largest] == [
         ("h0", [("Movie/a.mkv", 900)]), ("h1", [])]
+
+
+class CountingQbtClient(FakeQbtClient):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.files_asked: list[str] = []
+
+    def torrents_files(self, torrent_hash):
+        self.files_asked.append(torrent_hash)
+        return super().torrents_files(torrent_hash)
+
+
+def test_the_index_asks_the_files_only_of_new_or_changed_torrents():
+    """Audit 2026-10-18, finding 35 (residuo): una richiesta dei file per
+    ogni torrent a ogni run, anche per quelli che non cambiano mai."""
+    from nazgarr.adapters.torrent_client.base import ClientTorrentFileInfo, ClientTorrentInfo
+
+    def known_of(info_hash, name="M.mkv", save_path="/torrents", state="stalledUP", files=(("M.mkv", 10),)):
+        return ClientTorrentInfo(info_hash=info_hash, name=name, save_path=save_path, state=state,
+                                 files=[ClientTorrentFileInfo(path, size) for path, size in files])
+
+    torrents = [
+        FakeTorrent(hash="same", name="M.mkv", state="uploading", total_size=10, content_path="/torrents/M.mkv"),
+        FakeTorrent(hash="new", name="M.mkv", state="uploading", total_size=10),
+        FakeTorrent(hash="renamed", name="M2.mkv", state="uploading", total_size=10),
+        FakeTorrent(hash="moved", name="M.mkv", save_path="/other", state="uploading", total_size=10),
+        FakeTorrent(hash="downloading", name="M.mkv", state="downloading", progress=0.5, total_size=10),
+        FakeTorrent(hash="was_incomplete", name="M.mkv", state="uploading", total_size=10),
+        FakeTorrent(hash="resized", name="M.mkv", state="uploading", total_size=11),
+        FakeTorrent(hash="file_renamed", name="M.mkv", state="uploading", total_size=10,
+                    content_path="/torrents/Other.mkv"),
+        FakeTorrent(hash="pack", name="Pack", state="pausedUP", total_size=30, content_path="/torrents/Pack"),
+    ]
+    known = {
+        "same": known_of("same"), "renamed": known_of("renamed"), "moved": known_of("moved"),
+        "downloading": known_of("downloading", state="downloading"),
+        "was_incomplete": known_of("was_incomplete", state="stoppedDL", files=(("M.mkv.!qB", 10),)),
+        "resized": known_of("resized"), "file_renamed": known_of("file_renamed"),
+        "pack": known_of("pack", name="Pack", state="stoppedUP", files=(("Pack/E01.mkv", 10), ("Pack/E02.mkv", 20))),
+    }
+    client = CountingQbtClient(torrents=torrents,
+                               files_by_hash={t.hash: [FakeFile(name="fresh.mkv", size=1)] for t in torrents})
+    progress = []
+
+    listed = _adapter(client).list_torrents(on_progress=lambda done, total: progress.append((done, total)),
+                                            known=known)
+
+    assert sorted(client.files_asked) == sorted(
+        ["new", "renamed", "moved", "downloading", "was_incomplete", "resized", "file_renamed"])
+    by_hash = {t.info_hash: t for t in listed}
+    assert [f.path_in_torrent for f in by_hash["same"].files] == ["M.mkv"]
+    assert [f.path_in_torrent for f in by_hash["pack"].files] == ["Pack/E01.mkv", "Pack/E02.mkv"]
+    assert [f.path_in_torrent for f in by_hash["new"].files] == ["fresh.mkv"]
+    assert [t.info_hash for t in listed] == [t.hash for t in torrents]  # l'ordine del client
+    assert progress[0] == (2, 9) and progress[-1] == (9, 9)
+
+
+def test_without_known_files_every_torrent_is_asked():
+    torrents = [FakeTorrent(hash="h1", total_size=10)]
+    client = CountingQbtClient(torrents=torrents, files_by_hash={"h1": [FakeFile(name="M.mkv", size=10)]})
+
+    _adapter(client).list_torrents()
+
+    assert client.files_asked == ["h1"]

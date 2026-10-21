@@ -43,6 +43,7 @@ from nazgarr.adapters.torrent_client.base import (
     local_torrent_bytes,
     number,
     require_recheck,
+    reusable_files,
     seeders,
     wait_for_hash,
 )
@@ -216,12 +217,43 @@ class QBittorrentAdapter(TorrentClientAdapter):
     def count_torrents(self) -> int:
         return len(self._client.torrents_info())
 
-    def list_torrents(self, on_progress: Callable[[int, int], None] | None = None) -> list[ClientTorrentInfo]:
+    def list_torrents(self, on_progress: Callable[[int, int], None] | None = None,
+                      known: dict[str, ClientTorrentInfo] | None = None) -> list[ClientTorrentInfo]:
         # L'elenco nel thread chiamante (anche il login, se serve), poi i
         # file FILE_WORKERS alla volta; ordine e avanzamento restano qui.
+        # Solo per i torrent nuovi o cambiati: degli altri valgono i file
+        # dell'ultima indicizzazione (known, reusable_files; audit
+        # 2026-10-18, finding 35: una richiesta per ogni torrent a ogni run).
         torrents = list(self._client.torrents_info())
-        return [self._info(torrent, torrent_files)
-                for torrent, torrent_files in zip(torrents, self._files_of(torrents, on_progress), strict=True)]
+        total = len(torrents)
+        files = [self._reusable(torrent, known) for torrent in torrents]
+        todo = [i for i, torrent_files in enumerate(files) if torrent_files is None]
+        reused = total - len(todo)
+        if known is not None:
+            logger.debug("qBittorrent: file di %d torrent dall'ultima indicizzazione, %d da chiedere", reused,
+                         len(todo))
+
+        def progress(done: int, _todo: int) -> None:
+            if on_progress is not None:
+                on_progress(reused + done, total)
+
+        if on_progress is not None and reused:
+            on_progress(reused, total)
+        fetched = self._files_of([torrents[i] for i in todo], progress if on_progress is not None else None)
+        for i, torrent_files in zip(todo, fetched, strict=True):
+            files[i] = torrent_files
+        return [self._info(torrent, torrent_files or [])
+                for torrent, torrent_files in zip(torrents, files, strict=True)]
+
+    @staticmethod
+    def _reusable(torrent, known: dict[str, ClientTorrentInfo] | None) -> list[ClientTorrentFileInfo] | None:
+        if not known:
+            return None
+        return reusable_files(
+            known.get(torrent.hash), name=torrent.name, save_path=torrent.save_path, state=torrent.state,
+            total_size=number(getattr(torrent, "total_size", None), int),
+            content_path=getattr(torrent, "content_path", None) or None,
+        )
 
     def list_largest_files(self, limit: int | None = None) -> list[ClientTorrentInfo]:
         # Nessun endpoint per i file di più torrent: le richieste restano una
