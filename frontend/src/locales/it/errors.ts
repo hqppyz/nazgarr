@@ -37,6 +37,7 @@ export const errors = {
   'errors.run_in_progress': 'C’è una scansione in corso: riprova quando sarà finita.',
   // Solo il lavoro a lato tiene il lock (nazgarr/reseed/exclusive.py): nessuna scansione da aspettare.
   'errors.side_work_in_progress': 'C’è altro lavoro in corso (eventi di Radarr/Sonarr o una ricerca): riprova fra poco.',
+  'errors.side_work_seed_jobs_in_progress': 'Nazgarr sta controllando i reseed in corso nei client torrent: riprova fra poco.',
   'errors.invalid_path': 'Percorso non valido.',
   'errors.run_already_finished': 'La scansione {id} è già finita.',
 

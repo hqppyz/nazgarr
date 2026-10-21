@@ -192,7 +192,7 @@ def _reconcile_between_runs(session_factory: sessionmaker) -> None:
     try:
         if not review.has_pending_seed_jobs(session):
             return
-        with exclusive.side_work(session):
+        with exclusive.side_work(session, holder="seed_jobs"):
             review.reconcile_pending_seed_jobs(session)
     except exclusive.Busy:
         logger.debug("Reconcile periodico dei seed_job rimandato: una run o altro lavoro in corso")

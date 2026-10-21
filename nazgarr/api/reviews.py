@@ -379,7 +379,7 @@ def reconcile_now(session: Session = Depends(get_session)):
     audit 2026-10-18): prima controllava solo che nessuna run fosse in
     corso, e una run poteva partire a metà e riconciliare gli stessi job."""
     try:
-        with exclusive.side_work(session):
+        with exclusive.side_work(session, holder="seed_jobs", wait_seconds=exclusive.API_WAIT_SECONDS):
             return review.reconcile_pending_seed_jobs(session)
     except exclusive.Busy as exc:
         raise HTTPException(status_code=409, detail=coded_detail(exc.code)) from exc
@@ -395,7 +395,7 @@ def delete_seed_job(seed_job_id: int, session: Session = Depends(get_session)):
     if seed_job is None:
         raise HTTPException(status_code=404, detail=coded_detail("seed_job_not_found", id=seed_job_id))
     try:
-        with exclusive.side_work(session):
+        with exclusive.side_work(session, wait_seconds=exclusive.API_WAIT_SECONDS):
             review.delete_seed_job(session, seed_job)
     except exclusive.Busy as exc:
         raise HTTPException(status_code=409, detail=coded_detail(exc.code)) from exc

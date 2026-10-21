@@ -14,11 +14,12 @@ from nazgarr.integrations import arr_webhooks
 from nazgarr.reseed import exclusive, pipeline
 
 
-def _hold_side_work(session_factory, started: threading.Event, release: threading.Event) -> threading.Thread:
+def _hold_side_work(session_factory, started: threading.Event, release: threading.Event,
+                    holder: str | None = None) -> threading.Thread:
     def work():
         session = session_factory()
         try:
-            with exclusive.side_work(session):
+            with exclusive.side_work(session, holder=holder):
                 started.set()
                 release.wait(5)
         finally:
@@ -144,10 +145,12 @@ def test_search_now_during_a_run_says_a_scan_is_in_progress(client):
     assert response.status_code == 409 and response.json()["detail"]["code"] == "run_in_progress"
 
 
-def test_reconcile_now_and_deleting_an_execution_wait_for_the_side_work(client):
+def test_reconcile_now_and_deleting_an_execution_wait_for_the_side_work(client, monkeypatch):
     """Audit 2026-10-18: controllavano solo che nessuna run fosse in corso,
     poi lavoravano senza tenere niente, e una run poteva partire a metà."""
     from nazgarr.core.models import Candidate, MediaItem, SeedJob, Tracker
+
+    monkeypatch.setattr(exclusive, "API_WAIT_SECONDS", 0.1)
 
     db_session = client.app.state.session_factory()
     item = MediaItem(content_type="movie", tmdb_id=1)
@@ -222,3 +225,50 @@ def test_the_periodic_reconcile_is_side_work_too(db_session, factory, monkeypatc
     scheduler._reconcile_between_runs(factory)
     assert calls == [1]
     assert db_session.query(RunLog).count() == 0
+
+
+def test_side_work_from_the_api_waits_a_little_for_other_side_work(db_session, factory):
+    """Revisione dell'audit 2026-10-18: il controllo periodico dei reseed
+    prende il lock ogni 2 minuti, e "Controlla ora" o l'eliminazione di
+    un'esecuzione rispondevano 409 per un controllo che finiva subito dopo."""
+    started, release = threading.Event(), threading.Event()
+    holder = _hold_side_work(factory, started, release, holder="seed_jobs")
+    threading.Timer(0.2, release.set).start()
+    try:
+        with exclusive.side_work(db_session, wait_seconds=5):
+            ran = True
+    finally:
+        release.set()
+        holder.join(5)
+    assert ran
+
+    pipeline.start_run(db_session, "manual")
+    began = time.monotonic()
+    with pytest.raises(exclusive.Busy) as busy:  # una run non si aspetta
+        with exclusive.side_work(db_session, wait_seconds=5):
+            pytest.fail("must not run")
+    assert busy.value.code == "run_in_progress" and time.monotonic() - began < 1
+
+
+def test_busy_says_when_the_reseed_check_holds_the_lock(client, monkeypatch):
+    """Il 409 diceva "eventi di Radarr/Sonarr o una ricerca" anche quando a
+    tenere il lock era il controllo dei reseed in corso."""
+    monkeypatch.setattr(exclusive, "API_WAIT_SECONDS", 0.1)
+    factory = client.app.state.session_factory
+    started, release = threading.Event(), threading.Event()
+    holder = _hold_side_work(factory, started, release, holder="seed_jobs")
+    session = factory()
+    try:
+        with pytest.raises(exclusive.Busy) as busy:
+            with exclusive.side_work(session):
+                pytest.fail("must not run")
+        refused = client.post("/api/reviews/seed-jobs/reconcile")
+    finally:
+        release.set()
+        holder.join(5)
+        session.close()
+
+    assert busy.value.code == "side_work_seed_jobs_in_progress"
+    assert refused.status_code == 409
+    assert refused.json()["detail"]["code"] == "side_work_seed_jobs_in_progress"
+    assert exclusive._holder is None  # finito il lavoro, nessuno lo tiene
