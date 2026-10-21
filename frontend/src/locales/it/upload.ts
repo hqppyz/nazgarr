@@ -300,6 +300,8 @@ export const upload = {
 
   'upload.history.activeTab': 'In corso ({count})',
   'upload.history.historyTab': 'Storico ({count})',
+  'upload.history.historyTabPlain': 'Storico',
+  'upload.history.loadFailed': 'Lo storico non si è caricato: {message}',
   'upload.history.noActive': 'Niente in corso.',
   'upload.history.moveUp': 'Prima nella coda',
   'upload.history.moveDown': 'Dopo nella coda',

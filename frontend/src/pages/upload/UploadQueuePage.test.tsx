@@ -15,6 +15,9 @@ const job = (id: number, status: string, extra = {}) => ({
 
 const fetchNextPage = vi.fn()
 const history = { hasNextPage: true, isFetchingNextPage: false }
+// Uno storico che non arriva (un'istanza remota di prima, un 5xx): null = arriva.
+const refetchHistory = vi.fn()
+let historyError: Error | null = null
 
 vi.mock('@/api/hooks/uploads', () => ({
   // La coda: solo i job non finiti (GET /api/uploads?scope=active).
@@ -27,7 +30,9 @@ vi.mock('@/api/hooks/uploads', () => ({
     ],
   }),
   // Lo storico, a pagine (GET /api/uploads/history): la prima, di 41 in tutto.
-  useUploadHistory: () => ({
+  useUploadHistory: () => historyError ? {
+    isPending: false, isError: true, isFetching: false, data: undefined, error: historyError, refetch: refetchHistory,
+  } : ({
     isPending: false,
     data: {
       pages: [{
@@ -105,5 +110,23 @@ describe('UploadQueuePage', () => {
     expect(screen.getByText('History (41)')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Load more' }))
     expect(fetchNextPage).toHaveBeenCalled()
+  })
+
+  it('keeps the queue when the history fails, and says so in its tab with a retry', () => {
+    // Audit 2026-10-18 (R10): l'errore dello storico prendeva il posto di tutta la pagina.
+    historyError = new Error('422 Unprocessable Entity')
+    try {
+      render(<MemoryRouter><UploadQueuePage /></MemoryRouter>)
+      expect(screen.getByText('Movie 1 (2024)')).toBeTruthy()
+      expect(screen.getByText('History')).toBeTruthy()
+      cleanup()
+
+      render(<MemoryRouter initialEntries={['/?tab=history']}><UploadQueuePage /></MemoryRouter>)
+      expect(screen.getByText('The history could not be loaded: 422 Unprocessable Entity')).toBeTruthy()
+      fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+      expect(refetchHistory).toHaveBeenCalled()
+    } finally {
+      historyError = null
+    }
   })
 })

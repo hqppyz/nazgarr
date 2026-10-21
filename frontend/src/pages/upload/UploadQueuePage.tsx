@@ -321,18 +321,33 @@ function HistoryList({ jobs, onOpen, more }: {
   )
 }
 
+// Lo storico che non si carica lo dice la sua scheda, con Riprova.
+function HistoryFailed({ query }: { query: ReturnType<typeof useUploadHistory> }) {
+  return (
+    <div className="grid justify-items-center gap-3 py-10 text-center text-sm text-muted-foreground">
+      <p>{t('upload.history.loadFailed', { message: query.error?.message ?? '' })}</p>
+      <Button variant="outline" disabled={query.isFetching} onClick={() => void query.refetch()}>
+        {query.isFetching ? t('common.loading') : t('common.retry')}
+      </Button>
+    </div>
+  )
+}
+
 export function UploadQueuePage() {
   const query = useUploads()
   const historyQuery = useUploadHistory()
   const { data } = query
-  // La coda e la prima pagina dello storico insieme: la scheda di partenza
-  // dipende da entrambe.
+  // L'anello aspetta anche la prima pagina dello storico (la scheda di
+  // partenza dipende da entrambe), ma cade solo con la coda: uno storico che
+  // non arriva (un 5xx, un'istanza remota di una 0.9.x senza
+  // /api/uploads/history; audit 2026-10-18, R10) prendeva il posto di tutta
+  // la pagina, coda compresa. Ora lo dice la sua scheda.
   const loader = useRingLoader({
-    data: data !== undefined && historyQuery.data !== undefined ? data : undefined,
+    data,
     isPending: query.isPending || historyQuery.isPending,
-    isError: query.isError || historyQuery.isError,
-    isFetching: query.isFetching || historyQuery.isFetching,
-    error: query.error ?? historyQuery.error,
+    isError: query.isError,
+    isFetching: query.isFetching,
+    error: query.error,
     refetch: () => Promise.all([query.refetch(), historyQuery.refetch()]),
   })
   const navigate = useNavigate()
@@ -350,6 +365,7 @@ export function UploadQueuePage() {
   useHistoryFollowsQueue(active.map((job) => job.id))
   const history = historyQuery.data?.pages.flatMap((page) => page.jobs) ?? []
   const historyTotal = historyQuery.data?.pages[0]?.total ?? history.length
+  const historyFailed = historyQuery.isError && historyQuery.data === undefined
 
   return (
     <div className="grid gap-4">
@@ -360,7 +376,9 @@ export function UploadQueuePage() {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <TabsList data-tour="views.uploads">
               <TabsTrigger value="active">{t('upload.history.activeTab', { count: active.length })}</TabsTrigger>
-              <TabsTrigger value="history">{t('upload.history.historyTab', { count: historyTotal })}</TabsTrigger>
+              <TabsTrigger value="history">
+                {historyFailed ? t('upload.history.historyTabPlain') : t('upload.history.historyTab', { count: historyTotal })}
+              </TabsTrigger>
             </TabsList>
             <Button data-tour="upload.new" onClick={() => navigate('/upload/new')}>
               <PlusIcon className="size-4" />
@@ -371,7 +389,11 @@ export function UploadQueuePage() {
             <ActiveList jobs={active} />
           </TabsContent>
           <TabsContent value="history" className="pt-2">
-            <HistoryList jobs={history} onOpen={setOpenId} more={historyQuery} />
+            {historyFailed ? (
+              <HistoryFailed query={historyQuery} />
+            ) : (
+              <HistoryList jobs={history} onOpen={setOpenId} more={historyQuery} />
+            )}
           </TabsContent>
         </Tabs>
       )}
