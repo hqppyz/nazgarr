@@ -1233,6 +1233,7 @@ def reconcile_pending_seed_jobs(session: Session, progress=NULL_PROGRESS) -> dic
     # client registrato: quello del tracker, o il primo abilitato). Un adapter
     # per client, non uno per job.
     adapters: dict[int | None, tuple] = {}
+    broken: set[int | None] = set()
     try:
         for seed_job in pending:
             progress.advance()
@@ -1245,13 +1246,24 @@ def reconcile_pending_seed_jobs(session: Session, progress=NULL_PROGRESS) -> dic
             key = (seed_job.torrent_client_id if seed_job.torrent_client_id is not None
                    else -seed_job.candidate.tracker_id)
             if key not in adapters:
-                adapters[key] = (
-                    _client_for(session, seed_job.torrent_client_id)
-                    if seed_job.torrent_client_id is not None
-                    else _client_for_candidate(session, seed_job.candidate)
-                )
+                try:
+                    adapters[key] = (
+                        _client_for(session, seed_job.torrent_client_id)
+                        if seed_job.torrent_client_id is not None
+                        else _client_for_candidate(session, seed_job.candidate)
+                    )
+                except Exception:
+                    # Un client che non si costruisce (il suo host ora risolve
+                    # a una destinazione vietata, net_guard) fermava il giro
+                    # intero: nessun reseed degli altri client si avviava più.
+                    logger.exception("Client del seed_job %s non costruito: i suoi reseed restano in corso",
+                                     seed_job.id)
+                    adapters[key] = (None, None)
+                    broken.add(key)
             adapter, torrent_client_id = adapters[key]
             if adapter is None:
+                if key in broken:
+                    errors += 1
                 continue
             try:
                 reconcile_seed_job(session, seed_job, adapter)
