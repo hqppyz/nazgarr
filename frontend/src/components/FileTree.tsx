@@ -1,7 +1,7 @@
 import { ChevronRightIcon, FileIcon, FileVideoIcon, FolderIcon, FolderOpenIcon } from "lucide-react";
 import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 
-import { useIncrementalCount } from "@/hooks/use-incremental";
+import { useVirtualRows } from "@/hooks/use-virtual-rows";
 
 import { HardlinkInfo } from "@/components/HardlinkInfo";
 import { InfoPopover, InfoPopoverHost } from "@/components/InfoPopover";
@@ -112,8 +112,6 @@ function FileBadges({ file, duplicate, popover }: { file: TreeFileEntry; duplica
   );
 }
 
-const ROWS_PAGE = 300;
-
 // Lo stato della casella del pack di una riga: nessuna casella (niente video
 // sceglibili), vuota, piena, o a metà (una cartella con una parte scelta).
 type PackMark = "none" | "off" | "some" | "on";
@@ -138,10 +136,11 @@ interface TreeRowProps {
 
 // Una riga dell'albero. memo, con props tutte stabili o valori semplici: un
 // tasto nella ricerca, una casella del pack, la scheda di dettaglio aperta
-// ridisegnano solo le righe che cambiano davvero, non le migliaia montate.
-// Niente menu né popover di Base UI per riga: quelli condivisi dell'albero
-// (SharedRowContextMenu, SharedRowMenu, InfoPopoverHost) la trovano dal
-// data-row-menu o dal payload del trigger.
+// ridisegnano solo le righe che cambiano davvero. Niente menu né popover di
+// Base UI per riga: quelli condivisi dell'albero (SharedRowContextMenu,
+// SharedRowMenu, InfoPopoverHost) la trovano dal data-row-menu o dal payload
+// del trigger. data-row-key è l'id per la finestra (useVirtualRows): da lì
+// la riga si misura e si ritrova.
 const TreeRow = memo(function TreeRow({
   node, depth, open, withMenu, picking, pack, duplicate, openable, onToggle, onOpen, onPick, menu, popover,
 }: TreeRowProps) {
@@ -161,6 +160,7 @@ const TreeRow = memo(function TreeRow({
     return (
       <TableRow
         data-row-menu={node.path}
+        data-row-key={node.path}
         // Cartelle aperte con uno sfondo tendente al primary: a colpo
         // d'occhio si vede cosa è esploso e cosa no (anche col pulsante
         // del nome, aria-expanded, che altrimenti la colorerebbe di grigio).
@@ -214,6 +214,7 @@ const TreeRow = memo(function TreeRow({
   return (
     <TableRow
       data-row-menu={node.path}
+      data-row-key={node.path}
       className={cn(file.excluded && "opacity-60", (openable || pickable) && "cursor-pointer", picking && "select-none")}
       onClick={pickable ? (e) => onPick(node, e.shiftKey) : openable ? () => onOpen(file) : undefined}
     >
@@ -253,7 +254,8 @@ const TreeRow = memo(function TreeRow({
         </div>
       </TableCell>
       <TableCell className="hidden sm:table-cell">
-        <div className="flex items-center gap-1.5">
+        {/* A capo se i badge non stanno nella colonna, larga fissa (table-fixed). */}
+        <div className="flex flex-wrap items-center gap-1.5">
           <FileBadges file={file} duplicate={duplicate} popover={popover} />
         </div>
       </TableCell>
@@ -270,11 +272,22 @@ interface FileTreeProps {
   onOpenFile?: (file: TreeFileEntry) => void;
   actions?: TreeRowActions;
   selection?: PackSelection;
-  // Quando cambia si riparte dal primo blocco di righe (i filtri, la
-  // ricerca). Di default i file stessi: senza, un aggiornamento dei dati in
-  // background (un seed finito, un'esclusione) riporterebbe in cima chi ha
-  // già scorso migliaia di righe.
+  // Quando cambia è un'altra lista (i filtri, la ricerca): la vista non
+  // tiene ferma la riga in cima. Di default i file stessi; FileBrowser passa
+  // i filtri, così un aggiornamento dei dati in background (un seed finito,
+  // un'esclusione) lascia la vista sulla stessa riga.
   resetKey?: unknown;
+}
+
+// Se una riga ha qualcosa da raggiungere col Tab, montata o no: lo stesso
+// conto di TreeRow (il nome di una cartella, il nome di un file da aprire,
+// la casella del pack, l'icona degli hardlink, il badge delle copie in seed,
+// il pulsante "⋯").
+function hasControls(row: FlatRow, opts: { withMenu: boolean; picking: boolean; pickable: boolean; openable: boolean }): boolean {
+  const file = row.node.file;
+  if (!file) return true;
+  return opts.withMenu || opts.pickable || (opts.openable && !opts.picking) || file.linked_paths.length > 0
+    || (!file.excluded && (file.seeding_copies?.length ?? 0) > 0);
 }
 
 // memo: FileBrowser si ridisegna a ogni tasto della ricerca (il passaggio
@@ -300,12 +313,6 @@ export const FileTree = memo(function FileTree({ files, expandAll = false, dupli
     walk(tree, 0);
     return out;
   }, [tree, toggled, expandAll]);
-
-  // Solo un blocco di righe alla volta, altre scorrendo: con una ricerca
-  // tutto l'albero si apre, e le righe potevano essere decine di migliaia.
-  // Si riparte dal primo blocco quando cambiano i filtri (resetKey), non
-  // quando si apre o chiude una cartella.
-  const { visible, hasMore, sentinelRef } = useIncrementalCount<HTMLTableRowElement>(rows.length, ROWS_PAGE, resetKey ?? files);
 
   // I video sceglibili nell'ordine mostrato, per SHIFT+clic.
   const orderedPackable = useMemo(
@@ -345,6 +352,38 @@ export const FileTree = memo(function FileTree({ files, expandAll = false, dupli
   const menuHandle = useRowMenuHandle();
   const popoverHandle = useInfoPopoverHandle();
   const byPath = useMemo(() => new Map(rows.map(({ node }) => [node.path, node])), [rows]);
+
+  // Il pulsante ⋯ ha una colonna sua solo se c'è un menu (le viste con useTreeMenu).
+  const withMenu = actions?.file != null || actions?.folder != null;
+  const isOpenable = (node: TreeNode) => onOpenFile != null && node.file?.tmdb_id != null && node.file.content_type != null;
+  const packMark = (node: TreeNode): PackMark => {
+    if (!picking || !selection) return "none";
+    if (node.file) return packable(node.file) ? (selection.has(packFile(node.file)) ? "on" : "off") : "none";
+    const videos = packableUnder(node);
+    if (videos.length === 0) return "none";
+    const picked = videos.filter((f) => selection.has(packFile(f))).length;
+    return picked === 0 ? "off" : picked === videos.length ? "on" : "some";
+  };
+
+  // Solo le righe nella parte visibile e attorno sono nel DOM, al posto
+  // delle altre uno spazio della loro altezza: con una ricerca tutto l'albero
+  // si apre, e le righe possono essere decine di migliaia. Restano montate
+  // anche la riga col fuoco e quella con un menu o un popover aperto; il Tab
+  // e le frecce raggiungono anche le righe smontate (useVirtualRows).
+  const keys = useMemo(() => rows.map(({ node }) => node.path), [rows]);
+  const [menuRow, setMenuRow] = useState<string | null>(null);
+  const virtual = useVirtualRows({
+    keys,
+    resetKey: resetKey ?? files,
+    pinned: menuRow,
+    hasControls: (index) => {
+      const row = rows[index];
+      return hasControls(row, {
+        withMenu, picking, openable: isOpenable(row.node),
+        pickable: picking && row.node.file != null && packable(row.node.file),
+      });
+    },
+  });
   // Le voci del menu di una riga, calcolate solo quando il menu si apre.
   const menuFor = (path: string): RowMenu | null => {
     const node = byPath.get(path);
@@ -358,49 +397,47 @@ export const FileTree = memo(function FileTree({ files, expandAll = false, dupli
     return <p className="p-4 text-sm text-muted-foreground">{t("library.noFilesMatchFilters")}</p>;
   }
 
-  // Il pulsante ⋯ ha una colonna sua solo se c'è un menu (le viste con useTreeMenu).
-  const withMenu = actions?.file != null || actions?.folder != null;
+  const body = virtual.slots.map((slot) => {
+    if (slot.kind === "gap") {
+      // Lo spazio delle righe smontate: la barra di scorrimento resta quella
+      // dell'albero intero.
+      return (
+        <tr key={slot.key} aria-hidden data-row-gap style={{ height: slot.height }}>
+          <td colSpan={withMenu ? 4 : 3} className="p-0" />
+        </tr>
+      );
+    }
+    const { node, depth, open } = rows[slot.index];
+    return (
+      <TreeRow
+        key={node.path}
+        node={node}
+        depth={depth}
+        open={open}
+        withMenu={withMenu}
+        picking={picking}
+        pack={packMark(node)}
+        duplicate={node.file != null && duplicateKeys?.has(fileKey(node.file)) === true}
+        openable={isOpenable(node)}
+        onToggle={toggle}
+        onOpen={openFile}
+        onPick={pick}
+        menu={menuHandle}
+        popover={popoverHandle}
+      />
+    );
+  });
+  // Il corpo è la lista della finestra. overflow-anchor: none: la vista la
+  // tiene ferma useVirtualRows (sulla riga in cima); l'ancoraggio del browser
+  // correggerebbe una seconda volta.
+  const bodyProps = { ref: virtual.bodyRef, onKeyDownCapture: virtual.onKeyDownCapture, className: "font-mono [overflow-anchor:none]" };
 
-  const packMark = (node: TreeNode): PackMark => {
-    if (!picking || !selection) return "none";
-    if (node.file) return packable(node.file) ? (selection.has(packFile(node.file)) ? "on" : "off") : "none";
-    const videos = packableUnder(node);
-    if (videos.length === 0) return "none";
-    const picked = videos.filter((f) => selection.has(packFile(f))).length;
-    return picked === 0 ? "off" : picked === videos.length ? "on" : "some";
-  };
-
-  const body = (
-    <>
-      {rows.slice(0, visible).map(({ node, depth, open }) => (
-        <TreeRow
-          key={node.path}
-          node={node}
-          depth={depth}
-          open={open}
-          withMenu={withMenu}
-          picking={picking}
-          pack={packMark(node)}
-          duplicate={node.file != null && duplicateKeys?.has(fileKey(node.file)) === true}
-          openable={onOpenFile != null && node.file?.tmdb_id != null && node.file.content_type != null}
-          onToggle={toggle}
-          onOpen={openFile}
-          onPick={pick}
-          menu={menuHandle}
-          popover={popoverHandle}
-        />
-      ))}
-      {hasMore && (
-        <TableRow ref={sentinelRef} aria-hidden>
-          <TableCell colSpan={withMenu ? 4 : 3} className="h-px p-0" />
-        </TableRow>
-      )}
-    </>
-  );
-
+  // table-fixed: le colonne le decide l'intestazione, non le righe montate;
+  // con la finestra, una riga con molti badge che entra ed esce allargava e
+  // stringeva la colonna Stato mentre si scorre.
   return (
     <>
-      <Table>
+      <Table className="table-fixed">
         <TableHeader>
           <TableRow>
             <TableHead>{t("library.columnName")}</TableHead>
@@ -413,11 +450,11 @@ export const FileTree = memo(function FileTree({ files, expandAll = false, dupli
         </TableHeader>
         {/* Mono per tutto il corpo: nomi di cartelle e file allineati, come in un terminale. */}
         {withMenu ? (
-          <SharedRowContextMenu menuFor={menuFor} render={<TableBody className="font-mono" />}>
+          <SharedRowContextMenu menuFor={menuFor} onOpenChange={setMenuRow} render={<TableBody {...bodyProps} />}>
             {body}
           </SharedRowContextMenu>
         ) : (
-          <TableBody className="font-mono">{body}</TableBody>
+          <TableBody {...bodyProps}>{body}</TableBody>
         )}
       </Table>
       {withMenu && <SharedRowMenu handle={menuHandle} menuFor={menuFor} />}

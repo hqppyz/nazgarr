@@ -5,8 +5,9 @@ import { scrollRoot } from '@/lib/scrollRoot'
 // Quanti elementi di una lista lunga rendere: i primi `pageSize`, poi altri
 // `pageSize` ogni volta che la sentinella (l'ultimo elemento reso) si
 // avvicina alla vista. Quando `resetKey` cambia (un altro filtro, un'altra
-// ricerca) si riparte dal primo blocco. Rende un albero di decine di
-// migliaia di file senza decine di migliaia di righe nel DOM.
+// ricerca) si riparte dal primo blocco. Per le griglie e le liste che
+// crescono soltanto (i poster, i torrent non importati); l'albero della
+// libreria monta solo le righe vicine alla vista (use-virtual-rows.ts).
 export function useIncrementalCount<T extends Element>(total: number, pageSize: number, resetKey: unknown) {
   const [count, setCount] = useState(pageSize)
   const [key, setKey] = useState(resetKey)

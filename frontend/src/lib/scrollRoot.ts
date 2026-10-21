@@ -10,7 +10,8 @@ export const SCROLL_ROOT_ATTR = 'data-scroll-root'
 // ha anche overflow-y auto calcolato, ma non scorre in verticale, e con lui
 // come radice ogni riga risulterebbe sempre visibile. Un elemento fuori da
 // quell'area (un pannello o un dialogo, montati altrove nel DOM) usa la
-// finestra, come prima.
+// finestra, come prima. È anche l'area di cui la finestra dell'albero
+// (hooks/use-virtual-rows.ts) ascolta lo scroll e misura la parte visibile.
 export function scrollRoot(node: Element): Element | null {
   return node.parentElement?.closest(`[${SCROLL_ROOT_ATTR}]`) ?? null
 }
