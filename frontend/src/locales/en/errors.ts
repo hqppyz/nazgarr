@@ -43,6 +43,12 @@ export const errors = {
   'errors.review_not_found': 'Review {id} not found.',
   'errors.seed_job_not_found': 'SeedJob {id} not found.',
   'errors.seed_job_not_deletable': 'SeedJob {id} is {status}: only failed or in-progress executions can be deleted.',
+  'errors.seed_job_not_failed': 'SeedJob {id} is {status}: only a failed execution can be retried.',
+  'errors.seed_job_already_retried': 'SeedJob {id} has already been retried: see its newer execution.',
+  'errors.seed_job_no_client': 'No torrent client is enabled: enable one, then retry.',
+  'errors.seed_job_torrent_not_ours': 'The client already has torrent {info_hash}, added by something else before this execution: Nazgarr leaves it alone. Remove it from the client, then retry; or delete this execution.',
+  // Il testo dell'errore (inglese, dall'esecutore) di un retry rifatto e fallito.
+  'errors.seed_job_retry_failed': 'Execution {id}: {error}',
   'errors.review_already_verifying': 'Review {id} is already being verified: wait for its full hash check to finish.',
   'errors.full_check_not_found': 'Full hash check {id} not found: it ended a while ago, or Nazgarr restarted.',
   'errors.full_check_candidate_not_found': 'Torrent candidate {id} not found.',

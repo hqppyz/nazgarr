@@ -186,7 +186,7 @@ class QBittorrentAdapter(TorrentClientAdapter):
     def get_torrent_status(self, info_hash: str) -> TorrentStatus:
         results = self._client.torrents_info(torrent_hashes=info_hash)
         if not results:
-            raise ValueError(f"Torrent {info_hash} non trovato nel client")
+            raise ValueError(f"Torrent {info_hash} not found in the client")
         torrent = results[0]
         state = torrent.state
 

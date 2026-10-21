@@ -5,31 +5,19 @@ il messaggio di un client (audit 2026-10-18)."""
 import re
 from pathlib import Path
 
-from nazgarr.core.models import Candidate, MatchReview, MediaItem, Tracker
+from nazgarr.core.models import Candidate, MatchReview, MediaItem, SeedJob, Tracker
 
 API = Path(__file__).resolve().parent.parent / "nazgarr" / "api"
-# L'unica eccezione: il retry di un'esecuzione fallita risponde col testo
-# inglese, già ripulito da safe_error, dell'errore che l'ha fermata (un
-# client, un tracker): non ha un codice.
-FREE_TEXT_ALLOWED = {("reviews.py", "retry_failed")}
-
-
-def _function_at(lines: list[str], index: int) -> str | None:
-    for line in reversed(lines[:index]):
-        match = re.match(r"(?:async\s+)?def (\w+)", line)
-        if match:
-            return match.group(1)
-    return None
 
 
 def test_no_api_error_detail_is_a_literal_or_the_text_of_an_exception():
+    # Nessuna eccezione: anche il retry di un'esecuzione fallita ha i suoi
+    # codici (seed_job_retry_failed col testo inglese dell'errore, già
+    # ripulito da safe_error; audit 2026-10-18, prima era il solo testo libero).
     offenders = []
     for path in sorted(API.glob("*.py")):
-        lines = path.read_text().splitlines()
-        for number, line in enumerate(lines, start=1):
-            if re.search(r"""detail=(str\(|["'])""", line):
-                offenders.append(f"{path.name}:{number}")
-            elif "detail=safe_error(" in line and (path.name, _function_at(lines, number)) not in FREE_TEXT_ALLOWED:
+        for number, line in enumerate(path.read_text().splitlines(), start=1):
+            if re.search(r"""detail=(str\(|["']|safe_error\()""", line):
                 offenders.append(f"{path.name}:{number}")
     assert offenders == []
 
@@ -71,8 +59,6 @@ def test_full_check_errors_answer_with_their_codes(client):
 
 
 def test_a_seed_job_that_cannot_be_deleted_answers_with_its_code(client):
-    from nazgarr.core.models import SeedJob
-
     session = client.app.state.session_factory()
     try:
         tracker = Tracker(label="t", adapter_type="unit3d", base_url="https://t.example", api_token="x")
@@ -95,3 +81,66 @@ def test_a_seed_job_that_cannot_be_deleted_answers_with_its_code(client):
     assert response.status_code == 409
     assert response.json()["detail"] == {"code": "seed_job_not_deletable",
                                          "params": {"id": seed_job_id, "status": "seeding"}}
+
+
+def _seed_job(session, **values):
+    tracker = Tracker(label="t", adapter_type="unit3d", base_url="https://t.example", api_token="x")
+    item = MediaItem(content_type="movie", tmdb_id=1)
+    session.add_all([tracker, item])
+    session.commit()
+    candidate = Candidate(media_item_id=item.id, tracker_id=tracker.id, torrent_id_remote="1", name="x",
+                          size_bytes=1, source="catalog_search", direction="media_to_torrent", confidence=0.5)
+    session.add(candidate)
+    session.commit()
+    seed_job = SeedJob(candidate_id=candidate.id, **values)
+    session.add(seed_job)
+    session.commit()
+    return seed_job.id
+
+
+def test_a_retry_that_is_not_possible_answers_with_its_code(client):
+    """Il 409 del retry era un testo libero (a volte italiano: "Nessun client
+    torrent configurato"), che interfaccia e CLI non sapevano tradurre."""
+    session = client.app.state.session_factory()
+    try:
+        seeding = _seed_job(session, final_status="seeding", info_hash="h1")
+    finally:
+        session.close()
+
+    not_failed = client.post(f"/api/reviews/failed/{seeding}/retry")
+
+    assert not_failed.status_code == 409
+    assert not_failed.json()["detail"] == {"code": "seed_job_not_failed",
+                                           "params": {"id": seeding, "status": "seeding"}}
+    session = client.app.state.session_factory()
+    try:
+        session.get(SeedJob, seeding).final_status = "failed"
+        session.commit()
+    finally:
+        session.close()
+    no_client = client.post(f"/api/reviews/failed/{seeding}/retry")
+    assert no_client.status_code == 409
+    assert no_client.json()["detail"] == {"code": "seed_job_no_client", "params": {}}
+
+
+def test_a_retry_that_fails_again_answers_with_a_code_and_the_english_error(client, monkeypatch):
+    from nazgarr.adapters.torrent_client.base import TorrentAddTimeoutError
+    from nazgarr.reseed import executor, review
+
+    session = client.app.state.session_factory()
+    try:
+        seed_job_id = _seed_job(session, final_status="failed", info_hash="h1")
+    finally:
+        session.close()
+
+    def fail_again(session, seed_job, session_factory=None):
+        raise executor.ExecutionError(str(TorrentAddTimeoutError("Torrent h1 did not show up in qBittorrent")))
+
+    monkeypatch.setattr(review, "retry_failed", fail_again)
+    response = client.post(f"/api/reviews/failed/{seed_job_id}/retry")
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == {
+        "code": "seed_job_retry_failed",
+        "params": {"id": seed_job_id, "error": "Torrent h1 did not show up in qBittorrent"},
+    }

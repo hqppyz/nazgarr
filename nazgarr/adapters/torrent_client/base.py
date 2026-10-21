@@ -404,8 +404,12 @@ def wait_for_hash(
                     logger.warning("Più torrent nuovi rilevati dopo add_torrent: %s", new_hashes)
                 return next(iter(new_hashes))
         if time.monotonic() >= deadline:
+            # In inglese (audit 2026-10-18): finisce nel messaggio del seed
+            # job e nel 409 del retry, come gli altri errori mostrati.
             raise TorrentAddTimeoutError(
-                f"Nessun nuovo torrent rilevato in {where} entro {poll_timeout}s dall'aggiunta"
+                f"Torrent {expected} did not show up in {where} within {poll_timeout:g}s of adding it"
+                if expected is not None else
+                f"No new torrent showed up in {where} within {poll_timeout:g}s of adding it"
             )
         time.sleep(poll_interval)
 
@@ -413,6 +417,6 @@ def wait_for_hash(
 def require_recheck(force_recheck: bool) -> None:
     if not force_recheck:
         raise ValueError(
-            "force_recheck=False non è permesso: il recheck reale è "
-            "un requisito funzionale, vedi docs/SPEC.md sezione 8."
+            "force_recheck=False is not allowed: a real recheck is a functional requirement, "
+            "see docs/SPEC.md section 8."
         )

@@ -66,6 +66,7 @@ from nazgarr.library.seeding import (
 from nazgarr.reseed import full_check
 from nazgarr.reseed.executor import (
     ExecutionError,
+    RetryRefused,
     adopt_for_retry,
     execute_review,
     missing_long_enough,
@@ -1156,14 +1157,16 @@ def retry_failed(session: Session, seed_job: SeedJob, session_factory=None):
     l'esecuzione arriva solo se passa (audit 2026-10-18: il retry
     rieseguiva senza, anche se i file erano cambiati dall'ultima volta).
     Restituisce il seed_job, o lo stato del controllo partito
-    (full_check.CheckState)."""
+    (full_check.CheckState). Un retry che non si fa: RetryRefused, col suo
+    codice (non fallito, già ritentato, nessun client, il torrent nel
+    client non è di questa esecuzione)."""
     if seed_job.final_status != "failed":
-        raise ExecutionError(f"SeedJob {seed_job.id} is not in failed status (current: {seed_job.final_status})")
+        raise RetryRefused("seed_job_not_failed", id=seed_job.id, status=seed_job.final_status)
     if _retried_already(session, seed_job):
-        raise ExecutionError(f"SeedJob {seed_job.id} has already been retried: see its newer execution")
+        raise RetryRefused("seed_job_already_retried", id=seed_job.id)
     adapter, torrent_client_id = _client_for_seed_job(session, seed_job)
     if adapter is None:
-        raise ExecutionError("No torrent client is enabled")
+        raise RetryRefused("seed_job_no_client")
     try:
         adopted = adopt_for_retry(session, seed_job, adapter)
         if adopted is not None:

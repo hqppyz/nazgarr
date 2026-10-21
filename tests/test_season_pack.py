@@ -649,6 +649,33 @@ def test_retry_of_a_failed_job_follows_the_torrent_already_in_the_client(db_sess
     assert client.added == []  # nessuna nuova aggiunta
 
 
+def test_a_retry_that_finds_the_late_torrent_stopped_asks_for_its_recheck(db_session, tmp_path, monkeypatch):
+    """Revisione dell'audit 2026-10-18 (R6): il reseed entra fermo e il
+    recheck forzato parte solo dopo l'attesa del suo hash; scaduta l'attesa,
+    il torrent arrivato dopo resta fermo e mai controllato. Il retry lo
+    seguiva e lo rileggeva subito: "Recheck failed" di un recheck mai fatto,
+    e serviva un secondo retry."""
+    _no_mediainfo(monkeypatch)
+    _disk, tracker, _ = _library(db_session, tmp_path)
+    matching.run_media_to_torrent_matching(db_session, tracker, PackTracker([_pack_candidate()]))
+    candidate = db_session.query(Candidate).one()
+    candidate.info_hash = PACK_HASH
+    db_session.commit()
+    first = LateClient(has_torrent=False)
+    with pytest.raises(executor.ExecutionError):
+        executor.execute_review(db_session, db_session.query(MatchReview).one(), first)
+    assert first.added[0].options["stopped"] is True and first.rechecked == []
+    seed_job = db_session.query(SeedJob).one()
+
+    client = LateClient(has_torrent=True, save_path=str(tmp_path / "torrents"))
+    client.status = TorrentStatus(PACK_HASH, "stoppedDL", "failed", 0.0, incomplete=True)
+    assert executor.adopt_for_retry(db_session, seed_job, client) is seed_job
+
+    assert client.rechecked == [PACK_HASH] and client.started == [] and client.added == []
+    assert (seed_job.info_hash, seed_job.final_status, seed_job.recheck_status, seed_job.error_message) == (
+        PACK_HASH, "in_progress", "pending", None)
+
+
 def test_pack_folder_still_on_disk_is_readded_to_the_client(db_session, tmp_path, monkeypatch):
     """torrent -> client: la cartella del pack è ancora sotto torrents/ ma
     nessun client la traccia più."""

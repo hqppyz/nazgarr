@@ -206,7 +206,7 @@ class TransmissionAdapter(TorrentClientAdapter):
     def get_torrent_status(self, info_hash: str) -> TorrentStatus:
         found = self._torrents(STATUS_FIELDS, [info_hash.lower()])
         if not found:
-            raise ValueError(f"Torrent {info_hash} non trovato nel client")
+            raise ValueError(f"Torrent {info_hash} not found in the client")
         torrent = found[0]
         state = _state(torrent)
         progress = float(torrent.get("percentDone") or 0.0)

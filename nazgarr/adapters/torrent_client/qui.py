@@ -216,7 +216,7 @@ class QuiTorrentClientAdapter(TorrentClientAdapter):
     def get_torrent_status(self, info_hash: str) -> TorrentStatus:
         torrent = self._find(info_hash)
         if torrent is None:
-            raise ValueError(f"Torrent {info_hash} non trovato sull'istanza qui {self.instance_id}")
+            raise ValueError(f"Torrent {info_hash} not found on qui instance {self.instance_id}")
 
         state = torrent.get("state") or ""
         progress = float(torrent.get("progress") or 0.0)
