@@ -400,6 +400,12 @@ def handle(session: Session, job: UploadJob, worker) -> None:
         if analysis["pack_mixed"]:
             upload_jobs.log_event(session, job, "pack_mixed", level="warning",
                                   fields=", ".join(sorted(analysis["pack_mixed"])))
+    if not _still_mine(session, job, run.id):
+        # Annullato durante mediainfo e indici: niente analisi scritta su un
+        # job che non è più in analisi (audit 2026-10-18).
+        session.rollback()
+        logger.info("Upload %s: analisi interrotta prima dei tracker", job.id)
+        return
     job.analysis_json = json.dumps(analysis)
     if analysis["client_matches"]:
         upload_jobs.log_event(session, job, "already_on_client", level="warning", count=len(analysis["client_matches"]))
