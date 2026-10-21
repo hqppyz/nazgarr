@@ -83,6 +83,87 @@ def test_a_template_cannot_grow_a_value_or_loop_without_end(source):
     assert time.monotonic() - started < 2
 
 
+# Una lista che ne contiene un'altra più volte: lunga poco a ogni livello,
+# ma il suo testo scrive ogni riferimento, e str(), tojson o == lo
+# scorrono tutto in una sola chiamata in C, col GIL tenuto.
+_CHAIN = "{% set a = [1] * 300 %}{% set b = [a] * 300 %}{% set c = [b] * 300 %}{% set e = [c] * 8 %}"
+
+
+def _doubled(times: int, step: str, name: str = "x") -> str:
+    source = f"{{% set {name} = [1] * 100 %}}"
+    for _ in range(times):
+        source += f"{{% set {name} = {step.replace('x', name)} %}}"
+    return source
+
+
+@pytest.mark.parametrize("source", [
+    _CHAIN + "{{ e }}",
+    _CHAIN + "{{ e ~ '' }}",
+    _CHAIN + "{{ e|tojson }}",
+    _doubled(30, "[x, x]") + "{{ x }}",
+    _doubled(30, "(x, x)") + "{{ x ~ '' }}",
+    _doubled(30, "{'a': x, 'b': x}") + "{{ x|tojson }}",
+    _doubled(30, "dict(x=x, y=x)") + "{{ x }}",
+    _doubled(30, "[x, x]") + _doubled(30, "[x, x]", "y") + "{% if x == y %}{% endif %}",
+    # Un namespace è l'unico valore che si cambia dopo: chi lo contiene
+    # l'ha misurato piccolo, il suo testo si rimisura quando si scrive.
+    "{% set ns = namespace(v=1) %}{% set l = [ns] * 20000 %}{% set ns.v = 'x' * 900000 %}{{ l }}",
+    "{% set ns = namespace(v=1) %}{% set l = [ns] * 20000 %}{% set ns.v = 'x' * 900000 %}{{ l|join }}",
+    "{% set n0 = namespace(v=1) %}"
+    + "".join(f"{{% set n{i + 1} = namespace(a=n{i}, b=n{i}) %}}" for i in range(12))
+    + "{% set n0.v = 'x' * 1000 %}{{ n12 }}",
+    # Gli argomenti di una chiamata, che una macro ritrova in varargs e
+    # cycler() in .items.
+    "{% set b = 'x' * 500000 %}{% macro m() %}{{ varargs }}{% endmacro %}{{ m(" + ", ".join(["b"] * 1000) + ") }}",
+    "{% set b = 'x' * 500000 %}{{ cycler(" + ", ".join(["b"] * 1000) + ").items }}",
+    "{% set b = 'x' * 900000 %}{{ dict.fromkeys(range(100000), b) }}",
+    "{% set b = 'x' * 900000 %}{% for row in [1]|batch(1000000, b) %}{{ row|length }}{% endfor %}",
+    # Un argomento scritto più volte da un formato.
+    "{% set b = 'x' * 1000000 %}{{ ('{0}' * 300000).format(b) }}",
+    "{% set b = 'x' * 1000 %}{{ ('{x}' * 300000).format_map({'x': b}) }}",
+    "{% set b = 'x' * 1000 %}{{ ('%(x)s' * 200000) % {'x': b} }}",
+    "{% set b = 'x' * 1000000 %}{{ ('%(x)s' * 200000)|format(x=b) }}",
+    "{{ ('%900000s' * 1000) % (('x',) * 1000) }}",
+    # Gli altri risultati che un solo passo in C fa enormi.
+    "{{ ([[1]] * 100000)|sum(start=[])|length }}",
+    "{{ 'x'.encode() * 10 ** 10 }}",
+    "{{ 'x'.encode().ljust(10 ** 10) }}",
+    "{{ (1).to_bytes(10 ** 10, 'big') }}",
+    "{{ ('x' * 100000)|join('y' * 100000) }}",
+    "{% set b = 'y' * 900000 %}{{ ('x' * 1000)|replace('x', [b]) }}",
+    "{{ ('x' * 1000000).translate({120: 'y' * 1000}) }}",
+    "{{ ('www.a.co ' * 100000)|urlize(target='t' * 100000) }}",
+    "{% set ns = namespace(x=[1] * 200000) %}{% for i in range(300) %}{% set ns.x = [ns.x] %}{% endfor %}"
+    "{{ ns.x|pprint|length }}",
+])
+def test_a_template_cannot_build_a_value_whose_text_is_huge(source):
+    """Seconda revisione dell'audit 2026-10-18: il budget contava solo
+    len() di ogni valore, e un contenitore che ripete lo stesso
+    riferimento passava ogni controllo (97 caratteri senza cicli: 5 s col
+    GIL tenuto e un GB). Ora ogni contenitore si misura quando nasce, per
+    quanto scriverebbe."""
+    started = time.monotonic()
+    with pytest.raises(DescriptionTemplateError) as exc:
+        render_template(source)
+    assert exc.value.code == "upload_description_template_invalid"
+    assert "seconds" not in exc.value.params["error"]  # fermato prima, non dal tempo
+    assert time.monotonic() - started < 1
+
+
+def test_comparisons_count_in_the_time_budget(monkeypatch):
+    # Un confronto scorre in C due valori lunghi un mega: in un ciclo, il
+    # tempo si controlla dopo ognuno.
+    from nazgarr.upload import description
+
+    monkeypatch.setattr(description, "MAX_RENDER_SECONDS", 0.2)
+    source = _doubled(11, "[x, x]") + _doubled(11, "[x, x]", "y")
+    started = time.monotonic()
+    with pytest.raises(DescriptionTemplateError) as exc:
+        render_template(source + "{% for i in range(100000) %}{% if x == y %}{% endif %}{% endfor %}")
+    assert "seconds" in exc.value.params["error"]
+    assert time.monotonic() - started < 2
+
+
 def test_a_render_has_a_time_budget(monkeypatch):
     # Pochi giri, ognuno lento: né il testo né i giri bastano a fermarlo.
     from nazgarr.upload import description
@@ -110,7 +191,10 @@ def test_check_template_compiles_without_rendering():
     from nazgarr.upload.description import MAX_TEMPLATE_LENGTH, check_template
 
     check_template("{% for i in range(100000) %}{% for j in range(100000) %}{% endfor %}{% endfor %}")  # non gira
-    for source in ("{% if %}", "{{ x|no_such_filter }}", "x" * (MAX_TEMPLATE_LENGTH + 1)):
+    # Anche un'annidatura troppo profonda per il parser di Jinja
+    # (RecursionError), non solo la sintassi sbagliata.
+    for source in ("{% if %}", "{{ x|no_such_filter }}", "x" * (MAX_TEMPLATE_LENGTH + 1),
+                   "{{ " + "(" * 3000 + "1" + ")" * 3000 + " }}", "{{ " + "[" * 3000 + "1" + "]" * 3000 + " }}"):
         with pytest.raises(DescriptionTemplateError):
             check_template(source)
 
@@ -126,6 +210,21 @@ def test_ordinary_arithmetic_and_repetition_still_work():
         "{{ range(3)|map('string')|join(',') }}|{{ 'a\nb'|indent(2, true) }}|{{ 'aaa bbb'|wordwrap(3) }}|"
         "{{ [1, 2, 3]|batch(2)|list }}|{{ '%(a)s' % {'a': 1} }}|{{ 100 % 7 }}|{{ lipsum(1, false, 2, 3) != '' }}"
     ) == "x  | ab |  x|a=3|  x|a-b|a, b|0,1,2|  a\n  b|aaa\nbbb|[[1, 2], [3]]|1|2|True"
+
+
+def test_containers_methods_and_filters_of_a_real_description_still_work():
+    assert render_template(
+        "{{ [[x, x], (x,), {'a': x}] }}|{{ x == [1] }}|{{ x is in [[1]] }}|"
+        "{% for a, b in [(1, 2)] %}{{ a }}{{ b }}{% endfor %}{% set p, q = 1, 2 %}{{ p }}{{ q }}|"
+        "{{ [1, 2, 3]|sum }}|{{ [[1], [2]]|sum(start=[]) }}|{{ [{'v': 1}, {'v': 2}]|sum(attribute='v') }}|"
+        "{{ {'a': 1}|pprint }}|{{ 'a-b'|replace('-', 1) }}|{{ 'abc'|join('-') }}|{{ [1, 2]|join(', ') }}|"
+        "{% set ns = namespace(a=[]) %}{% for i in range(3) %}{% set ns.a = ns.a + [i] %}{% endfor %}"
+        "{{ ns.a }}|{{ ns }}|{{ dict(a=1).items()|list }}|{{ '{} {}'.format('a', 'b') }}|"
+        "{{ '%(a)s-%(a)s' % {'a': 'y'} }}|{{ (5).to_bytes(2, 'big') }}|{{ screenshot_urls|batch(2)|list }}|"
+        "{% set ns.self = ns %}{{ ns.self.a }}",
+        x=[1], screenshot_urls=["u1", "u2", "u3"],
+    ) == ("[[[1], [1]], ([1],), {'a': [1]}]|True|True|1212|6|[1, 2]|3|{'a': 1}|a1b|a-b-c|1, 2|"
+          "[0, 1, 2]|<Namespace {'a': [0, 1, 2]}>|[('a', 1)]|a b|y-y|b'\\x00\\x05'|[['u1', 'u2'], ['u3']]|[0, 1, 2]")
 
 
 def test_the_sandbox_still_refuses_code():
