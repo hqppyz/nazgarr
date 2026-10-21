@@ -43,6 +43,14 @@ services:
       - PUID=1000
       - PGID=1000
       - TZ=Europe/Rome
+      # Only behind a reverse proxy (nginx, Caddy, Traefik, Nginx Proxy
+      # Manager): the proxy's address or Docker network, so each visitor's
+      # real address comes from X-Forwarded-For. Without it every visitor
+      # seems to be the proxy, and the login limit (5 wrong attempts in 15
+      # minutes per address) is shared: anyone who reaches the proxy can keep
+      # the login closed to you too. Never "*" while port 3019 is also
+      # reachable without the proxy. See the README, "Behind a reverse proxy".
+      # - FORWARDED_ALLOW_IPS=172.18.0.0/16
     env_file:
       - .env
     volumes:
