@@ -163,6 +163,43 @@ def test_a_non_ascii_setup_code_from_the_environment_still_works(anon_client):
     assert _setup(anon_client, setup_code="codice-città").status_code == 201
 
 
+
+def _raw_json(client, path, text, headers=None):
+    # Il surrogato solitario si scrive solo come escape JSON: httpx non lo codifica.
+    return client.post(path, content=text, headers={"Content-Type": "application/json", **(headers or {})})
+
+
+def test_a_lone_surrogate_is_a_wrong_value_not_a_500(anon_client):
+    """json.loads e pydantic accettano "\\ud800", e il suo encode() sollevava
+    UnicodeEncodeError: un 500 col traceback nel log, senza login, prima
+    ancora che l'account esistesse (audit 2026-10-18)."""
+    code = anon_client.app.state.setup_code
+    response = _raw_json(anon_client, "/api/auth/setup",
+                         '{"username":"admin","password":"supersecret1","setup_code":"\\ud800"}')
+    assert response.status_code == 403
+    response = _raw_json(anon_client, "/api/auth/setup",
+                         '{"username":"\\ud800","password":"supersecret1","setup_code":"%s"}' % code)
+    assert response.json()["detail"]["code"] == "auth_text_invalid"
+    response = _raw_json(anon_client, "/api/auth/setup",
+                         '{"username":"admin","password":"\\ud800supersecret","setup_code":"%s"}' % code)
+    assert response.status_code == 400
+    token = _setup(anon_client).json()["access_token"]
+
+    response = _raw_json(anon_client, "/api/auth/login", '{"username":"\\ud800","password":"supersecret1"}')
+    assert response.status_code == 401
+    assert response.json()["detail"]["code"] == "auth_invalid_credentials"
+    response = _raw_json(anon_client, "/api/auth/login", '{"username":"admin","password":"\\ud800"}')
+    assert response.status_code == 401
+    response = _raw_json(anon_client, "/api/auth/change-password",
+                         '{"current_password":"supersecret1","new_password":"\\ud800longenough"}', _bearer(token))
+    assert response.json()["detail"]["code"] == "auth_text_invalid"
+
+
+def test_a_setup_code_from_an_environment_that_is_not_utf8_is_never_a_500(anon_client):
+    # os.environ decodifica i byte non UTF-8 come surrogati (surrogateescape).
+    anon_client.app.state.setup_code = "codice-" + chr(0xDCFF)  # un literal non passa dal rewrite di pytest
+    assert _setup(anon_client, setup_code="codice-").status_code == 403
+
 def test_attempts_arriving_together_are_counted_before_the_password_check():
     # Prima controllo e registrazione stavano ai due lati del PBKDF2: 38 tentativi
     # su 60 partiti insieme passavano, invece di 5 (audit 2026-10-18).

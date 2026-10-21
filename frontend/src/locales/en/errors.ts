@@ -17,6 +17,7 @@ export const errors = {
   'errors.auth_invalid_credentials': 'Invalid credentials.',
   'errors.auth_required': 'Authentication required.',
   'errors.auth_wrong_current_password': 'Current password is incorrect.',
+  'errors.auth_text_invalid': 'Username and password cannot contain invalid characters.',
 
   'errors.poster_not_cached': 'Poster not cached.',
 

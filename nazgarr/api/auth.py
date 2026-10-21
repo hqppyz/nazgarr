@@ -78,6 +78,17 @@ def _not_a_failure(attempt: tuple[str, float], status_code: int, code: str) -> H
     return HTTPException(status_code=status_code, detail=coded_detail(code))
 
 
+def _utf8(value: str) -> bytes | None:
+    """Il testo in UTF-8, o None se non si può: un JSON con un surrogato
+    solitario (\\ud800) passa da json.loads e da pydantic, e il suo encode()
+    sollevava UnicodeEncodeError, un 500 con il traceback nel log a chiunque,
+    prima ancora che l'account esistesse (audit 2026-10-18)."""
+    try:
+        return value.encode()
+    except UnicodeEncodeError:
+        return None
+
+
 _setup_lock = threading.Lock()
 # Per verificare comunque una password quando l'account non c'è.
 _DUMMY_HASH = auth.hash_password("nazgarr-no-account")
@@ -96,8 +107,11 @@ def setup(body: SetupRequest, request: Request, session: Session = Depends(get_s
         expected = getattr(request.app.state, "setup_code", None)
         # In byte: compare_digest su due str con caratteri non ASCII solleva
         # TypeError (un 500 a chiunque mandasse una "é").
-        if not expected or not hmac.compare_digest(body.setup_code.strip().encode(), expected.encode()):
+        code = _utf8(body.setup_code.strip())
+        if not expected or code is None or not hmac.compare_digest(code, expected.encode(errors="surrogateescape")):
             raise HTTPException(status_code=403, detail=coded_detail("auth_setup_code_invalid"))
+        if _utf8(body.username) is None or _utf8(body.password) is None:
+            raise _not_a_failure(attempt, 400, "auth_text_invalid")
         if not body.username.strip():
             raise _not_a_failure(attempt, 400, "auth_username_required")
         if len(body.password) < 8:
@@ -118,7 +132,10 @@ def login(body: LoginRequest, request: Request, session: Session = Depends(get_s
     # La password si verifica sempre, anche con un nome sbagliato: lo stesso
     # tempo di risposta, niente indizi su quale dei due è giusto.
     password_ok = auth.verify_password(body.password, stored_hash or _DUMMY_HASH)
-    username_ok = bool(stored_username) and hmac.compare_digest(body.username.encode(), stored_username.encode())
+    # Un nome che non si scrive in UTF-8 non è quello salvato: 401 come gli altri.
+    username = _utf8(body.username)
+    username_ok = bool(stored_username) and username is not None and hmac.compare_digest(
+        username, stored_username.encode())
     if not (stored_hash and username_ok and password_ok):
         raise HTTPException(status_code=401, detail=coded_detail("auth_invalid_credentials"))
     login_limiter.succeeded(attempt[0])
@@ -148,6 +165,8 @@ def change_password(
     stored_hash = settings_repo.get_setting(session, "auth_password_hash")
     if not stored_hash or not auth.verify_password(body.current_password, stored_hash):
         raise HTTPException(status_code=401, detail=coded_detail("auth_wrong_current_password"))
+    if _utf8(body.new_password) is None:
+        raise _not_a_failure(attempt, 400, "auth_text_invalid")
     if len(body.new_password) < 8:
         raise _not_a_failure(attempt, 400, "auth_password_too_short")
     login_limiter.succeeded(attempt[0])

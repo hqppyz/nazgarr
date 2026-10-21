@@ -18,6 +18,7 @@
  "auth_required": "Authentication required.",
  "auth_setup_code_invalid": "Wrong setup code: copy it from the container log (it changes at every restart until the account exists)",
  "auth_setup_required": "Create the account first",
+ "auth_text_invalid": "Username and password cannot contain invalid characters.",
  "auth_too_many_attempts": "Too many wrong attempts: try again in {seconds} seconds",
  "auth_username_required": "Username is required.",
  "auth_wrong_current_password": "Current password is incorrect.",

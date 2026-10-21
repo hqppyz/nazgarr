@@ -17,6 +17,7 @@ export const errors = {
   'errors.auth_invalid_credentials': 'Credenziali non valide.',
   'errors.auth_required': 'Autenticazione richiesta.',
   'errors.auth_wrong_current_password': 'La password attuale non è corretta.',
+  'errors.auth_text_invalid': 'Nome utente e password non possono contenere caratteri non validi.',
 
   'errors.poster_not_cached': 'Locandina non in cache.',
 
