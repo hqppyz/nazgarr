@@ -206,7 +206,9 @@ def test_a_split_by_hand_that_fails_leaves_only_the_pack_going(client, tmp_path,
                                                  else "upload_prepare_failed")
     assert kicked == [job_id]
     assert [j["id"] for j in client.get("/api/uploads").json()] == [job_id]
-    assert client.get(f"/api/uploads/{job_id}").json()["status"] == "analyzing"
+    detail = client.get(f"/api/uploads/{job_id}").json()
+    # Il pack va avanti intero: l'analisi non rifà la divisione non riuscita.
+    assert (detail["status"], detail["stage"]) == ("analyzing", None)
 
 
 class _PartsTmdb:
@@ -468,6 +470,71 @@ def test_a_split_stopped_by_a_restart_is_done_again_without_leftovers(db_session
     assert [[e.code for e in c.events].count("job_created") for c in children] == [1, 1]
     assert kicked == [c.id for c in children]
     assert "job_split" in [e.code for e in parent.events]
+
+
+def test_a_split_by_hand_stopped_by_a_restart_is_done_again(db_session, tmp_path, monkeypatch):
+    """Audit 2026-10-18 (finding 155): "Dividi in episodi" al match non
+    scriveva la divisione chiesta. Un riavvio a metà toglieva gli episodi
+    rimasti, ma il pack andava poi alla decisione intero: la divisione
+    chiesta dall'utente spariva senza dirlo."""
+    disk = make_disk(db_session, tmp_path)
+    make_tracker(db_session)
+    settings_repo.set_setting(db_session, upload_identify.AUTO_MATCH_SETTING, "0")  # si ferma al match
+    _release(tmp_path)
+    _tmdb(monkeypatch, 8)
+    job = upload_jobs.create_job(db_session, disk, f"releases/{FOLDER}")
+    upload_identify.handle(db_session, job, None)
+    assert job.status == "awaiting_match"
+    # Spenta l'opzione della cartella osservata: la divisione chiesta a mano vale lo stesso.
+    settings_repo.set_setting(db_session, upload_split.SPLIT_SETTING, "false")
+    details = upload_identify.tmdb_client(db_session).full_details("tv", 1399)
+    upload_identify.confirm(db_session, job, content_type="tv", tmdb_id=1399, kind="season_pack", seasons=[1],
+                            episode=None, details=details, split_requested=True)  # come split_upload
+    db_session.commit()
+    assert (job.status, job.stage) == ("analyzing", upload_identify.SPLIT_REQUESTED)
+    restore = _crash_on(monkeypatch, 2)  # il primo episodio, poi il kill sul secondo
+    with pytest.raises(_Killed):
+        upload_split.split(db_session, job, details)
+    restore()
+    parent_id = job.id
+    db_session.rollback()
+    leftovers = [c.id for c in db_session.query(UploadJob).filter(UploadJob.split_from_id == parent_id)]
+
+    _resumed, kicked = _restart(db_session, leftovers, parent_id)
+
+    parent = db_session.get(UploadJob, parent_id)
+    children = db_session.query(UploadJob).filter(UploadJob.split_from_id == parent_id).order_by(UploadJob.id).all()
+    assert parent.status == "cancelled" and "job_split" in [e.code for e in parent.events]
+    assert [(c.kind, c.episode, c.status) for c in children] == [("episode", 1, "analyzing"),
+                                                                 ("episode", 2, "analyzing")]
+    assert kicked == [c.id for c in children]
+
+
+def test_split_by_hand_writes_the_split_with_the_match(client, tmp_path, monkeypatch):
+    session = client.app.state.session_factory()
+    disk = make_disk(session, tmp_path)
+    make_tracker(session)
+    settings_repo.set_setting(session, upload_identify.AUTO_MATCH_SETTING, "0")
+    _release(tmp_path)
+    _tmdb(monkeypatch, 8)
+    job = upload_jobs.create_job(session, disk, f"releases/{FOLDER}")
+    upload_identify.handle(session, job, None)
+    job_id = job.id
+    session.close()
+    monkeypatch.setattr(client.app.state.upload_worker, "kick", lambda job_id, status: None)
+    real_split, stages = upload_split.split, []
+
+    def split(session, job, details):
+        stages.append(job.stage)  # quello che un riavvio adesso troverebbe nel DB
+        return real_split(session, job, details)
+
+    monkeypatch.setattr(upload_split, "split", split)
+    response = client.post(f"/api/uploads/{job_id}/split",
+                           json={"content_type": "tv", "tmdb_id": 1399, "kind": "season_pack", "seasons": [1]})
+
+    assert response.status_code == 200, response.text
+    assert stages == [upload_identify.SPLIT_REQUESTED]
+    assert client.get(f"/api/uploads/{job_id}").json()["stage"] is None  # chiusa dalla divisione
 
 
 def test_a_kill_right_after_the_split_closes_keeps_the_episodes(db_session, tmp_path, monkeypatch):

@@ -224,7 +224,9 @@ def test_auto_match_confirms_the_numbers_of_the_chosen_ordering(db_session, monk
     upload_identify._auto_match(db_session, job, [{"content_type": "tv", "tmdb_id": 96677, "confidence": 0.99}])
 
     assert (confirmed["seasons"], confirmed["episode"]) == ([1], 6)
-    assert job.episode_order == "tmdb:group:1"
+    # Nello stesso UPDATE del match (audit 2026-10-18): una divisione rifatta
+    # dopo un riavvio ritrova sempre l'ordinamento.
+    assert confirmed["source_values"]["episode_order"] == "tmdb:group:1"
 
 
 def test_numbers_in_keeps_the_files_numbers_without_found_episodes():
@@ -260,7 +262,7 @@ def test_confirm_translates_only_when_asked_and_remembers_only_a_user_choice(db_
 
     assert [(c["seasons"], c["episode"]) for c in confirmed] == [([1], 6), ([1], 6)]
     assert remembered == ["tmdb:group:1"]
-    assert manual.episode_order == auto.episode_order == "tmdb:group:1"
+    assert [c["source_values"]["episode_order"] for c in confirmed] == ["tmdb:group:1"] * 2
 
     with pytest.raises(episode_orders.EpisodeOrderError):
         upload_identify.confirm(db_session, job(), content_type="tv", tmdb_id=1, kind="episode", seasons=[1],

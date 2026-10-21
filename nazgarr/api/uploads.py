@@ -793,9 +793,11 @@ def delete_upload(upload_id: int, request: Request, session: Session = Depends(g
         raise _refused(exc) from exc
 
 
-def _confirm(session: Session, job: UploadJob, body: UploadMatchRequest) -> dict | None:
+def _confirm(session: Session, job: UploadJob, body: UploadMatchRequest, split: bool = False) -> dict | None:
     """La conferma del match (upload_identify.confirm), con gli errori come
-    risposte HTTP. Restituisce i dettagli TMDB (None senza chiave)."""
+    risposte HTTP. split: con la divisione in episodi chiesta, scritta nello
+    stesso UPDATE (SPLIT_REQUESTED). Restituisce i dettagli TMDB (None senza
+    chiave)."""
     if body.content_type not in ("movie", "tv"):
         raise HTTPException(status_code=400, detail=coded_detail("invalid_content_type", value=body.content_type))
     try:
@@ -809,7 +811,7 @@ def _confirm(session: Session, job: UploadJob, body: UploadMatchRequest) -> dict
         upload_identify.confirm(
             session, job, content_type=body.content_type, tmdb_id=body.tmdb_id, kind=body.kind,
             seasons=body.seasons, episode=body.episode, details=details,
-            order_key=body.episode_order, remember=True,
+            order_key=body.episode_order, remember=True, split_requested=split,
         )
     except episode_orders.EpisodeOrderError as exc:
         raise HTTPException(status_code=400, detail=coded_detail(
@@ -842,11 +844,14 @@ def split_upload(
 ):
     """Al match, "Dividi in episodi": conferma il match del season pack e lo
     divide in un upload per episodio (nazgarr/upload/split.py). L'upload
-    originale si chiude; gli episodi vanno avanti da soli fino alla decisione."""
+    originale si chiude; gli episodi vanno avanti da soli fino alla decisione.
+    La divisione chiesta si scrive con il match: un riavvio a metà non la
+    perde, la rifà l'analisi (upload_identify.resume_split; audit 2026-10-18,
+    prima il pack ripartiva intero)."""
     job = _get_job_or_404(session, upload_id)
     if body.kind != "season_pack" or not job.is_dir or upload_pack.is_pack(job):
         raise HTTPException(status_code=400, detail=coded_detail("upload_split_not_a_pack"))
-    details = _confirm(session, job, body)
+    details = _confirm(session, job, body, split=True)
     try:
         children = upload_split.split(session, job, details)
     except Exception as exc:
@@ -859,6 +864,8 @@ def split_upload(
         session.refresh(job)
         try:
             upload_identify.drop_split_children(session, job)
+            # Non riuscita: il pack va avanti intero, l'analisi non la rifà.
+            upload_identify.split_decided(session, job)
         except Exception:
             session.rollback()
             logger.warning("Upload %s: upload della divisione non tolti", job.id, exc_info=True)
