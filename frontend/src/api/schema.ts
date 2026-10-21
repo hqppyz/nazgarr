@@ -1472,9 +1472,11 @@ export interface paths {
         put?: never;
         /**
          * Refresh Not Imported
-         * @description Ricalcola subito, senza aspettare uno scan: rilegge la history di
-         *     Radarr/Sonarr e i dati già indicizzati. Sola lettura su file e client.
-         *     Mai insieme a una run o ad altro lavoro a lato (nazgarr/reseed/exclusive.py).
+         * @description Ricalcola subito, senza aspettare uno scan: rilegge Radarr/Sonarr (della
+         *     history solo quello che è arrivato dopo l'ultima lettura, di questa o della
+         *     run: nazgarr/integrations/arr.py) e i dati già indicizzati. Sola lettura su
+         *     file e client. Mai insieme a una run o ad altro lavoro a lato
+         *     (nazgarr/reseed/exclusive.py).
          */
         post: operations["refresh_not_imported_api_torrents_not_imported_refresh_post"];
         delete?: never;
