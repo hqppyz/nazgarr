@@ -897,6 +897,13 @@ def split_upload(
     job = _get_job_or_404(session, upload_id)
     if body.kind != "season_pack" or not job.is_dir or upload_pack.is_pack(job):
         raise HTTPException(status_code=400, detail=coded_detail("upload_split_not_a_pack"))
+    if _worker(request).is_active(job.id):
+        # Un passo del worker sta ancora lavorando il job: l'identificazione
+        # scrive awaiting_match e poi continua il suo auto-match. Divisa
+        # adesso, alla sua fine partiva l'analisi, che con SPLIT_REQUESTED
+        # toglieva gli episodi che questa richiesta sta creando e rifaceva
+        # la divisione (resume_split). Come per ripresa ed eliminazione.
+        raise _refused(UploadJobError("upload_job_busy"))
     details = _confirm(session, job, body, split=True)
     try:
         children = upload_split.split(session, job, details)

@@ -537,6 +537,34 @@ def test_split_by_hand_writes_the_split_with_the_match(client, tmp_path, monkeyp
     assert client.get(f"/api/uploads/{job_id}").json()["stage"] is None  # chiusa dalla divisione
 
 
+def test_a_split_by_hand_waits_for_the_step_still_working_the_job(client, tmp_path, monkeypatch):
+    """Revisione dell'audit 2026-10-18 (finding 155): l'identificazione
+    scrive awaiting_match e continua il suo auto-match. Una divisione chiesta
+    in quel momento partiva insieme all'analisi che ne segue, e la sua
+    ripresa (SPLIT_REQUESTED) toglieva gli episodi appena creati per
+    dividere una seconda volta."""
+    session = client.app.state.session_factory()
+    disk = make_disk(session, tmp_path)
+    make_tracker(session)
+    settings_repo.set_setting(session, upload_identify.AUTO_MATCH_SETTING, "0")
+    _release(tmp_path)
+    _tmdb(monkeypatch, 8)
+    job = upload_jobs.create_job(session, disk, f"releases/{FOLDER}")
+    upload_identify.handle(session, job, None)
+    job_id = job.id
+    session.close()
+    worker = client.app.state.upload_worker
+    worker._active[job_id] += 1  # il passo di identificazione, ancora aperto
+
+    response = client.post(f"/api/uploads/{job_id}/split",
+                           json={"content_type": "tv", "tmdb_id": 1399, "kind": "season_pack", "seasons": [1]})
+
+    assert response.status_code == 409 and response.json()["detail"]["code"] == "upload_job_busy"
+    detail = client.get(f"/api/uploads/{job_id}").json()
+    assert (detail["status"], detail["stage"]) == ("awaiting_match", None)
+    assert len(client.get("/api/uploads").json()) == 1  # nessun episodio creato
+
+
 def test_a_kill_right_after_the_split_closes_keeps_the_episodes(db_session, tmp_path, monkeypatch):
     """Audit 2026-10-18: l'annullamento del pack e l'evento della divisione
     erano due commit; un riavvio fra i due lasciava il pack annullato senza
