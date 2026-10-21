@@ -1067,6 +1067,8 @@ def reconcile_held_seeds(session: Session, data_dir: str | None = None) -> int:
     (hold: i reseed e "Riprova il seed"; decisione dell'utente, 2026-10-19),
     dallo scheduler ogni HELD_SEEDS_INTERVAL_SECONDS: riuscito, il torrent
     parte; fallito, resta fermo, e "Riprova il seed" lo fa ricontrollare.
+    Ogni esito, una volta, diventa anche l'evento upload.seed_checked per
+    webhook e notifiche (decisione dell'utente, 2026-10-21).
     Mai mentre il worker lavora quel job (lo stesso target, due sessioni).
     Ritorna quanti target ha guardato."""
     targets = (
@@ -1091,6 +1093,7 @@ def _reconcile_held(session: Session, job: UploadJob, target: UploadTarget, data
         if target.torrent_client_id is None:  # il client tolto da Nazgarr: nessuno lo seguirà più
             target.error_message = SEED_RECHECK_FAILED
             upload_jobs.log_event(session, job, "seed_recheck_no_client", level="error", target=target)
+            upload_jobs.emit_seed_checked(session, job, target, "gone")
             session.commit()
         return  # spento: si aspetta che torni
     client = row.label
@@ -1109,6 +1112,7 @@ def _reconcile_held(session: Session, job: UploadJob, target: UploadTarget, data
                 target.error_message = SEED_RECHECK_FAILED
                 upload_jobs.log_event(session, job, "seed_recheck_torrent_gone", level="error", target=target,
                                       client=client)
+                upload_jobs.emit_seed_checked(session, job, target, "gone", client=client)
                 session.commit()
             return
         _missing_since.pop(target.id, None)
@@ -1126,6 +1130,8 @@ def _reconcile_held(session: Session, job: UploadJob, target: UploadTarget, data
             target.error_message = None
             upload_jobs.log_event(session, job, "seed_recheck_passed" if result == "started"
                                   else "seed_recheck_passed_start_by_hand", target=target, client=client)
+            upload_jobs.emit_seed_checked(session, job, target, "started" if result == "started" else "start_by_hand",
+                                          client=client)
             session.commit()
             return
         stopped = "stopped" if is_stopped_state(status.state) else stop_torrent(adapter, target.info_hash)[0]
@@ -1137,6 +1143,8 @@ def _reconcile_held(session: Session, job: UploadJob, target: UploadTarget, data
         if restored:
             upload_jobs.log_event(session, job, "seed_partial_names_restored", level="warning", target=target,
                                   client=client, count=len(restored))
+        upload_jobs.emit_seed_checked(session, job, target, "recheck_failed", client=client, state=status.state,
+                                      stopped=stopped == "stopped")
         session.commit()
         logger.warning("Upload %s: recheck di %s fallito in %s (%s), lasciato fermo", job.id, target.info_hash,
                        client, status.state)

@@ -94,9 +94,37 @@ def _standard(name: str, data: dict) -> Notification:
         level = {"done": "success", "partial": "warning", "failed": "error"}.get(status, "info")
         title = f"Upload {status}: {data.get('title') or ''}".rstrip(": ")
         return Notification(name, title, "\n".join(lines) or "Nothing to do.", level, data)
+    if name == "upload.seed_checked":
+        return _seed_checked(name, data)
     if name == "test":
         return Notification(name, "Nazgarr test", "Notifications from Nazgarr work.", "info", data)
     return Notification(name, name, json.dumps(data, default=str), "info", data)
+
+
+def _seed_checked(name: str, data: dict) -> Notification:
+    """L'esito del recheck di un torrent aggiunto fermo dal flusso degli
+    upload (upload.seed_checked): dopo upload.finished, che lo diceva
+    ancora in attesa. Un reseed, o "Riprova il seed" di un upload."""
+    kind = "Reseed" if data.get("action") == "reseed" else "Upload"
+    title = f"{data.get('title') or kind}" + (f" ({data['year']})" if data.get("year") else "")
+    where = f"{title} on {data.get('tracker') or '?'}"
+    client = data.get("client")
+    outcome = data.get("outcome")
+    if outcome == "started":
+        return Notification(name, f"{kind} seeding", f"{where}: the recheck passed, seeding in {client}.",
+                            "success", data)
+    if outcome == "start_by_hand":
+        return Notification(name, f"{kind} checked: start it by hand",
+                            f"{where}: the recheck passed, but {client} cannot be told to start it.", "warning", data)
+    if outcome == "recheck_failed":
+        state = f" ({data['state']})" if data.get("state") else ""
+        left = "left stopped" if data.get("stopped") is not False else "still running: stop it by hand"
+        return Notification(name, f"{kind} recheck failed", f"{where}: the recheck failed in {client}{state}, "
+                            f"{left}. Retry seeding once the files are right.", "error", data)
+    if outcome == "gone":
+        gone = f"the torrent is no longer in {client}" if client else "its client was removed from Nazgarr"
+        return Notification(name, f"{kind} recheck without an outcome", f"{where}: {gone}.", "error", data)
+    return Notification(name, f"{kind} recheck", f"{where}.", "info", data)
 
 
 # Come un evento diventa testo, per servizio (notification_service.message_format).

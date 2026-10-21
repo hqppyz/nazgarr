@@ -511,6 +511,71 @@ def test_a_failed_recheck_leaves_the_reseed_stopped_and_retry_rechecks_it(db_ses
     assert client.started == [target.info_hash] and target.error_message is None
 
 
+# --- upload.seed_checked: l'esito del recheck per webhook e notifiche (decisione dell'utente, 2026-10-21)
+
+
+def _seed_checked(db_session):
+    from nazgarr.core.models import Event
+
+    return [json.loads(e.payload_json) for e in db_session.query(Event).filter_by(name="upload.seed_checked")
+            .order_by(Event.id)]
+
+
+@pytest.fixture
+def seed_checked_hook(db_session):
+    from nazgarr.core.models import Webhook
+
+    db_session.add(Webhook(name="hook", url="https://hooks.example/n", secret="s",
+                           events_json=json.dumps(["upload.seed_checked", "upload.finished"])))
+    db_session.commit()
+
+
+@pytest.mark.parametrize("recheck", ["ok", "failed"])
+def test_the_outcome_of_a_held_recheck_is_an_event_once(db_session, tmp_path, env, seed_checked_hook, recheck):
+    """upload.finished arriva col target ancora in attesa; l'esito del
+    recheck arriva dopo, una volta sola, come upload.seed_checked."""
+    from nazgarr.core.models import Event
+
+    job, _video = _reseed_job(db_session, tmp_path, env)
+    client = env["client"]
+    client.held_recheck = "pending"
+    _run(db_session, tmp_path, job)
+    target = job.targets[0]
+    [finished] = [json.loads(e.payload_json) for e in db_session.query(Event).filter_by(name="upload.finished")]
+    assert finished["targets"][0]["error"] == "seed_recheck_pending"
+
+    upload_execute.reconcile_held_seeds(db_session)
+    assert _seed_checked(db_session) == []  # ancora in corso: niente
+
+    client.held_recheck = recheck
+    upload_execute.reconcile_held_seeds(db_session)
+    upload_execute.reconcile_held_seeds(db_session)
+
+    [event] = _seed_checked(db_session)
+    assert {k: event[k] for k in ("job_id", "target_id", "tracker", "client", "action", "torrent_id_remote",
+                                  "info_hash")} == {
+        "job_id": job.id, "target_id": target.id, "tracker": "a", "client": env["client_row"].label,
+        "action": "reseed", "torrent_id_remote": "7", "info_hash": target.info_hash}
+    if recheck == "ok":
+        assert (event["outcome"], event["state"], event["stopped"]) == ("started", None, None)
+    else:
+        assert (event["outcome"], event["state"], event["stopped"]) == ("recheck_failed", "stoppedDL", True)
+
+
+def test_a_held_torrent_gone_from_the_client_is_an_event(db_session, tmp_path, env, seed_checked_hook):
+    job, _video = _reseed_job(db_session, tmp_path, env)
+    client = env["client"]
+    _run(db_session, tmp_path, job)
+    target = job.targets[0]
+    client.save_paths.pop(target.info_hash)  # tolto a mano dal client
+    _missing_for(db_session, job, target, minutes=60)
+
+    upload_execute.reconcile_held_seeds(db_session)
+
+    assert target.error_message == "seed_recheck_failed"
+    assert [(e["outcome"], e["client"]) for e in _seed_checked(db_session)] == [("gone", env["client_row"].label)]
+
+
 def test_a_held_reseed_running_anyway_is_stopped_when_its_recheck_fails(db_session, tmp_path, env):
     """Un plugin senza can_add_stopped lo aggiunge avviato: fallito, si ferma."""
     job, _video = _reseed_job(db_session, tmp_path, env)

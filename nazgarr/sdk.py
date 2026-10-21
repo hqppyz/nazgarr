@@ -38,8 +38,9 @@ from nazgarr.plugins.registry import KINDS, AdapterContext, AdapterSpec, ConfigF
 
 # 1.1: AdapterSpec.icon; 1.2: CheveretoImageHost, chevereto_image_url; 1.3: stop(), CatalogResults,
 # catalog_truncated; 1.4: add_torrent(stopped=...), can_add_stopped e start() per i reseed,
-# list_largest_files(); 1.5: partial_file_suffix(), fermi anche i reseed del flusso degli upload
-SDK_VERSION = "1.5.0"
+# list_largest_files(); 1.5: partial_file_suffix(), fermi anche i reseed del flusso degli upload;
+# 1.6: l'evento upload.seed_checked (docs/SDK.md, Events)
+SDK_VERSION = "1.6.0"
 
 __all__ = [
     "KINDS", "SDK_VERSION", "AdapterContext", "AdapterSpec", "CatalogResults", "ClientTorrentFileInfo",

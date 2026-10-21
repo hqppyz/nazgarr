@@ -246,3 +246,29 @@ def test_watched_releases_have_their_own_messages():
     assert detected.title == "New release detected"
     assert detected.body == "releases/My.Movie.2024.mkv on main: upload started."
     assert (ready.title, ready.body) == ("Upload ready for your decision", "My Movie (2024) → ITT, B")
+
+
+def test_the_outcome_of_a_held_recheck_has_its_messages():
+    # upload.seed_checked (decisione dell'utente, 2026-10-21): dopo
+    # upload.finished, l'esito del recheck del torrent aggiunto fermo.
+    from nazgarr.integrations.notifications import render
+
+    base = {"title": "The Matrix", "year": 1999, "tracker": "ITT", "client": "qbit", "action": "reseed"}
+    started = render("upload.seed_checked", {**base, "outcome": "started"})
+    by_hand = render("upload.seed_checked", {**base, "outcome": "start_by_hand"})
+    failed = render("upload.seed_checked", {**base, "outcome": "recheck_failed", "state": "stoppedDL",
+                                            "stopped": True})
+    running = render("upload.seed_checked", {**base, "outcome": "recheck_failed", "stopped": False})
+    gone = render("upload.seed_checked", {**base, "outcome": "gone"})
+    removed = render("upload.seed_checked", {**base, "outcome": "gone", "client": None, "action": "upload"})
+
+    assert (started.title, started.level) == ("Reseed seeding", "success")
+    assert started.body == "The Matrix (1999) on ITT: the recheck passed, seeding in qbit."
+    assert by_hand.level == "warning" and "cannot be told to start it" in by_hand.body
+    assert (failed.title, failed.level) == ("Reseed recheck failed", "error")
+    assert failed.body == ("The Matrix (1999) on ITT: the recheck failed in qbit (stoppedDL), left stopped. "
+                           "Retry seeding once the files are right.")
+    assert "still running: stop it by hand" in running.body
+    assert gone.body == "The Matrix (1999) on ITT: the torrent is no longer in qbit."
+    assert (removed.title, removed.body) == ("Upload recheck without an outcome",
+                                             "The Matrix (1999) on ITT: its client was removed from Nazgarr.")
