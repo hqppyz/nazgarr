@@ -178,10 +178,10 @@ def test_a_lone_surrogate_is_a_wrong_value_not_a_500(anon_client):
                          '{"username":"admin","password":"supersecret1","setup_code":"\\ud800"}')
     assert response.status_code == 403
     response = _raw_json(anon_client, "/api/auth/setup",
-                         '{"username":"\\ud800","password":"supersecret1","setup_code":"%s"}' % code)
+                         '{"username":"\\ud800","password":"supersecret1","setup_code":"' + code + '"}')
     assert response.json()["detail"]["code"] == "auth_text_invalid"
     response = _raw_json(anon_client, "/api/auth/setup",
-                         '{"username":"admin","password":"\\ud800supersecret","setup_code":"%s"}' % code)
+                         '{"username":"admin","password":"\\ud800supersecret","setup_code":"' + code + '"}')
     assert response.status_code == 400
     token = _setup(anon_client).json()["access_token"]
 
