@@ -1204,3 +1204,16 @@ def test_a_client_that_renames_nothing_is_not_asked_where_its_files_are(db_sessi
     executor.reconcile_seed_job(db_session, seed_job, adapter)
 
     assert seed_job.final_status == "failed"
+
+
+def test_an_error_in_nazgarrs_own_check_never_starts_the_torrent(db_session, tmp_path, monkeypatch):
+    seed_job = _failed_recheck_job(db_session, tmp_path)
+    seed_job.expected_missing_bytes = 10
+    adapter = _StoppedAdds(recheck_status="failed", progress=0.99)
+    monkeypatch.setattr(executor.full_check, "verified_for",
+                        lambda *a, **k: (_ for _ in ()).throw(OSError("disk asleep")))
+
+    executor.reconcile_seed_job(db_session, seed_job, adapter)
+
+    assert (seed_job.final_status, seed_job.error_message) == ("in_progress", executor.EXTRAS_NOT_CHECKED)
+    assert adapter.started == []

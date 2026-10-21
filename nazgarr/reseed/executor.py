@@ -666,7 +666,7 @@ def _recheck_outcome(session: Session, seed_job: SeedJob, status: TorrentStatus,
     except Exception:
         # Mai un avvio senza la verifica: si riprova al reconcile dopo.
         logger.warning("Seed_job %s: piece fuori dagli extra mancanti non controllati", seed_job.id, exc_info=True)
-        return "pending", EXTRAS_CHECKING
+        return "pending", EXTRAS_NOT_CHECKED
     if outcome == "ok":
         logger.info("Seed_job %s: recheck ok, il client scarica %d byte di file extra mancanti",
                     seed_job.id, status.amount_left)
@@ -679,6 +679,8 @@ def _recheck_outcome(session: Session, seed_job: SeedJob, status: TorrentStatus,
 _extras_checks: dict[int, str] = {}
 EXTRAS_CHECKING = ("The client's recheck left only the extras known to be missing: Nazgarr is checking every other "
                    "piece itself before starting it")
+EXTRAS_NOT_CHECKED = ("The client's recheck left only the extras known to be missing, but Nazgarr could not check the "
+                      "other pieces yet: it tries again at the next check, and starts nothing before")
 
 
 def _missing_extras(candidate: Candidate) -> set[str]:

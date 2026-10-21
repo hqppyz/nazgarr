@@ -508,10 +508,15 @@ def pieces_touching(parsed: TorrentInfo, paths: set[str]) -> set[int]:
 
 def _files_of(parsed: TorrentInfo, pieces: list[int], skip: set[str]) -> list[str]:
     """I file del torrent (tranne skip) toccati da quei piece."""
-    wanted = set(pieces)
-    return [entry.path for entry in parsed.files if entry.path not in skip and entry.length > 0
-            and wanted & set(range(entry.offset // parsed.piece_length,
-                                   (entry.offset + entry.length - 1) // parsed.piece_length + 1))]
+    out = []
+    for entry in parsed.files:
+        if entry.path in skip or entry.length == 0:
+            continue
+        first = entry.offset // parsed.piece_length
+        last = (entry.offset + entry.length - 1) // parsed.piece_length
+        if any(first <= index <= last for index in pieces):
+            out.append(entry.path)
+    return out
 
 
 def check_outside_missing(
