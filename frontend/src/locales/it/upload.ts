@@ -285,6 +285,7 @@ export const upload = {
   'upload.result.openOnTracker': 'Apri sul tracker',
   'upload.result.retrySeed': "Riprova il seed",
   'upload.result.seedRetried': "Aggiunto al client.",
+  'upload.result.recheckRetried': 'Recheck richiesto: il torrent parte quando riesce.',
   'upload.retry.button': 'Riprova',
   'upload.retry.title': 'Riprovare i tracker falliti?',
   'upload.retry.description': "Tornano in coda con le scelte già fatte: stessi nomi, ID e flag, nessun nuovo match. Prima dell'invio il dupe check si rifà: una release comparsa nel frattempo ferma quel tracker.",

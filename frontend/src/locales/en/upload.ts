@@ -285,6 +285,7 @@ export const upload = {
   'upload.result.openOnTracker': 'Open on the tracker',
   'upload.result.retrySeed': "Retry seeding",
   'upload.result.seedRetried': "Added to the client.",
+  'upload.result.recheckRetried': 'Recheck requested: the torrent starts once it passes.',
   'upload.retry.button': 'Retry',
   'upload.retry.title': 'Retry the trackers that failed?',
   'upload.retry.description': 'They go back to the queue with the choices already made: same names, IDs and flags, no new match. Before sending, the dupe check runs again: a release that showed up in the meantime stops that tracker.',

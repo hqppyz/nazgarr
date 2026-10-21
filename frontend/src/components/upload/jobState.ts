@@ -37,6 +37,18 @@ export function needsConfirmation(target: TargetLike) {
   return target.action === 'upload' && UNSURE_ERRORS.includes(target.error_message ?? '')
 }
 
+// "Riprova il seed" (execute.py::retry_seed, SEED_RETRYABLE): un upload
+// pubblicato ma non in seed, o un torrent fermo dopo un recheck fallito, anche
+// di un reseed. Mai mentre il recheck è in corso (seed_recheck_pending): lì
+// Nazgarr aspetta l'esito e avvia il torrent da sé.
+const SEED_RETRYABLE = ['seed_failed', 'no_client', 'seed_recheck_failed']
+
+export function canRetrySeed(target: TargetLike) {
+  const code = target.error_message ?? ''
+  return target.status === 'done' && SEED_RETRYABLE.includes(code)
+    && (target.action === 'upload' || code === 'seed_recheck_failed')
+}
+
 // Dove comincia un'esecuzione: dopo "Riprova", una ripresa o un riavvio il
 // job torna in coda, e finché il worker non lo prende gli step sono da fare.
 const RUN_STARTS = ['execution_started', 'job_retried', 'job_resumed_by_user', 'job_resumed']
