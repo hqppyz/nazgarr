@@ -577,3 +577,53 @@ def test_an_upload_reseed_waiting_for_its_recheck_is_never_proposed_again(db_ses
     assert review.create_review_for_media_file(db_session, mf, [by_hash]) is None
     assert review.create_review_for_media_file(
         db_session, mf, [_candidate(db_session, item, tracker, confidence=0.99, remote="81")]) is None
+
+
+def test_an_upload_published_during_the_matching_pass_is_never_proposed(db_session):
+    """Revisione dell'audit 2026-10-18 (finding 171): la coda del passaggio
+    leggeva gli upload una volta, all'inizio. Un upload ancora in
+    preparazione allora, pubblicato e messo in seed durante il passaggio,
+    diventava una review "consigliata" (eseguita con l'esecuzione
+    automatica accesa, e fallita nel client)."""
+    tracker = _tracker(db_session)
+    item = _media_item(db_session)
+    mf = _media_file_stub(db_session, item)
+    target = _upload_target(db_session, mf, tracker, status="preparing", action="upload")
+    queue = review.ReviewQueue(db_session)  # il primo orfano del passaggio
+    assert queue.uploaded == set()
+
+    target.status, target.torrent_id_remote, target.info_hash = "done", "77", "aa77"
+    db_session.commit()
+
+    assert review.create_review_for_media_file(
+        db_session, mf, [_candidate(db_session, item, tracker, confidence=0.99, remote="77")], queue=queue) is None
+    assert (tracker.id, "77") in queue.uploaded  # per il resto del passaggio
+    by_hash = _candidate(db_session, item, tracker, confidence=0.99, remote="78")
+    by_hash.info_hash = "AA77"
+    db_session.commit()
+    assert review.create_review_for_media_file(db_session, mf, [by_hash], queue=queue) is None
+    assert db_session.query(MatchReview).count() == 0
+
+
+def test_a_torrent_registered_in_a_client_during_the_pass_is_never_proposed(db_session):
+    # Lo stesso per un torrent registrato fra quelli dei client nel frattempo
+    # (seed_refresh dopo un upload o un import): un client può riportare
+    # l'info hash in maiuscolo (rTorrent).
+    from nazgarr.core.models import ClientTorrent, TorrentClient
+
+    tracker = _tracker(db_session)
+    item = _media_item(db_session)
+    mf = _media_file_stub(db_session, item)
+    queue = review.ReviewQueue(db_session)
+    client = TorrentClient(label="r", adapter_type="rtorrent", base_url="http://r", enabled=True)
+    db_session.add(client)
+    db_session.commit()
+    db_session.add(ClientTorrent(torrent_client_id=client.id, info_hash="CC90", name="x", save_path="/t",
+                                 state="seeding", last_polled_at=datetime.now(UTC)))
+    db_session.commit()
+    candidate = _candidate(db_session, item, tracker, confidence=0.99, remote="90")
+    candidate.info_hash = "cc90"
+    db_session.commit()
+
+    assert review.create_review_for_media_file(db_session, mf, [candidate], queue=queue) is None
+    assert "cc90" in queue.in_client

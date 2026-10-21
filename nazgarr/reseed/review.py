@@ -302,9 +302,11 @@ class ReviewQueue:
     nei client e i torrent già occupati, letti una volta sola invece che a
     ogni orfano (audit 2026-10-18: ogni orfano rileggeva tutte le review
     attive e le esecuzioni), e aggiornati qui a ogni review creata o chiusa.
-    Durante il matching nessun torrent entra in un client e nessun'altra
-    parte crea review (la ricerca mirata e quella dopo un import non girano
-    durante una run)."""
+    Durante il matching nessun'altra parte crea review (la ricerca mirata e
+    quella dopo un import non girano durante una run, nazgarr/reseed/exclusive.py),
+    ma il worker degli upload sì aggiunge torrent ai client: gli upload e
+    i loro torrent si rileggono subito prima di creare ogni review
+    (refresh_uploads)."""
 
     def __init__(self, session: Session, in_client: set[str] | None = None):
         self.in_client = hashes_in_clients(session) if in_client is None else in_client
@@ -331,6 +333,28 @@ class ReviewQueue:
             if entry is not None:
                 tracker_id, _remote, mf_id, sf_id = entry
                 self._by_file[(tracker_id, mf_id, sf_id)] -= 1
+
+    def refresh_uploads(self, session: Session, candidates: list[Candidate]) -> None:
+        """Gli upload di Nazgarr e, fra gli info hash di questi candidati,
+        quelli ora in un client, riletti adesso: il worker degli upload non
+        aspetta le run, e un upload pubblicato e messo in seed durante il
+        passaggio (letto all'inizio, prima che partisse) veniva proposto
+        come un reseed da rifare, eseguito con l'esecuzione automatica
+        accesa (audit 2026-10-18, revisione). Due query piccole, una volta
+        per file con un candidato plausibile, mai per ogni orfano."""
+        self.uploaded, self.uploaded_hashes = _own_uploads(session)
+        self.in_client |= _now_in_clients(session, {c.info_hash for c in candidates if c.info_hash})
+
+
+def _now_in_clients(session: Session, hashes: set[str]) -> set[str]:
+    """Quali di questi info hash sono ora in un client (in minuscolo). Un
+    client può riportarli in maiuscolo (rTorrent): si cercano in entrambe le
+    forme, senza leggere tutti i torrent dei client."""
+    if not hashes:
+        return set()
+    forms = {form for h in hashes for form in (h.lower(), h.upper())}
+    return {row[0].lower() for row in session.query(ClientTorrent.info_hash)
+            .filter(ClientTorrent.info_hash.in_(forms)).distinct()}
 
 
 def _status_for(session: Session, candidate: Candidate) -> str:
@@ -407,6 +431,11 @@ class _Exclusions:
     def allows(self, candidate: Candidate) -> bool:
         return (not self.impossible(candidate)
                 and (candidate.tracker_id, candidate.torrent_id_remote) not in self.busy)
+
+    def follow(self, queue: ReviewQueue) -> None:
+        """Gli upload e gli info hash appena riletti dalla coda (refresh_uploads)."""
+        self.refused = self.rejected | queue.uploaded
+        self.hashes = queue.in_client | queue.uploaded_hashes
 
 
 def _drop_unavailable(
@@ -488,6 +517,12 @@ def _create_review(
     exclusions = _Exclusions(session, media_file_id=media_file_id, seed_file_id=seed_file_id,
                              in_client=in_client, queue=queue)
     plausible = [c for c in plausible if exclusions.allows(c)]
+    if plausible and queue is not None:
+        # La coda è del passaggio, letta al suo inizio: un upload pubblicato e
+        # messo in seed nel frattempo si vede solo rileggendo, adesso.
+        queue.refresh_uploads(session, plausible)
+        exclusions.follow(queue)
+        plausible = [c for c in plausible if exclusions.allows(c)]
     if not plausible:
         _drop_unavailable(session, media_file_id=media_file_id, seed_file_id=seed_file_id, tracker_id=tracker_id,
                           formats=formats, queue=queue, exclusions=exclusions, returned=returned,

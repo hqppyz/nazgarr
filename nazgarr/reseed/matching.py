@@ -156,8 +156,11 @@ class MatchContext:
     _queue: "review.ReviewQueue | None" = None
 
     def hashes_in_clients(self) -> set[str]:
-        """Gli info hash nei client, letti una volta: durante il matching nessun
-        torrent entra in un client (l'esecuzione viene dopo)."""
+        """Gli info hash nei client, letti una volta per passaggio: le
+        esecuzioni della coda vengono dopo il matching. Il worker degli upload
+        invece può aggiungerne uno durante il passaggio: la coda rilegge i
+        suoi, e gli info hash dei candidati, prima di ogni review
+        (review.ReviewQueue.refresh_uploads)."""
         if self._in_client is None:
             from nazgarr.reseed.review import hashes_in_clients
 
