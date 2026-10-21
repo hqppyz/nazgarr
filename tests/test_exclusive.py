@@ -187,3 +187,38 @@ def test_reconcile_now_and_deleting_an_execution_wait_for_the_side_work(client):
     assert client.post("/api/reviews/seed-jobs/reconcile").json() == {"reconciled": 0, "errors": 0}
     assert client.delete(f"/api/reviews/seed-jobs/{job.id}").status_code == 204
     db_session.close()
+
+
+def test_the_periodic_reconcile_is_side_work_too(db_session, factory, monkeypatch):
+    """Il reconcile dei seed job ogni 2 minuti (scheduler._reconcile_between_runs)
+    guardava solo che nessuna run fosse in corso: con "Controlla ora",
+    l'eliminazione di un'esecuzione o una run partita a metà, lo stesso seed
+    job si riconciliava in due sessioni (avvii e arresti doppi nel client)."""
+    from nazgarr import scheduler
+    from nazgarr.reseed import review
+
+    calls = []
+    monkeypatch.setattr(review, "has_pending_seed_jobs", lambda session: True)
+
+    def reconcile(session):
+        # Mentre gira, nessun altro lavoro a lato e nessuna run partono.
+        with pytest.raises(exclusive.Busy), exclusive.side_work(db_session):
+            pytest.fail("must not run")
+        with pytest.raises(exclusive.Busy):
+            exclusive.start_run(db_session, "bulk_import", wait_seconds=0.05)
+        calls.append(1)
+
+    monkeypatch.setattr(review, "reconcile_pending_seed_jobs", reconcile)
+
+    started, release = threading.Event(), threading.Event()
+    holder = _hold_side_work(factory, started, release)
+    try:
+        scheduler._reconcile_between_runs(factory)  # occupato: al giro dopo
+    finally:
+        release.set()
+        holder.join(5)
+    assert calls == []
+
+    scheduler._reconcile_between_runs(factory)
+    assert calls == [1]
+    assert db_session.query(RunLog).count() == 0
