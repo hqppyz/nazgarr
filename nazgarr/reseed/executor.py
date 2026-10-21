@@ -37,6 +37,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
+from sqlalchemy.exc import NoResultFound
 from sqlalchemy.orm import Session, sessionmaker
 
 from nazgarr.adapters.torrent_client.base import (
@@ -59,7 +60,7 @@ from nazgarr.integrations import adapter_factory
 from nazgarr.library import disk_folders, hardlinks
 from nazgarr.library.tmdb_client import TMDBClient
 from nazgarr.reseed import download_links, full_check
-from nazgarr.reseed.placement import Placement, placement_for
+from nazgarr.reseed.placement import Placement, placement_for, possible_placements
 from nazgarr.torrents import client_labels, client_paths, partial_files
 from nazgarr.torrents.layout import expected_missing_bytes
 from nazgarr.torrents.metainfo import TorrentMetainfoError, compute_info_hash, parse_torrent_info
@@ -95,6 +96,11 @@ _ADAPTER_DUPLICATE_TEXT = "is already in the client (possibly with another save 
 # client non vede): un torrent con quell'hash che il retry trovasse nel
 # client ce l'ha messo qualcun altro, e non si segue.
 NOTHING_SENT = "(nothing was sent to the client)"
+# Il messaggio di un'esecuzione il cui torrent il client non ha più
+# (review.reconcile_pending_seed_jobs, dopo MISSING_TORRENT_GRACE): un
+# torrent con quell'hash che il retry ritrovasse nel client si segue solo
+# se è dove questa review l'aveva mandato (adopt_for_retry).
+GONE_FROM_CLIENT = "The torrent is no longer in the client: retry it to add it again, or delete it"
 
 
 def _error_text(exc: Exception) -> str:
@@ -294,6 +300,7 @@ def _add_to_client(
 
 def _adopt_after_add_error(
     session: Session, adapter: TorrentClientAdapter, candidate, seed_job: SeedJob, exc: Exception,
+    save_path: str,
 ) -> str:
     """Dopo un errore di add_torrent, cosa sa il client del torrent:
     "adopted" se ce l'ha (il client l'ha accettato e poi qualcosa è andato
@@ -301,15 +308,31 @@ def _adopt_after_add_error(
     .torrent dal tracker): il seed_job lo segue come un'aggiunta riuscita;
     "absent" se il client risponde e non ce l'ha; "unknown" se non si può
     sapere. Prima gli hardlink si toglievano a ogni errore: il torrent
-    arrivava lo stesso, non trovava i file e partiva in download."""
-    if isinstance(exc, TorrentAlreadyInClientError) or not candidate.info_hash:
-        return "absent" if isinstance(exc, TorrentAlreadyInClientError) else "unknown"
+    arrivava lo stesso, non trovava i file e partiva in download.
+
+    TorrentAlreadyInClientError (il client l'aveva già prima di questa
+    aggiunta) è "absent", il torrent di qualcun altro, tranne quando
+    un'esecuzione precedente della stessa review l'ha mandato al client
+    senza saperne l'esito (_earlier_add_unconfirmed, es. l'attesa del suo
+    hash scaduta) e il client lo ha proprio a save_path, dove l'ha mandato
+    anche questa: è quello, arrivato tardi, e si segue (revisione dell'audit
+    2026-10-18: prima questa esecuzione falliva con "l'ha messo un altro
+    programma" e il retry non lo seguiva più, fermo e mai ricontrollato)."""
+    duplicate = isinstance(exc, TorrentAlreadyInClientError)
+    if duplicate and not (candidate.info_hash and _earlier_add_unconfirmed(session, seed_job)):
+        return "absent"
+    if not candidate.info_hash:
+        return "unknown"
     try:
         info = adapter.get_torrent_info(candidate.info_hash)
     except Exception:
         logger.warning("Impossibile chiedere al client se ha %s dopo l'errore", candidate.info_hash, exc_info=True)
-        return "unknown"
+        return "absent" if duplicate else "unknown"
     if info is None:
+        return "absent"
+    if duplicate and _normpath(info.save_path) != _normpath(save_path):
+        logger.warning("Il client ha già %s, ma in %s e non in %s: non è di un'esecuzione precedente, non lo seguo",
+                       info.info_hash, info.save_path, save_path)
         return "absent"
     logger.warning(
         "Il client ha il torrent %s nonostante l'errore (%s): seed job %s lo segue",
@@ -325,6 +348,27 @@ def _adopt_after_add_error(
     seed_job.recheck_status = "pending"
     session.commit()
     return "adopted"
+
+
+def _normpath(path: str | None) -> str | None:
+    return os.path.normpath(path) if path else None
+
+
+def _earlier_add_unconfirmed(session: Session, seed_job: SeedJob) -> bool:
+    """Un'esecuzione precedente della stessa review è fallita dopo aver
+    mandato il torrent al client, senza averne mai l'info hash: l'attesa
+    del suo hash scaduta, un errore del client dopo l'invio, un riavvio a
+    metà (INTERRUPTED_SEED_JOB). Non quelle fallite prima di mandarlo
+    (NOTHING_SENT) o perché il client l'aveva già (_not_sent_by)."""
+    earlier = (
+        session.query(SeedJob)
+        .filter(SeedJob.candidate_id == seed_job.candidate_id, SeedJob.id < seed_job.id,
+                SeedJob.final_status == "failed", SeedJob.info_hash.is_(None))
+        .filter_by(source_media_file_id=seed_job.source_media_file_id,
+                   source_seed_file_id=seed_job.source_seed_file_id)
+        .all()
+    )
+    return any(not _not_sent_by(row) for row in earlier)
 
 
 def _client_layout(adapter: TorrentClientAdapter) -> str:
@@ -450,7 +494,8 @@ def _seed(
         session.commit()
         logger.info("Torrent aggiunto al client (info_hash=%s), recheck in corso", info_hash)
     except Exception as exc:
-        known = _adopt_after_add_error(session, adapter, candidate, seed_job, exc) if add_sent else "absent"
+        known = (_adopt_after_add_error(session, adapter, candidate, seed_job, exc, client_save_path)
+                 if add_sent else "absent")
         if known == "adopted":
             return seed_job
         if known == "absent" and not isinstance(exc, TorrentAddTimeoutError):
@@ -581,13 +626,7 @@ def _execute_layout_torrent_to_client(
     if candidate.piece_length is None:
         fetch_torrent = _structure_from_torrent(session, candidate, fetch_torrent)
 
-    anchor_row = next((f for f in candidate.files if f.seed_file_id == anchor.id), None)
-    if anchor_row is None:
-        raise ExecutionError(f"Seed file {anchor.id} is not part of candidate {candidate.id}")
-    suffix = _torrent_rel_path(candidate, anchor_row.torrent_path)
-    if not anchor.relative_path.endswith(suffix):
-        raise ExecutionError(f"'{anchor.relative_path}' does not end with the torrent path '{suffix}'")
-    root_rel = anchor.relative_path[: -len(suffix)].rstrip("/")
+    root_rel = _torrent_root_rel(candidate, anchor)
     for f in candidate.files:
         if f.seed_file is None:
             continue
@@ -603,6 +642,25 @@ def _execute_layout_torrent_to_client(
                  fetch_torrent)
 
 
+def _torrent_root_rel(candidate, anchor) -> str:
+    """La cartella (relativa al disco) che contiene il torrent di un
+    torrent -> client, ricavata dal file anchor e dal suo percorso nel torrent."""
+    anchor_row = next((f for f in candidate.files if f.seed_file_id == anchor.id), None)
+    if anchor_row is None:
+        raise ExecutionError(f"Seed file {anchor.id} is not part of candidate {candidate.id}")
+    suffix = _torrent_rel_path(candidate, anchor_row.torrent_path)
+    if not anchor.relative_path.endswith(suffix):
+        raise ExecutionError(f"'{anchor.relative_path}' does not end with the torrent path '{suffix}'")
+    return anchor.relative_path[: -len(suffix)].rstrip("/")
+
+
+def _single_file_name(candidate, media_file) -> str:
+    """Il nome del file di un candidato a file singolo senza righe
+    candidate_file (salvato prima): dalla lista del catalogo, o il file in libreria."""
+    file_list = json.loads(candidate.file_list_json) if candidate.file_list_json else []
+    return file_list[0] if file_list else os.path.basename(media_file.relative_path)
+
+
 def _execute_media_to_torrent(
     session: Session, review: MatchReview, adapter: TorrentClientAdapter, torrent_client_id: int | None = None,
     skip_recheck: bool = False, fetch_torrent: FetchTorrent | None = None,
@@ -616,8 +674,7 @@ def _execute_media_to_torrent(
     target_root = _new_torrents_root(disk)
     source_path = _source_path(disk, media_file.relative_path)
 
-    file_list = json.loads(candidate.file_list_json) if candidate.file_list_json else []
-    expected_filename = file_list[0] if file_list else os.path.basename(source_path)
+    expected_filename = _single_file_name(candidate, media_file)
     # Un torrent a file singolo può comunque avere una cartella contenitore
     # (candidate.folder) — molte release la usano anche per i film.
     placement = _placement(adapter, candidate, expected_filename)
@@ -1106,7 +1163,9 @@ def adopt_for_retry(session: Session, seed_job: SeedJob, adapter: TorrentClientA
     altro programma o l'utente, o l'esecuzione è fallita prima di mandarlo)
     non si segue mai (RetryRefused): seguirlo voleva dire ricontrollarlo,
     fermarlo o avviarlo, senza che nessuno l'avesse approvato (revisione
-    dell'audit 2026-10-18).
+    dell'audit 2026-10-18). Nemmeno uno tornato nel client dopo essere
+    sparito (GONE_FROM_CLIENT) in una cartella dove questa review non
+    l'aveva mandato (_back_where_it_was).
 
     Il torrent fermo col recheck fallito (un reseed entra fermo e ci resta,
     decisione dell'utente del 2026-10-18), e quello appena trovato nel
@@ -1125,7 +1184,75 @@ def adopt_for_retry(session: Session, seed_job: SeedJob, adapter: TorrentClientA
         logger.info("Retry seed_job %s: il torrent %s non è più nel client, riparto da zero", seed_job.id,
                     seed_job.info_hash)
         return None
+    if seed_job.error_message == GONE_FROM_CLIENT and not _back_where_it_was(session, seed_job, adapter):
+        return None
     return _retry_with(session, seed_job, adapter, status)
+
+
+def _back_where_it_was(session: Session, seed_job: SeedJob, adapter: TorrentClientAdapter) -> bool:
+    """Il torrent del seed job era sparito dal client (GONE_FROM_CLIENT) e
+    ora c'è di nuovo: lo ha riaggiunto l'utente, o un altro programma
+    (cross-seed, autobrr) nella sua cartella. Si segue (True) solo se è in
+    uno dei posti in cui questa review l'aveva mandato (_client_save_paths),
+    come fa il flusso degli upload (_keep_existing); altrove, o se non si
+    sa dove, è RetryRefused: seguirlo voleva dire ricontrollarlo, fermarlo
+    o avviarlo senza che nessuno l'avesse approvato (revisione dell'audit
+    2026-10-18). False se il client ora dice di non averlo: si riaggiunge."""
+    try:
+        info = adapter.get_torrent_info(seed_job.info_hash) if can_look_up_torrent(adapter) else None
+    except Exception as exc:
+        raise ExecutionError(f"Could not read torrent {seed_job.info_hash} from the client ({safe_error(exc)}): "
+                             "try again shortly, or delete this execution") from exc
+    if info is None and can_look_up_torrent(adapter):
+        return False
+    seen = _normpath(info.save_path) if info is not None else None
+    if seen is None or seen not in _client_save_paths(session, seed_job):
+        logger.warning("Retry seed_job %s: il torrent %s è tornato nel client in %s, non dove l'aveva mandato: "
+                       "non lo seguo", seed_job.id, seed_job.info_hash, seen)
+        raise RetryRefused("seed_job_torrent_not_ours", id=seed_job.id, info_hash=seed_job.info_hash)
+    return True
+
+
+def _client_save_paths(session: Session, seed_job: SeedJob) -> set[str]:
+    """Ogni save path (come lo vede il client, normalizzato) in cui
+    un'esecuzione di questa review può aver mandato il torrent, con lo
+    stesso calcolo dell'esecuzione: per media -> torrent la cartella dei
+    nuovi hardlink, con ogni disposizione possibile (il layout del client di
+    quel momento non si salva, placement.possible_placements); per torrent
+    -> client la cartella che contiene già i file. Un problema (la review
+    o la cartella che non ci sono più) è un ExecutionError."""
+    try:
+        review = review_of(session, seed_job)
+    except NoResultFound as exc:
+        raise ExecutionError(f"The review of SeedJob {seed_job.id} no longer exists: delete this execution") from exc
+    candidate = review.candidate
+    if candidate.direction == "media_to_torrent":
+        anchor = review.media_file
+        if anchor is None:
+            raise ExecutionError(f"MatchReview {review.id} (media_to_torrent) has no linked media_file")
+        disk = anchor.disk
+        target_root = _new_torrents_root(disk)
+        if candidate.files:
+            single = candidate.files[0].torrent_path if len(candidate.files) == 1 else None
+        else:
+            single = _single_file_name(candidate, anchor)
+        roots = [_in_scope(target_root, placement.save_dir) if placement.save_dir else target_root
+                 for placement in possible_placements(candidate.folder, single)]
+    else:
+        anchor = review.seed_file
+        if anchor is None:
+            raise ExecutionError(f"MatchReview {review.id} (torrent_to_client) has no linked seed_file")
+        disk = anchor.disk
+        if candidate.files:
+            root_rel = _torrent_root_rel(candidate, anchor)
+            roots = [_in_scope(disk.root_path, root_rel) if root_rel else disk.root_path]
+        else:
+            roots = [os.path.dirname(os.path.join(disk.root_path, anchor.relative_path))]
+    try:
+        return {os.path.normpath(client_visible_path(session, disk, seed_job.torrent_client_id, root))
+                for root in roots}
+    except client_paths.ClientPathError as exc:
+        raise ExecutionError(_error_text(exc)) from exc
 
 
 def _retry_with(session: Session, seed_job: SeedJob, adapter: TorrentClientAdapter, status: TorrentStatus,

@@ -65,6 +65,7 @@ from nazgarr.library.seeding import (
 )
 from nazgarr.reseed import full_check
 from nazgarr.reseed.executor import (
+    GONE_FROM_CLIENT,
     ExecutionError,
     RetryRefused,
     adopt_for_retry,
@@ -1369,9 +1370,6 @@ _failing: set[int] = set()
 def _client_enabled(session: Session, torrent_client_id: int) -> bool:
     row = session.get(TorrentClient, torrent_client_id)
     return row is not None and bool(row.enabled)
-
-
-GONE_FROM_CLIENT = "The torrent is no longer in the client: retry it to add it again, or delete it"
 
 
 def _give_up(session: Session, seed_job: SeedJob, message: str) -> None:
