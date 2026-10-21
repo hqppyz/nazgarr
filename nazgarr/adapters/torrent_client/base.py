@@ -253,8 +253,9 @@ class TorrentClientAdapter(ABC):
         """Ogni torrent noto al client, coi suoi file. Usata per popolare
         client_torrent/client_torrent_file (Fase 2) — mai per aggiungere o
         modificare nulla sul client. `on_progress(fatti, totale)` dopo ogni
-        torrent, per l'avanzamento della run: il totale è noto appena il
-        client restituisce l'elenco, i file arrivano poi uno a uno.
+        torrent, o gruppo di torrent, per l'avanzamento della run: fatti è
+        il conto dei torrent fatti finora (non uno in più a ogni chiamata),
+        il totale è noto appena il client restituisce l'elenco.
 
         Un adapter che chiede i file un torrent alla volta può accettare
         anche `known` (SDK 1.7): {info_hash: ClientTorrentInfo} dell'ultima
@@ -288,7 +289,7 @@ class TorrentClientAdapter(ABC):
 
 def reusable_files(
     known: ClientTorrentInfo | None, *, name: str, save_path: str, state: str | None, total_size: int | None,
-    content_path: str | None = None,
+    content_path: str | None = None, complete: Callable[[str | None], bool] | None = None,
 ) -> list[ClientTorrentFileInfo] | None:
     """I file dell'ultima indicizzazione (known) di un torrent, se valgono
     ancora per quello che il client ne dice adesso, None se vanno richiesti
@@ -300,12 +301,18 @@ def reusable_files(
     la sua dimensione totale e, se il client lo dice, il percorso del
     contenuto è lo stesso (un file o la cartella radice rinominati). Un file
     rinominato più in fondo non si vede da qui: l'indicizzazione li richiede
-    comunque tutti, a turno (indexer.FILES_REFRESH_RUNS)."""
+    comunque tutti, a turno (indexer.FILES_REFRESH_RUNS).
+
+    complete: quando uno stato del client è di un torrent completo, per un
+    plugin coi suoi nomi degli stati (es. "seeding"); di default quelli di
+    qBittorrent, e con altri nomi nessun file si riusava mai (revisione
+    dell'audit 2026-10-18)."""
     if known is None or not known.files or total_size is None:
         return None
     if (known.name, known.save_path) != (name, save_path):
         return None
-    if not (_complete(known.state) and _complete(state)):
+    is_complete = complete or _complete
+    if not (is_complete(known.state) and is_complete(state)):
         return None
     if sum(f.size_bytes for f in known.files) != total_size:
         return None

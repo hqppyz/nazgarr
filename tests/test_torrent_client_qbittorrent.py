@@ -448,6 +448,22 @@ def test_the_index_asks_the_files_only_of_new_or_changed_torrents():
     assert progress[0] == (2, 9) and progress[-1] == (9, 9)
 
 
+def test_a_plugin_with_its_own_state_names_can_reuse_the_file_lists():
+    """reusable_files è nell'SDK (1.7), ma "completo" voleva gli stati di
+    qBittorrent: un plugin che riporta "seeding" non riusava mai niente
+    (revisione dell'audit 2026-10-18)."""
+    from nazgarr import sdk
+
+    known = sdk.ClientTorrentInfo(info_hash="h", name="M.mkv", save_path="/t", state="seeding",
+                                  files=[sdk.ClientTorrentFileInfo("M.mkv", 10)])
+    now = {"name": "M.mkv", "save_path": "/t", "state": "seeding", "total_size": 10}
+
+    assert sdk.reusable_files(known, **now) is None  # di default, gli stati di qBittorrent
+    assert sdk.reusable_files(known, **now, complete=lambda state: state == "seeding") == known.files
+    assert sdk.reusable_files(known, **{**now, "state": "downloading"},
+                              complete=lambda state: state == "seeding") is None
+
+
 def test_without_known_files_every_torrent_is_asked():
     torrents = [FakeTorrent(hash="h1", total_size=10)]
     client = CountingQbtClient(torrents=torrents, files_by_hash={"h1": [FakeFile(name="M.mkv", size=10)]})
