@@ -90,6 +90,11 @@ ALREADY_IN_CLIENT = ("The client already had this torrent before this execution 
 # Il testo degli adapter inclusi per lo stesso errore, sui seed job falliti
 # prima di ALREADY_IN_CLIENT.
 _ADAPTER_DUPLICATE_TEXT = "is already in the client (possibly with another save path)"
+# In coda al messaggio di un'esecuzione fallita prima di mandare il torrent
+# al client (il .torrent non scaricato, un hardlink, un percorso che il
+# client non vede): un torrent con quell'hash che il retry trovasse nel
+# client ce l'ha messo qualcun altro, e non si segue.
+NOTHING_SENT = "(nothing was sent to the client)"
 
 
 def _error_text(exc: Exception) -> str:
@@ -454,9 +459,13 @@ def _seed(
             logger.warning("Hardlink di candidate %s lasciati al loro posto: il client potrebbe avere il torrent",
                            candidate.id)
         seed_job.final_status = "failed"
-        seed_job.error_message = (
-            f"{ALREADY_IN_CLIENT}: remove it from the client if it should not be there, then Retry; or delete "
-            "this execution" if isinstance(exc, TorrentAlreadyInClientError) else _error_text(exc))
+        if not add_sent:
+            seed_job.error_message = f"{_error_text(exc)} {NOTHING_SENT}"
+        elif isinstance(exc, TorrentAlreadyInClientError):
+            seed_job.error_message = (f"{ALREADY_IN_CLIENT}: remove it from the client if it should not be there, "
+                                      "then Retry; or delete this execution")
+        else:
+            seed_job.error_message = _error_text(exc)
         session.commit()
         # Lo stesso testo inglese salvato sul seed_job, senza chiavi: prima
         # str(exc) di un errore con codice era il codice nudo (es.
@@ -1084,11 +1093,12 @@ def adopt_for_retry(session: Session, seed_job: SeedJob, adapter: TorrentClientA
     più nel client (audit 2026-10-18: lì il retry finiva in un errore 500
     e restava solo l'eliminazione): il retry lo riaggiunge.
 
-    Un torrent che il client aveva prima di questa esecuzione (l'aggiunta è
-    fallita con TorrentAlreadyInClientError: lo ha messo un altro programma,
-    o l'utente) non si segue mai (RetryRefused): seguirlo voleva dire
-    ricontrollarlo, fermarlo o avviarlo, senza che nessuno l'avesse
-    approvato (revisione dell'audit 2026-10-18).
+    Un torrent che questa esecuzione non ha mandato al client (l'aggiunta è
+    fallita con TorrentAlreadyInClientError, cioè lo aveva già messo un
+    altro programma o l'utente, o l'esecuzione è fallita prima di mandarlo)
+    non si segue mai (RetryRefused): seguirlo voleva dire ricontrollarlo,
+    fermarlo o avviarlo, senza che nessuno l'avesse approvato (revisione
+    dell'audit 2026-10-18).
 
     Il torrent fermo col recheck fallito (un reseed entra fermo e ci resta,
     decisione dell'utente del 2026-10-18), e quello appena trovato nel
@@ -1145,8 +1155,8 @@ def _adopt_candidate_torrent(session: Session, seed_job: SeedJob, adapter: Torre
         info = None
     if info is None:
         return None
-    if _failed_as_duplicate(seed_job):
-        logger.warning("Retry seed_job %s: il torrent %s era nel client prima di questa esecuzione, non lo seguo",
+    if _not_sent_by(seed_job):
+        logger.warning("Retry seed_job %s: il torrent %s nel client non l'ha mandato questa esecuzione, non lo seguo",
                        seed_job.id, info.info_hash)
         raise RetryRefused("seed_job_torrent_not_ours", id=seed_job.id, info_hash=info.info_hash)
     status = _status_for_retry(adapter, info.info_hash)
@@ -1162,12 +1172,14 @@ def _adopt_candidate_torrent(session: Session, seed_job: SeedJob, adapter: Torre
     return _retry_with(session, seed_job, adapter, status, rechecked=True)
 
 
-def _failed_as_duplicate(seed_job: SeedJob) -> bool:
-    """L'esecuzione è fallita perché il client aveva già il torrent prima
-    che lei lo aggiungesse (ALREADY_IN_CLIENT, o il testo degli adapter
-    inclusi sui seed job falliti prima)."""
+def _not_sent_by(seed_job: SeedJob) -> bool:
+    """L'esecuzione fallita non ha mandato lei il torrent al client: il
+    client lo aveva già (ALREADY_IN_CLIENT, o il testo degli adapter inclusi
+    sui seed job falliti prima), o è fallita prima di mandarlo (NOTHING_SENT).
+    Un'esecuzione interrotta da un riavvio può averlo mandato: si segue."""
     message = seed_job.error_message or ""
-    return message.startswith(ALREADY_IN_CLIENT) or _ADAPTER_DUPLICATE_TEXT in message
+    return (message.startswith(ALREADY_IN_CLIENT) or _ADAPTER_DUPLICATE_TEXT in message
+            or message.endswith(NOTHING_SENT))
 
 
 def _status_for_retry(adapter: TorrentClientAdapter, info_hash: str) -> TorrentStatus | None:

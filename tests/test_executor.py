@@ -1255,6 +1255,28 @@ def test_a_retry_never_takes_over_a_torrent_another_program_had_added(db_session
     assert executor.adopt_for_retry(db_session, seed_job, adapter) is None
 
 
+def test_a_retry_never_takes_over_a_torrent_after_a_failure_before_the_add(db_session, tmp_path, tracker_torrent):
+    # Il .torrent del tracker non è quello verificato: niente mandato al
+    # client. Un torrent con quell'hash che compare dopo è di qualcun altro.
+    from nazgarr.adapters.torrent_client.base import ClientTorrentInfo
+
+    _root, review = _movie_review(db_session, tmp_path)
+    review.candidate.info_hash = "ab" * 20
+    db_session.commit()
+    tracker_torrent["content"] = _movie_torrent(b"other!!")
+    adapter = ReseedClient()
+    with pytest.raises(executor.ExecutionError, match="different .torrent"):
+        executor.execute_review(db_session, review, adapter)
+    seed_job = db_session.query(SeedJob).one()
+    assert adapter.added == [] and seed_job.error_message.endswith(executor.NOTHING_SENT)
+
+    adapter.torrents["ab" * 20] = ClientTorrentInfo(info_hash="ab" * 20, name="Movie.2024.mkv",
+                                                   save_path="/other/downloads", state="stoppedUP")
+    with pytest.raises(executor.RetryRefused):
+        executor.adopt_for_retry(db_session, seed_job, adapter)
+    assert (adapter.started, adapter.rechecked, seed_job.info_hash) == ([], [], None)
+
+
 def test_an_execution_failed_with_the_old_duplicate_text_is_not_taken_over_either(db_session, tmp_path):
     _root, review = _movie_review(db_session, tmp_path)
     foreign = _foreign_torrent(state="stoppedUP")

@@ -46,7 +46,7 @@ export const errors = {
   'errors.seed_job_not_failed': 'SeedJob {id} is {status}: only a failed execution can be retried.',
   'errors.seed_job_already_retried': 'SeedJob {id} has already been retried: see its newer execution.',
   'errors.seed_job_no_client': 'No torrent client is enabled: enable one, then retry.',
-  'errors.seed_job_torrent_not_ours': 'The client already has torrent {info_hash}, added by something else before this execution: Nazgarr leaves it alone. Remove it from the client, then retry; or delete this execution.',
+  'errors.seed_job_torrent_not_ours': 'The client has torrent {info_hash}, but this execution did not add it (another program or a manual add did): Nazgarr leaves it alone. Remove it from the client, then retry; or delete this execution.',
   // Il testo dell'errore (inglese, dall'esecutore) di un retry rifatto e fallito.
   'errors.seed_job_retry_failed': 'Execution {id}: {error}',
   'errors.review_already_verifying': 'Review {id} is already being verified: wait for its full hash check to finish.',

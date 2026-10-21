@@ -93,7 +93,7 @@
  "seed_job_not_failed": "SeedJob {id} is {status}: only a failed execution can be retried.",
  "seed_job_not_found": "SeedJob {id} not found.",
  "seed_job_retry_failed": "Execution {id}: {error}",
- "seed_job_torrent_not_ours": "The client already has torrent {info_hash}, added by something else before this execution: Nazgarr leaves it alone. Remove it from the client, then retry; or delete this execution.",
+ "seed_job_torrent_not_ours": "The client has torrent {info_hash}, but this execution did not add it (another program or a manual add did): Nazgarr leaves it alone. Remove it from the client, then retry; or delete this execution.",
  "setting_invalid_value": "{key}: value not valid for this setting.",
  "setting_protected": "This setting is managed from its own page",
  "setting_safety_for_api_key": "API keys cannot change the safety settings: log in to change them",

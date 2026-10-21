@@ -46,7 +46,7 @@ export const errors = {
   'errors.seed_job_not_failed': 'Il SeedJob {id} è {status}: si ritenta solo un’esecuzione fallita.',
   'errors.seed_job_already_retried': 'Il SeedJob {id} è già stato ritentato: guarda la sua esecuzione più recente.',
   'errors.seed_job_no_client': 'Nessun client torrent è abilitato: abilitane uno, poi ritenta.',
-  'errors.seed_job_torrent_not_ours': 'Il client ha già il torrent {info_hash}, aggiunto da altro prima di questa esecuzione: Nazgarr non lo tocca. Toglilo dal client, poi ritenta; o elimina questa esecuzione.',
+  'errors.seed_job_torrent_not_ours': 'Il client ha il torrent {info_hash}, ma non l’ha aggiunto questa esecuzione (un altro programma o un’aggiunta a mano): Nazgarr non lo tocca. Toglilo dal client, poi ritenta; o elimina questa esecuzione.',
   // Il testo dell'errore (inglese, dall'esecutore) di un retry rifatto e fallito.
   'errors.seed_job_retry_failed': 'Esecuzione {id}: {error}',
   'errors.review_already_verifying': 'La proposta {id} è già in verifica: aspetta che finisca il suo controllo completo degli hash.',
