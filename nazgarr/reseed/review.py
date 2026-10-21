@@ -23,14 +23,13 @@ default, mai un bypass "perché il file esiste già"."""
 
 import logging
 from collections import Counter
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import NamedTuple
 
 from sqlalchemy import exists, func, select
 from sqlalchemy.orm import Session, selectinload
 
 from nazgarr.core import settings_registry
-from nazgarr.core.db_utils import as_utc
 from nazgarr.core.errors import CodedError
 from nazgarr.core.logs import safe_error
 from nazgarr.core.models import (
@@ -66,13 +65,14 @@ from nazgarr.library.seeding import (
 )
 from nazgarr.reseed import full_check
 from nazgarr.reseed.executor import (
-    MISSING_TORRENT_GRACE,
     ExecutionError,
     adopt_for_retry,
     execute_review,
+    missing_long_enough,
     reconcile_seed_job,
     retry_from_scratch,
     review_of,
+    seen_in_client,
     torrent_missing,
 )
 from nazgarr.torrents import client_labels
@@ -1128,6 +1128,7 @@ def delete_seed_job(session: Session, seed_job: SeedJob) -> None:
     if candidate is not None:
         session.query(MatchAttempt).filter_by(tracker_id=candidate.tracker_id, **file_filter).delete()
     logger.info("Seed job %s (%s) eliminato su richiesta", seed_job.id, seed_job.final_status)
+    seen_in_client(seed_job.id)
     session.delete(seed_job)
     session.commit()
 
@@ -1269,12 +1270,15 @@ def reconcile_pending_seed_jobs(session: Session, progress=NULL_PROGRESS) -> dic
             try:
                 reconcile_seed_job(session, seed_job, adapter)
                 reconciled += 1
+                seen_in_client(seed_job.id)
             except Exception:
                 session.rollback()
                 if _missing_from_client(adapter, seed_job):
-                    if _added_before(seed_job, MISSING_TORRENT_GRACE):
-                        _give_up(session, seed_job, "The torrent is no longer in the client: retry it to add it "
-                                                    "again, or delete it")
+                    # 10 minuti di fila (executor.missing_long_enough), non
+                    # dall'aggiunta: un client riavviato che ricarica ancora
+                    # i suoi torrent non fa fallire un reseed in corso da ore.
+                    if missing_long_enough(seed_job):
+                        _give_up(session, seed_job, GONE_FROM_CLIENT)
                     else:
                         logger.info("Seed_job %s: torrent non (ancora) nel client, riprovo dopo", seed_job.id)
                     continue
@@ -1306,11 +1310,7 @@ def _missing_from_client(adapter, seed_job: SeedJob) -> bool:
     return torrent_missing(adapter, seed_job.info_hash)
 
 
-def _added_before(seed_job: SeedJob, grace: timedelta) -> bool:
-    added = seed_job.torrent_added_at
-    if added is None:
-        return True
-    return datetime.now(UTC) - as_utc(added) >= grace
+GONE_FROM_CLIENT = "The torrent is no longer in the client: retry it to add it again, or delete it"
 
 
 def _give_up(session: Session, seed_job: SeedJob, message: str) -> None:
@@ -1318,6 +1318,7 @@ def _give_up(session: Session, seed_job: SeedJob, message: str) -> None:
     perché, così si ritenta o si elimina dalla pagina Reseeding."""
     seed_job.final_status, seed_job.error_message = "failed", message
     session.commit()
+    seen_in_client(seed_job.id)
     logger.warning("Seed_job %s: %s", seed_job.id, message)
 
 

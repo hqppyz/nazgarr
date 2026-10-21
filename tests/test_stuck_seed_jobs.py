@@ -4,8 +4,24 @@ client, o nel client di un client poi spento."""
 
 from datetime import UTC, datetime, timedelta
 
+import pytest
+
 from nazgarr.core.models import Candidate, MatchReview, MediaItem, SeedJob, TorrentClient, Tracker
-from nazgarr.reseed import review
+from nazgarr.reseed import executor, review
+
+
+@pytest.fixture(autouse=True)
+def _forget_missing():
+    """Le assenze viste (executor._missing_since) sono per id di seed job, e
+    ogni test ha il suo DB con gli stessi id."""
+    executor._missing_since.clear()
+    yield
+    executor._missing_since.clear()
+
+
+def _missing_for(job, minutes):
+    """Come se il controllo l'avesse visto mancare per la prima volta minuti fa."""
+    executor._missing_since[job.id] = datetime.now(UTC) - timedelta(minutes=minutes)
 
 
 def _job(session, *, info_hash="abc", added_minutes_ago=60, client=None, tmdb_id=1):
@@ -65,9 +81,57 @@ def test_a_torrent_gone_from_the_client_ends_the_execution(db_session, monkeypat
     gone = _Gone()
     monkeypatch.setattr(review, "build_torrent_client_adapter", lambda row: gone)
 
+    # La prima lettura che non lo trova non basta, anche per un'esecuzione
+    # aggiunta un'ora fa: i 10 minuti contano di fila.
+    assert review.reconcile_pending_seed_jobs(db_session) == {"reconciled": 0, "errors": 0}
+    assert job.final_status == "in_progress"
+
+    _missing_for(job, 11)
     assert review.reconcile_pending_seed_jobs(db_session) == {"reconciled": 0, "errors": 0}
     assert job.final_status == "failed" and "no longer in the client" in job.error_message
     assert review.has_pending_seed_jobs(db_session) is False  # niente più controlli ogni 2 minuti
+    assert job.id not in executor._missing_since
+
+
+def test_a_client_restarted_while_loading_its_torrents_does_not_fail_a_long_reseed(db_session, monkeypatch):
+    """Revisione dell'audit 2026-10-18 (R7): la grazia contava da
+    torrent_added_at, e un reseed in corso da più di 10 minuti falliva alla
+    prima lettura di un client appena riavviato, che lo ricaricava un minuto
+    dopo."""
+    from nazgarr.adapters.torrent_client.base import TorrentStatus
+
+    client = _client(db_session)
+    job = _job(db_session, client=client, added_minutes_ago=30)
+
+    class Restarting(_Gone):
+        """Non lo trova alla prima lettura, poi lo ha di nuovo, in recheck."""
+
+        def get_torrent_status(self, info_hash):
+            if self.status_calls == 0:
+                return super().get_torrent_status(info_hash)
+            return TorrentStatus(info_hash, "checkingUP", "pending", 0.3)
+
+    restarting = Restarting()
+    monkeypatch.setattr(review, "build_torrent_client_adapter", lambda row: restarting)
+
+    review.reconcile_pending_seed_jobs(db_session)
+    assert job.final_status == "in_progress" and job.id in executor._missing_since
+    review.reconcile_pending_seed_jobs(db_session)
+
+    assert (job.final_status, job.recheck_status) == ("in_progress", "pending")
+    assert job.id not in executor._missing_since  # riapparso: il conto ricomincia
+
+
+def test_the_grace_never_counts_from_before_the_torrent_was_added(db_session, monkeypatch):
+    # Visto mancare 20 minuti fa, ma aggiunto (o riaggiunto da un retry) 2 minuti fa.
+    client = _client(db_session)
+    job = _job(db_session, client=client, added_minutes_ago=2)
+    _missing_for(job, 20)
+    monkeypatch.setattr(review, "build_torrent_client_adapter", lambda row: _Gone())
+
+    review.reconcile_pending_seed_jobs(db_session)
+
+    assert job.final_status == "in_progress"
 
 
 def test_a_torrent_just_added_gets_a_grace_period(db_session, monkeypatch):

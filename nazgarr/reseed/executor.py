@@ -50,6 +50,7 @@ from nazgarr.adapters.torrent_client.base import (
     stopped_kwargs,
 )
 from nazgarr.core import settings_repo
+from nazgarr.core.db_utils import as_utc
 from nazgarr.core.errors import CodedError, english
 from nazgarr.core.fs_scope import ScopeViolation, resolve_scoped
 from nazgarr.core.logs import safe_error
@@ -726,6 +727,7 @@ def _forget_seed_job(seed_job_id: int) -> None:
     """Verifica e .torrent di un seed job appena creato: SQLite può ridargli
     l'id di uno eliminato, e quelli erano dell'altro."""
     _extras_checks.pop(seed_job_id, None)
+    seen_in_client(seed_job_id)
     with _added_lock:
         _added_torrents.pop(seed_job_id, None)
 
@@ -901,6 +903,32 @@ def stop_torrent(adapter: TorrentClientAdapter, info_hash: str) -> tuple[str, Ex
 # ricaricato. Per i reseed del motore (review.reconcile_pending_seed_jobs)
 # e per quelli del flusso degli upload (nazgarr/upload/execute.py).
 MISSING_TORRENT_GRACE = timedelta(minutes=10)
+
+# Da quando questo processo vede il torrent di un seed job mancare dal
+# client, per seed job: i 10 minuti vanno contati di fila, come nel flusso
+# degli upload (audit 2026-10-18, revisione). Prima contavano da
+# torrent_added_at, e un reseed in corso da più di 10 minuti (un recheck in
+# coda dopo "Approva tutti", un pack grande, un retry col suo vecchio
+# torrent_added_at) falliva alla prima lettura mentre il client riavviato
+# ricaricava i suoi torrent. Un riavvio di Nazgarr ricomincia il conto.
+_missing_since: dict[int, datetime] = {}
+
+
+def missing_long_enough(seed_job: SeedJob) -> bool:
+    """Il torrent del seed job manca dal client (appena letto) da almeno
+    MISSING_TORRENT_GRACE di fila, contati dalla prima lettura che non l'ha
+    trovato e mai da prima della sua aggiunta."""
+    now = datetime.now(UTC)
+    since = _missing_since.setdefault(seed_job.id, now)
+    if seed_job.torrent_added_at is not None:
+        since = max(since, as_utc(seed_job.torrent_added_at))
+    return now - since >= MISSING_TORRENT_GRACE
+
+
+def seen_in_client(seed_job_id: int) -> None:
+    """Il client ha risposto per il torrent del seed job (o il seed job è
+    ripartito, finito, eliminato): il conto dei minuti di assenza ricomincia."""
+    _missing_since.pop(seed_job_id, None)
 
 
 def can_look_up_torrent(adapter: TorrentClientAdapter) -> bool:
