@@ -17,10 +17,18 @@ http_client (audit 2026-10-18): il client si connette solo agli indirizzi
 controllati nel momento stesso della connessione, risolti una volta sola.
 Host, SNI e verifica del certificato restano quelli del nome: si cambia
 solo dove va il socket. Un nome che lì non si risolve è un errore di
-connessione, come prima."""
+connessione, come prima. Lo stesso per requests, su cui va qbittorrent-api
+(requests_adapter, revisione dell'audit 2026-10-18).
 
+Una richiesta attraverso un proxy (HTTPS_PROXY e simili, o un proxy dato al
+client) la risolve il proxy, e il socket va al proxy: lì si controlla
+l'host dell'URL prima di ogni richiesta (check_url), sia con httpx (pin) sia
+con requests, così chi chiama non deve ricordarsene."""
+
+import functools
 import ipaddress
 import socket
+import sys
 from collections.abc import Iterable
 from urllib.parse import urlsplit
 
@@ -129,10 +137,13 @@ def pin(client: httpx.Client) -> httpx.Client:
     """Fa connettere il client solo a indirizzi controllati al momento della
     connessione (_CheckedBackend), sul suo trasporto di rete. Un client con
     un trasporto suo (httpx.MockTransport nei test) o un finto restano come
-    sono; i proxy delle variabili d'ambiente (HTTPS_PROXY, ...) anche: lì è
-    il proxy a risolvere il nome, e resta il controllo di check_url prima
-    della richiesta. Se httpx non ha più il trasporto che ci si aspetta, si
-    fallisce invece di lasciare la finestra aperta in silenzio."""
+    sono. Una richiesta che passa da un proxy (le variabili d'ambiente
+    HTTPS_PROXY..., i mounts) la risolve il proxy: lì un hook controlla
+    l'host prima di ogni richiesta (_check_proxied), con lo stesso errore di
+    connessione (revisione dell'audit 2026-10-18: prima restava il solo
+    check_url di chi chiamava, e Radarr/Sonarr, le istanze e i client non lo
+    facevano a ogni richiesta). Se httpx non ha più il trasporto che ci si
+    aspetta, si fallisce invece di lasciare la finestra aperta in silenzio."""
     transport = getattr(client, "_transport", None)
     if not isinstance(client, _CLIENT) or type(transport) is not _TRANSPORT:
         return client
@@ -142,7 +153,31 @@ def pin(client: httpx.Client) -> httpx.Client:
         raise RuntimeError("httpx transport without the expected connection pool: net_guard cannot pin it")
     if not isinstance(backend, _CheckedBackend):
         pool._network_backend = _CheckedBackend(backend)
+    if any(mounted is not None for mounted in getattr(client, "_mounts", {}).values()):
+        hooks = client.event_hooks
+        if not any(getattr(hook, "_net_guard", False) for hook in hooks.get("request", [])):
+            hooks["request"] = [*hooks.get("request", []), _check_proxied(client)]
+            client.event_hooks = hooks
     return client
+
+
+def _check_proxied(client: httpx.Client):
+    """L'hook di richiesta di un client con dei proxy: l'host dell'URL si
+    controlla adesso se la richiesta passa da un proxy (un altro trasporto
+    del client: il suo è quello con gli indirizzi controllati). Senza il
+    metodo di httpx che lo dice, si controlla ogni richiesta."""
+
+    def check(request: httpx.Request) -> None:
+        transport_for = getattr(client, "_transport_for_url", None)
+        if callable(transport_for) and transport_for(request.url) is client._transport:
+            return
+        try:
+            check_url(str(request.url))
+        except ForbiddenDestination as exc:
+            raise httpx.ConnectError(str(exc), request=request) from exc
+
+    check._net_guard = True  # type: ignore[attr-defined]
+    return check
 
 
 def http_client(**kwargs) -> httpx.Client:
@@ -151,3 +186,86 @@ def http_client(**kwargs) -> httpx.Client:
     (pin). Chi chiama tiene il suo check_url prima di ogni richiesta, che
     dà l'errore chiaro di una destinazione vietata."""
     return pin(httpx.Client(**kwargs))
+
+
+def requests_adapter(**kwargs):
+    """Un requests.adapters.HTTPAdapter(**kwargs) che si connette solo a
+    indirizzi controllati nel momento della connessione, come http_client:
+    per qbittorrent-api, che va con requests (revisione dell'audit
+    2026-10-18: lì restava la finestra fra il controllo del suo host,
+    a ogni adapter costruito, e la risoluzione di requests). Host, SNI e
+    certificato restano sul nome. Una richiesta attraverso un proxy si
+    controlla con check_url prima di mandarla. requests e urllib3 ci sono
+    con qbittorrent-api (requirements.txt), e si importano solo qui."""
+    return _requests_classes()(**kwargs)
+
+
+@functools.cache
+def _requests_classes():
+    import requests
+    from requests.adapters import HTTPAdapter
+    from requests.utils import select_proxy
+    from urllib3.connection import HTTPConnection, HTTPSConnection
+    from urllib3.connectionpool import HTTPConnectionPool, HTTPSConnectionPool
+    from urllib3.exceptions import ConnectTimeoutError, NewConnectionError
+    from urllib3.util.connection import create_connection
+
+    class _Checked:
+        """_new_conn di urllib3, ma il socket va a uno degli indirizzi appena
+        controllati (connect_addresses), nell'ordine di getaddrinfo, mai al
+        nome. TLS poi si apre sul socket col nome (server_hostname)."""
+
+        def _new_conn(self):
+            host = getattr(self, "_dns_host", None) or self.host
+            try:
+                addresses = connect_addresses(host, self.port)
+            except httpcore.ConnectError as exc:  # vietato, o un nome che non si risolve
+                raise NewConnectionError(self, str(exc)) from exc
+            last: Exception | None = None
+            for address in addresses:
+                try:
+                    sock = create_connection((address, self.port), self.timeout, source_address=self.source_address,
+                                             socket_options=self.socket_options)
+                except TimeoutError as exc:
+                    last = ConnectTimeoutError(
+                        self, f"Connection to {self.host} timed out. (connect timeout={self.timeout})")
+                    last.__cause__ = exc
+                except OSError as exc:
+                    last = NewConnectionError(self, f"Failed to establish a new connection: {exc}")
+                    last.__cause__ = exc
+                else:
+                    sys.audit("http.client.connect", self, self.host, self.port)
+                    return sock
+            assert last is not None
+            raise last
+
+    class _CheckedHTTPConnection(_Checked, HTTPConnection):
+        pass
+
+    class _CheckedHTTPSConnection(_Checked, HTTPSConnection):
+        pass
+
+    class _CheckedHTTPPool(HTTPConnectionPool):
+        ConnectionCls = _CheckedHTTPConnection
+
+    class _CheckedHTTPSPool(HTTPSConnectionPool):
+        ConnectionCls = _CheckedHTTPSConnection
+
+    class CheckedHTTPAdapter(HTTPAdapter):
+        def init_poolmanager(self, *args, **kwargs):
+            super().init_poolmanager(*args, **kwargs)
+            classes = getattr(self.poolmanager, "pool_classes_by_scheme", None)
+            if not isinstance(classes, dict):
+                raise RuntimeError("urllib3 without pool_classes_by_scheme: net_guard cannot pin requests")
+            self.poolmanager.pool_classes_by_scheme = {**classes, "http": _CheckedHTTPPool,
+                                                       "https": _CheckedHTTPSPool}
+
+        def send(self, request, **kwargs):
+            if select_proxy(request.url, kwargs.get("proxies") or {}):
+                try:
+                    check_url(request.url)
+                except ForbiddenDestination as exc:
+                    raise requests.exceptions.ConnectionError(str(exc), request=request) from exc
+            return super().send(request, **kwargs)
+
+    return CheckedHTTPAdapter

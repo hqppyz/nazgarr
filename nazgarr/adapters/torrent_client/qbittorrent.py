@@ -25,6 +25,7 @@ nativa di qBittorrent che qbittorrent-api si aspetta — confermato contro il
 suo swagger/OpenAPI reale, non solo dedotto. Vedi nazgarr/adapters/torrent_client/qui.py.
 """
 
+import functools
 import logging
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -60,6 +61,38 @@ logger = logging.getLogger(__name__)
 FILE_WORKERS = 4
 
 
+@functools.cache
+def pinned_client_class():
+    """qbittorrentapi.Client, ma ogni sessione di requests che costruisce
+    (una nuova anche dopo che ha scelto lo schema, o dopo un errore) si
+    connette solo agli indirizzi che net_guard controlla nel momento della
+    connessione (net_guard.requests_adapter), come gli altri adapter con
+    net_guard.http_client (revisione dell'audit 2026-10-18: restava la
+    finestra fra il controllo dell'host e la risoluzione di requests). I
+    tentativi e il pool dell'adapter di qbittorrent-api restano i suoi."""
+    import qbittorrentapi
+
+    class PinnedClient(qbittorrentapi.Client):
+        @property
+        def _session(self):
+            fresh = self._http_session is None
+            session = super()._session
+            if fresh:
+                default = session.get_adapter("http://")
+                adapter = net_guard.requests_adapter(
+                    max_retries=default.max_retries,
+                    pool_connections=getattr(default, "_pool_connections", 10),
+                    pool_maxsize=getattr(default, "_pool_maxsize", 10),
+                    pool_block=getattr(default, "_pool_block", False),
+                )
+                session.mount("http://", adapter)
+                session.mount("https://", adapter)
+                default.close()
+            return session
+
+    return PinnedClient
+
+
 class QBittorrentAdapter(TorrentClientAdapter):
     can_add_stopped = True
 
@@ -80,17 +113,12 @@ class QBittorrentAdapter(TorrentClientAdapter):
         if client is not None:
             self._client = client
         else:
-            import qbittorrentapi
-
-            # qbittorrent-api va con requests, che net_guard non sa agganciare
-            # alla connessione (gli altri adapter usano net_guard.http_client):
-            # l'indirizzo si ricontrolla qui, a ogni adapter costruito (uno per
-            # operazione), non solo quando si salva. Un DNS cambiato dopo il
-            # salvataggio verso i metadati del cloud non passa; resta la
-            # finestra fra questo controllo e la connessione di requests. Un
-            # host senza schema (qbittorrent-api lo accetta) vale come http.
+            # L'indirizzo si ricontrolla qui, a ogni adapter costruito (uno per
+            # operazione), non solo quando si salva: un DNS cambiato dopo il
+            # salvataggio verso i metadati del cloud dà subito l'errore chiaro.
+            # Un host senza schema (qbittorrent-api lo accetta) vale come http.
             net_guard.check_url(base_url if "://" in base_url else f"http://{base_url}")
-            self._client = qbittorrentapi.Client(host=base_url, username=username, password=password)
+            self._client = pinned_client_class()(host=base_url, username=username, password=password)
 
     def close(self) -> None:
         """Logout: ogni login apre una sessione nel client, che resta viva

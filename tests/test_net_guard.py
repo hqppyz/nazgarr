@@ -256,9 +256,9 @@ def test_the_torrent_client_adapters_are_pinned_and_keep_the_lan(monkeypatch, co
 
 
 def test_qbittorrent_checks_its_host_whenever_an_adapter_is_built(monkeypatch):
-    """qbittorrent-api usa requests, che net_guard non aggancia alla
-    connessione: l'host si ricontrolla a ogni adapter costruito (uno per
-    operazione), non solo al salvataggio."""
+    """L'host si ricontrolla a ogni adapter costruito (uno per operazione),
+    non solo al salvataggio, per l'errore chiaro; la connessione poi va solo
+    a indirizzi controllati (test_qbittorrent_connects_only_to_checked_addresses)."""
     from nazgarr.adapters.torrent_client.qbittorrent import QBittorrentAdapter
 
     monkeypatch.setattr(net_guard.socket, "getaddrinfo", _resolver({
@@ -300,3 +300,122 @@ def test_the_notification_services_are_pinned_too(monkeypatch, connects):
     assert len(built) == 2
     assert all(isinstance(c._transport._pool._network_backend, net_guard._CheckedBackend) for c in built)
     assert connects == []  # mai un socket verso i metadati
+
+
+
+# --- requests (qbittorrent-api) e proxy (revisione dell'audit 2026-10-18) ---------
+
+def _http_server(hosts):
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):  # il nome lo vuole BaseHTTPRequestHandler
+            hosts.append(self.headers["Host"])
+            self.send_response(200)
+            self.send_header("Content-Length", "2")
+            self.end_headers()
+            self.wfile.write(b"ok")
+
+        def log_message(self, *args):
+            pass
+
+    server = HTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server
+
+
+def _requests_session():
+    import requests
+
+    session = requests.Session()
+    adapter = net_guard.requests_adapter()
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
+    return session
+
+
+def test_requests_connects_to_the_checked_address_with_the_original_host(monkeypatch):
+    hosts = []
+    server = _http_server(hosts)
+    port = server.server_address[1]
+    real_getaddrinfo = socket.getaddrinfo
+    asked = []
+
+    def resolve(host, *args, **kwargs):
+        asked.append(host)
+        return real_getaddrinfo("127.0.0.1" if host == "qbit.example" else host, *args, **kwargs)
+
+    monkeypatch.setattr(net_guard.socket, "getaddrinfo", resolve)
+    monkeypatch.delenv("HTTP_PROXY", raising=False)
+    monkeypatch.delenv("http_proxy", raising=False)
+    try:
+        response = _requests_session().get(f"http://qbit.example:{port}/api/v2/app/version", timeout=5)
+    finally:
+        server.shutdown()
+        server.server_close()
+
+    assert (response.status_code, response.text) == (200, "ok")
+    assert hosts == [f"qbit.example:{port}"]
+    assert asked[0] == "qbit.example" and "qbit.example" not in asked[1:]  # risolto una volta, poi l'IP
+
+
+def test_requests_never_connects_to_a_name_rebound_after_the_check(monkeypatch):
+    import requests
+
+    resolve, asked = _changing_resolver({"qbit.example": [["93.184.216.34"], ["169.254.169.254"]]})
+    monkeypatch.setattr(net_guard.socket, "getaddrinfo", resolve)
+    monkeypatch.delenv("HTTP_PROXY", raising=False)
+    monkeypatch.delenv("http_proxy", raising=False)
+
+    net_guard.check_url("http://qbit.example:8080/")  # al controllo: un indirizzo pubblico
+    with pytest.raises(requests.exceptions.ConnectionError, match="not a destination"):
+        _requests_session().get("http://qbit.example:8080/api/v2/app/version", timeout=5)
+    assert asked == ["qbit.example", "qbit.example"]
+
+
+def test_qbittorrent_connects_only_to_checked_addresses(monkeypatch):
+    """qbittorrent-api va con requests: prima restava la finestra fra il
+    controllo dell'host e la risoluzione di requests. Ogni sessione che il
+    client costruisce, anche dopo averla rifatta, usa l'adapter di net_guard."""
+    from nazgarr.adapters.torrent_client.qbittorrent import QBittorrentAdapter
+
+    monkeypatch.setattr(net_guard.socket, "getaddrinfo", _resolver({"nas.example": ["192.168.1.10"]}))
+    client = QBittorrentAdapter("http://nas.example:8080", "u", "p")._client
+    checked = type(net_guard.requests_adapter())
+
+    for _ in range(2):
+        session = client._session
+        assert isinstance(session.get_adapter("http://nas.example"), checked)
+        assert isinstance(session.get_adapter("https://nas.example"), checked)
+        assert session.get_adapter("http://nas.example").max_retries.total == 1  # i tentativi di qbittorrent-api
+        client._trigger_session_initialization()  # come dopo la scelta dello schema
+
+
+def test_a_request_through_a_proxy_checks_its_host_first(monkeypatch):
+    """Lì il nome lo risolve il proxy: prima si fidava del solo check_url di
+    chi chiamava, che Radarr/Sonarr, le istanze e i client non facevano a ogni
+    richiesta."""
+    import requests
+
+    monkeypatch.setattr(net_guard.socket, "getaddrinfo", _resolver({
+        "meta.example": ["169.254.169.254"], "ok.example": ["93.184.216.34"]}))
+    proxied = []
+    mock = httpx.MockTransport(lambda request: proxied.append(request.url.host) or httpx.Response(204))
+    client = net_guard.http_client(mounts={"all://": mock})
+
+    with pytest.raises(httpx.ConnectError, match="not a destination"):
+        client.get("https://meta.example/latest/meta-data/")
+    assert client.get("https://ok.example/").status_code == 204 and proxied == ["ok.example"]
+    assert len(net_guard.pin(client).event_hooks["request"]) == 1  # un hook solo
+
+    session = _requests_session()
+    session.proxies = {"https": "http://proxy.example:3128"}
+    with pytest.raises(requests.exceptions.ConnectionError, match="not a destination"):
+        session.get("https://meta.example/latest/meta-data/", timeout=5)
+
+
+def test_the_environment_proxies_are_checked_too(monkeypatch, connects):
+    monkeypatch.setenv("HTTPS_PROXY", "http://proxy.example:3128")
+    monkeypatch.setattr(net_guard.socket, "getaddrinfo", _resolver({"meta.example": ["169.254.169.254"]}))
+
+    with pytest.raises(httpx.ConnectError, match="not a destination"):
+        net_guard.http_client().get("https://meta.example/")
+    assert connects == []
