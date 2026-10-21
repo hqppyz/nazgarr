@@ -256,16 +256,17 @@ def _clear_dangling_references(cursor, table: str, rebuild: str) -> None:
     for _id, _seq, parent, column, parent_column, _on_update, on_delete, _match in cursor.execute(
         f'PRAGMA foreign_key_list("{rebuild}")'
     ).fetchall():
+        # Tabelle e colonne dal catalogo del DB (PRAGMA foreign_key_list), mai un valore (S608).
         target = f'"{parent_column}"' if parent_column else "rowid"
-        dangling = (f'"{column}" IS NOT NULL AND NOT EXISTS '
+        dangling = (f'"{column}" IS NOT NULL AND NOT EXISTS '  # noqa: S608
                     f'(SELECT 1 FROM "{parent}" WHERE "{parent}".{target} = "{rebuild}"."{column}")')
         if on_delete == "SET NULL":
-            cleared = cursor.execute(f'UPDATE "{rebuild}" SET "{column}" = NULL WHERE {dangling}').rowcount
+            cleared = cursor.execute(f'UPDATE "{rebuild}" SET "{column}" = NULL WHERE {dangling}').rowcount  # noqa: S608
             if cleared:
                 logger.warning("Migrazione di %s: %d valori di %s puntavano a righe di %s che non ci sono più, "
                                "azzerati (ON DELETE SET NULL)", table, cleared, column, parent)
         elif column not in old_fk_columns:
-            count = cursor.execute(f'SELECT count(*) FROM "{rebuild}" WHERE {dangling}').fetchone()[0]
+            count = cursor.execute(f'SELECT count(*) FROM "{rebuild}" WHERE {dangling}').fetchone()[0]  # noqa: S608
             if count:
                 raise RuntimeError(f"Migrazione di {table}: {count} valori di {column} puntano a righe di "
                                    f"{parent} che non ci sono, e la sua nuova foreign key ({on_delete}) "
@@ -293,9 +294,11 @@ def _rebuild_like(cursor, schema: sqlite3.Connection, table: str) -> None:
     dropped = [c for c in old_columns if c not in new_columns]
     if dropped:
         logger.warning("Migrazione: %s rifatta senza le colonne %s, che schema.sql non ha più", table, dropped)
+    # Tabelle di schema.sql e colonne dal catalogo del DB, mai un valore (S608).
     column_list = ", ".join(f'"{c}"' for c in old_columns if c in new_columns)
-    cursor.execute(f'INSERT INTO "{rebuild}" ({column_list}) SELECT {column_list} FROM "{table}"')
-    copied, original = (cursor.execute(f'SELECT count(*) FROM "{name}"').fetchone()[0] for name in (rebuild, table))
+    cursor.execute(f'INSERT INTO "{rebuild}" ({column_list}) SELECT {column_list} FROM "{table}"')  # noqa: S608
+    copied, original = (cursor.execute(f'SELECT count(*) FROM "{name}"').fetchone()[0]  # noqa: S608
+                        for name in (rebuild, table))
     if copied != original:
         raise RuntimeError(f"Migrazione di {table}: copiate {copied} righe su {original}")
     _clear_dangling_references(cursor, table, rebuild)
@@ -555,11 +558,12 @@ def repair_dangling_media_file_legacy_fk(engine: Engine) -> None:
     with rebuilding_tables(engine) as cursor:
         for table in broken_tables:
             create_sql, index_sqls = _LEGACY_MEDIA_FILE_FK_REBUILD[table]
+            # Tabelle da _LEGACY_MEDIA_FILE_FK_REBUILD, colonne dal catalogo del DB, mai un valore (S608).
             columns = [col[1] for col in cursor.execute(f'PRAGMA table_info("{table}")').fetchall()]
             column_list = ", ".join(f'"{c}"' for c in columns)
             cursor.execute(f'DROP TABLE IF EXISTS "{table}__rebuild"')
             cursor.execute(create_sql)
-            cursor.execute(f'INSERT INTO "{table}__rebuild" ({column_list}) SELECT {column_list} FROM "{table}"')
+            cursor.execute(f'INSERT INTO "{table}__rebuild" ({column_list}) SELECT {column_list} FROM "{table}"')  # noqa: S608
             cursor.execute(f'DROP TABLE "{table}"')
             cursor.execute(f'ALTER TABLE "{table}__rebuild" RENAME TO "{table}"')
             for index_sql in index_sqls:
@@ -629,8 +633,9 @@ def migrate_legacy_run_log_phase_check(engine: Engine) -> None:
                 last_error            TEXT
             )
         """)
+        # Colonne dal catalogo del DB (PRAGMA table_info), mai un valore (S608).
         column_list = ", ".join(f'"{c}"' for c in source_columns)
-        cursor.execute(f'INSERT INTO run_log__rebuild ({column_list}) SELECT {column_list} FROM run_log')
+        cursor.execute(f'INSERT INTO run_log__rebuild ({column_list}) SELECT {column_list} FROM run_log')  # noqa: S608
         cursor.execute("DROP TABLE run_log")
         cursor.execute("ALTER TABLE run_log__rebuild RENAME TO run_log")
 
@@ -734,8 +739,9 @@ def migrate_notification_services(engine: Engine) -> int:
     with rebuilding_tables(engine) as cursor:
         if config_columns:
             events = "events_json" if "events_json" in config_columns else "NULL"
+            # events: il nome di una colonna del catalogo o NULL, mai un valore (S608).
             rows = cursor.execute(
-                f"SELECT adapter_type, enabled, config_json, {events} FROM adapter_config WHERE kind = 'notification'"
+                f"SELECT adapter_type, enabled, config_json, {events} FROM adapter_config WHERE kind = 'notification'"  # noqa: S608
             ).fetchall()
             for adapter_type, enabled, config_json, events_json in rows:
                 spec = REGISTRY.get("notification", adapter_type)
@@ -912,17 +918,18 @@ def encrypt_plaintext_secrets(engine: Engine) -> int:
     changed = 0
     inspector = inspect(engine)
     with engine.begin() as conn:
+        # Tabelle e colonne da _NOW_ENCRYPTED, i valori come parametri (S608).
         for table, column in _NOW_ENCRYPTED:
             if not inspector.has_table(table):
                 continue
-            query = text(f'SELECT id, "{column}" FROM "{table}" WHERE "{column}" IS NOT NULL')
+            query = text(f'SELECT id, "{column}" FROM "{table}" WHERE "{column}" IS NOT NULL')  # noqa: S608
             for row_id, value in conn.execute(query):
                 try:
                     crypto.decrypt(value)
                     continue  # già cifrato
                 except ValueError:
                     pass
-                conn.execute(text(f'UPDATE "{table}" SET "{column}" = :v WHERE id = :id'),
+                conn.execute(text(f'UPDATE "{table}" SET "{column}" = :v WHERE id = :id'),  # noqa: S608
                              {"v": crypto.encrypt(value), "id": row_id})
                 changed += 1
         if inspector.has_table("app_settings"):

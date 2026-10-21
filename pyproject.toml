@@ -92,10 +92,6 @@ ignore = [
 # PT è per i test: in nazgarr/ le funzioni test_* sono la prova di connessione
 # (endpoint e comandi della CLI), non test di pytest.
 "nazgarr/**" = ["PT"]
-# Le migrazioni nominano tabelle e colonne di schema.sql e del catalogo del DB
-# stesso, mai un valore (quelli passano come parametri). File fuori da questo
-# batch: l'eccezione è per file, invece di un noqa per riga.
-"nazgarr/core/db.py" = ["S608"]
 # I test costruiscono i piece SHA-1 dei loro torrent, SQL di prova sulle loro
 # tabelle, file con permessi tolti apposta e video di prova con ffmpeg.
 "tests/**" = ["S103", "S324", "S603", "S608"]
