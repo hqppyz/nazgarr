@@ -75,6 +75,7 @@ from nazgarr.reseed.executor import (
     torrent_missing,
 )
 from nazgarr.torrents import client_labels
+from nazgarr.upload.jobs import SEED_RECHECK_PENDING
 
 logger = logging.getLogger(__name__)
 
@@ -274,9 +275,13 @@ def _own_uploads(session: Session) -> tuple[set[tuple[int, str]], set[str]]:
     in quella finestra: i target in corso, e quelli finiti senza errori dopo
     l'inizio dell'ultima run conclusa (l'ultima indicizzazione). Dopo, il
     torrent è fra quelli dei client, o l'utente l'ha tolto e va riproposto
-    come ogni altro; un target fallito non ha messo niente in seed."""
+    come ogni altro; un target fallito non ha messo niente in seed. Conta
+    anche un target finito col torrent fermo in attesa del suo recheck
+    (SEED_RECHECK_PENDING, il reseed del flusso degli upload): è nel client,
+    e "Cerca ora" lo proponeva come un reseed da rifare (audit 2026-10-18)."""
     last_index = session.query(func.max(RunLog.started_at)).filter(RunLog.finished_at.isnot(None)).scalar()
-    finished = (UploadTarget.status == "done") & UploadTarget.error_message.is_(None)
+    finished = (UploadTarget.status == "done") & (
+        UploadTarget.error_message.is_(None) | (UploadTarget.error_message == SEED_RECHECK_PENDING))
     if last_index is not None:
         finished &= UploadTarget.finished_at > last_index
     rows = session.query(UploadTarget.tracker_id, UploadTarget.action, UploadTarget.torrent_id_remote,

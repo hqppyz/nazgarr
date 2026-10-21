@@ -549,3 +549,31 @@ def test_an_upload_seeded_before_the_last_run_is_proposed_again_once_gone_from_t
     _upload_target(db_session, mf, tracker, status="done", action="reseed", reseed_torrent_id="78",
                    info_hash="AA78", finished_at=now)
     assert review._own_uploads(db_session) == ({(tracker.id, "78")}, {"aa78"})
+
+
+def test_an_upload_reseed_waiting_for_its_recheck_is_never_proposed_again(db_session):
+    # Il reseed del flusso degli upload, fermo nel client in attesa del suo
+    # recheck (seed_recheck_pending): è un upload dell'utente come quelli
+    # finiti senza errori, e "Cerca ora" non deve riproporne il torrent
+    # (audit 2026-10-18, finding 171).
+    from datetime import timedelta
+
+    from nazgarr.upload.jobs import SEED_RECHECK_PENDING
+
+    tracker = _tracker(db_session)
+    item = _media_item(db_session)
+    mf = _media_file_stub(db_session, item)
+    now = datetime.now(UTC)
+    run = pipeline.start_run(db_session, "manual")
+    run.started_at, run.finished_at = now - timedelta(hours=1), now - timedelta(minutes=50)
+    db_session.commit()
+    _upload_target(db_session, mf, tracker, status="done", action="reseed", reseed_torrent_id="81",
+                   info_hash="BB81", error_message=SEED_RECHECK_PENDING, finished_at=now)
+
+    assert review._own_uploads(db_session) == ({(tracker.id, "81")}, {"bb81"})
+    by_hash = _candidate(db_session, item, tracker, confidence=0.99, remote="82")
+    by_hash.info_hash = "bb81"  # lo stesso torrent, trovato con un altro id
+    db_session.commit()
+    assert review.create_review_for_media_file(db_session, mf, [by_hash]) is None
+    assert review.create_review_for_media_file(
+        db_session, mf, [_candidate(db_session, item, tracker, confidence=0.99, remote="81")]) is None
