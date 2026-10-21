@@ -1265,7 +1265,7 @@ def test_a_retry_never_takes_over_a_torrent_after_a_failure_before_the_add(db_se
     db_session.commit()
     tracker_torrent["content"] = _movie_torrent(b"other!!")
     adapter = ReseedClient()
-    with pytest.raises(executor.ExecutionError, match="different .torrent"):
+    with pytest.raises(executor.ExecutionError, match=r"different \.torrent"):
         executor.execute_review(db_session, review, adapter)
     seed_job = db_session.query(SeedJob).one()
     assert adapter.added == [] and seed_job.error_message.endswith(executor.NOTHING_SENT)
