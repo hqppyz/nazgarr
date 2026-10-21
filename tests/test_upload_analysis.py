@@ -157,6 +157,10 @@ def test_full_hash_check_turns_an_identical_release_into_a_reseed(db_session, tm
     verification = json.loads(target.dupes_json)[0]["verification"]
     assert verification["status"] == "passed"
     assert verification["ok"] == verification["pieces"] > 0
+    # Cosa ha letto (2026-10-21): il reseed non rilegge questi file per la
+    # tolleranza degli extra mancanti finché sono gli stessi.
+    st = os.stat(source)
+    assert verification["files"] == {os.path.basename(source): [st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns]}
     assert (target.status, target.reseed_torrent_id) == ("awaiting_decision", "42")
     assert same.downloads == ["https://t/download/42.key"]
 
@@ -180,6 +184,7 @@ def test_full_hash_check_fails_on_different_bytes(db_session, tmp_path, monkeypa
     db_session.refresh(target)
     verification = json.loads(target.dupes_json)[0]["verification"]
     assert verification["status"] == "failed" and verification["mismatched"] >= 1
+    assert "files" not in verification  # un controllo fallito non verifica niente
     assert target.reseed_torrent_id is None
     assert analyzing_job.events[-1].code == "verify_failed"
 

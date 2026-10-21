@@ -43,15 +43,17 @@ def _no_dns(monkeypatch):
 def _no_check_memory():
     """Le verifiche in memoria del processo (i controlli completi passati,
     le verifiche della tolleranza degli extra per seed job e i loro
-    .torrent): da zero a ogni test. Gli id dei seed job ripartono da 1 in
+    .torrent, e quelle per target del flusso degli upload): da zero a ogni test. Gli id dei seed job ripartono da 1 in
     ogni DB dei test, e la verifica di un test precedente passava per
     quella del seed job nuovo."""
     from nazgarr.reseed import executor, full_check
+    from nazgarr.upload import extras_check
 
     def clear():
         executor._extras_checks.clear()
         executor._added_torrents.clear()
         full_check._passed.clear()
+        extras_check._gates.clear()
 
     clear()
     yield

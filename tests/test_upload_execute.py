@@ -22,7 +22,9 @@ from nazgarr.torrents import create as torrent_create
 from nazgarr.torrents.metainfo import compute_info_hash
 from nazgarr.upload import decision as upload_decision
 from nazgarr.upload import execute as upload_execute
+from nazgarr.upload import extras_check as upload_extras
 from nazgarr.upload import jobs as upload_jobs
+from nazgarr.upload import verify as upload_verify
 from nazgarr.upload.jobs import UploadJobError
 from nazgarr.upload.worker import UploadWorker
 from tests.fakes import RecordingClient
@@ -383,11 +385,13 @@ def test_a_source_inside_the_seeding_folder_seeds_in_place(db_session, tmp_path,
     assert (fields.season_number, fields.episode_number) == (1, 0)
 
 
-def _reseed_job(db_session, tmp_path, env, verified_hash=None, extras=None):
+def _reseed_job(db_session, tmp_path, env, verified_hash=None, extras=None, recorded=True):
     """Un job col solo target "a" in reseed del torrent 7, già verificato
     (verified_hash: l'info hash letto dal controllo; di default quello del
     .torrent che il tracker restituisce). extras: {nome: byte} che il
-    torrent del tracker ha e la sorgente no."""
+    torrent del tracker ha e la sorgente no. recorded: il controllo vero
+    (upload_verify.run_check), con l'identità dei file letti; False, come
+    una verifica di prima del 2026-10-21, che non se la segnava."""
     video = write_video(env["root"] / "media" / "Matrix" / "matrix.mkv", 300 * KB)
     other = tmp_path / "tracker-layout" / "The.Matrix.1999.1080p-GRP"
     other.mkdir(parents=True)
@@ -399,9 +403,12 @@ def _reseed_job(db_session, tmp_path, env, verified_hash=None, extras=None):
         env["trackers"]["a"].torrent_bytes = f.read()
     info_hash = verified_hash or compute_info_hash(env["trackers"]["a"].torrent_bytes)
     job = upload_jobs.create_job(db_session, env["disk"], "media/Matrix")
+    verification = {"status": "passed", "info_hash": info_hash}
+    if recorded and verified_hash is None:
+        verification = upload_verify.run_check(job, env["trackers"]["a"].torrent_bytes)
+        assert verification["status"] == "passed" and verification["files"]
     job.targets[0].dupes_json = json.dumps([{"torrent_id_remote": "7", "verdict": "identical",
-                                             "download_link": "https://a/dl/7",
-                                             "verification": {"status": "passed", "info_hash": info_hash}}])
+                                             "download_link": "https://a/dl/7", "verification": verification}])
     db_session.commit()
     upload_jobs.transition(db_session, job, "identifying", "awaiting_decision", tmdb_id=603, content_type="movie",
                            kind="movie")
@@ -607,19 +614,186 @@ def test_a_held_reseed_that_cannot_be_stopped_says_so(db_session, tmp_path, env)
     assert _events(job, "seed_recheck_failed_running")[0]["client"] == env["client_row"].label
 
 
-def test_the_extras_a_reseed_lacks_still_count_as_a_good_recheck(db_session, tmp_path, env):
+def test_the_extras_a_reseed_lacks_still_count_as_a_good_recheck(db_session, tmp_path, env, monkeypatch):
     """Un extra del tracker che la sorgente non ha lo scarica il client
-    dopo l'avvio: il recheck a cui manca solo quello è riuscito."""
+    dopo l'avvio: il recheck a cui manca solo quello è riuscito. Il full
+    hash check dell'upload ha già letto proprio questi file (gli hardlink
+    hanno il loro inode): niente si rilegge (2026-10-21)."""
     job, _video = _reseed_job(db_session, tmp_path, env, extras={"The.Matrix.nfo": b"n" * 600})
     client = env["client"]
     client.held_recheck = "failed"  # al client mancano 1000 byte
     _run(db_session, tmp_path, job)
     target = job.targets[0]
-    assert _events(job, "added_to_client_held")[0]["allowed"] >= 1000
+    held = _events(job, "added_to_client_held")[0]
+    assert held["allowed"] >= 1000 and held["missing"] == ["The.Matrix.nfo"]
+    monkeypatch.setattr(upload_extras.full_check, "check_pieces_outside", _never_read)
 
     upload_execute.reconcile_held_seeds(db_session)
 
     assert client.started == [target.info_hash] and target.error_message is None
+    assert "seed_pieces_checking" not in [e.code for e in job.events]
+
+
+def _never_read(*args, **kwargs):
+    raise AssertionError("the files were read again")
+
+
+# --- la tolleranza degli extra mancanti vale solo per i loro piece (2026-10-21, come i reseed della coda)
+
+
+@pytest.fixture
+def inline_checks(monkeypatch):
+    """La coda dei controlli completi nel thread del test."""
+    monkeypatch.setattr(upload_extras.full_check, "_executor", InlineExecutor())
+
+
+def _edit_in_place(path, offset=1000, byte=b"Z"):
+    """Un byte cambiato sul posto, stessa dimensione (un header MKV ritoccato)."""
+    with open(path, "r+b") as f:
+        f.seek(offset)
+        f.write(byte)
+    st = os.stat(path)
+    os.utime(path, ns=(st.st_atime_ns, st.st_mtime_ns + 1_000_000_000))  # mai la stessa data, anche su FS grossolani
+
+
+def test_a_video_piece_changed_since_the_check_never_starts_within_the_allowance(
+        db_session, tmp_path, env, inline_checks):
+    """Il client dice solo quanti byte mancano: un piece diverso del video
+    che sta nel margine degli extra passava per un extra, e il torrent
+    partiva a riscriverlo dentro gli hardlink, nel file della libreria.
+    Ora Nazgarr rilegge (i file non sono più quelli verificati) e il
+    torrent resta fermo; "Riprova il seed" ricontrolla sui file di adesso."""
+    job, video = _reseed_job(db_session, tmp_path, env, extras={"The.Matrix.nfo": b"n" * 600})
+    original = video.read_bytes()[1000:1001]
+    client = env["client"]
+    client.held_recheck = "failed"  # 1000 byte, dentro il margine
+    _run(db_session, tmp_path, job)
+    target = job.targets[0]
+    _edit_in_place(video)
+
+    upload_execute.reconcile_held_seeds(db_session)
+
+    assert not getattr(client, "started", []) and target.error_message == "seed_recheck_failed"
+    assert "seed_pieces_checking" in [e.code for e in job.events]
+    [failed] = _events(job, "seed_pieces_failed")
+    assert "do not match" in failed["reason"] and "The.Matrix.1999.1080p-GRP.mkv" in failed["reason"]
+
+    _edit_in_place(video, byte=original)  # il file rimesso com'era
+    upload_execute.retry_seed(db_session, job, target)
+    upload_execute.reconcile_held_seeds(db_session)
+
+    assert client.started == [target.info_hash] and target.error_message is None
+
+
+def test_files_touched_since_the_check_are_read_again_before_starting(db_session, tmp_path, env, inline_checks):
+    """Stessi byte ma un'altra data di modifica: Nazgarr rilegge i piece
+    fuori dagli extra, e passati il torrent parte. Così anche una verifica
+    di prima del 2026-10-21, che non si segnava i file."""
+    job, video = _reseed_job(db_session, tmp_path, env, extras={"The.Matrix.nfo": b"n" * 600}, recorded=False)
+    client = env["client"]
+    client.held_recheck = "failed"
+    _run(db_session, tmp_path, job)
+    target = job.targets[0]
+
+    upload_execute.reconcile_held_seeds(db_session)
+
+    assert client.started == [target.info_hash] and target.error_message is None
+    assert [e.code for e in job.events].count("seed_pieces_checking") == 1
+
+
+class _Later:
+    """La coda dei controlli completi, ferma finché il test non la fa girare."""
+
+    def __init__(self):
+        self.jobs = []
+
+    def submit(self, fn, *args):
+        self.jobs.append((fn, args))
+
+    def run(self):
+        while self.jobs:
+            fn, args = self.jobs.pop(0)
+            fn(*args)
+
+
+def test_a_running_reseed_is_stopped_while_nazgarr_checks_and_a_100_percent_meanwhile_does_not_count(
+        db_session, tmp_path, env, monkeypatch):
+    """Un plugin senza can_add_stopped lo aggiunge avviato: mentre Nazgarr
+    legge i piece si ferma, se no scaricherebbe i byte "mancanti", e con
+    loro un piece diverso del video. Un 100% del client prima che la
+    lettura passi non dice niente dei piece che aveva prima."""
+    later = _Later()
+    monkeypatch.setattr(upload_extras.full_check, "_executor", later)
+    job, _video = _reseed_job(db_session, tmp_path, env, extras={"The.Matrix.nfo": b"n" * 600}, recorded=False)
+    client = env["client"]
+    client.can_add_stopped, client.held_recheck = False, "failed"
+    _run(db_session, tmp_path, job)
+    target = job.targets[0]
+    client.started = [target.info_hash]  # gira
+
+    upload_execute.reconcile_held_seeds(db_session)
+
+    assert client.stopped == [target.info_hash] and client.started == []
+    assert target.error_message == "seed_recheck_pending" and len(later.jobs) == 1
+    assert {"seed_pieces_checking", "seed_stopped_while_checking"} <= {e.code for e in job.events}
+
+    client.held_recheck = "ok"  # ha scaricato tutto, prima che Nazgarr finisse
+    upload_execute.reconcile_held_seeds(db_session)
+    assert client.started == [] and target.error_message == "seed_recheck_pending"
+
+    later.run()
+    upload_execute.reconcile_held_seeds(db_session)
+    assert client.started == [target.info_hash] and target.error_message is None
+    assert len(later.jobs) == 0  # una lettura sola
+
+
+def test_a_start_refused_after_the_check_passed_does_not_read_again(db_session, tmp_path, env, monkeypatch,
+                                                                    inline_checks):
+    job, _video = _reseed_job(db_session, tmp_path, env, extras={"The.Matrix.nfo": b"n" * 600}, recorded=False)
+    client = env["client"]
+    client.held_recheck = "failed"
+    _run(db_session, tmp_path, job)
+    target = job.targets[0]
+    reads = []
+    real = upload_extras.full_check.check_pieces_outside
+    monkeypatch.setattr(upload_extras.full_check, "check_pieces_outside",
+                        lambda *a, **kw: reads.append(1) or real(*a, **kw))
+    refused = [True]
+    start = client.start
+
+    def flaky_start(info_hash):
+        if refused.pop() if refused else False:
+            raise RuntimeError("client busy")
+        start(info_hash)
+
+    client.start = flaky_start
+
+    upload_execute.reconcile_held_seeds(db_session)
+    assert target.error_message == "seed_recheck_pending" and client.started == []
+    upload_execute.reconcile_held_seeds(db_session)
+
+    assert client.started == [target.info_hash] and target.error_message is None
+    assert reads == [1]  # la verifica passata vale ancora: i file sono quelli che ha letto
+
+
+def test_a_check_that_cannot_run_is_tried_again_then_fails(db_session, tmp_path, env, monkeypatch, inline_checks):
+    job, _video = _reseed_job(db_session, tmp_path, env, extras={"The.Matrix.nfo": b"n" * 600}, recorded=False)
+    client = env["client"]
+    client.held_recheck = "failed"
+    _run(db_session, tmp_path, job)
+    target = job.targets[0]
+
+    def broken(*args, **kwargs):
+        raise OSError("disk not answering")
+
+    monkeypatch.setattr(upload_extras.full_check, "check_pieces_outside", broken)
+    for _ in range(upload_extras.MAX_CHECKS - 1):
+        upload_execute.reconcile_held_seeds(db_session)
+        assert target.error_message == "seed_recheck_pending"  # un errore, non un esito: si riprova
+    upload_execute.reconcile_held_seeds(db_session)
+
+    assert target.error_message == "seed_recheck_failed" and not getattr(client, "started", [])
+    assert "disk not answering" in _events(job, "seed_pieces_failed")[0]["reason"]
 
 
 def test_a_held_reseed_is_left_alone_while_its_job_runs(db_session, tmp_path, env):

@@ -641,9 +641,9 @@ def recheck_outcome(status: TorrentStatus, allowed: int | None) -> str:
     """L'esito di un recheck: quello del client, salvo un recheck finito a
     cui mancano solo i file extra che si sapeva di non avere (nfo,
     sottotitoli, sample: allowed byte, expected_missing_bytes), che è "ok":
-    il client li scarica dopo l'avvio. Così per i reseed del flusso degli
-    upload (nazgarr/upload/execute.py); per quelli della coda decide poi
-    Nazgarr, piece per piece (_recheck_outcome)."""
+    il client li scarica dopo l'avvio. Quell'"ok" lo conferma poi Nazgarr,
+    piece per piece, per ogni reseed: della coda (_recheck_outcome) e, dal
+    2026-10-21, del flusso degli upload (nazgarr/upload/extras_check.py)."""
     allowed = allowed or 0
     if (
         status.recheck_status == "failed" and status.incomplete and allowed > 0

@@ -22,7 +22,7 @@ from nazgarr.core.fs_scope import ScopeViolation, resolve_scoped
 from nazgarr.core.models import UploadJob, UploadTarget
 from nazgarr.integrations import adapter_factory
 from nazgarr.reseed import download_links
-from nazgarr.reseed.full_check import CheckResult, unreadable_pieces, verdict, verify_all_pieces
+from nazgarr.reseed.full_check import CheckResult, recording, unchanged, unreadable_pieces, verdict, verify_all_pieces
 from nazgarr.torrents.metainfo import TorrentFileEntry, TorrentInfo, compute_info_hash, parse_torrent_info
 from nazgarr.upload import jobs as upload_jobs
 from nazgarr.upload import pack as upload_pack
@@ -88,8 +88,15 @@ def dupe_torrent(adapter, dupe: dict) -> bytes:
 
 
 def run_check(job: UploadJob, torrent_bytes: bytes, on_progress=lambda _: None) -> dict:
+    """Il risultato, con "files" se è passato: l'identità (dispositivo,
+    inode, dimensione, modifica) di ogni file letto, se nessuno è cambiato
+    mentre lo si leggeva. Il reseed che ne segue non rilegge quei file per
+    la tolleranza degli extra mancanti finché sono gli stessi
+    (nazgarr/upload/extras_check.py, 2026-10-21); un hardlink ha l'identità
+    del suo file."""
     parsed = parse_torrent_info(torrent_bytes)
-    files, bad = verify_all_pieces(parsed, build_locator(job, parsed), on_progress)
+    locate, identities = recording(build_locator(job, parsed))
+    files, bad = verify_all_pieces(parsed, locate, on_progress)
     bad_set = set(bad)
     unreadable = len(bad_set & unreadable_pieces(parsed, files))
     result = CheckResult(
@@ -98,7 +105,7 @@ def run_check(job: UploadJob, torrent_bytes: bytes, on_progress=lambda _: None) 
         mismatched=len(bad_set) - unreadable, unreadable=unreadable, bad_pieces=bad[:20], files=files,
     )
     passed, reason = verdict(result)
-    return {
+    out = {
         "status": "passed" if passed else "failed",
         "reason": reason,
         "pieces": result.pieces,
@@ -107,6 +114,10 @@ def run_check(job: UploadJob, torrent_bytes: bytes, on_progress=lambda _: None) 
         "unreadable": result.unreadable,
         "info_hash": result.info_hash,
     }
+    read = unchanged(identities, files) if passed else None
+    if read is not None:
+        out["files"] = {path: list(identity) for path, identity in read.items() if identity is not None}
+    return out
 
 
 def start(session: Session, job: UploadJob, target: UploadTarget, torrent_id_remote: str, worker) -> None:

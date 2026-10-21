@@ -221,10 +221,11 @@ def _anchor(session: Session, candidate: Candidate, seed_job: SeedJob | None, me
     return videos[0] if len(videos) == 1 else None
 
 
-def _existing(path: str | None, partial_suffix: str | None) -> str | None:
+def existing_file(path: str | None, partial_suffix: str | None) -> str | None:
     """Il file, o lo stesso col suffisso che il client dà ai file incompleti
     (Transmission, rename-partial-files: "<nome>.part", anche durante il
-    recheck di un torrent fermo): rinominato, è sempre lo stesso file."""
+    recheck di un torrent fermo): rinominato, è sempre lo stesso file.
+    Anche per i reseed del flusso degli upload (nazgarr/upload/extras_check.py)."""
     if path is None:
         return None
     if os.path.isfile(path):
@@ -261,7 +262,7 @@ def build_locator(session: Session, candidate: Candidate, seed_job: SeedJob | No
                 seeded = resolve_scoped(seed_root, entry.path)
             except ScopeViolation:
                 seeded = None
-            seeded = _existing(seeded, partial_suffix)
+            seeded = existing_file(seeded, partial_suffix)
             if seeded:
                 return seeded, "seed"
         matched = by_path.get(entry.path)
@@ -272,7 +273,7 @@ def build_locator(session: Session, candidate: Candidate, seed_job: SeedJob | No
         if local is None:
             return None, None
         location = "seed" if isinstance(local, SeedFile) else "library"
-        path = _existing(_abs(local.disk, local.relative_path), partial_suffix)
+        path = existing_file(_abs(local.disk, local.relative_path), partial_suffix)
         return (path, location) if path else (None, None)
 
     return locate
@@ -321,7 +322,7 @@ def run_full_check(
     expected_info_hash = (seed_job.info_hash if seed_job is not None else None) or candidate.info_hash
     _sync_folder(session, candidate, parsed)
     _learn_info_hash(session, candidate, info_hash)
-    locate, identities = _recording(build_locator(session, candidate, seed_job, media_file_id))
+    locate, identities = recording(build_locator(session, candidate, seed_job, media_file_id))
     on_start(parsed.total_length)
     files, bad = verify_all_pieces(parsed, locate, on_progress, cancelled)
     # bad_pieces è troncato per la risposta: i totali si contano su tutti.
@@ -409,12 +410,13 @@ def _download_torrent(candidate: Candidate) -> bytes:
 # piece che toccano gli extra mancanti, e lo decide Nazgarr leggendo lui
 # ogni altro piece. Senza rileggere niente quando un controllo completo è
 # già passato per proprio questi file (stesso dispositivo, inode,
-# dimensione e data di modifica di allora: _passed).
+# dimensione e data di modifica di allora: _passed). La stessa regola per i
+# reseed del flusso degli upload (2026-10-21, nazgarr/upload/extras_check.py).
 
 Identity = tuple[int, int, int, int]
 # Per ogni file del torrent, l'identità che aveva quando un controllo
-# passato l'ha letto (_identity); None se non c'era e i suoi piece erano
-# scusati (solo check_outside_missing: _unchanged).
+# passato l'ha letto (identity_of); None se non c'era e i suoi piece erano
+# scusati (solo check_pieces_outside: unchanged).
 Record = dict[str, Identity | None]
 # I controlli passati, per (candidato, info hash del .torrent letto). In
 # memoria come i controlli: dopo un riavvio la tolleranza rilegge.
@@ -422,7 +424,7 @@ _passed: dict[tuple[int, str], Record] = {}
 MAX_REMEMBERED_PASSES = 200
 
 
-def _identity(path: str | None) -> Identity | None:
+def identity_of(path: str | None) -> Identity | None:
     """(dispositivo, inode, dimensione, modifica in ns) del file, None se non
     c'è: un file scritto dopo (anche sul posto, con la stessa dimensione) ha
     un'altra data di modifica; un hardlink ha quella del file della libreria."""
@@ -435,24 +437,24 @@ def _identity(path: str | None) -> Identity | None:
     return st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns
 
 
-def _recording(locate: Locator) -> tuple[Locator, dict[str, Identity | None]]:
+def recording(locate: Locator) -> tuple[Locator, dict[str, Identity | None]]:
     """Il locator, che si segna l'identità di ogni file trovato prima che
     verify_all_pieces lo legga (lo chiama per ogni file, prima di leggere)."""
     identities: dict[str, Identity | None] = {}
 
-    def recording(entry: TorrentFileEntry) -> tuple[str | None, str | None]:
+    def record(entry: TorrentFileEntry) -> tuple[str | None, str | None]:
         path, where = locate(entry)
-        identities[entry.path] = _identity(path)
+        identities[entry.path] = identity_of(path)
         return path, where
 
-    return recording, identities
+    return record, identities
 
 
-def _unchanged(identities: dict[str, Identity | None], files: list[FileCheck], absent: bool = False) -> Record | None:
+def unchanged(identities: dict[str, Identity | None], files: list[FileCheck], absent: bool = False) -> Record | None:
     """Le identità dei file letti, se nessuno è cambiato mentre lo si
     leggeva; None se uno sì. absent: anche i file che non c'erano, come
     None, per un controllo passato che ne ha scusato ogni piece
-    (check_outside_missing: o un extra mancante, o un file i cui piece
+    (check_pieces_outside: o un extra mancante, o un file i cui piece
     toccano tutti un extra mancante). Prima non si segnavano, e un file così
     non era mai "lo stesso di allora": la tolleranza rileggeva l'intero pack
     a ogni reconcile. Un controllo completo (run_full_check) non li segna:
@@ -464,27 +466,28 @@ def _unchanged(identities: dict[str, Identity | None], files: list[FileCheck], a
                 out[f.torrent_path] = None
             continue
         identity = identities.get(f.torrent_path)
-        if identity is None or _identity(f.local_path) != identity:
+        if identity is None or identity_of(f.local_path) != identity:
             return None
         out[f.torrent_path] = identity
     return out
 
 
 def _remember_passed(candidate_id: int, info_hash: str, identities: dict[str, Identity | None],
-                     files: list[FileCheck], absent: bool = False) -> Record | None:
-    """Si ricorda un controllo passato, se i file letti non sono cambiati
-    mentre li leggeva: ritorna quel che si è segnato (_unchanged), None se
-    uno è cambiato."""
-    unchanged = _unchanged(identities, files, absent)
-    if unchanged is None:
-        return None
+                     files: list[FileCheck]) -> None:
+    """Si ricorda un controllo completo passato, se i file letti non sono
+    cambiati mentre li leggeva (unchanged)."""
+    record = unchanged(identities, files)
+    if record is not None:
+        _store_passed(candidate_id, info_hash, record)
+
+
+def _store_passed(candidate_id: int, info_hash: str, record: Record) -> None:
     key = (candidate_id, info_hash.lower())
     with _lock:
         _passed.pop(key, None)
-        _passed[key] = unchanged
+        _passed[key] = record
         while len(_passed) > MAX_REMEMBERED_PASSES:
             _passed.pop(next(iter(_passed)))
-    return unchanged
 
 
 def identities_now(session: Session, candidate: Candidate, seed_job: SeedJob, skip: set[str],
@@ -492,7 +495,7 @@ def identities_now(session: Session, candidate: Candidate, seed_job: SeedJob, sk
     """L'identità, adesso, di ogni file del torrent tranne skip, dove lo
     legge il client (gli hardlink dell'esecuzione, o il file lato torrent)."""
     locate = build_locator(session, candidate, seed_job, partial_suffix=partial_suffix)
-    return {f.torrent_path: _identity(locate(TorrentFileEntry(f.torrent_path, f.size_bytes or 0, 0))[0])
+    return {f.torrent_path: identity_of(locate(TorrentFileEntry(f.torrent_path, f.size_bytes or 0, 0))[0])
             for f in candidate.files if f.torrent_path not in skip}
 
 
@@ -509,10 +512,18 @@ def unchanged_since(session: Session, candidate: Candidate, seed_job: SeedJob, s
                     recorded: Record | None, partial_suffix: str | None = None) -> bool:
     """Ogni file del torrent tranne skip è com'era in recorded (quel che un
     controllo passato ha segnato): la stessa identità, o assente come allora
-    se recorded lo segna assente (_unchanged). Almeno uno deve esserci."""
+    se recorded lo segna assente (unchanged). Almeno uno deve esserci."""
     if recorded is None or not candidate.files:
         return False
-    now = identities_now(session, candidate, seed_job, skip, partial_suffix)
+    return same_files(recorded, identities_now(session, candidate, seed_job, skip, partial_suffix))
+
+
+def same_files(recorded: Record | None, now: dict[str, Identity | None]) -> bool:
+    """Ogni file di now (percorso nel torrent -> identità adesso) è com'era
+    in recorded: la stessa identità, o assente come allora se recorded lo
+    segna assente. Almeno uno deve esserci."""
+    if recorded is None:
+        return False
     return (any(identity is not None for identity in now.values())
             and all(path in recorded and recorded[path] == identity for path, identity in now.items()))
 
@@ -541,7 +552,7 @@ def _files_of(parsed: TorrentInfo, pieces: list[int], skip: set[str]) -> list[st
 
 
 class ExtrasCheck(NamedTuple):
-    """L'esito di check_outside_missing: recorded è quel che ha letto (come
+    """L'esito di check_pieces_outside: recorded è quel che ha letto (come
     _passed), solo se è passato."""
     result: CheckResult | None
     passed: bool
@@ -555,23 +566,43 @@ def check_outside_missing(
     on_start: Callable[[int], None] = lambda _: None, on_progress: Callable[[int], None] = lambda _: None,
     cancelled: Callable[[], bool] = lambda: False,
 ) -> ExtrasCheck:
-    """Ogni piece che non tocca un extra mancante (missing: i loro percorsi
-    nel torrent) coincide con il torrent nel client, letto dai file dove li
-    legge il client. Gli extra mancanti non si leggono (un client che li ha
-    già creati vuoti o preallocati li farebbe sembrare diversi), e i piece a
-    cavallo fra uno di loro e un altro file non si possono verificare da
-    nessuno finché il client non scarica l'extra: sono quelli che il margine
-    copre. Il .torrent (fetch_torrent: quello aggiunto al client, se
-    l'esecutore ce l'ha ancora, se no riscaricato dal tracker) deve essere
-    quello nel client (l'info hash del seed job), se no non si legge niente."""
+    """check_pieces_outside per un reseed della coda, sui file dove li legge
+    il client (build_locator). Il .torrent (fetch_torrent: quello aggiunto
+    al client, se l'esecutore ce l'ha ancora, se no riscaricato dal
+    tracker) deve essere quello nel client (l'info hash del seed job), se no
+    non si legge niente. Passato, si ricorda come un controllo completo
+    (_passed)."""
     content = (fetch_torrent or _download_torrent)(candidate)
+    locate = build_locator(session, candidate, seed_job, partial_suffix=partial_suffix)
+    checked = check_pieces_outside(content, seed_job.info_hash or "", locate, missing,
+                                   on_start=on_start, on_progress=on_progress, cancelled=cancelled)
+    if checked.passed and checked.recorded is not None:
+        _store_passed(candidate.id, checked.result.info_hash, checked.recorded)
+    return checked
+
+
+def check_pieces_outside(
+    content: bytes, expected_info_hash: str, locate: Locator, missing: set[str],
+    on_start: Callable[[int], None] = lambda _: None, on_progress: Callable[[int], None] = lambda _: None,
+    cancelled: Callable[[], bool] = lambda: False,
+) -> ExtrasCheck:
+    """Ogni piece che non tocca un extra mancante (missing: i loro percorsi
+    nel torrent) coincide con il torrent nel client, letto dai file che dà
+    locate (dove li legge il client). Gli extra mancanti non si leggono (un
+    client che li ha già creati vuoti o preallocati li farebbe sembrare
+    diversi), e i piece a cavallo fra uno di loro e un altro file non si
+    possono verificare da nessuno finché il client non scarica l'extra: sono
+    quelli che il margine copre. I byte del .torrent devono avere l'info
+    hash del torrent nel client (expected_info_hash), se no non si legge
+    niente. Lo stesso per i reseed della coda (check_outside_missing) e per
+    quelli del flusso degli upload (nazgarr/upload/extras_check.py)."""
     parsed = parse_torrent_info(content)
     info_hash = compute_info_hash(content)
-    expected = (seed_job.info_hash or "").lower()
+    expected = (expected_info_hash or "").lower()
     if info_hash != expected:
         return ExtrasCheck(None, False, f"the tracker's .torrent (info hash {info_hash}) is not the one in the "
                                         f"client ({expected}), so its pieces could not be checked")
-    found, identities = _recording(build_locator(session, candidate, seed_job, partial_suffix=partial_suffix))
+    found, identities = recording(locate)
 
     def outside(entry: TorrentFileEntry) -> tuple[str | None, str | None]:
         return (None, None) if entry.path in missing else found(entry)
@@ -592,7 +623,7 @@ def check_outside_missing(
         names = ", ".join(f"'{path}'" for path in _files_of(parsed, wrong, missing)[:3])
         return ExtrasCheck(result, False, f"pieces outside the missing extras do not match the torrent "
                                           f"({len(wrong)} of {checked}, in {names}), and the client would rewrite them")
-    recorded = _remember_passed(candidate.id, info_hash, identities, files, absent=True)
+    recorded = unchanged(identities, files, absent=True)
     if recorded is None:
         return ExtrasCheck(result, False, "a file changed while it was being checked")
     return ExtrasCheck(result, True, None, recorded)
@@ -789,6 +820,14 @@ def _run_extras(session_factory: sessionmaker, state: CheckState, missing: froze
     finally:
         state.finished_at = datetime.now(UTC)
         session.close()
+
+
+def submit(fn: Callable, *args) -> None:
+    """Un lavoro di lettura nella stessa coda dei controlli completi (uno
+    alla volta sul disco), che non è un controllo di un candidato: la
+    tolleranza degli extra dei reseed del flusso degli upload
+    (nazgarr/upload/extras_check.py)."""
+    _executor.submit(fn, *args)
 
 
 def get_check(check_id: str) -> CheckState | None:

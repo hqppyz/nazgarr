@@ -429,6 +429,12 @@ export const upload = {
   'upload.event.seed_recheck_no_client':
     'The client of this torrent was removed from Nazgarr: retry seeding adds it to the tracker’s client.',
   'upload.event.seed_recheck_requested': 'New recheck asked to {client}: the torrent stays stopped until it passes.',
+  'upload.event.seed_pieces_checking':
+    'The recheck in {client} left only the extras the source does not have: Nazgarr is checking every other piece itself before starting the torrent.',
+  'upload.event.seed_stopped_while_checking':
+    '{client} was running the torrent while Nazgarr checks its pieces: stopped, so nothing downloads into the linked files meanwhile.',
+  'upload.event.seed_pieces_failed':
+    'The recheck in {client} left only the extras the source does not have, but Nazgarr’s check of the other pieces failed ({reason}): the torrent stays stopped, so nothing downloads into the linked files. Fix or restore the files, then retry seeding.',
   'upload.event.seed_partial_names_restored':
     '{client} had renamed {count} file(s) to “.part” during the recheck: they have their names back.',
   'upload.event.upload_failed': 'Upload failed: {error}',

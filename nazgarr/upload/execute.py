@@ -13,7 +13,9 @@ Poi per ogni tracker, in ordine, la sua azione:
   controllato che i file siano al loro posto (vedi _add_to_client);
 - reseed: il .torrent già sul tracker, i file sistemati con i nomi che si
   aspetta, e l'aggiunta al client con recheck forzato, fermo: parte solo a
-  recheck riuscito (decisione dell'utente, 2026-10-19; reconcile_held_seeds).
+  recheck riuscito (decisione dell'utente, 2026-10-19; reconcile_held_seeds),
+  e con i soli extra mancanti solo se ogni altro piece l'ha verificato
+  Nazgarr (2026-10-21, nazgarr/upload/extras_check.py).
 
 Dove seedano: hardlink nella cartella per gli upload del disco
 (disk.effective_upload_rel_path: upload_rel_path, o la prima cartella di seeding),
@@ -74,7 +76,8 @@ from nazgarr.reseed.executor import (
 )
 from nazgarr.torrents import client_labels, partial_files
 from nazgarr.torrents.layout import expected_missing_bytes
-from nazgarr.torrents.metainfo import compute_info_hash, parse_torrent_info
+from nazgarr.torrents.metainfo import TorrentMetainfoError, compute_info_hash, parse_torrent_info
+from nazgarr.upload import extras_check as upload_extras
 from nazgarr.upload import file_names as upload_file_names
 from nazgarr.upload import inventory as upload_inventory
 from nazgarr.upload import jobs as upload_jobs
@@ -474,7 +477,7 @@ def files_in_place(torrent: torf.Torrent, save_path: str) -> bool:
 
 def _add_to_client(
     session: Session, job: UploadJob, target: UploadTarget, torrent_file: str, save_path: str,
-    torrent: torf.Torrent | None = None, hold: bool = False, allowed: int = 0,
+    torrent: torf.Torrent | None = None, hold: bool = False, allowed: int = 0, missing: list[str] | None = None,
 ):
     """hold: il .torrent del tracker sui file di Nazgarr (un reseed, o
     "Riprova il seed"): entra fermo, con il recheck, e parte solo quando il
@@ -483,7 +486,9 @@ def _add_to_client(
     dentro gli hardlink, cioè nei file della libreria. Il target resta
     SEED_RECHECK_PENDING finché reconcile_held_seeds non legge l'esito;
     allowed: i byte degli extra che si sa di non avere, che il client
-    scarica dopo l'avvio (expected_missing_bytes).
+    scarica dopo l'avvio (expected_missing_bytes); missing: i loro percorsi
+    nel torrent, i soli piece che quel margine copre (2026-10-21,
+    nazgarr/upload/extras_check.py).
 
     Senza hold, senza il recheck del client (decisione dell'utente, 2026-09-30): il
     torrent l'ha appena creato Nazgarr leggendo ogni piece di questi file (o
@@ -525,14 +530,14 @@ def _add_to_client(
             info_hash = _keep_existing(session, job, target, adapter, expected, visible, client, hold=hold)
             _register_seed(session, job, target, adapter, info_hash)
             if hold:
-                _hold(session, job, target, "already_in_client_held", client, save_path, allowed)
+                _hold(session, job, target, "already_in_client_held", client, save_path, allowed, missing)
             return info_hash
         if hold:
             # Dopo la registrazione: il rollback di un DB occupato lì dentro
             # non deve perdere l'attesa, se no il torrent restava fermo per
             # sempre senza nessuno che lo avviasse. Il commit è del chiamante.
             _register_seed(session, job, target, adapter, info_hash)
-            _hold(session, job, target, "added_to_client_held", client, save_path, allowed)
+            _hold(session, job, target, "added_to_client_held", client, save_path, allowed, missing)
             return info_hash
         info = None
         if skip:
@@ -637,16 +642,18 @@ def _stop_before_recheck(adapter, info_hash: str, job_id: int, client: str) -> N
 # fermo e "Riprova il seed" lo fa ricontrollare.
 SEED_RECHECK_PENDING = upload_jobs.SEED_RECHECK_PENDING
 SEED_RECHECK_FAILED = "seed_recheck_failed"
-# Gli eventi di un'aggiunta in attesa: i loro parametri (save_path, allowed)
-# servono al reconcile e al nuovo tentativo.
+# Gli eventi di un'aggiunta in attesa: i loro parametri (save_path, allowed,
+# missing) servono al reconcile e al nuovo tentativo.
 _HOLD_EVENTS = ("added_to_client_held", "already_in_client_held")
 
 
 def _hold(session: Session, job: UploadJob, target: UploadTarget, code: str, client: str, save_path: str,
-          allowed: int) -> None:
+          allowed: int, missing: list[str] | None = None) -> None:
     target.error_message = SEED_RECHECK_PENDING
+    upload_extras.forget(target.id)  # una nuova attesa: la verifica dei piece ricomincia
+    extra = {"missing": sorted(missing)} if missing is not None else {}
     upload_jobs.log_event(session, job, code, target=target, client=client, save_path=save_path,
-                          allowed=int(allowed or 0))
+                          allowed=int(allowed or 0), **extra)
 
 
 def _hold_params(job: UploadJob, target: UploadTarget) -> dict:
@@ -803,12 +810,13 @@ def retry_seed(session: Session, job: UploadJob, target: UploadTarget, data_dir:
 
 
 def _retry_add(session: Session, job: UploadJob, target: UploadTarget, torrent_path: str, save_path: str,
-               allowed: int) -> None:
+               allowed: int, missing: list[str] | None = None) -> None:
     """L'aggiunta di un nuovo tentativo: ferma, con il recheck, e il target
     in attesa del suo esito (_add_to_client con hold)."""
     previous = target.error_message
     try:
-        info_hash = _add_to_client(session, job, target, torrent_path, save_path, hold=True, allowed=allowed)
+        info_hash = _add_to_client(session, job, target, torrent_path, save_path, hold=True, allowed=allowed,
+                                   missing=missing)
     except Exception as exc:
         session.rollback()
         target.error_message = previous if previous in SEED_RETRYABLE else "seed_failed"
@@ -853,6 +861,7 @@ def _recheck_held(session: Session, job: UploadJob, target: UploadTarget) -> boo
     finally:
         adapter_factory.close_adapter(adapter)
     target.error_message = SEED_RECHECK_PENDING
+    upload_extras.forget(target.id)  # sui file di adesso
     upload_jobs.log_event(session, job, "seed_recheck_requested", target=target, client=row.label)
     session.commit()
     return True
@@ -870,7 +879,9 @@ def _readd_reseed(session: Session, job: UploadJob, target: UploadTarget) -> Non
     if not os.path.isdir(save_path) or not _inside(os.path.join(save_path, "x"), seeding_area(job)):
         raise UploadJobError("upload_seed_files_missing")
     session.commit()
-    _retry_add(session, job, target, target.torrent_path, save_path, allowed=int(params.get("allowed") or 0))
+    missing = params.get("missing")
+    _retry_add(session, job, target, target.torrent_path, save_path, allowed=int(params.get("allowed") or 0),
+               missing=[p for p in missing if isinstance(p, str)] if isinstance(missing, list) else None)
 
 
 def _upload_pairs(job: UploadJob, torrent: torf.Torrent, root: str) -> list[tuple[str, str]]:
@@ -1059,7 +1070,8 @@ def run_reseed(session: Session, job: UploadJob, target: UploadTarget, ctx: dict
         link_files(destinations(save_path), save_path)
     _remember_seeded(ctx, target, [dst for _src, dst in destinations(save_path)])
     allowed = expected_missing_bytes(sum(e.length for e in missing), len(missing), parsed.piece_length)
-    target.info_hash = _add_to_client(session, job, target, torrent_path, save_path, hold=True, allowed=allowed)
+    target.info_hash = _add_to_client(session, job, target, torrent_path, save_path, hold=True, allowed=allowed,
+                                      missing=[e.path for e in missing])
     upload_jobs.log_event(session, job, "reseeded", target=target, torrent=target.reseed_torrent_id)
 
 
@@ -1110,6 +1122,7 @@ def _reconcile_held(session: Session, job: UploadJob, target: UploadTarget, data
                 logger.info("Upload %s: %s non (ancora) in %s, riprovo dopo", job.id, target.info_hash, client)
             else:
                 _missing_since.pop(target.id, None)
+                upload_extras.forget(target.id)
                 target.error_message = SEED_RECHECK_FAILED
                 upload_jobs.log_event(session, job, "seed_recheck_torrent_gone", level="error", target=target,
                                       client=client)
@@ -1117,17 +1130,21 @@ def _reconcile_held(session: Session, job: UploadJob, target: UploadTarget, data
                 session.commit()
             return
         _missing_since.pop(target.id, None)
-        outcome = recheck_outcome(status, _hold_params(job, target).get("allowed"))
+        params = _hold_params(job, target)
+        outcome, reason = recheck_outcome(status, params.get("allowed")), None
+        if outcome == "ok" and (status.recheck_status == "failed" or upload_extras.is_open(target.id)):
+            outcome, reason = _extras_outcome(session, job, target, adapter, client, status, params)
         if outcome == "pending":
             return
         if outcome == "ok":
             result, error = ("started", None)
             if is_stopped_state(status.state):
                 result, error = start_torrent(adapter, target.info_hash)
-            if result == "failed":  # si riprova al giro dopo
+            if result == "failed":  # si riprova al giro dopo, con la verifica dei piece già fatta
                 logger.warning("Upload %s: recheck di %s riuscito, avvio rifiutato da %s", job.id,
                                target.info_hash, client, exc_info=error)
                 return
+            upload_extras.forget(target.id)
             target.error_message = None
             upload_jobs.log_event(session, job, "seed_recheck_passed" if result == "started"
                                   else "seed_recheck_passed_start_by_hand", target=target, client=client)
@@ -1135,12 +1152,16 @@ def _reconcile_held(session: Session, job: UploadJob, target: UploadTarget, data
                                           client=client)
             session.commit()
             return
+        upload_extras.forget(target.id)
         stopped = "stopped" if is_stopped_state(status.state) else stop_torrent(adapter, target.info_hash)[0]
         restored = _restore_partial_names(job, target, adapter, data_dir)
         target.error_message = SEED_RECHECK_FAILED
-        upload_jobs.log_event(session, job, "seed_recheck_failed" if stopped == "stopped"
-                              else "seed_recheck_failed_running", level="error", target=target, client=client,
-                              state=status.state)
+        if stopped != "stopped":
+            code = "seed_recheck_failed_running"
+        else:  # decisa da Nazgarr, piece per piece (_extras_outcome): il perché
+            code = "seed_pieces_failed" if reason else "seed_recheck_failed"
+        upload_jobs.log_event(session, job, code, level="error", target=target, client=client, state=status.state,
+                              **({"reason": reason} if reason else {}))
         if restored:
             upload_jobs.log_event(session, job, "seed_partial_names_restored", level="warning", target=target,
                                   client=client, count=len(restored))
@@ -1151,6 +1172,60 @@ def _reconcile_held(session: Session, job: UploadJob, target: UploadTarget, data
                        client, status.state)
     finally:
         adapter_factory.close_adapter(adapter)
+
+
+def _verification(target: UploadTarget) -> dict | None:
+    """Il full hash check del dupe che questo reseed rimette in seed."""
+    try:
+        dupes = json.loads(target.dupes_json or "[]")
+    except ValueError:
+        return None
+    dupe = next((d for d in dupes if isinstance(d, dict) and d.get("torrent_id_remote") == target.reseed_torrent_id),
+                None)
+    return dupe.get("verification") if dupe else None
+
+
+def _extras_outcome(session: Session, job: UploadJob, target: UploadTarget, adapter, client: str, status,
+                    params: dict) -> tuple[str, str | None]:
+    """Un recheck finito entro il margine degli extra mancanti (o un 100%
+    mentre una verifica è aperta) è riuscito solo se ogni piece che non
+    tocca quegli extra l'ha verificato Nazgarr (2026-10-21, la regola dei
+    reseed della coda: nazgarr/upload/extras_check.py). Mentre la verifica
+    gira il torrent resta fermo: uno che gira (un plugin senza
+    can_add_stopped, o avviato a mano) si ferma, come dopo un recheck
+    fallito. Ritorna (esito, perché)."""
+    save_path = params.get("save_path")
+    missing = params.get("missing")
+    missing = {p for p in missing if isinstance(p, str)} if isinstance(missing, list) else None
+    if not isinstance(save_path, str) or not target.torrent_path:
+        return "failed", "Nazgarr does not know where this reseed seeds, so it could not check its pieces"
+    try:
+        with open(target.torrent_path, "rb") as f:
+            content = f.read()
+        decided = upload_extras.decide(
+            target.id, content, target.info_hash, save_path, missing,
+            upload_extras.verified_record(_verification(target), target.info_hash), partial_files.suffix_of(adapter),
+        )
+    except (OSError, TorrentMetainfoError) as exc:
+        return "failed", f"the saved .torrent cannot be read ({safe_error(exc)}), so its pieces could not be checked"
+    except Exception:
+        # Mai un avvio senza la verifica: si riprova al reconcile dopo.
+        logger.warning("Upload %s: piece di %s fuori dagli extra mancanti non controllati", job.id, target.info_hash,
+                       exc_info=True)
+        decided = upload_extras.Outcome("pending")
+    if decided.started:
+        upload_jobs.log_event(session, job, "seed_pieces_checking", target=target, client=client)
+    if decided.outcome == "pending" and not is_stopped_state(status.state):
+        result, error = stop_torrent(adapter, target.info_hash)
+        if result == "stopped":
+            upload_jobs.log_event(session, job, "seed_stopped_while_checking", level="warning", target=target,
+                                  client=client)
+        else:
+            logger.warning("Upload %s: %s non fermato in %s durante la verifica dei piece (%s)", job.id,
+                           target.info_hash, client, result, exc_info=error)
+    if decided.outcome == "pending":
+        session.commit()
+    return decided.outcome, decided.reason
 
 
 # Da quando questo processo vede mancare dal client il torrent di un

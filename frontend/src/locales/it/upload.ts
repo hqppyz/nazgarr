@@ -429,6 +429,12 @@ export const upload = {
   'upload.event.seed_recheck_no_client':
     'Il client di questo torrent è stato tolto da Nazgarr: riprovare il seed lo aggiunge al client del tracker.',
   'upload.event.seed_recheck_requested': 'Nuovo recheck chiesto a {client}: il torrent resta fermo finché non riesce.',
+  'upload.event.seed_pieces_checking':
+    'Al recheck in {client} mancano solo gli extra che la sorgente non ha: Nazgarr controlla lui ogni altro piece prima di avviare il torrent.',
+  'upload.event.seed_stopped_while_checking':
+    '{client} faceva girare il torrent mentre Nazgarr ne controlla i piece: fermato, così intanto niente si scarica nei file collegati.',
+  'upload.event.seed_pieces_failed':
+    'Al recheck in {client} mancano solo gli extra che la sorgente non ha, ma il controllo di Nazgarr degli altri piece è fallito ({reason}): il torrent resta fermo, così niente si scarica nei file collegati. Sistema o ripristina i file, poi riprova il seed.',
   'upload.event.seed_partial_names_restored':
     '{client} aveva rinominato {count} file in “.part” durante il recheck: hanno di nuovo il loro nome.',
   'upload.event.upload_failed': 'Upload fallito: {error}',
