@@ -1953,6 +1953,57 @@ def test_a_link_this_job_never_made_is_never_removed(db_session, tmp_path, env):
     assert os.path.samefile(link, video)
 
 
+def _another_upload_of(db_session, env, video):
+    """Un secondo upload degli stessi file con gli stessi nomi, verso l'altro
+    tracker: riusa il link lasciato da un altro job (check_link) senza crearlo."""
+    return _approved(db_session, env, "media/" + video.name, {"a": {"action": "skip"}, "b": _upload("Matrix B")},
+                     file_naming="generated")
+
+
+def test_a_link_left_behind_that_another_upload_seeds_from_stays(db_session, tmp_path, env, monkeypatch):
+    """Revisione dell'audit 2026-10-18 (finding 115): un altro upload riusa
+    il link lasciato da A e ci seeda. Riprovare A, ed eliminarlo, toglievano
+    il file da cui seeda il torrent dell'altro."""
+    job_a, video, link = _links_left_by_a_failed_cleanup(db_session, tmp_path, env, monkeypatch)
+    job_b = _another_upload_of(db_session, env, video)
+    _run(db_session, tmp_path, job_b)
+    assert job_b.status == "done" and os.path.samefile(link, video)
+    assert _adds(env["client"])[-1] == (job_b.targets[1].torrent_path, str(env["root"] / "torrents"))
+
+    upload_jobs.retry_failed(db_session, job_a)
+    _run(db_session, tmp_path, job_a)
+    assert job_a.status == "failed"
+    assert os.path.samefile(link, video)
+    codes = [e.code for e in job_a.events]
+    assert "file_links_kept" in codes and "file_links_removed" not in codes
+
+    upload_jobs.delete_job(db_session, job_a, str(tmp_path / "data"))
+    assert os.path.samefile(link, video)
+
+
+def test_a_link_left_behind_that_a_running_upload_hashes_stays(db_session, tmp_path, env, monkeypatch):
+    """Lo stesso mentre l'altro upload sta ancora creando il suo torrent: il
+    suo seed non è ancora scritto, il file del suo contenuto sì."""
+    job_a, video, link = _links_left_by_a_failed_cleanup(db_session, tmp_path, env, monkeypatch)
+    job_b = _another_upload_of(db_session, env, video)
+    data_dir, a_id = str(tmp_path / "data"), job_a.id
+    hash_pieces = upload_execute.hash_pieces
+
+    def delete_a_then_hash(*args, **kwargs):
+        other = db_session.__class__(bind=db_session.get_bind())
+        try:
+            upload_jobs.delete_job(other, other.get(upload_jobs.UploadJob, a_id), data_dir)
+        finally:
+            other.close()
+        return hash_pieces(*args, **kwargs)
+
+    monkeypatch.setattr(upload_execute, "hash_pieces", delete_a_then_hash)
+    _run(db_session, tmp_path, job_b)
+
+    assert db_session.query(upload_jobs.UploadJob).filter_by(id=a_id).count() == 0
+    assert job_b.status == "done" and os.path.samefile(link, video)
+
+
 def test_a_cancel_during_the_screenshots_stops_them_and_sends_nothing(db_session, tmp_path, env, monkeypatch):
     """Audit 2026-10-18 (finding 22): annullare durante gli screenshot
     cambiava solo il DB, e le catture andavano avanti fino all'ultima."""
@@ -1993,13 +2044,13 @@ def test_the_cleanup_never_removes_what_took_the_place_of_a_link(db_session, tmp
     link = env["root"] / "torrents" / "The.Matrix.1999.mkv"
     check = upload_execute._used_elsewhere
 
-    def swap_then_check(session, job, paths, since):
+    def swap_then_check(session, job, paths, since, data_dir):
         link.unlink()
         if swap == "another_file":
             link.write_bytes(b"not ours")
         else:
             link.symlink_to(video)
-        return check(session, job, paths, since)
+        return check(session, job, paths, since, data_dir)
 
     monkeypatch.setattr(upload_execute, "_used_elsewhere", swap_then_check)
     _run(db_session, tmp_path, job)
@@ -2021,7 +2072,7 @@ def test_the_cleanup_never_follows_a_folder_turned_into_a_symlink(db_session, tm
     folder = seed / "The.Matrix.1999"
     [link] = upload_execute.link_files([(str(video), str(folder / "The.Matrix.1999.mkv"))], str(seed))
     ctx = {"created_links": [link], "created_ids": upload_execute._link_identities([link]),
-           "seed_root": lambda: str(seed)}
+           "seed_root": lambda: str(seed), "data_dir": str(tmp_path / "data")}
     elsewhere = env["root"] / "elsewhere"
     os.rename(folder, elsewhere)
     folder.symlink_to(elsewhere, target_is_directory=True)
@@ -2044,7 +2095,7 @@ def test_the_cleanup_never_removes_a_file_swapped_in_after_its_last_check(db_ses
     link = seed / "The.Matrix.1999" / "The.Matrix.1999.mkv"
     [created] = upload_execute.link_files([(str(video), str(link))], str(seed))
     ctx = {"created_links": [str(created)], "created_ids": upload_execute._link_identities([created]),
-           "seed_root": lambda: str(seed)}
+           "seed_root": lambda: str(seed), "data_dir": str(tmp_path / "data")}
     checked = upload_execute._still_our_link
 
     def check_then_swap(path, recorded):
