@@ -27,6 +27,7 @@ suo swagger/OpenAPI reale, non solo dedotto. Vedi nazgarr/adapters/torrent_clien
 
 import functools
 import logging
+import threading
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -69,26 +70,39 @@ def pinned_client_class():
     connessione (net_guard.requests_adapter), come gli altri adapter con
     net_guard.http_client (revisione dell'audit 2026-10-18: restava la
     finestra fra il controllo dell'host e la risoluzione di requests). I
-    tentativi e il pool dell'adapter di qbittorrent-api restano i suoi."""
+    tentativi e il pool dell'adapter di qbittorrent-api restano i suoi.
+
+    Sotto un lock, e la sessione segnata solo dopo aver montato l'adapter:
+    qbittorrent-api pubblica la sessione nuova (_http_session) prima di
+    montarci il suo HTTPAdapter, e i thread che chiedono i file durante
+    l'indicizzazione (FILE_WORKERS), dopo un errore che la rifà, potevano
+    prenderla in quel momento e connettersi con l'adapter senza controlli
+    (revisione dell'audit 2026-10-18)."""
     import qbittorrentapi
 
     class PinnedClient(qbittorrentapi.Client):
+        def __init__(self, *args, **kwargs):
+            self._pin_lock = threading.Lock()
+            super().__init__(*args, **kwargs)
+
         @property
         def _session(self):
-            fresh = self._http_session is None
-            session = super()._session
-            if fresh:
-                default = session.get_adapter("http://")
-                adapter = net_guard.requests_adapter(
-                    max_retries=default.max_retries,
-                    pool_connections=getattr(default, "_pool_connections", 10),
-                    pool_maxsize=getattr(default, "_pool_maxsize", 10),
-                    pool_block=getattr(default, "_pool_block", False),
-                )
-                session.mount("http://", adapter)
-                session.mount("https://", adapter)
-                default.close()
-            return session
+            with self._pin_lock:
+                session = self._http_session
+                if session is None or not getattr(session, "_nazgarr_pinned", False):
+                    session = super()._session
+                    default = session.get_adapter("http://")
+                    adapter = net_guard.requests_adapter(
+                        max_retries=default.max_retries,
+                        pool_connections=getattr(default, "_pool_connections", 10),
+                        pool_maxsize=getattr(default, "_pool_maxsize", 10),
+                        pool_block=getattr(default, "_pool_block", False),
+                    )
+                    session.mount("http://", adapter)
+                    session.mount("https://", adapter)
+                    default.close()
+                    session._nazgarr_pinned = True
+                return session
 
     return PinnedClient
 

@@ -389,6 +389,50 @@ def test_qbittorrent_connects_only_to_checked_addresses(monkeypatch):
         client._trigger_session_initialization()  # come dopo la scelta dello schema
 
 
+def test_no_thread_gets_a_qbittorrent_session_before_it_is_pinned(monkeypatch):
+    """Revisione dell'audit 2026-10-18: qbittorrent-api pubblica la sessione
+    nuova prima di montarci il suo adapter, e i thread dei file
+    dell'indicizzazione potevano prenderla lì, con l'adapter senza controlli.
+    Qui la costruzione si allarga apposta, mentre altri thread la chiedono."""
+    import threading
+    import time
+
+    import qbittorrentapi
+
+    from nazgarr.adapters.torrent_client.qbittorrent import QBittorrentAdapter
+
+    monkeypatch.setattr(net_guard.socket, "getaddrinfo", _resolver({"nas.example": ["192.168.1.10"]}))
+    client = QBittorrentAdapter("http://nas.example:8080", "u", "p")._client
+    checked = type(net_guard.requests_adapter())
+    original = qbittorrentapi.Client._session.fget
+
+    def slow_session(self):
+        fresh = self._http_session is None
+        session = original(self)
+        if fresh:
+            time.sleep(0.01)  # la sessione è già pubblicata, il nostro adapter non ancora montato
+        return session
+
+    monkeypatch.setattr(qbittorrentapi.Client, "_session", property(slow_session))
+    seen, stop = [], threading.Event()
+
+    def worker():
+        while not stop.is_set():
+            seen.append(isinstance(client._session.get_adapter("https://nas.example"), checked))
+
+    threads = [threading.Thread(target=worker) for _ in range(4)]
+    for thread in threads:
+        thread.start()
+    for _ in range(10):
+        client._trigger_session_initialization()  # come dopo un errore di connessione
+        time.sleep(0.005)
+    stop.set()
+    for thread in threads:
+        thread.join(5)
+
+    assert seen and all(seen)
+
+
 def test_a_request_through_a_proxy_checks_its_host_first(monkeypatch):
     """Lì il nome lo risolve il proxy: prima si fidava del solo check_url di
     chi chiamava, che Radarr/Sonarr, le istanze e i client non facevano a ogni
