@@ -529,6 +529,13 @@ def test_episode_group_seasons_come_from_their_names_or_start_at_one():
     assert seasons("Season 0", "Season 1", "Season 1") == [0, 1, 2]
     # Un gruppo senza numero fra quelli numerati: il primo numero libero.
     assert seasons("Pilot Movie", "Season 1", "Season 2") == [3, 1, 2]
+    # I numeri degli episodi sono posizioni, non stagioni: "Episodes 13-24"
+    # era la stagione 13 (revisione dell'audit 2026-10-18).
+    assert seasons("Episodes 1-12", "Episodes 13-24") == [1, 2]
+    assert seasons("Specials", "Ep. 1–12", "Ep. 13–26") == [0, 1, 2]
+    assert seasons("Episodes 1-24", "Episode 25") == [1, 2]
+    assert seasons("Season 1 (Episodes 1-12)", "Season 2 (Episodes 13-24)") == [1, 2]
+    assert seasons("Season 3 (2019-2020)", "Season 4 (2021-2022)") == [3, 4]
 
 
 def test_parts_of_an_episode_group_with_the_same_number_keep_all_their_episodes():
