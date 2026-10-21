@@ -1,14 +1,13 @@
 """Engine SQLAlchemy + applicazione dello schema.
 
-Convenzione del progetto (docs/ROADMAP.md, Fase 0): docs/schema.sql è la
-fonte di verità per la DDL. Non usiamo Base.metadata.create_all() per non
-duplicare/divergere dallo schema: allo startup eseguiamo schema.sql
-direttamente (le CREATE TABLE sono idempotenti, IF NOT EXISTS) — comprese
-le tabelle non ancora usate dall'app in questa fase (matching/upload
-arrivano rispettivamente in Fase 4 e Fase 6, ma le loro tabelle esistono
-già da subito, vuote, senza bisogno di un secondo schema). I modelli in
-nazgarr/core/models.py mappano via ORM solo le tabelle già rilevanti per la fase
-corrente, e crescono di pari passo con le fasi successive.
+Convenzione del progetto: docs/schema.sql è la fonte di verità per la DDL.
+Non usiamo Base.metadata.create_all() per non duplicare/divergere dallo
+schema: allo startup eseguiamo schema.sql direttamente (le CREATE TABLE sono
+idempotenti, IF NOT EXISTS). Le colonne nuove le aggiunge migrate_schema()
+(qui sotto); le migrazioni dei dati e le tabelle da ricostruire sono i passi
+numerati di nazgarr/core/migrations.py (le funzioni di quelli che rifanno una
+tabella stanno qui). I modelli in nazgarr/core/models.py mappano le tabelle
+via ORM, allineati a schema.sql da tests/test_consistency.py.
 
 CREATE TABLE IF NOT EXISTS crea le tabelle mancanti ma non tocca quelle
 già esistenti: una colonna additiva aggiunta a un modello dopo che un
@@ -18,12 +17,12 @@ attese (dai modelli SQLAlchemy) con quelle realmente presenti e
 aggiungendo quelle mancanti via ALTER TABLE — va chiamata sempre, ad ogni
 avvio, dopo apply_schema(). Stesso pattern di ratio-guardian/app/db.py.
 
-migrate_legacy_media_path_id() copre l'unico caso finora in cui questo
-schema è cambiato in un modo che apply_schema()/migrate_schema() non
-sanno gestire: il commit 5fd42fc ha eliminato la tabella media_path e la
-sua FK NOT NULL media_file.media_path_id, sostituendole con
-disk.media_rel_path. Un DB creato PRIMA di quel commit conserva ancora
-la vecchia forma (la CREATE TABLE IF NOT EXISTS di apply_schema non
+migrate_legacy_media_path_id() (passo 1 di migrations.py) copre il primo
+caso in cui questo schema è cambiato in un modo che apply_schema() e
+migrate_schema() non sanno gestire: il commit 5fd42fc ha eliminato la
+tabella media_path e la sua FK NOT NULL media_file.media_path_id,
+sostituendole con disk.media_rel_path. Un DB creato PRIMA di quel commit
+conserva ancora la vecchia forma (la CREATE TABLE IF NOT EXISTS di apply_schema non
 tocca una tabella già esistente, e migrate_schema sa solo aggiungere
 colonne, mai rimuoverle) — ogni scan da allora falliva silenziosamente
 al primo INSERT in media_file, perché il codice attuale non valorizza

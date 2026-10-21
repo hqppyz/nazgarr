@@ -145,8 +145,12 @@ async def _validation_error(request: Request, exc: RequestValidationError) -> JS
     return JSONResponse(status_code=422, content={"detail": errors})
 
 
-# /api/auth/* è l'unico router mai protetto da require_auth (altrimenti
-# nessuno potrebbe mai autenticarsi la prima volta) — vedi nazgarr/api/auth.py.
+# Fuori da require_auth ci sono solo due router: /api/auth/* (altrimenti
+# nessuno potrebbe mai autenticarsi la prima volta, nazgarr/api/auth.py) e i
+# webhook di Radarr/Sonarr (/api/arr-hooks/*), che accettano solo la password
+# del webhook di un'istanza (nazgarr/api/arr_hooks.py). Più /api/health, che
+# senza credenziali risponde solo "ok".
+
 # Le viste della libreria restituiscono JSON da diversi MB (decine di
 # migliaia di file): compressi in gzip pesano una frazione in rete. Livello 6,
 # non il 9 di Starlette: su 3,7 MB 15 ms invece di 54, per un file appena più
@@ -164,7 +168,8 @@ app.include_router(arr_hooks_router)
 
 # API JSON pura sotto /api/* fin dall'inizio (docs/SPEC.md §10). Protette da
 # require_auth: il login è obbligatorio, e finché l'account non esiste tutto
-# resta chiuso tranne /api/auth/* (nazgarr/web/auth.py).
+# resta chiuso tranne /api/auth/* (nazgarr/web/auth.py); i webhook di
+# Radarr/Sonarr qui sopra accettano solo la password del webhook di un'istanza.
 _protected = Depends(auth.require_auth)
 app.include_router(disks_router, dependencies=[_protected])
 app.include_router(runs_router, dependencies=[_protected])

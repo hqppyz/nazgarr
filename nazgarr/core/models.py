@@ -211,11 +211,12 @@ class DiskTorrentClient(Base):
 
 
 class RadarrInstance(Base):
-    """Adapter di content-identification opzionale, mai richiesto dal
-    resolver (docs/SPEC.md SS2/SS6) — nessun adapter concreto lo consuma
-    ancora, questa è solo la tabella multi-istanza preparata in anticipo
-    (stesso pattern di Tracker/TorrentClient: multi-istanza da subito,
-    non un flat key/value singolo su app_settings)."""
+    """Un'istanza di Radarr: opzionale, mai richiesta (docs/SPEC.md §2 e §6).
+    La usano nazgarr/integrations/arr.py (l'indice di ogni run per la
+    risoluzione e la history degli import), i webhook
+    (nazgarr/integrations/arr_webhooks.py), il link nella scheda della
+    libreria e l'analisi degli upload. Multi-istanza come Tracker e
+    TorrentClient, non un key/value singolo su app_settings."""
 
     __tablename__ = "radarr_instance"
 
@@ -229,7 +230,7 @@ class RadarrInstance(Base):
     # ALTER TABLE ADD COLUMN additivi su colonne nullable — il default
     # "vero" (0 / 15) si applica lato Python in from_model(), stesso
     # trattamento di Disk.new_torrent_rel_path.
-    priority: Mapped[int | None]  # più alto = interrogato prima, quando esisterà un resolver che li consuma
+    priority: Mapped[int | None]  # più alto = interrogato prima (nazgarr/integrations/arr.py::build_arr_index)
     timeout_seconds: Mapped[int | None]
     basic_auth_username: Mapped[str | None]  # per Radarr dietro un reverse proxy con HTTP basic auth
     basic_auth_password: Mapped[str | None] = mapped_column(EncryptedString)
@@ -238,8 +239,8 @@ class RadarrInstance(Base):
 
 
 class SonarrInstance(Base):
-    """Vedi RadarrInstance — stesso ruolo e stesso stato (non ancora
-    consumato da nessun adapter), per Sonarr."""
+    """Vedi RadarrInstance: lo stesso ruolo, per Sonarr. In più l'ordine
+    degli episodi "aired" di TVDB (nazgarr/library/episode_orders.py)."""
 
     __tablename__ = "sonarr_instance"
 
