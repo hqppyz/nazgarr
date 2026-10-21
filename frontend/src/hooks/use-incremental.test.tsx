@@ -61,6 +61,34 @@ describe('useIncrementalCount', () => {
     expect(container.querySelectorAll('[data-row]')).toHaveLength(4)
   })
 
+  it('watches a sentinel that mounts after the rows were counted (the list behind the ring loader)', () => {
+    // NotImportedView: i dati arrivano mentre il loader sfuma, la tabella
+    // (e la sentinella) monta dopo, senza che count o total cambino.
+    function Late({ total, shown }: { total: number; shown: boolean }) {
+      const { visible, hasMore, sentinelRef } = useIncrementalCount<HTMLDivElement>(total, 2, 'all')
+      if (!shown) return <p>loading</p>
+      return (
+        <div>
+          {Array.from({ length: visible }, (_, i) => (
+            <p key={i} data-row>
+              {i}
+            </p>
+          ))}
+          {hasMore && <div ref={sentinelRef} />}
+        </div>
+      )
+    }
+    const { container, rerender } = render(<Late total={0} shown={false} />)
+    rerender(<Late total={5} shown={false} />)
+    expect(FakeObserver.all).toHaveLength(0)
+    rerender(<Late total={5} shown />)
+    expect(container.querySelectorAll('[data-row]')).toHaveLength(2)
+    expect(FakeObserver.all).toHaveLength(1)
+
+    act(() => FakeObserver.all[0].callback([{ isIntersecting: true } as IntersectionObserverEntry], {} as IntersectionObserver))
+    expect(container.querySelectorAll('[data-row]')).toHaveLength(4)
+  })
+
   it('falls back to the window outside the scrolling area (a sheet, a dialog)', () => {
     render(<Rows total={5} />)
     expect(FakeObserver.all.map((o) => o.root)).toEqual([null])

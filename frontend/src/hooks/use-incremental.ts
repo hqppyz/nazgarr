@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { scrollRoot } from '@/lib/scrollRoot'
 
@@ -17,9 +17,13 @@ export function useIncrementalCount<T extends Element>(total: number, pageSize: 
     setKey(resetKey)
     setCount(pageSize)
   }
-  const sentinelRef = useRef<T | null>(null)
+  // La sentinella come stato (un ref a callback), non un useRef: l'effetto
+  // riparte quando monta. Con useRef una lista resa la prima volta dietro
+  // il loader (NotImportedView: i dati arrivano durante la sua dissolvenza,
+  // la tabella monta dopo) non agganciava mai l'observer e restava ai primi
+  // 100 (audit 2026-10-18).
+  const [node, sentinelRef] = useState<T | null>(null)
   useEffect(() => {
-    const node = sentinelRef.current
     if (!node || count >= total) return
     const observer = new IntersectionObserver(
       (entries) => {
@@ -30,6 +34,6 @@ export function useIncrementalCount<T extends Element>(total: number, pageSize: 
     )
     observer.observe(node)
     return () => observer.disconnect()
-  }, [count, total, pageSize])
+  }, [node, count, total, pageSize])
   return { visible: Math.min(count, total), hasMore: count < total, sentinelRef }
 }
