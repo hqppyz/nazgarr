@@ -25,7 +25,7 @@ from nazgarr.core.models import (
     Tracker,
 )
 from nazgarr.integrations.arr import ArrIndex
-from nazgarr.reseed import executor, matching, pipeline
+from nazgarr.reseed import executor, full_check, matching, pipeline
 from nazgarr.torrents.metainfo import compute_info_hash
 from tests.fakes import RecordingClient
 
@@ -204,7 +204,17 @@ def test_sonarr_history_maps_episodes_whose_names_guessit_cannot_parse(db_sessio
     assert {f.media_file_id for f in candidate.files if f.is_video} == {e01.id, e02.id}
 
 
-def test_executing_a_pack_hardlinks_every_local_file_and_tolerates_missing_extras(db_session, tmp_path, monkeypatch):
+@pytest.fixture
+def inline_checks(monkeypatch):
+    """La verifica dei piece di Nazgarr (la coda dei controlli completi) gira
+    subito, nel thread del test: il reconcile ne legge l'esito al primo giro."""
+    from tests.upload_helpers import InlineExecutor
+
+    monkeypatch.setattr(full_check, "_executor", InlineExecutor())
+
+
+def test_executing_a_pack_hardlinks_every_local_file_and_tolerates_missing_extras(
+        db_session, tmp_path, monkeypatch, inline_checks):
     _no_mediainfo(monkeypatch)
     disk, tracker, _ = _library(db_session, tmp_path)
     matching.run_media_to_torrent_matching(db_session, tracker, PackTracker([_pack_candidate()]))
@@ -228,6 +238,143 @@ def test_executing_a_pack_hardlinks_every_local_file_and_tolerates_missing_extra
     client.status = TorrentStatus(PACK_HASH, "stalledDL", "failed", 0.9, incomplete=True, amount_left=40)
     executor.reconcile_seed_job(db_session, seed_job, client)
     assert (seed_job.recheck_status, seed_job.final_status) == ("ok", "seeding")
+
+
+# --- La tolleranza vale solo per i piece degli extra mancanti (decisione dell'utente, 2026-10-21)
+#
+# Il pack: E01 piece 0-3, E02 4-7, SRT 8-9, NFO (mancante) 9-11. Il margine
+# è len(NFO) + 2 piece = 62 byte: un piece diverso del video (16 byte) ci
+# sta dentro, e il client dice solo quanti byte gli mancano.
+
+
+def _executed_pack(db_session, tmp_path, monkeypatch):
+    _no_mediainfo(monkeypatch)
+    _library(db_session, tmp_path)
+    matching.run_media_to_torrent_matching(db_session, db_session.query(Tracker).one(),
+                                           PackTracker([_pack_candidate()]))
+    client = FakeClient()
+    seed_job = executor.execute_review(db_session, db_session.query(MatchReview).one(), client)
+    return seed_job, client, tmp_path / "torrents" / FOLDER
+
+
+def _edit_in_place(path, offset: int) -> None:
+    """Un byte cambiato sul posto, stessa dimensione (mkvpropedit, per
+    esempio), con una data di modifica che non può coincidere."""
+    data = bytearray(path.read_bytes())
+    data[offset] ^= 0xFF
+    path.write_bytes(bytes(data))
+    stat = os.stat(path)
+    os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns + 5_000_000_000))
+
+
+def _within_the_allowance(client, amount_left=56) -> None:
+    # Recheck finito, fermo, entro il margine dei byte dell'nfo.
+    client.status = TorrentStatus(PACK_HASH, "stoppedDL", "failed", 0.7, incomplete=True, amount_left=amount_left)
+
+
+def test_a_wrong_video_piece_within_the_allowance_fails_and_never_starts(
+        db_session, tmp_path, monkeypatch, inline_checks):
+    seed_job, client, target = _executed_pack(db_session, tmp_path, monkeypatch)
+    _edit_in_place(target / "Show.S01E01.1080p-GRP.mkv", 5)  # il piece 0, tutto dentro il video
+    _within_the_allowance(client)
+
+    executor.reconcile_seed_job(db_session, seed_job, client)
+
+    assert (seed_job.recheck_status, seed_job.final_status) == ("failed", "failed")
+    assert client.started == []
+    assert "Nazgarr's own check of the other pieces failed" in seed_job.error_message
+    assert "'Show.S01E01.1080p-GRP.mkv'" in seed_job.error_message and "left stopped" in seed_job.error_message
+
+
+def test_only_the_missing_extras_pass_even_when_the_client_created_them(
+        db_session, tmp_path, monkeypatch, inline_checks):
+    """Un client che preallochi il file che manca (zeri, della dimensione
+    giusta) non lo fa sembrare un piece diverso: gli extra mancanti non si
+    leggono."""
+    seed_job, client, target = _executed_pack(db_session, tmp_path, monkeypatch)
+    (target / "Show.S01.1080p-GRP.nfo").write_bytes(b"\0" * len(NFO))
+    _within_the_allowance(client)
+
+    executor.reconcile_seed_job(db_session, seed_job, client)
+
+    assert (seed_job.recheck_status, seed_job.final_status) == ("ok", "seeding")
+    assert client.started == [PACK_HASH]
+    check = full_check.get_check(executor._extras_checks[seed_job.id])
+    assert (check.purpose, check.seed_job_id, check.verdict) == ("extras", seed_job.id, "passed")
+    assert check.result["bad_pieces"] == []
+
+
+def test_a_full_check_that_passed_on_these_files_is_not_read_again(db_session, tmp_path, monkeypatch):
+    """Il controllo completo prima di eseguire (verify_before_execute) ha già
+    letto ogni piece di questi file: niente seconda lettura dell'intero
+    video, né il .torrent riscaricato. Nemmeno una verifica in background."""
+    _no_mediainfo(monkeypatch)
+    _library(db_session, tmp_path)
+    matching.run_media_to_torrent_matching(db_session, db_session.query(Tracker).one(),
+                                           PackTracker([_pack_candidate()]))
+    review = db_session.query(MatchReview).one()
+    result = full_check.run_full_check(db_session, review.candidate, None, review.media_file_id,
+                                       fetch_torrent=lambda candidate: _pack_torrent())
+    assert full_check.verdict(result) == (True, None)
+    client = FakeClient()
+    seed_job = executor.execute_review(db_session, review, client)
+    monkeypatch.setattr(full_check, "start_extras_check", lambda *a, **k: pytest.fail("read again"))
+    _within_the_allowance(client)
+
+    executor.reconcile_seed_job(db_session, seed_job, client)
+
+    assert (seed_job.final_status, client.started) == ("seeding", [PACK_HASH])
+
+
+def test_a_file_edited_after_the_full_check_is_read_again(db_session, tmp_path, monkeypatch, inline_checks):
+    _no_mediainfo(monkeypatch)
+    _library(db_session, tmp_path)
+    matching.run_media_to_torrent_matching(db_session, db_session.query(Tracker).one(),
+                                           PackTracker([_pack_candidate()]))
+    review = db_session.query(MatchReview).one()
+    full_check.run_full_check(db_session, review.candidate, None, review.media_file_id,
+                              fetch_torrent=lambda candidate: _pack_torrent())
+    client = FakeClient()
+    seed_job = executor.execute_review(db_session, review, client)
+    _edit_in_place(tmp_path / "torrents" / FOLDER / "Show.S01E02.1080p-GRP.mkv", 0)  # fra il controllo e l'add
+    _within_the_allowance(client)
+
+    executor.reconcile_seed_job(db_session, seed_job, client)
+
+    assert seed_job.final_status == "failed" and client.started == []
+    assert "'Show.S01E02.1080p-GRP.mkv'" in seed_job.error_message
+
+
+def test_while_nazgarr_checks_the_reseed_waits_and_retry_checks_again(db_session, tmp_path, monkeypatch):
+    """In background (legge l'intero video): il seed job resta in corso col
+    perché, e il reconcile dopo legge l'esito. Un retry dopo un esito
+    fallito rifà la verifica, sui file di adesso."""
+    seed_job, client, target = _executed_pack(db_session, tmp_path, monkeypatch)
+    queued = []
+    monkeypatch.setattr(full_check, "_executor", type("Later", (), {
+        "submit": lambda self, fn, *args: queued.append((fn, args))})())
+    video = target / "Show.S01E01.1080p-GRP.mkv"
+    original = video.read_bytes()
+    _edit_in_place(video, 5)
+    _within_the_allowance(client)
+
+    executor.reconcile_seed_job(db_session, seed_job, client)
+    executor.reconcile_seed_job(db_session, seed_job, client)
+    assert (seed_job.final_status, seed_job.recheck_status) == ("in_progress", "pending")
+    assert seed_job.error_message == executor.EXTRAS_CHECKING and len(queued) == 1  # una sola verifica
+
+    fn, args = queued.pop()
+    fn(*args)
+    executor.reconcile_seed_job(db_session, seed_job, client)
+    assert seed_job.final_status == "failed" and client.started == []
+
+    video.write_bytes(original)  # i file rimessi a posto, poi Retry
+    executor.adopt_for_retry(db_session, seed_job, client)
+    assert seed_job.final_status == "in_progress" and len(queued) == 1
+    fn, args = queued.pop()
+    fn(*args)
+    executor.reconcile_seed_job(db_session, seed_job, client)
+    assert (seed_job.final_status, client.started) == ("seeding", [PACK_HASH])
 
 
 def test_a_pack_for_a_client_without_root_folders_is_hardlinked_without_it(db_session, tmp_path, monkeypatch):

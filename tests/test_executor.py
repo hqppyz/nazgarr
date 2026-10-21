@@ -994,14 +994,57 @@ def test_a_recheck_the_client_refuses_is_a_failed_retry(db_session, tmp_path):
     assert seed_job.final_status == "failed" and adapter.started == []
 
 
-def test_the_known_missing_extras_still_count_as_a_good_recheck(db_session, tmp_path):
+def _other_pieces_verified(monkeypatch, outcome=("ok", None)):
+    """La verifica di Nazgarr dei piece fuori dagli extra mancanti (la
+    vera è in tests/test_season_pack.py, con i file): qui il suo esito."""
+    calls = []
+    monkeypatch.setattr(executor, "_extras_gate", lambda session, seed_job, adapter: calls.append(seed_job.id)
+                        or outcome)
+    return calls
+
+
+def test_the_known_missing_extras_still_count_as_a_good_recheck(db_session, tmp_path, monkeypatch):
+    # Solo dopo la verifica di Nazgarr dei piece fuori dagli extra
+    # (decisione dell'utente, 2026-10-21).
     seed_job = _failed_recheck_job(db_session, tmp_path)
     seed_job.expected_missing_bytes = 10
     adapter = _StoppedAdds(recheck_status="failed", progress=0.99)
+    calls = _other_pieces_verified(monkeypatch)
 
     executor.reconcile_seed_job(db_session, seed_job, adapter)
 
+    assert calls == [seed_job.id]
     assert seed_job.final_status == "seeding" and adapter.started == ["deadbeef"]  # il client scarica gli extra
+
+
+@pytest.mark.parametrize("outcome", ["pending", "failed"])
+def test_within_the_allowance_nothing_starts_before_nazgarrs_own_check_passes(db_session, tmp_path, monkeypatch,
+                                                                              outcome):
+    seed_job = _failed_recheck_job(db_session, tmp_path)
+    seed_job.expected_missing_bytes = 10
+    adapter = _StoppedAdds(recheck_status="failed", progress=0.99)
+    _other_pieces_verified(monkeypatch, (outcome, "the reason"))
+
+    executor.reconcile_seed_job(db_session, seed_job, adapter)
+
+    assert adapter.started == []
+    if outcome == "pending":
+        assert (seed_job.final_status, seed_job.recheck_status, seed_job.error_message) == (
+            "in_progress", "pending", "the reason")
+    else:
+        assert seed_job.final_status == "failed"
+        assert seed_job.error_message.startswith("Recheck failed, the reason (client state: stoppedDL); left stopped")
+
+
+def test_a_recheck_beyond_the_allowance_never_asks_nazgarrs_check(db_session, tmp_path, monkeypatch):
+    seed_job = _failed_recheck_job(db_session, tmp_path)
+    seed_job.expected_missing_bytes = 10
+    adapter = _IncompleteAfterRecheck(state="stoppedDL")  # mancano 1000 byte
+    calls = _other_pieces_verified(monkeypatch)
+
+    executor.reconcile_seed_job(db_session, seed_job, adapter)
+
+    assert calls == [] and seed_job.final_status == "failed" and adapter.started == []
 
 
 def test_a_start_the_client_refuses_keeps_the_job_in_progress_and_is_tried_again(db_session, tmp_path):
@@ -1036,13 +1079,14 @@ def test_a_client_that_cannot_start_it_ends_seeding_with_the_reason(db_session, 
     assert seed_job.error_message == executor.CANNOT_START
 
 
-def test_a_deluge_reseed_missing_only_its_extras_starts_after_its_recheck(db_session, tmp_path):
+def test_a_deluge_reseed_missing_only_its_extras_starts_after_its_recheck(db_session, tmp_path, monkeypatch):
     # Come lo legge Deluge dopo force_recheck su un torrent in pausa: rimesso
     # in pausa, al 99%, con is_auto_managed (l'opzione salvata) vero. Prima
     # era "pending" per sempre: mai avviato, mai in seed.
     from tests.test_torrent_client_deluge import _adapter as deluge_adapter
     from tests.test_torrent_client_deluge import _DelugeMock
 
+    _other_pieces_verified(monkeypatch)
     seed_job = _failed_recheck_job(db_session, tmp_path)
     seed_job.expected_missing_bytes = 2000
     mock = _DelugeMock(torrents={"deadbeef": {"state": "Paused", "progress": 99.0, "paused": True,
