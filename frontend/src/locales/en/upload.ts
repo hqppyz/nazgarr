@@ -27,8 +27,6 @@ export const upload = {
   'upload.starting': 'Starting…',
   'upload.createFailed': 'Could not start the upload: {message}',
   'upload.noUploadsYet': 'No uploads yet.',
-  'upload.columnContent': 'Content',
-  'upload.columnStatus': 'Status',
   'upload.untitled': 'Not identified yet',
   'upload.backToList': 'All uploads',
   'upload.cancelJob': 'Cancel',
@@ -111,7 +109,6 @@ export const upload = {
   'upload.match.seasonsLabel': 'Seasons',
   'upload.match.seasonN': 'Season {n}',
   'upload.match.orderLabel': "Episode ordering",
-  'upload.match.orderFit': "{matched}/{files} files fit",
   'upload.match.orderWarning': "The files do not follow {tvdb}, the order Sonarr uses: they fit {order} better, so that one is selected. You can change it: it applies to the name, the files and the tracker fields.",
   'upload.match.orderUse': "Use {order}",
   'upload.match.orderMapping': "How the files map ({count} episodes)",
@@ -137,9 +134,6 @@ export const upload = {
   'upload.analysis.title': 'What Nazgarr found',
   'upload.analysis.files': '{count} file(s), {size}.',
   'upload.analysis.clean': 'Not on any client and not downloaded from a tracker, as far as Nazgarr knows.',
-  'upload.analysis.grabbed':
-    'Radarr/Sonarr downloaded this from {tracker} (torrent {id}): it is probably not your own release, a reseed may be what you want.',
-  'upload.analysis.onClient': 'Already on a client, check before uploading:',
   'upload.analysis.grabbedRecap':
     'Radarr/Sonarr downloaded this from {tracker} ({count} torrent(s)): probably not your own release.',
   'upload.analysis.torrentId': 'torrent {id}',
