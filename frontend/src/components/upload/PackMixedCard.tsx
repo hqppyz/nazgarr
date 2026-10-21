@@ -1,4 +1,5 @@
 import { TriangleAlertIcon } from 'lucide-react'
+import { toast } from 'sonner'
 
 import { useUpdateOverrides, type UploadJob } from '@/api/hooks/uploads'
 import { t } from '@/lib/i18n'
@@ -34,7 +35,13 @@ export function PackMixedCard({ job }: { job: UploadJob }) {
           className="size-4 accent-primary"
           checked={confirmed}
           disabled={save.isPending || job.status !== 'awaiting_decision'}
-          onChange={(e) => save.mutate({ ...job.overrides, pack_mixed_confirmed: e.target.checked })}
+          // Un salvataggio rifiutato dice perché (audit 2026-10-18): prima la
+          // casella tornava com'era senza un messaggio.
+          onChange={(e) =>
+            save.mutate({ ...job.overrides, pack_mixed_confirmed: e.target.checked }, {
+              onError: (error) => toast.error(error.message),
+            })
+          }
         />
         {t('pack.mixedConfirm')}
       </label>
