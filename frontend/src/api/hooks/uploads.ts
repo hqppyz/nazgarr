@@ -331,12 +331,12 @@ export function useReorderQueue() {
   })
 }
 
-// Il pattern dei nomi dei file nel torrent (Settings > Upload).
+// Il pattern dei nomi dei file nel torrent (Settings > Upload). Risposte
+// tipizzate dall'OpenAPI (audit 2026-10-18), non più forzate a mano.
 export function useFileNaming() {
   return useQuery({
     queryKey: ['uploads', 'file-naming'],
-    queryFn: async () =>
-      (await unwrap(api.GET('/api/uploads/file-naming'))) as unknown as { rules: NamingRulesShape; default: NamingRulesShape },
+    queryFn: () => unwrap(api.GET('/api/uploads/file-naming')),
   })
 }
 
@@ -353,8 +353,7 @@ export function useSaveFileNaming() {
 export function useFileNamingPreview(rules: NamingRulesShape | null) {
   return useQuery({
     queryKey: ['uploads', 'file-naming', 'preview', rules],
-    queryFn: async () =>
-      (await unwrap(api.POST('/api/uploads/file-naming/preview', { body: { rules: rules! } }))) as unknown as NamingPreview,
+    queryFn: (): Promise<NamingPreview> => unwrap(api.POST('/api/uploads/file-naming/preview', { body: { rules: rules! } })),
     enabled: rules !== null,
     placeholderData: (previous) => previous,
     retry: false,

@@ -684,8 +684,39 @@ class FileNamingRequest(BaseModel):
     rules: dict
 
 
-@router.get("/file-naming")
-def get_file_naming(session: Session = Depends(get_session)) -> dict:
+class FileNamingResponse(BaseModel):
+    rules: dict[str, Any]  # le regole salvate (nazgarr/upload/naming_rules.py)
+    default: dict[str, Any]  # quelle di default, per tornarci
+
+
+class FileNamingPreviewSample(BaseModel):
+    model_config = ConfigDict(json_schema_serialization_defaults_required=True)
+
+    kind: Literal["job", "example"]
+    label: str | None = None
+
+
+class FileNamingPreviewExample(BaseModel):
+    kind: Literal["job", "example"]
+    key: str
+    label: str
+    name: str
+
+
+class FileNamingPreviewResponse(BaseModel):
+    """L'anteprima delle regole (decision.py preview_names), tipizzata (audit
+    2026-10-18). I valori come testo: l'anno è un numero nei valori del nome."""
+
+    model_config = ConfigDict(coerce_numbers_to_str=True)
+
+    sample: FileNamingPreviewSample
+    variables: dict[str, str | None]
+    names: dict[str, str]
+    examples: list[FileNamingPreviewExample]
+
+
+@router.get("/file-naming", response_model=FileNamingResponse)
+def get_file_naming(session: Session = Depends(get_session)):
     """Il pattern dei nomi dei file nel torrent (nazgarr/upload/file_names.py):
     quello salvato, e quello di default per tornarci."""
     return {"rules": upload_file_names.rules(session), "default": upload_file_names.DEFAULT_RULES}
@@ -702,15 +733,15 @@ def _check_naming_rules(rules: dict) -> None:
         raise HTTPException(status_code=400, detail=from_coded_error(exc)) from exc
 
 
-@router.put("/file-naming")
-def put_file_naming(body: FileNamingRequest, session: Session = Depends(get_session)) -> dict:
+@router.put("/file-naming", response_model=FileNamingResponse)
+def put_file_naming(body: FileNamingRequest, session: Session = Depends(get_session)):
     _check_naming_rules(body.rules)
     settings_repo.set_setting(session, upload_file_names.SETTING, json.dumps(body.rules))
     return get_file_naming(session)
 
 
-@router.post("/file-naming/preview")
-def preview_file_naming(body: FileNamingRequest, session: Session = Depends(get_session)) -> dict:
+@router.post("/file-naming/preview", response_model=FileNamingPreviewResponse)
+def preview_file_naming(body: FileNamingRequest, session: Session = Depends(get_session)):
     """Le regole in modifica sugli esempi (e sull'ultimo upload), con i nomi
     puliti come diventano i file: niente ":" né accenti, un punto alla volta."""
     _check_naming_rules(body.rules)
