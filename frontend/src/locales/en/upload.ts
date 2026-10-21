@@ -27,8 +27,6 @@ export const upload = {
   'upload.starting': 'Starting…',
   'upload.createFailed': 'Could not start the upload: {message}',
   'upload.noUploadsYet': 'No uploads yet.',
-  'upload.columnContent': 'Content',
-  'upload.columnStatus': 'Status',
   'upload.untitled': 'Not identified yet',
   'upload.backToList': 'All uploads',
   'upload.cancelJob': 'Cancel',
@@ -111,7 +109,6 @@ export const upload = {
   'upload.match.seasonsLabel': 'Seasons',
   'upload.match.seasonN': 'Season {n}',
   'upload.match.orderLabel': "Episode ordering",
-  'upload.match.orderFit': "{matched}/{files} files fit",
   'upload.match.orderWarning': "The files do not follow {tvdb}, the order Sonarr uses: they fit {order} better, so that one is selected. You can change it: it applies to the name, the files and the tracker fields.",
   'upload.match.orderUse': "Use {order}",
   'upload.match.orderMapping': "How the files map ({count} episodes)",
@@ -137,9 +134,6 @@ export const upload = {
   'upload.analysis.title': 'What Nazgarr found',
   'upload.analysis.files': '{count} file(s), {size}.',
   'upload.analysis.clean': 'Not on any client and not downloaded from a tracker, as far as Nazgarr knows.',
-  'upload.analysis.grabbed':
-    'Radarr/Sonarr downloaded this from {tracker} (torrent {id}): it is probably not your own release, a reseed may be what you want.',
-  'upload.analysis.onClient': 'Already on a client, check before uploading:',
   'upload.analysis.grabbedRecap':
     'Radarr/Sonarr downloaded this from {tracker} ({count} torrent(s)): probably not your own release.',
   'upload.analysis.torrentId': 'torrent {id}',
@@ -149,6 +143,9 @@ export const upload = {
   'upload.analysis.noTracker': 'no tracker',
   'upload.analysis.hardlink': 'same files (hardlink)',
   'upload.analysis.sameSize': 'same size, {matched}/{total} video(s)',
+  'upload.analysis.otherJobsRecap':
+    'Other uploads not finished yet with these same files: {count}. Check before approving, the same release could go out twice.',
+  'upload.analysis.otherJob': '{status}, {count} video(s) in common',
 
   'upload.action.upload': 'Upload',
   'upload.action.reseed': 'Reseed',
@@ -303,6 +300,8 @@ export const upload = {
 
   'upload.history.activeTab': 'In progress ({count})',
   'upload.history.historyTab': 'History ({count})',
+  'upload.history.historyTabPlain': 'History',
+  'upload.history.loadFailed': 'The history could not be loaded: {message}',
   'upload.history.noActive': 'Nothing in progress.',
   'upload.history.moveUp': 'Earlier in the queue',
   'upload.history.moveDown': 'Later in the queue',
@@ -372,6 +371,7 @@ export const upload = {
   'upload.event.dolby_vision_from_stream': 'MediaInfo did not see Dolby Vision (the container does not declare it): found in the video stream, profile {profile}. Check the HDR field.',
   'upload.event.pack_mixed': 'The episodes of the pack differ in: {fields}.',
   'upload.event.grabbed_from_tracker': 'Radarr/Sonarr downloaded this from {trackers}.',
+  'upload.event.other_upload_same_files': 'Other uploads not finished yet have the same files: {jobs}.',
   'upload.event.dupe_check_done':
     '{results} result(s) on the tracker, {identical} identical, {same_slot} dupe(s): suggested {suggested}.',
   'upload.event.already_seeding_here': 'Already seeding on {client} for this tracker ({torrent}): skip suggested.',
@@ -387,7 +387,7 @@ export const upload = {
   'upload.event.job_queued': 'Approved and queued (position {position}).',
   'upload.event.execution_started': 'Execution started.',
   'upload.event.torrent_created': 'Torrent created.',
-  'upload.event.file_links_kept': '{count} link(s) made for the names kept: a client torrent or a reseed uses them.',
+  'upload.event.file_links_kept': '{count} link(s) made for the names kept: a client torrent, a reseed or another upload uses them.',
   'upload.event.upload_extra_files_left_out': 'Left out of the torrent: already in its folder for uploads, but not part of this upload ({files}).',
   'upload.event.screenshots_done': '{count} screenshot(s) uploaded.',
   'upload.steps.hashing': 'Torrent',

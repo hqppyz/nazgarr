@@ -832,6 +832,20 @@ def test_a_held_reseed_is_left_alone_while_its_job_runs(db_session, tmp_path, en
     assert job.targets[0].error_message == "seed_recheck_pending"
 
 
+def test_a_held_reseed_starts_while_its_job_waits_in_the_queue(db_session, tmp_path, env):
+    """Audit 2026-10-18 (R4): "Riprova" di un altro tracker rimette il job in
+    coda, dietro upload che possono hashare per ore. Il reseed già in attesa,
+    con il recheck riuscito, restava fermo per tutto quel tempo."""
+    job, _video = _reseed_job(db_session, tmp_path, env)
+    _run(db_session, tmp_path, job)
+    target = job.targets[0]
+    job.status = "queued"  # come dopo retry_failed di un altro tracker
+    db_session.commit()
+
+    assert upload_execute.reconcile_held_seeds(db_session) == 1
+    assert target.error_message is None and target.info_hash in env["client"].started
+
+
 def test_a_reseed_whose_torrent_left_the_client_is_added_again_on_retry(db_session, tmp_path, env):
     job, _video = _reseed_job(db_session, tmp_path, env)
     client = env["client"]
@@ -1867,6 +1881,129 @@ def test_a_cancel_while_hashing_removes_the_links_made_for_the_names(db_session,
     assert "file_links_removed" in [e.code for e in job.events]
 
 
+def _links_left_by_a_failed_cleanup(db_session, tmp_path, env, monkeypatch):
+    """Un upload rifiutato la cui pulizia non riesce: l'hardlink per i nomi
+    resta, come dopo un riavvio a metà esecuzione."""
+    video = write_video(env["root"] / "media" / "The Matrix (1999).mkv", 300 * KB)
+    job = _approved(db_session, env, "media/" + video.name, {"a": _upload("Matrix A"), "b": {"action": "skip"}},
+                    file_naming="generated")
+    env["trackers"]["a"].error = _rejected()
+    real_remove = upload_execute.hardlinks.remove_links
+    monkeypatch.setattr(upload_execute.hardlinks, "remove_links",
+                        lambda *a, **k: (_ for _ in ()).throw(OSError(5, "I/O error")))
+    _run(db_session, tmp_path, job)
+    monkeypatch.setattr(upload_execute.hardlinks, "remove_links", real_remove)
+    link = env["root"] / "torrents" / "The.Matrix.1999.mkv"
+    assert job.status == "failed" and os.path.samefile(link, video)
+    assert "upload_cleanup_failed" in [e.code for e in job.events]
+    return job, video, link
+
+
+def test_a_retry_removes_the_links_an_earlier_run_left(db_session, tmp_path, env, monkeypatch):
+    """Audit 2026-10-18 (finding 115): i link di un'esecuzione precedente
+    erano solo in memoria. Il nuovo tentativo li riusa senza crearli, e se
+    falliva di nuovo restavano nella cartella di seed per sempre."""
+    job, video, link = _links_left_by_a_failed_cleanup(db_session, tmp_path, env, monkeypatch)
+
+    upload_jobs.retry_failed(db_session, job)
+    _run(db_session, tmp_path, job)
+
+    assert job.status == "failed"
+    assert not link.exists() and video.is_file()
+    assert "file_links_removed" in [e.code for e in job.events]
+
+
+def test_deleting_a_job_removes_the_links_it_made_that_seed_nothing(db_session, tmp_path, env, monkeypatch):
+    job, video, link = _links_left_by_a_failed_cleanup(db_session, tmp_path, env, monkeypatch)
+    data_dir = str(tmp_path / "data")
+
+    upload_jobs.delete_job(db_session, job, data_dir)
+
+    assert not link.exists() and video.is_file()
+    assert db_session.query(upload_jobs.UploadJob).count() == 0
+    assert not os.path.exists(upload_jobs.job_folder(data_dir, job.id))
+
+
+def test_deleting_a_job_keeps_the_links_its_upload_seeds_from(db_session, tmp_path, env):
+    video = write_video(env["root"] / "media" / "The Matrix (1999).mkv", 300 * KB)
+    job = _approved(db_session, env, "media/" + video.name, {"a": _upload("Matrix A"), "b": {"action": "skip"}},
+                    file_naming="generated")
+    _run(db_session, tmp_path, job)
+    link = env["root"] / "torrents" / "The.Matrix.1999.mkv"
+    assert job.status == "done" and os.path.samefile(link, video)
+
+    upload_jobs.delete_job(db_session, job, str(tmp_path / "data"))
+
+    assert os.path.samefile(link, video)  # il torrent nel client seeda da lì
+
+
+def test_a_link_this_job_never_made_is_never_removed(db_session, tmp_path, env):
+    """Un file con lo stesso nome e lo stesso inode che c'era già (un altro
+    job, l'utente): la pulizia lo riusa ma non è suo, e non lo toglie."""
+    video = write_video(env["root"] / "media" / "The Matrix (1999).mkv", 300 * KB)
+    link = env["root"] / "torrents" / "The.Matrix.1999.mkv"
+    os.link(video, link)
+    job = _approved(db_session, env, "media/" + video.name, {"a": _upload("Matrix A"), "b": {"action": "skip"}},
+                    file_naming="generated")
+    env["trackers"]["a"].error = _rejected()
+
+    _run(db_session, tmp_path, job)
+    upload_jobs.delete_job(db_session, job, str(tmp_path / "data"))
+
+    assert os.path.samefile(link, video)
+
+
+def _another_upload_of(db_session, env, video):
+    """Un secondo upload degli stessi file con gli stessi nomi, verso l'altro
+    tracker: riusa il link lasciato da un altro job (check_link) senza crearlo."""
+    return _approved(db_session, env, "media/" + video.name, {"a": {"action": "skip"}, "b": _upload("Matrix B")},
+                     file_naming="generated")
+
+
+def test_a_link_left_behind_that_another_upload_seeds_from_stays(db_session, tmp_path, env, monkeypatch):
+    """Revisione dell'audit 2026-10-18 (finding 115): un altro upload riusa
+    il link lasciato da A e ci seeda. Riprovare A, ed eliminarlo, toglievano
+    il file da cui seeda il torrent dell'altro."""
+    job_a, video, link = _links_left_by_a_failed_cleanup(db_session, tmp_path, env, monkeypatch)
+    job_b = _another_upload_of(db_session, env, video)
+    _run(db_session, tmp_path, job_b)
+    assert job_b.status == "done" and os.path.samefile(link, video)
+    assert _adds(env["client"])[-1] == (job_b.targets[1].torrent_path, str(env["root"] / "torrents"))
+
+    upload_jobs.retry_failed(db_session, job_a)
+    _run(db_session, tmp_path, job_a)
+    assert job_a.status == "failed"
+    assert os.path.samefile(link, video)
+    codes = [e.code for e in job_a.events]
+    assert "file_links_kept" in codes and "file_links_removed" not in codes
+
+    upload_jobs.delete_job(db_session, job_a, str(tmp_path / "data"))
+    assert os.path.samefile(link, video)
+
+
+def test_a_link_left_behind_that_a_running_upload_hashes_stays(db_session, tmp_path, env, monkeypatch):
+    """Lo stesso mentre l'altro upload sta ancora creando il suo torrent: il
+    suo seed non è ancora scritto, il file del suo contenuto sì."""
+    job_a, video, link = _links_left_by_a_failed_cleanup(db_session, tmp_path, env, monkeypatch)
+    job_b = _another_upload_of(db_session, env, video)
+    data_dir, a_id = str(tmp_path / "data"), job_a.id
+    hash_pieces = upload_execute.hash_pieces
+
+    def delete_a_then_hash(*args, **kwargs):
+        other = db_session.__class__(bind=db_session.get_bind())
+        try:
+            upload_jobs.delete_job(other, other.get(upload_jobs.UploadJob, a_id), data_dir)
+        finally:
+            other.close()
+        return hash_pieces(*args, **kwargs)
+
+    monkeypatch.setattr(upload_execute, "hash_pieces", delete_a_then_hash)
+    _run(db_session, tmp_path, job_b)
+
+    assert db_session.query(upload_jobs.UploadJob).filter_by(id=a_id).count() == 0
+    assert job_b.status == "done" and os.path.samefile(link, video)
+
+
 def test_a_cancel_during_the_screenshots_stops_them_and_sends_nothing(db_session, tmp_path, env, monkeypatch):
     """Audit 2026-10-18 (finding 22): annullare durante gli screenshot
     cambiava solo il DB, e le catture andavano avanti fino all'ultima."""
@@ -1907,13 +2044,13 @@ def test_the_cleanup_never_removes_what_took_the_place_of_a_link(db_session, tmp
     link = env["root"] / "torrents" / "The.Matrix.1999.mkv"
     check = upload_execute._used_elsewhere
 
-    def swap_then_check(session, job, paths, since):
+    def swap_then_check(session, job, paths, since, data_dir):
         link.unlink()
         if swap == "another_file":
             link.write_bytes(b"not ours")
         else:
             link.symlink_to(video)
-        return check(session, job, paths, since)
+        return check(session, job, paths, since, data_dir)
 
     monkeypatch.setattr(upload_execute, "_used_elsewhere", swap_then_check)
     _run(db_session, tmp_path, job)
@@ -1935,7 +2072,7 @@ def test_the_cleanup_never_follows_a_folder_turned_into_a_symlink(db_session, tm
     folder = seed / "The.Matrix.1999"
     [link] = upload_execute.link_files([(str(video), str(folder / "The.Matrix.1999.mkv"))], str(seed))
     ctx = {"created_links": [link], "created_ids": upload_execute._link_identities([link]),
-           "seed_root": lambda: str(seed)}
+           "seed_root": lambda: str(seed), "data_dir": str(tmp_path / "data")}
     elsewhere = env["root"] / "elsewhere"
     os.rename(folder, elsewhere)
     folder.symlink_to(elsewhere, target_is_directory=True)
@@ -1958,7 +2095,7 @@ def test_the_cleanup_never_removes_a_file_swapped_in_after_its_last_check(db_ses
     link = seed / "The.Matrix.1999" / "The.Matrix.1999.mkv"
     [created] = upload_execute.link_files([(str(video), str(link))], str(seed))
     ctx = {"created_links": [str(created)], "created_ids": upload_execute._link_identities([created]),
-           "seed_root": lambda: str(seed)}
+           "seed_root": lambda: str(seed), "data_dir": str(tmp_path / "data")}
     checked = upload_execute._still_our_link
 
     def check_then_swap(path, recorded):
@@ -2536,6 +2673,58 @@ def test_a_cancel_during_the_last_tracker_that_then_fails_can_still_be_retried(
     assert (job.status, [t.status for t in job.targets]) == ("done", ["done", "done"]), [e.code for e in job.events]
     assert len(env["trackers"]["a"].uploads) == 1 and len(tracker_b.uploads) == 1
     assert not video.exists() and (env["root"] / "torrents" / "My.Movie.2024.mkv").is_file()
+
+
+def test_resuming_a_cancel_whose_only_send_may_have_arrived_asks_like_retry(db_session, tmp_path, env, monkeypatch):
+    """Audit 2026-10-18 (R1): un tracker solo, annullato mentre inviava, e
+    l'invio finito in un timeout. La ripresa lo rimandava all'analisi: il
+    dupe check rifatto non vede un torrent in moderazione, l'errore incerto
+    spariva, e una nuova approvazione lo pubblicava due volte senza la
+    conferma di "Riprova". Ora il job finisce 'failed', e "Riprova" la chiede."""
+    video = write_video(env["root"] / "media" / "The.Matrix.1999.1080p.WEB-DL.H.264-GRP.mkv", 300 * KB)
+    job = _approved(db_session, env, "media/" + video.name, {"a": _upload("Matrix A"), "b": {"action": "skip"}})
+    tracker_a = env["trackers"]["a"]
+
+    def cancel_then_timeout(fields, torrent_path):
+        other = db_session.__class__(bind=db_session.get_bind())
+        upload_jobs.cancel_job(other, other.get(upload_jobs.UploadJob, job.id))
+        other.close()
+        error = UploadError("UNIT3D upload failed: timeout")
+        error.__cause__ = httpx.ReadTimeout("timed out")
+        raise error
+
+    monkeypatch.setattr(tracker_a, "upload_torrent", cancel_then_timeout)
+    _run(db_session, tmp_path, job)
+
+    a = job.targets[0]
+    assert (job.status, a.status, a.error_message) == ("cancelled", "failed", "upload_outcome_unknown")
+    assert upload_jobs.resume_job(db_session, job) == "failed"
+    assert (job.status, a.error_message) == ("failed", "upload_outcome_unknown")  # l'avviso resta
+    last = job.events[-1]
+    assert (last.code, json.loads(last.params_json)) == ("job_failed", {"after_cancel": True})
+    with pytest.raises(UploadJobError) as exc:
+        upload_jobs.retry_failed(db_session, job)
+    assert exc.value.code == "upload_retry_needs_confirm"
+
+
+def test_resuming_a_cancel_whose_only_send_was_refused_goes_back_to_the_decision(db_session, tmp_path, env,
+                                                                                  monkeypatch):
+    """Un invio rifiutato con certezza (un 4xx) non ha niente da confermare:
+    la ripresa resta quella di prima, di nuovo alla decisione."""
+    video = write_video(env["root"] / "media" / "The.Matrix.1999.1080p.WEB-DL.H.264-GRP.mkv", 300 * KB)
+    job = _approved(db_session, env, "media/" + video.name, {"a": _upload("Matrix A"), "b": {"action": "skip"}})
+
+    def cancel_then_refuse(fields, torrent_path):
+        other = db_session.__class__(bind=db_session.get_bind())
+        upload_jobs.cancel_job(other, other.get(upload_jobs.UploadJob, job.id))
+        other.close()
+        raise _rejected()
+
+    monkeypatch.setattr(env["trackers"]["a"], "upload_torrent", cancel_then_refuse)
+    _run(db_session, tmp_path, job)
+
+    assert (job.status, job.targets[0].status) == ("cancelled", "failed")
+    assert upload_jobs.resume_job(db_session, job) == "analyzing"
 
 
 @pytest.mark.parametrize(("cause", "unsure"), [

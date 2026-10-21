@@ -1,54 +1,18 @@
 import { useQuery } from '@tanstack/react-query'
 
 import { api, unwrap } from '@/api/client'
+import type { Schemas } from '@/api/client'
 import { uiLocale } from '@/lib/i18n'
 
-// Candidato TMDB di un upload (nazgarr/library/tmdb_client.py normalize_result), più la
-// fonte da cui è arrivato (nazgarr/upload/identify.py).
-export interface MetadataCandidate {
-  tmdb_id: number
-  content_type: 'movie' | 'tv'
-  title: string | null
-  original_title?: string | null
-  year: number | null
-  poster_path: string | null
-  overview?: string | null
-  source?: string
-  // Solo nei candidati di un upload (nazgarr/upload/match_score.py).
-  confidence?: number
-  ambiguous?: boolean
-  confidence_parts?: {
-    basis: 'forced' | 'arr' | 'name'
-    title?: number
-    title_guess?: string | null
-    title_matched?: string | null
-    year?: number
-    year_guess?: number | null
-    year_candidate?: number | null
-    year_waived?: boolean
-    type?: number
-    type_guess?: string
-    type_candidate?: string
-    ambiguous?: number
-  }
-}
-
-export interface MetadataSeason {
-  season_number: number
-  name: string | null
-  episode_count: number
-  air_date: string | null
-}
-
-export interface MetadataDetails extends MetadataCandidate {
-  genres: string[]
-  runtime: number | null
-  imdb_id: string | null
-  tvdb_id: number | null
-  cast: string[]
-  original_language: string | null
-  seasons: MetadataSeason[]
-}
+// Candidato TMDB di un upload (nazgarr/upload/identify.py, con la sua
+// confidence: nazgarr/upload/match_score.py) o un risultato della ricerca a
+// mano (nazgarr/library/tmdb_client.py normalize_result): dall'OpenAPI, non
+// più scritti a mano (audit 2026-10-18). Un risultato della ricerca è un
+// candidato senza confidence.
+export type MetadataCandidate = Schemas['UploadCandidateResponse']
+export type MetadataSearchResult = Schemas['MetadataCandidateResponse']
+export type MetadataSeason = Schemas['MetadataSeasonResponse']
+export type MetadataDetails = Schemas['MetadataDetailsResponse']
 
 export function posterUrl(candidate: Pick<MetadataCandidate, 'content_type' | 'tmdb_id' | 'poster_path'>) {
   const base = `/api/metadata/posters/${candidate.content_type}/${candidate.tmdb_id}.jpg`
@@ -59,12 +23,12 @@ export function useMetadataDetails(contentType: string | null, tmdbId: number | 
   return useQuery({
     // Nella lingua dell'interfaccia; quello che TMDB lì non ha, in inglese.
     queryKey: ['metadata', contentType, tmdbId, uiLocale()],
-    queryFn: async () =>
-      (await unwrap(
+    queryFn: () =>
+      unwrap(
         api.GET('/api/metadata/{content_type}/{tmdb_id}', {
           params: { path: { content_type: contentType!, tmdb_id: tmdbId! }, query: { language: uiLocale() } },
         }),
-      )) as unknown as MetadataDetails,
+      ),
     enabled: contentType !== null && tmdbId !== null,
     staleTime: 10 * 60 * 1000,
     retry: false,
@@ -74,12 +38,12 @@ export function useMetadataDetails(contentType: string | null, tmdbId: number | 
 export function useMetadataSearch(contentType: 'movie' | 'tv', query: string, year: number | null) {
   return useQuery({
     queryKey: ['metadata', 'search', contentType, query, year, uiLocale()],
-    queryFn: async () =>
-      (await unwrap(
+    queryFn: () =>
+      unwrap(
         api.GET('/api/metadata/search', {
           params: { query: { content_type: contentType, query, year: year ?? undefined, language: uiLocale() } },
         }),
-      )) as unknown as MetadataCandidate[],
+      ),
     enabled: query.trim().length > 0,
     staleTime: 10 * 60 * 1000,
     retry: false,

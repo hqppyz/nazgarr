@@ -1878,6 +1878,9 @@ export interface paths {
          * @description Al match, "Dividi in episodi": conferma il match del season pack e lo
          *     divide in un upload per episodio (nazgarr/upload/split.py). L'upload
          *     originale si chiude; gli episodi vanno avanti da soli fino alla decisione.
+         *     La divisione chiesta si scrive con il match: un riavvio a metà non la
+         *     perde, la rifà l'analisi (upload_identify.resume_split; audit 2026-10-18,
+         *     prima il pack ripartiva intero).
          */
         post: operations["split_upload_api_uploads__upload_id__split_post"];
         delete?: never;
@@ -3544,10 +3547,63 @@ export interface components {
             /** First Bad Offset */
             first_bad_offset: number | null;
         };
+        /** FileNamingPreviewExample */
+        FileNamingPreviewExample: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "job" | "example";
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /** Name */
+            name: string;
+        };
+        /**
+         * FileNamingPreviewResponse
+         * @description L'anteprima delle regole (decision.py preview_names), tipizzata (audit
+         *     2026-10-18). I valori come testo: l'anno è un numero nei valori del nome.
+         */
+        FileNamingPreviewResponse: {
+            sample: components["schemas"]["FileNamingPreviewSample"];
+            /** Variables */
+            variables: {
+                [key: string]: string | null;
+            };
+            /** Names */
+            names: {
+                [key: string]: string;
+            };
+            /** Examples */
+            examples: components["schemas"]["FileNamingPreviewExample"][];
+        };
+        /** FileNamingPreviewSample */
+        FileNamingPreviewSample: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "job" | "example";
+            /** Label */
+            label: string | null;
+        };
         /** FileNamingRequest */
         FileNamingRequest: {
             /** Rules */
             rules: {
+                [key: string]: unknown;
+            };
+        };
+        /** FileNamingResponse */
+        FileNamingResponse: {
+            /** Rules */
+            rules: {
+                [key: string]: unknown;
+            };
+            /** Default */
+            default: {
                 [key: string]: unknown;
             };
         };
@@ -3922,6 +3978,94 @@ export interface components {
             year?: number | null;
             /** Files */
             files: components["schemas"]["MediaItemFile"][];
+        };
+        /**
+         * MetadataCandidateResponse
+         * @description Un risultato TMDB nella forma dei candidati di un upload
+         *     (nazgarr/library/tmdb_client.py normalize_result). Tipizzato (audit
+         *     2026-10-18): il frontend ne riscriveva a mano la forma. Tollerante con
+         *     una chiave che manca (il default), ma nella risposta c'è sempre: per il
+         *     frontend nessun campo è facoltativo.
+         */
+        MetadataCandidateResponse: {
+            /** Tmdb Id */
+            tmdb_id: number;
+            /**
+             * Content Type
+             * @enum {string}
+             */
+            content_type: "movie" | "tv";
+            /** Title */
+            title: string | null;
+            /** Original Title */
+            original_title: string | null;
+            /** Year */
+            year: number | null;
+            /** Poster Path */
+            poster_path: string | null;
+            /** Overview */
+            overview: string | null;
+        };
+        /**
+         * MetadataDetailsResponse
+         * @description I dettagli di un contenuto (tmdb_client.py full_details), per
+         *     riconoscere quello giusto alla schermata di match.
+         */
+        MetadataDetailsResponse: {
+            /** Tmdb Id */
+            tmdb_id: number;
+            /**
+             * Content Type
+             * @enum {string}
+             */
+            content_type: "movie" | "tv";
+            /** Title */
+            title: string | null;
+            /** Original Title */
+            original_title: string | null;
+            /** Year */
+            year: number | null;
+            /** Poster Path */
+            poster_path: string | null;
+            /** Overview */
+            overview: string | null;
+            /**
+             * Genres
+             * @default []
+             */
+            genres: string[];
+            /** Runtime */
+            runtime: number | null;
+            /** Imdb Id */
+            imdb_id: string | null;
+            /** Tvdb Id */
+            tvdb_id: number | null;
+            /**
+             * Cast
+             * @default []
+             */
+            cast: string[];
+            /** Original Language */
+            original_language: string | null;
+            /**
+             * Seasons
+             * @default []
+             */
+            seasons: components["schemas"]["MetadataSeasonResponse"][];
+        };
+        /** MetadataSeasonResponse */
+        MetadataSeasonResponse: {
+            /** Season Number */
+            season_number: number;
+            /** Name */
+            name: string | null;
+            /**
+             * Episode Count
+             * @default 0
+             */
+            episode_count: number;
+            /** Air Date */
+            air_date: string | null;
         };
         /** MkdirRequest */
         MkdirRequest: {
@@ -5422,6 +5566,11 @@ export interface components {
             field_options: {
                 [key: string]: string[];
             };
+            /**
+             * Other Jobs
+             * @default []
+             */
+            other_jobs: components["schemas"]["UploadOtherJob"][];
         } & {
             [key: string]: unknown;
         };
@@ -5921,6 +6070,32 @@ export interface components {
             notices: components["schemas"]["UploadNotice"][];
             /** Latest Id */
             latest_id: number;
+        };
+        /**
+         * UploadOtherJob
+         * @description Un altro upload non finito con gli stessi video (analysis.py other_jobs).
+         */
+        UploadOtherJob: {
+            /** Id */
+            id: number;
+            /** Status */
+            status: string;
+            /** Kind */
+            kind: string | null;
+            /** Title */
+            title: string | null;
+            /**
+             * Seasons
+             * @default []
+             */
+            seasons: number[];
+            /** Episode */
+            episode: number | null;
+            /**
+             * Videos
+             * @default 0
+             */
+            videos: number;
         };
         /** UploadOverridesRequest */
         UploadOverridesRequest: {
@@ -9378,9 +9553,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["FileNamingResponse"];
                 };
             };
         };
@@ -9404,9 +9577,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["FileNamingResponse"];
                 };
             };
             /** @description Validation Error */
@@ -9439,9 +9610,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["FileNamingPreviewResponse"];
                 };
             };
             /** @description Validation Error */
@@ -10007,9 +10176,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    }[];
+                    "application/json": components["schemas"]["MetadataCandidateResponse"][];
                 };
             };
             /** @description Validation Error */
@@ -10043,9 +10210,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["MetadataDetailsResponse"];
                 };
             };
             /** @description Validation Error */

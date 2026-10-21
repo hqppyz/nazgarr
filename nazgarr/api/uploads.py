@@ -275,6 +275,20 @@ class UploadTypeBasis(BaseModel):
     encoder: str | None = None
 
 
+class UploadOtherJob(BaseModel):
+    """Un altro upload non finito con gli stessi video (analysis.py other_jobs)."""
+
+    model_config = ConfigDict(json_schema_serialization_defaults_required=True)
+
+    id: int
+    status: str
+    kind: str | None = None
+    title: str | None = None
+    seasons: list[int] = []
+    episode: int | None = None
+    videos: int = 0  # quanti video in comune
+
+
 class UploadAnalysisResponse(BaseModel):
     """Quello che l'analisi ha trovato (nazgarr/upload/analysis.py) e la
     decisione vi ha aggiunto (nazgarr/upload/decision.py propose). Le chiavi
@@ -296,6 +310,7 @@ class UploadAnalysisResponse(BaseModel):
     detected: dict[str, Any] = {}  # i valori rilevati per il nome, senza override
     type_basis: UploadTypeBasis | None = None
     field_options: dict[str, list[str]] = {}  # i valori che i tracker del job accettano
+    other_jobs: list[UploadOtherJob] = []  # altri upload non finiti sugli stessi file
 
 
 # I candidati TMDB come TypedDict, non BaseModel: una chiave che un job di
@@ -669,8 +684,39 @@ class FileNamingRequest(BaseModel):
     rules: dict
 
 
-@router.get("/file-naming")
-def get_file_naming(session: Session = Depends(get_session)) -> dict:
+class FileNamingResponse(BaseModel):
+    rules: dict[str, Any]  # le regole salvate (nazgarr/upload/naming_rules.py)
+    default: dict[str, Any]  # quelle di default, per tornarci
+
+
+class FileNamingPreviewSample(BaseModel):
+    model_config = ConfigDict(json_schema_serialization_defaults_required=True)
+
+    kind: Literal["job", "example"]
+    label: str | None = None
+
+
+class FileNamingPreviewExample(BaseModel):
+    kind: Literal["job", "example"]
+    key: str
+    label: str
+    name: str
+
+
+class FileNamingPreviewResponse(BaseModel):
+    """L'anteprima delle regole (decision.py preview_names), tipizzata (audit
+    2026-10-18). I valori come testo: l'anno è un numero nei valori del nome."""
+
+    model_config = ConfigDict(coerce_numbers_to_str=True)
+
+    sample: FileNamingPreviewSample
+    variables: dict[str, str | None]
+    names: dict[str, str]
+    examples: list[FileNamingPreviewExample]
+
+
+@router.get("/file-naming", response_model=FileNamingResponse)
+def get_file_naming(session: Session = Depends(get_session)):
     """Il pattern dei nomi dei file nel torrent (nazgarr/upload/file_names.py):
     quello salvato, e quello di default per tornarci."""
     return {"rules": upload_file_names.rules(session), "default": upload_file_names.DEFAULT_RULES}
@@ -687,15 +733,15 @@ def _check_naming_rules(rules: dict) -> None:
         raise HTTPException(status_code=400, detail=from_coded_error(exc)) from exc
 
 
-@router.put("/file-naming")
-def put_file_naming(body: FileNamingRequest, session: Session = Depends(get_session)) -> dict:
+@router.put("/file-naming", response_model=FileNamingResponse)
+def put_file_naming(body: FileNamingRequest, session: Session = Depends(get_session)):
     _check_naming_rules(body.rules)
     settings_repo.set_setting(session, upload_file_names.SETTING, json.dumps(body.rules))
     return get_file_naming(session)
 
 
-@router.post("/file-naming/preview")
-def preview_file_naming(body: FileNamingRequest, session: Session = Depends(get_session)) -> dict:
+@router.post("/file-naming/preview", response_model=FileNamingPreviewResponse)
+def preview_file_naming(body: FileNamingRequest, session: Session = Depends(get_session)):
     """Le regole in modifica sugli esempi (e sull'ultimo upload), con i nomi
     puliti come diventano i file: niente ":" né accenti, un punto alla volta."""
     _check_naming_rules(body.rules)
@@ -793,9 +839,11 @@ def delete_upload(upload_id: int, request: Request, session: Session = Depends(g
         raise _refused(exc) from exc
 
 
-def _confirm(session: Session, job: UploadJob, body: UploadMatchRequest) -> dict | None:
+def _confirm(session: Session, job: UploadJob, body: UploadMatchRequest, split: bool = False) -> dict | None:
     """La conferma del match (upload_identify.confirm), con gli errori come
-    risposte HTTP. Restituisce i dettagli TMDB (None senza chiave)."""
+    risposte HTTP. split: con la divisione in episodi chiesta, scritta nello
+    stesso UPDATE (SPLIT_REQUESTED). Restituisce i dettagli TMDB (None senza
+    chiave)."""
     if body.content_type not in ("movie", "tv"):
         raise HTTPException(status_code=400, detail=coded_detail("invalid_content_type", value=body.content_type))
     try:
@@ -809,7 +857,7 @@ def _confirm(session: Session, job: UploadJob, body: UploadMatchRequest) -> dict
         upload_identify.confirm(
             session, job, content_type=body.content_type, tmdb_id=body.tmdb_id, kind=body.kind,
             seasons=body.seasons, episode=body.episode, details=details,
-            order_key=body.episode_order, remember=True,
+            order_key=body.episode_order, remember=True, split_requested=split,
         )
     except episode_orders.EpisodeOrderError as exc:
         raise HTTPException(status_code=400, detail=coded_detail(
@@ -842,11 +890,21 @@ def split_upload(
 ):
     """Al match, "Dividi in episodi": conferma il match del season pack e lo
     divide in un upload per episodio (nazgarr/upload/split.py). L'upload
-    originale si chiude; gli episodi vanno avanti da soli fino alla decisione."""
+    originale si chiude; gli episodi vanno avanti da soli fino alla decisione.
+    La divisione chiesta si scrive con il match: un riavvio a metà non la
+    perde, la rifà l'analisi (upload_identify.resume_split; audit 2026-10-18,
+    prima il pack ripartiva intero)."""
     job = _get_job_or_404(session, upload_id)
     if body.kind != "season_pack" or not job.is_dir or upload_pack.is_pack(job):
         raise HTTPException(status_code=400, detail=coded_detail("upload_split_not_a_pack"))
-    details = _confirm(session, job, body)
+    if _worker(request).is_active(job.id):
+        # Un passo del worker sta ancora lavorando il job: l'identificazione
+        # scrive awaiting_match e poi continua il suo auto-match. Divisa
+        # adesso, alla sua fine partiva l'analisi, che con SPLIT_REQUESTED
+        # toglieva gli episodi che questa richiesta sta creando e rifaceva
+        # la divisione (resume_split). Come per ripresa ed eliminazione.
+        raise _refused(UploadJobError("upload_job_busy"))
+    details = _confirm(session, job, body, split=True)
     try:
         children = upload_split.split(session, job, details)
     except Exception as exc:
@@ -859,6 +917,8 @@ def split_upload(
         session.refresh(job)
         try:
             upload_identify.drop_split_children(session, job)
+            # Non riuscita: il pack va avanti intero, l'analisi non la rifà.
+            upload_identify.split_decided(session, job)
         except Exception:
             session.rollback()
             logger.warning("Upload %s: upload della divisione non tolti", job.id, exc_info=True)

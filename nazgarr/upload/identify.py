@@ -46,6 +46,12 @@ MAX_CANDIDATES = 8
 # tolto quando la divisione ha deciso. Se resta, un riavvio l'ha fermata a
 # metà, e l'analisi la rifà (resume_split).
 SPLIT_PENDING = "split_pending"
+# Lo stesso per "Dividi in episodi" al match (api/uploads.py split_upload,
+# audit 2026-10-18): la divisione chiesta dall'utente, scritta con il match.
+# Un riavvio a metà non la perde: l'analisi la rifà, senza guardare né
+# l'impostazione della cartella osservata né se la stagione è incompleta.
+SPLIT_REQUESTED = "split_requested"
+_SPLIT_MARKERS = (SPLIT_PENDING, SPLIT_REQUESTED)
 # Gli stati di un upload creato da una divisione che non ha ancora fatto
 # niente fuori da Nazgarr (né analisi finita, né decisione).
 _UNSTARTED = ("identifying", "awaiting_match", "analyzing")
@@ -275,7 +281,7 @@ def confirm(
     session: Session, job: UploadJob, *, content_type: str, tmdb_id: int, kind: str | None,
     seasons: list[int], episode: int | None, details: dict | None,
     order_key: str | None = None, orders: dict | None = None, translate: bool = False, remember: bool = False,
-    split_pending: bool = False,
+    split_pending: bool = False, split_requested: bool = False,
 ) -> None:
     """Il primo punto di approvazione, uguale dal match a mano (API) e da
     quello automatico: contenuto, stagioni ed episodio, e per le serie
@@ -285,7 +291,10 @@ def confirm(
     tradotti (auto-match); il frontend li manda già tradotti.
     remember: la scelta diventa la proposta per la serie (solo una scelta
     dell'utente). split_pending: la divisione della cartella osservata deve
-    ancora guardarlo (SPLIT_PENDING, nello stesso UPDATE del match).
+    ancora guardarlo (SPLIT_PENDING, nello stesso UPDATE del match);
+    split_requested: l'utente l'ha chiesta al match (SPLIT_REQUESTED). Anche
+    l'ordinamento scelto entra in quell'UPDATE: una divisione rifatta dopo un
+    riavvio lo ritrova sempre.
     episode_orders.EpisodeOrderError per un ordinamento che la serie non ha,
     UploadJobError se il match non è valido. Il commit è del chiamante."""
     snapshot = None
@@ -297,18 +306,19 @@ def confirm(
     # Solo alcune stagioni di una cartella che ne ha di più: solo i loro file.
     selection = upload_pack.season_selection(job, kind, seasons, snapshot) if content_type == "tv" else {}
     before = len(json.loads(job.layout_json or "{}").get("videos") or []) if selection else 0
+    values = {**selection, "episode_order": order_key if snapshot is not None else None,
+              "episode_order_json": json.dumps(snapshot) if snapshot is not None else None}
+    if split_pending or split_requested:
+        values["stage"] = SPLIT_PENDING if split_pending else SPLIT_REQUESTED
     upload_jobs.confirm_match(
         session, job, content_type=content_type, tmdb_id=tmdb_id, kind=kind, seasons=seasons, episode=episode,
-        details=details, forced=json.loads(job.forced_ids_json or "{}"),
-        source_values={**selection, "stage": SPLIT_PENDING} if split_pending else selection,
+        details=details, forced=json.loads(job.forced_ids_json or "{}"), source_values=values,
     )
     if selection:
         videos = len(json.loads(job.layout_json or "{}").get("videos") or [])
         upload_jobs.log_event(session, job, "pack_from_seasons",
                               seasons=", ".join(f"S{s:02d}" for s in sorted(set(seasons))),
                               count=videos, left=before - videos)
-    job.episode_order = order_key if snapshot is not None else None
-    job.episode_order_json = json.dumps(snapshot) if snapshot is not None else None
     if snapshot is not None:
         # Episodi dei file che l'ordinamento scelto non ha: tengono i numeri
         # dei file, e la decisione lo deve dire (audit 2026-10-18).
@@ -369,7 +379,7 @@ def _watch_split(session: Session, job: UploadJob, details: dict | None) -> list
                 session.commit()
             elif upload_split.is_incomplete(season, details):
                 episodes = _try_split(session, season, upload_split.split, details, "split_failed")
-        _split_decided(session, season)
+        split_decided(session, season)
         if episodes:
             started.extend(episodes)
         elif season is not job:
@@ -377,9 +387,10 @@ def _watch_split(session: Session, job: UploadJob, details: dict | None) -> list
     return started
 
 
-def _split_decided(session: Session, job: UploadJob) -> None:
-    """La divisione ha guardato il job e resta com'è: via SPLIT_PENDING."""
-    if job.stage == SPLIT_PENDING:
+def split_decided(session: Session, job: UploadJob) -> None:
+    """La divisione ha guardato il job e resta com'è: via SPLIT_PENDING (o
+    SPLIT_REQUESTED)."""
+    if job.stage in _SPLIT_MARKERS:
         upload_jobs.transition(session, job, "analyzing", "analyzing", stage=None)
 
 
@@ -443,13 +454,15 @@ def resume_split(session: Session, job: UploadJob, worker) -> bool:
     divisione fermata a metà si tolgono, e se la divisione della cartella
     osservata non aveva ancora deciso (SPLIT_PENDING) si rifà da capo (audit
     2026-10-18: dopo un riavvio il pack veniva analizzato intero, accanto
-    agli episodi o alle stagioni già creati). True se il job è stato diviso
-    (niente analisi da fare: ci pensano i nuovi, già svegliati)."""
+    agli episodi o alle stagioni già creati). Lo stesso per "Dividi in
+    episodi" chiesto al match (SPLIT_REQUESTED): si rifà quella, come l'aveva
+    chiesta l'utente. True se il job è stato diviso (niente analisi da
+    fare: ci pensano i nuovi, già svegliati)."""
     removed = drop_split_children(session, job)
     if removed:
         upload_jobs.log_event(session, job, "split_orphans_removed", level="warning", count=removed)
         session.commit()
-    if job.stage != SPLIT_PENDING or job.status != "analyzing":
+    if job.stage not in _SPLIT_MARKERS or job.status != "analyzing":
         return False
     logger.info("Upload %s: divisione fermata a metà da un riavvio, si rifà", job.id)
     try:
@@ -461,9 +474,17 @@ def resume_split(session: Session, job: UploadJob, worker) -> bool:
         upload_jobs.log_event(session, job, "split_seasons_failed" if job.kind == "complete_pack" else "split_failed",
                               level="warning")
         session.commit()
-        _split_decided(session, job)
+        split_decided(session, job)
         return False
-    for child in _watch_split(session, job, details):
+    if job.stage == SPLIT_REQUESTED:
+        # Quella chiesta a mano: si divide in episodi e basta; se non
+        # riesce, il pack va avanti intero, come dal match.
+        children = _try_split(session, job, upload_split.split, details, "split_failed")
+        if children is None:
+            split_decided(session, job)
+    else:
+        children = _watch_split(session, job, details)
+    for child in children or []:
         if worker is not None and child.status in upload_jobs.WORKER_STATES:
             worker.kick(child.id, child.status)
     session.refresh(job)

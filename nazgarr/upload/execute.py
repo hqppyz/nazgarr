@@ -178,6 +178,73 @@ def _still_our_link(path: str, recorded: tuple[int, int] | None) -> bool | None:
     return recorded is not None and stat.S_ISREG(st.st_mode) and (st.st_dev, st.st_ino) == recorded
 
 
+# Gli hardlink creati da un job per i nomi del torrent (prepare_content),
+# anche in un file del job (audit 2026-10-18, finding 115): un'esecuzione
+# fermata da un riavvio, o una pulizia non riuscita, li lasciava senza che
+# niente li sapesse suoi. Una ripresa li riusa (check_link: lo stesso file
+# va bene) senza crearli, e se poi falliva non li toglieva; eliminare il job
+# non li toglieva mai. Percorso, dispositivo e inode di quando sono nati.
+_LINKS_JOURNAL = "links.json"
+
+
+def _journaled_links(job_dir: str | None) -> tuple[dict[str, tuple[int, int]], datetime | None]:
+    """Gli hardlink scritti nel file del job, e quando è nato il primo; vuoto
+    se manca o non si legge (al massimo un link resta, mai uno tolto senza
+    sapere che è suo)."""
+    if not job_dir:
+        return {}, None
+    try:
+        with open(os.path.join(job_dir, _LINKS_JOURNAL)) as f:
+            data = json.load(f)
+        links = {str(path): (int(dev), int(ino)) for path, dev, ino in data.get("links") or []}
+        at = datetime.fromisoformat(data["at"]) if data.get("at") else None
+    except (OSError, ValueError, TypeError, AttributeError, KeyError):
+        return {}, None
+    return links, as_utc(at)
+
+
+def _write_links_journal(job_dir: str, links: dict[str, tuple[int, int]], at: datetime | None) -> None:
+    path = os.path.join(job_dir, _LINKS_JOURNAL)
+    with contextlib.suppress(OSError):
+        if not links:
+            os.unlink(path)
+            return
+        with open(path, "w") as f:
+            json.dump({"at": at.isoformat() if at else None,
+                       "links": [[link, dev, ino] for link, (dev, ino) in links.items()]}, f)
+
+
+def _journal_links(job_dir: str, created: dict[str, tuple[int, int]], at: datetime) -> None:
+    """Aggiunge gli hardlink appena creati a quelli già nel file del job."""
+    if not created:
+        return
+    known, since = _journaled_links(job_dir)
+    _write_links_journal(job_dir, {**known, **created}, min(since, at) if since else at)
+
+
+# I file nella cartella di seed da cui nasce il torrent di un'esecuzione
+# (prepare_content), creati o riusati: un altro job può riusare un link
+# lasciato da questo (check_link: lo stesso file va bene) senza crearlo, e
+# dall'hash fino a quando un suo tracker lo mette in seed (_remember_seeded)
+# niente altro dice che è suo (_used_by_other_uploads).
+_CONTENT_JOURNAL = "content.json"
+
+
+def _journal_content(job_dir: str, paths: list[str]) -> None:
+    with contextlib.suppress(OSError):
+        with open(os.path.join(job_dir, _CONTENT_JOURNAL), "w") as f:
+            json.dump({"files": [os.path.realpath(path) for path in paths]}, f)
+
+
+def _journaled_content(job_dir: str) -> set[str]:
+    """Vuoto se manca o non si legge."""
+    try:
+        with open(os.path.join(job_dir, _CONTENT_JOURNAL)) as f:
+            return {str(path) for path in json.load(f).get("files") or []}
+    except (OSError, ValueError, TypeError, AttributeError):
+        return set()
+
+
 # --- una volta per job --------------------------------------------------------
 
 
@@ -227,6 +294,9 @@ def prepare_content(session: Session, job: UploadJob, ctx: dict) -> str:
     ctx["links_at"] = datetime.now(UTC)
     ctx["created_links"] = link_files(pairs, root)
     ctx["created_ids"] = _link_identities(ctx["created_links"])
+    if ctx.get("dir"):
+        _journal_links(ctx["dir"], ctx["created_ids"], ctx["links_at"])
+        _journal_content(ctx["dir"], [target for _source, target in pairs])
     ctx["save_path"] = base
     # Nel torrent solo questi: la cartella può avere già altro (hash_pieces).
     ctx["planned"] = [target for _source, target in pairs]
@@ -1075,6 +1145,11 @@ def run_reseed(session: Session, job: UploadJob, target: UploadTarget, ctx: dict
     upload_jobs.log_event(session, job, "reseeded", target=target, torrent=target.reseed_torrent_id)
 
 
+# Gli stati in cui un passo del worker lavora il job: gli stati del worker
+# meno 'queued', dove il job aspetta soltanto il suo turno nella coda.
+_WORKER_RUNNING = tuple(s for s in upload_jobs.WORKER_STATES if s != "queued")
+
+
 def reconcile_held_seeds(session: Session, data_dir: str | None = None) -> int:
     """L'esito del recheck dei torrent aggiunti fermi dal flusso degli upload
     (hold: i reseed e "Riprova il seed"; decisione dell'utente, 2026-10-19),
@@ -1083,11 +1158,15 @@ def reconcile_held_seeds(session: Session, data_dir: str | None = None) -> int:
     Ogni esito, una volta, diventa anche l'evento upload.seed_checked per
     webhook e notifiche (decisione dell'utente, 2026-10-21).
     Mai mentre il worker lavora quel job (lo stesso target, due sessioni).
+    Un job solo in coda sì (audit 2026-10-18): "Riprova" di un altro
+    tracker, o una ripresa, lo rimette in fondo alla coda, dietro upload che
+    hashano per ore, e l'esecuzione non tocca mai un target già 'done'; prima
+    il torrent, con il recheck già riuscito, restava fermo per tutto il tempo.
     Ritorna quanti target ha guardato."""
     targets = (
         session.query(UploadTarget).join(UploadJob, UploadJob.id == UploadTarget.job_id)
         .filter(UploadTarget.error_message == SEED_RECHECK_PENDING, UploadTarget.status == "done",
-                UploadTarget.info_hash.isnot(None), UploadJob.status.notin_(upload_jobs.WORKER_STATES))
+                UploadTarget.info_hash.isnot(None), UploadJob.status.notin_(_WORKER_RUNNING))
         .order_by(UploadTarget.id).all()
     )
     for target in targets:
@@ -1356,20 +1435,26 @@ def _cleanup_unused_links(session: Session, job: UploadJob, ctx: dict, overrides
     simbolico nelle cartelle sopra e ricontrolla quell'inode nella cartella
     da cui toglie il file. Prima un unlink per percorso: un altro
     file messo con lo stesso nome nel frattempo, o una cartella diventata
-    un link simbolico, portavano a cancellare un file non nostro."""
-    created = ctx.get("created_links") or []
+    un link simbolico, portavano a cancellare un file non nostro.
+
+    Anche quelli creati da un'esecuzione precedente dello stesso job (il
+    file del job, _journaled_links: un riavvio a metà, una pulizia non
+    riuscita), che questa ha riusato senza crearli (audit 2026-10-18)."""
+    journal, journal_at = _journaled_links(ctx.get("dir"))
+    created = list(dict.fromkeys([*(ctx.get("created_links") or []), *journal]))
     uploaded = any(t.action == "upload" and t.status == "done" for t in job.targets)
     if not created or (uploaded and not overrides.get("no_seed")):
         return
+    recorded = {**journal, **(ctx.get("created_ids") or {})}
+    since = min((at for at in (journal_at, ctx.get("links_at")) if at is not None), default=None)
     keep = {path for paths in _seeded_by_done(job, ctx).values() for path in paths}
     unused = [path for path in created if os.path.realpath(path) not in keep]
     if unused:
-        used = _used_elsewhere(session, job, unused, ctx.get("links_at"))
+        used = _used_elsewhere(session, job, unused, since, ctx.get("data_dir"))
         unused = [path for path in unused if path not in used]
     if not unused:
         return
     root = os.path.realpath(ctx["seed_root"]())
-    recorded = ctx.get("created_ids") or {}
     removable, changed = [], []
     for path in unused:
         ours = _still_our_link(path, recorded.get(path))
@@ -1382,6 +1467,11 @@ def _cleanup_unused_links(session: Session, job: UploadJob, ctx: dict, overrides
     # un link, e remove_links lo guarda di nuovo nella cartella da cui lo
     # toglie. Quelli che non ha potuto togliere (lo scrive nel log) non contano.
     removed = hardlinks.remove_links(removable, prune_up_to=root, expected=recorded)
+    if ctx.get("dir"):
+        # Nel file del job restano solo quelli ancora suoi e al loro posto.
+        gone = set(removed) | set(changed)
+        _write_links_journal(ctx["dir"], {path: ids for path, ids in recorded.items() if path not in gone
+                                          and _still_our_link(path, ids)}, since)
     if changed:
         upload_jobs.log_event(session, job, "file_links_changed", level="warning", count=len(changed),
                               files=[os.path.relpath(path, root) for path in changed[:10]])
@@ -1393,18 +1483,21 @@ def _cleanup_unused_links(session: Session, job: UploadJob, ctx: dict, overrides
 _LIVE_SEED_JOBS = ("in_progress", "seeding")
 
 
-def _used_elsewhere(session: Session, job: UploadJob, paths: list[str], since: datetime | None) -> set[str]:
+def _used_elsewhere(session: Session, job: UploadJob, paths: list[str], since: datetime | None,
+                    data_dir: str | None = None) -> set[str]:
     """Dei link creati da questo job, quelli che usa già qualcun altro: un
-    torrent del client (l'indice, nazgarr/torrents/indexer.py) o un reseed
-    del motore. Il motore riusa una destinazione che è già lo stesso file
-    (hardlinks.check_link): un suo reseed approvato durante i minuti di hash
-    e screenshot, con lo stesso nome, seeda proprio da uno di questi, e
-    toglierlo lo lasciava senza dati (audit 2026-10-18, finding 1). Nel
-    dubbio un link resta: al massimo un hardlink orfano, mai un file tolto
-    da sotto a un client."""
+    torrent del client (l'indice, nazgarr/torrents/indexer.py), un reseed
+    del motore o un altro upload (_used_by_other_uploads). Il motore riusa
+    una destinazione che è già lo stesso file (hardlinks.check_link): un suo
+    reseed approvato durante i minuti di hash e screenshot, con lo stesso
+    nome, seeda proprio da uno di questi, e toglierlo lo lasciava senza dati
+    (audit 2026-10-18, finding 1). Nel dubbio un link resta: al massimo un
+    hardlink orfano, mai un file tolto da sotto a un client."""
+    used = _used_by_other_uploads(session, job, paths, data_dir)
     disk = job.disk
     if disk is None:
-        return set()
+        _log_kept(session, job, used)
+        return used
     base = os.path.realpath(disk.root_path)
     by_relative: dict[str, str] = {}
     by_inode: dict[int, list[str]] = {}
@@ -1414,7 +1507,6 @@ def _used_elsewhere(session: Session, job: UploadJob, paths: list[str], since: d
             by_relative[os.path.relpath(real, base)] = path
         with contextlib.suppress(OSError):
             by_inode.setdefault(os.stat(path).st_ino, []).append(path)
-    used: set[str] = set()
     if by_relative:
         relatives = list(by_relative)
         indexed = (
@@ -1445,10 +1537,48 @@ def _used_elsewhere(session: Session, job: UploadJob, paths: list[str], since: d
         )
         for (inode,) in linked.all():
             used.update(by_inode.get(inode, ()))
+    _log_kept(session, job, used)
+    return used
+
+
+def _log_kept(session: Session, job: UploadJob, used: set[str]) -> None:
     if used:
         upload_jobs.log_event(session, job, "file_links_kept", count=len(used))
         session.commit()
-    return used
+
+
+def _used_by_other_uploads(session: Session, job: UploadJob, paths: list[str], data_dir: str | None) -> set[str]:
+    """Dei link di questo job, quelli da cui seeda un altro upload (i suoi
+    tracker finiti o in seed, il loro file nel job: _remember_seeded) o da
+    cui un'esecuzione in corso sta creando il suo torrent (_CONTENT_JOURNAL).
+    Un link lasciato da questo job (un riavvio, una pulizia non riuscita)
+    lo riusa un altro upload con gli stessi nomi (hardlinks.check_link: lo
+    stesso file va bene) senza crearlo, e toglierlo eliminando o
+    riprovando questo lasciava il suo torrent senza dati (revisione
+    dell'audit 2026-10-18, finding 115). Senza la cartella dei dati non si
+    sa: restano tutti."""
+    if not paths:
+        return set()
+    if not data_dir:
+        return set(paths)
+    rows = (
+        session.query(UploadTarget.id, UploadTarget.job_id, UploadTarget.status, UploadJob.status)
+        .join(UploadJob, UploadJob.id == UploadTarget.job_id)
+        .filter(UploadJob.id != job.id, UploadTarget.action.in_(("upload", "reseed")),
+                or_(UploadTarget.status.in_(("done", *upload_jobs.BUSY_TARGET_STATES)),
+                    UploadJob.status == "running"))
+        .all()
+    )
+    theirs: set[str] = set()
+    running: set[int] = set()
+    for target_id, job_id, target_status, job_status in rows:
+        job_dir = upload_jobs.job_folder(data_dir, job_id)
+        theirs.update(_journaled_seeded(job_dir, target_id).values())
+        if job_status == "running" or target_status in upload_jobs.BUSY_TARGET_STATES:
+            running.add(job_id)
+    for job_id in running:
+        theirs |= _journaled_content(upload_jobs.job_folder(data_dir, job_id))
+    return {path for path in paths if os.path.realpath(path) in theirs}
 
 
 def _source_files(path: str) -> list[str]:
@@ -1814,8 +1944,31 @@ def _housekeeping(session: Session, job: UploadJob, ctx: dict, overrides: dict, 
                 session.commit()
 
 
+def release_links(session: Session, job: UploadJob, data_dir: str) -> None:
+    """Prima di eliminare un job (upload_jobs.delete_job): gli hardlink che ha
+    creato per i nomi del torrent (il file del job) e che non seedano niente
+    si tolgono, con le regole della pulizia di fine esecuzione
+    (_cleanup_unused_links: mai con un upload riuscito in seed, mai uno da
+    cui seeda un altro tracker o un torrent del client, solo se è ancora lo
+    stesso file). Prima restavano nella cartella di seed per sempre. Un
+    errore qui si scrive nel log: il job si elimina lo stesso."""
+    job_dir = upload_jobs.job_folder(data_dir, job.id)
+    journal, at = _journaled_links(job_dir)
+    if not journal:
+        return
+    ctx = {"dir": job_dir, "data_dir": data_dir, "seed_root": lambda: seed_root(job),
+           # Senza un'ora (un file di prima), ogni reseed del motore vivo con quell'inode conta.
+           "links_at": at or datetime(1970, 1, 1, tzinfo=UTC)}
+    try:
+        _cleanup_unused_links(session, job, ctx, json.loads(job.overrides_json or "{}"))
+    except Exception:
+        session.rollback()
+        logger.warning("Upload %s: hardlink del job non tolti all'eliminazione", job.id, exc_info=True)
+
+
 def _context(session: Session, job: UploadJob, worker, overrides: dict) -> dict:
-    ctx: dict = {"dir": _job_dir(worker, job), "overrides": overrides, "screenshots": []}
+    ctx: dict = {"dir": _job_dir(worker, job), "data_dir": worker.data_dir, "overrides": overrides,
+                 "screenshots": []}
     root_cache: list[str] = []
 
     def lazy_seed_root() -> str:

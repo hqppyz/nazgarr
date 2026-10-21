@@ -445,6 +445,116 @@ def test_a_running_job_nobody_runs_goes_back_to_the_queue(db_session, tmp_path):
     assert job.error_message is None
 
 
+class _Deferred:
+    """Un esecutore che tiene i compiti finché il test non li fa partire."""
+
+    def __init__(self):
+        self.calls = []
+
+    def submit(self, fn, *args):
+        self.calls.append((fn, args))
+
+    def run_next(self):
+        fn, args = self.calls.pop(0)
+        fn(*args)
+
+    def shutdown(self, wait=True, cancel_futures=False):
+        pass
+
+
+def test_an_old_light_kick_never_runs_an_approved_job(db_session, tmp_path):
+    """Audit 2026-10-18 (R2): un kick "light" rimasto in attesa (un
+    annullamento e una ripresa, un id riusato) che trovava il job approvato
+    lo eseguiva fuori dalla coda; la coda poi lo prendeva per un orfano e
+    lo rifaceva insieme. Lo esegue solo la coda."""
+    make_tracker(db_session)
+    job = _queued(db_session, tmp_path)
+    ran = []
+    heavy = _Deferred()
+    worker = _worker(db_session, tmp_path, {"queued": lambda s, j, w: (
+        ran.append(j.status), upload_jobs.transition(s, j, "queued", "done"))}, heavy=heavy)
+
+    worker._run_job(job.id)  # dall'esecutore "light"
+
+    db_session.refresh(job)
+    assert ran == [] and job.status == "queued" and not worker.is_active(job.id)
+    heavy.calls.clear()
+    worker.kick(job.id, "queued")
+    heavy.run_next()
+    assert ran == ["queued"]
+
+
+def test_the_queue_never_requeues_a_running_job_another_step_still_holds(db_session, tmp_path, monkeypatch):
+    job = _published_but_stuck(db_session, tmp_path)
+    upload_jobs.transition(db_session, job, "queued", "running")
+    worker = _worker(db_session, tmp_path, {})
+    later = []
+    monkeypatch.setattr(worker, "_retry_later", lambda: later.append(1))
+    worker._active[job.id] += 1  # un altro passo dello stesso job, ancora aperto
+
+    worker.kick(job.id, "running")
+
+    db_session.refresh(job)
+    assert job.status == "running" and later == [1]
+    assert "job_resumed" not in [e.code for e in job.events]
+    assert worker._active[job.id] == 1 and worker._heavy_scheduled is False
+
+
+def test_a_second_light_kick_while_one_waits_is_not_queued_again(db_session, tmp_path):
+    """Audit 2026-10-18 (finding 164): annullato e ripreso con il primo kick
+    ancora in attesa nell'esecutore "light", il job aveva due analisi
+    insieme, e la seconda sovrascriveva quello che la prima aveva scritto."""
+    make_tracker(db_session)
+    job = _job(db_session, tmp_path)
+    upload_jobs.transition(db_session, job, "identifying", "analyzing")
+    light = _Deferred()
+    ran = []
+
+    def analyze(session, j, worker):
+        ran.append(j.id)
+        upload_jobs.transition(session, j, "analyzing", "awaiting_decision")
+
+    factory = lambda: db_session.__class__(bind=db_session.get_bind())  # noqa: E731
+    worker = UploadWorker(factory, str(tmp_path), handlers={"analyzing": analyze}, light_executor=light,
+                          heavy_executor=InlineExecutor())
+    worker.kick(job.id, "analyzing")
+    upload_jobs.cancel_job(db_session, job)
+    upload_jobs.resume_job(db_session, job, active=worker.is_active(job.id))
+    worker.kick(job.id, job.status)
+
+    assert len(light.calls) == 1
+    light.run_next()
+    db_session.refresh(job)
+    assert ran == [job.id] and job.status == "awaiting_decision"
+    worker.kick(job.id, "analyzing")  # dopo, un kick nuovo parte di nuovo
+    assert len(light.calls) == 1
+
+
+def test_a_kick_while_a_step_of_the_same_job_runs_waits_for_it(db_session, tmp_path):
+    """Un kick per un job il cui passo sta girando non ne apre un secondo
+    insieme: finito il passo, il job si guarda di nuovo dallo stato che ha."""
+    make_tracker(db_session)
+    job = _job(db_session, tmp_path)
+    upload_jobs.transition(db_session, job, "identifying", "analyzing")
+    running, seen = [], []
+
+    def analyze(session, j, worker):
+        running.append(j.id)
+        seen.append(len(running))
+        if len(seen) == 1:
+            # Un altro thread lo riporta in analisi e lo sveglia mentre questo passo gira.
+            worker.kick(j.id, "analyzing")
+        else:
+            upload_jobs.transition(session, j, "analyzing", "awaiting_decision")
+        running.pop()
+
+    _worker(db_session, tmp_path, {"analyzing": analyze}).kick(job.id, "analyzing")
+
+    db_session.refresh(job)
+    assert seen == [1, 1]  # due passi, mai insieme
+    assert job.status == "awaiting_decision"
+
+
 def test_a_failed_execution_leaves_no_tracker_in_flight(db_session, tmp_path):
     """L'esecuzione esce con un errore dopo un upload pubblicato: prima il
     job finiva 'failed' con quel target in 'uploading' (né eliminabile né

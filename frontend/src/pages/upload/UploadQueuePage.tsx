@@ -290,17 +290,6 @@ function HistoryList({ jobs, onOpen, more }: {
   onOpen: (id: number) => void
   more: ReturnType<typeof useUploadHistory>
 }) {
-  if (jobs.length === 0 && more.isError) {
-    return (
-      <div role="alert" className="grid justify-items-center gap-2 py-10 text-center text-sm">
-        <p>{t('common.listLoadFailed')}</p>
-        <p className="text-xs text-muted-foreground">{more.error.message}</p>
-        <Button variant="outline" size="sm" disabled={more.isFetching} onClick={() => void more.refetch()}>
-          {t('common.retry')}
-        </Button>
-      </div>
-    )
-  }
   if (jobs.length === 0) return <p className="py-10 text-center text-sm text-muted-foreground">{t('upload.noUploadsYet')}</p>
   return (
     <>
@@ -332,16 +321,29 @@ function HistoryList({ jobs, onOpen, more }: {
   )
 }
 
+// Lo storico che non si carica lo dice la sua scheda, con Riprova.
+function HistoryFailed({ query }: { query: ReturnType<typeof useUploadHistory> }) {
+  return (
+    <div className="grid justify-items-center gap-3 py-10 text-center text-sm text-muted-foreground">
+      <p>{t('upload.history.loadFailed', { message: query.error?.message ?? '' })}</p>
+      <Button variant="outline" disabled={query.isFetching} onClick={() => void query.refetch()}>
+        {query.isFetching ? t('common.loading') : t('common.retry')}
+      </Button>
+    </div>
+  )
+}
+
 export function UploadQueuePage() {
   const query = useUploads()
   const historyQuery = useUploadHistory()
   const { data } = query
-  // La coda e la prima pagina dello storico insieme: la scheda di partenza
-  // dipende da entrambe. Solo la coda però fa cadere l'anello: uno storico
-  // che non arriva (un'istanza remota che non lo sa dare) lo dice la sua
-  // scheda, e la coda resta usabile (audit 2026-10-18).
+  // L'anello aspetta anche la prima pagina dello storico (la scheda di
+  // partenza dipende da entrambe), ma cade solo con la coda: uno storico che
+  // non arriva (un 5xx, un'istanza remota di una 0.9.x senza
+  // /api/uploads/history; audit 2026-10-18, R10) prendeva il posto di tutta
+  // la pagina, coda compresa. Ora lo dice la sua scheda.
   const loader = useRingLoader({
-    data: data !== undefined && (historyQuery.data !== undefined || historyQuery.isError) ? data : undefined,
+    data,
     isPending: query.isPending || historyQuery.isPending,
     isError: query.isError,
     isFetching: query.isFetching,
@@ -363,6 +365,7 @@ export function UploadQueuePage() {
   useHistoryFollowsQueue(active.map((job) => job.id))
   const history = historyQuery.data?.pages.flatMap((page) => page.jobs) ?? []
   const historyTotal = historyQuery.data?.pages[0]?.total ?? history.length
+  const historyFailed = historyQuery.isError && historyQuery.data === undefined
 
   return (
     <div className="grid gap-4">
@@ -373,7 +376,9 @@ export function UploadQueuePage() {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <TabsList data-tour="views.uploads">
               <TabsTrigger value="active">{t('upload.history.activeTab', { count: active.length })}</TabsTrigger>
-              <TabsTrigger value="history">{t('upload.history.historyTab', { count: historyTotal })}</TabsTrigger>
+              <TabsTrigger value="history">
+                {historyFailed ? t('upload.history.historyTabPlain') : t('upload.history.historyTab', { count: historyTotal })}
+              </TabsTrigger>
             </TabsList>
             <Button data-tour="upload.new" onClick={() => navigate('/upload/new')}>
               <PlusIcon className="size-4" />
@@ -384,7 +389,11 @@ export function UploadQueuePage() {
             <ActiveList jobs={active} />
           </TabsContent>
           <TabsContent value="history" className="pt-2">
-            <HistoryList jobs={history} onOpen={setOpenId} more={historyQuery} />
+            {historyFailed ? (
+              <HistoryFailed query={historyQuery} />
+            ) : (
+              <HistoryList jobs={history} onOpen={setOpenId} more={historyQuery} />
+            )}
           </TabsContent>
         </Tabs>
       )}

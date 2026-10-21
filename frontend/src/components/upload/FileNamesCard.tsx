@@ -56,7 +56,11 @@ export function FileNamesCard({ job }: { job: UploadJob }) {
           size="sm"
           className="w-full flex-wrap gap-1.5"
           disabled={save.isPending || job.status !== 'awaiting_decision'}
-          onValueChange={(value) => value && save.mutate({ ...job.overrides, file_naming: value })}
+          // Un salvataggio rifiutato dice perché (audit 2026-10-18): prima la
+          // scelta tornava indietro senza un messaggio.
+          onValueChange={(value) =>
+            value && save.mutate({ ...job.overrides, file_naming: value }, { onError: (error) => toast.error(error.message) })
+          }
         >
           {modes.map((m) => (
             <ToggleGroupItem key={m} value={m} className="flex-none rounded-md px-3 whitespace-nowrap">

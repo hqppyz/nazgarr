@@ -10,10 +10,12 @@ chiave TMDB resta sul server e il browser non parla mai con TMDB.
 import logging
 import os
 import re
+from typing import Literal
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
 from nazgarr.core.errors import coded_detail, from_coded_error
@@ -26,6 +28,46 @@ from nazgarr.web.deps import get_session
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/metadata", tags=["metadata"])
+
+class MetadataCandidateResponse(BaseModel):
+    """Un risultato TMDB nella forma dei candidati di un upload
+    (nazgarr/library/tmdb_client.py normalize_result). Tipizzato (audit
+    2026-10-18): il frontend ne riscriveva a mano la forma. Tollerante con
+    una chiave che manca (il default), ma nella risposta c'è sempre: per il
+    frontend nessun campo è facoltativo."""
+
+    model_config = ConfigDict(json_schema_serialization_defaults_required=True)
+
+    tmdb_id: int
+    content_type: Literal["movie", "tv"]
+    title: str | None = None
+    original_title: str | None = None
+    year: int | None = None
+    poster_path: str | None = None
+    overview: str | None = None
+
+
+class MetadataSeasonResponse(BaseModel):
+    model_config = ConfigDict(json_schema_serialization_defaults_required=True)
+
+    season_number: int
+    name: str | None = None
+    episode_count: int = 0
+    air_date: str | None = None
+
+
+class MetadataDetailsResponse(MetadataCandidateResponse):
+    """I dettagli di un contenuto (tmdb_client.py full_details), per
+    riconoscere quello giusto alla schermata di match."""
+
+    genres: list[str] = []
+    runtime: int | None = None
+    imdb_id: str | None = None
+    tvdb_id: int | None = None
+    cast: list[str] = []
+    original_language: str | None = None
+    seasons: list[MetadataSeasonResponse] = []
+
 
 # Solo un nome file di image.tmdb.org, mai un URL: l'host resta fisso.
 _POSTER_PATH = re.compile(r"^/[A-Za-z0-9_-]+\.(jpg|jpeg|png)$")
@@ -55,26 +97,26 @@ def _tmdb_call(fn, *args):
         raise HTTPException(status_code=502, detail=coded_detail("tmdb_error", error=safe_error(exc))) from exc
 
 
-@router.get("/search")
+@router.get("/search", response_model=list[MetadataCandidateResponse])
 def search(
     content_type: str,
     query: str = Query(min_length=1),
     year: int | None = None,
     language: str | None = Query(default=None, pattern=r"^[a-z]{2}(-[A-Z]{2})?$"),
     session: Session = Depends(get_session),
-) -> list[dict]:
+):
     """language (es. "it-IT"): i titoli nella lingua dell'interfaccia."""
     client = _client(session)
     return _tmdb_call(client.search_many, _content_type(content_type), query, year, language)[:20]
 
 
-@router.get("/{content_type}/{tmdb_id}")
+@router.get("/{content_type}/{tmdb_id}", response_model=MetadataDetailsResponse)
 def details(
     content_type: str,
     tmdb_id: int,
     language: str | None = Query(default=None, pattern=r"^[a-z]{2}(-[A-Z]{2})?$"),
     session: Session = Depends(get_session),
-) -> dict:
+):
     """language (es. "it-IT"): trama, titolo e generi nella lingua
     dell'interfaccia; quello che lì manca, in inglese."""
     client = _client(session)

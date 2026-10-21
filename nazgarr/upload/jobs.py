@@ -428,7 +428,8 @@ def resume_job(session: Session, job: UploadJob, active: bool = False) -> str:
     approvazione ci torna con le scelte fatte, un passo del worker riparte,
     l'esecuzione torna in coda con i soli tracker non ancora fatti (uno già
     pubblicato non si ricarica mai). Con nessuno da fare ma uno fallito
-    accanto a uno andato, finisce 'partial' per "Riprova" (_settle_late_cancel).
+    accanto a uno andato, o un invio dall'esito incerto, finisce come
+    l'esecuzione ('partial' o 'failed') per "Riprova" (_settle_late_cancel).
     Restituisce il nuovo stato."""
     if job.status != "cancelled":
         raise UploadJobError("upload_job_wrong_status", status=job.status)
@@ -442,7 +443,13 @@ def resume_job(session: Session, job: UploadJob, active: bool = False) -> str:
     if previous == "running":
         previous = "queued"
     if previous == "queued" and not any(t.status == "approved" for t in job.targets):
-        if any(t.status == "done" for t in job.targets) and retryable_targets(job):
+        retryable = retryable_targets(job)
+        # Un invio che il tracker può aver ricevuto (audit 2026-10-18): tornato
+        # alla decisione, il dupe check rifatto non lo vedeva (la ricerca di
+        # UNIT3D non elenca i torrent in moderazione) e lo rimandava senza la
+        # conferma che "Riprova" chiede (needs_confirmation).
+        if retryable and (any(t.status == "done" for t in job.targets)
+                          or any(needs_confirmation(t) for t in retryable)):
             return _settle_late_cancel(session, job)
         # Nessun tracker rimasto da fare: si torna alla decisione per quelli non pubblicati.
         previous = "analyzing"
@@ -462,7 +469,8 @@ def _settle_late_cancel(session: Session, job: UploadJob) -> str:
     """Annullato mentre l'ultimo tracker era in invio, che poi è fallito:
     l'annullamento non ha fermato niente, l'esecuzione aveva già fatto ogni
     tracker. Qui non si rifà nulla: il job prende l'esito che avrebbe avuto
-    ('partial'), e da lì "Riprova" rifà il fallito, con il dupe check rifatto
+    ('partial', o 'failed' con un tracker solo, o tutti falliti), e da lì
+    "Riprova" rifà il fallito, con il dupe check rifatto
     e la conferma per un invio incerto (retry_failed). Prima né la ripresa
     (niente da fare) né "Riprova" (non finito) lo accettavano, e una release
     della cartella osservata, tenuta lì per "Riprova" finché un tracker è
@@ -577,11 +585,16 @@ def delete_job(session: Session, job: UploadJob, data_dir: str, active: bool = F
     worker sta lavorando va prima annullato, e uno annullato aspetta che il
     tracker in invio finisca. Con lui va la sua cartella: il client ha già
     la sua copia del .torrent, e SQLite può ridare lo stesso id al prossimo
-    upload, che non deve trovarci i file di questo."""
+    upload, che non deve trovarci i file di questo. Prima, gli hardlink che
+    il job ha creato per i nomi del torrent e che non seedano niente
+    (execute.release_links, audit 2026-10-18)."""
+    from nazgarr.upload import execute as upload_execute  # qui: execute importa questo modulo
+
     if job.status in WORKER_STATES:
         raise UploadJobError("upload_job_wrong_status", status=job.status)
     _refuse_if_busy(job, active)
     _refuse_if_seed_pending(job)
+    upload_execute.release_links(session, job, data_dir)
     job_id = job.id
     session.delete(job)
     session.commit()

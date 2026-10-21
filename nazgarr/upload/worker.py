@@ -14,10 +14,18 @@ il job e ne porta avanti lo stato con upload_jobs.transition(). Un'eccezione
 non gestita porta il job in 'failed' con il messaggio nel registro eventi
 (e nel log), anche se il passo aveva già cambiato lo stato del job; solo un
 job annullato (o già finito) nel frattempo non si segna.
+
+Mai due passi dello stesso job insieme (audit 2026-10-18): un kick per un
+job già in attesa nell'esecutore "light" non ne aggiunge un altro (quello
+che c'è legge lo stato del momento in cui parte), uno che arriva mentre un
+passo del job gira si ricorda e, finito il passo, il job si guarda di nuovo.
+Un job approvato lo esegue solo la coda "heavy": un kick "light" vecchio
+che lo trova in coda o in esecuzione non fa niente.
 """
 
 import logging
 import threading
+from collections import Counter
 from collections.abc import Callable
 from concurrent.futures import Executor, ThreadPoolExecutor
 from datetime import UTC, datetime
@@ -92,14 +100,29 @@ class UploadWorker:
         # 2026-10-18): la coda guarda di nuovo prima di fermarsi, invece di
         # perderlo e lasciare il job in coda finché qualcos'altro la sveglia.
         self._rescan = False
-        # I job su cui un passo sta girando adesso (is_active): un job
-        # annullato può avere ancora un tracker in invio.
-        self._active: set[int] = set()
+        # I job su cui un passo sta girando adesso, con quanti (is_active): un
+        # job annullato può avere ancora un tracker in invio. Più di uno solo
+        # per un attimo: la coda che parte mentre il passo "light" che ha
+        # portato il job alla decisione finisce di chiudersi.
+        self._active: Counter[int] = Counter()
+        # I job con un passo "light" già nell'esecutore, non ancora partito, e
+        # quelli con un kick arrivato mentre un loro passo girava (audit
+        # 2026-10-18): due analisi dello stesso job insieme si sovrascrivevano
+        # (annullato e ripreso con il primo kick ancora in attesa).
+        self._pending: set[int] = set()
+        self._again: set[int] = set()
         self._closed = False
 
     def kick(self, job_id: int, status: str) -> None:
         """Da chiamare dopo ogni transizione verso uno stato del worker."""
         if status in LIGHT_STATES:
+            with self._lock:
+                if job_id in self._pending:
+                    return  # quello in attesa leggerà lo stato di quando parte
+                if self._active[job_id]:
+                    self._again.add(job_id)  # finito il passo che gira, si guarda di nuovo
+                    return
+                self._pending.add(job_id)
             self._submit(self._light, self._run_job, job_id)
         elif status in HEAVY_STATES:
             self._schedule_queue()
@@ -107,7 +130,7 @@ class UploadWorker:
     def is_active(self, job_id: int) -> bool:
         """Un passo del worker sta lavorando su questo job in questo momento."""
         with self._lock:
-            return job_id in self._active
+            return self._active[job_id] > 0
 
     def resume(self) -> None:
         session = self.session_factory()
@@ -189,7 +212,9 @@ class UploadWorker:
                         idle = True
                     return
                 try:
-                    self._run_job(job_id, from_queue=True)
+                    if not self._run_job(job_id, from_queue=True):
+                        self._retry_later()
+                        return
                 except Exception:
                     # _run_job registra già i passi falliti: qui arriva solo
                     # quello che non è riuscito a registrare (es. il DB non
@@ -210,16 +235,60 @@ class UploadWorker:
         timer.daemon = True
         timer.start()
 
-    def _run_job(self, job_id: int, from_queue: bool = False) -> None:
+    def _run_job(self, job_id: int, from_queue: bool = False) -> bool:
         """from_queue: dalla coda "heavy" (_drain_queue), l'unica che esegue
-        i job approvati, uno alla volta."""
-        session = self.session_factory()
+        i job approvati, uno alla volta. False se il job non si è potuto
+        guardare: dalla coda, un job 'running' su cui gira ancora un altro
+        passo (la coda riprova fra poco)."""
         with self._lock:
-            self._active.add(job_id)
+            if not from_queue:
+                self._pending.discard(job_id)
+                if self._active[job_id]:
+                    # Un altro passo dello stesso job sta girando: lo si
+                    # guarda di nuovo quando finisce, mai due insieme.
+                    self._again.add(job_id)
+                    return True
+            busy = self._active[job_id] > 0
+            self._active[job_id] += 1
+        again = False
+        try:
+            again, done = self._step(job_id, from_queue, busy)
+        finally:
+            with self._lock:
+                self._active[job_id] -= 1
+                if self._active[job_id] <= 0:
+                    del self._active[job_id]
+                again = job_id in self._again or again
+                self._again.discard(job_id)
+        if again:
+            self._kick_current(job_id)
+        return done
+
+    def _kick_current(self, job_id: int) -> None:
+        """Dopo un passo: il job, se è (ancora o di nuovo) in uno stato del
+        worker, riparte dallo stato che ha adesso."""
+        session = self.session_factory()
+        try:
+            status = session.query(UploadJob.status).filter(UploadJob.id == job_id).scalar()
+        finally:
+            session.close()
+        if status is not None:
+            self.kick(job_id, status)
+
+    def _step(self, job_id: int, from_queue: bool, busy: bool) -> tuple[bool, bool]:
+        """Il passo del job per il suo stato. (da guardare di nuovo, fatto)."""
+        session = self.session_factory()
         try:
             job = session.get(UploadJob, job_id)
             if job is None:
-                return
+                return False, True
+            if not from_queue and job.status in HEAVY_STATES:
+                # Un kick vecchio dell'esecutore "light" (un annullamento e una
+                # ripresa con lui ancora in attesa, un id riusato) che trova il
+                # job approvato: lo esegue solo la coda, uno alla volta (audit
+                # 2026-10-18). Prima lo eseguiva lui, fuori dalla coda, e la
+                # coda poi lo prendeva per un orfano e lo rifaceva insieme.
+                return False, True
             handler = self.handlers.get(job.status)
             if handler is None:
                 if job.status == "running":
@@ -227,30 +296,31 @@ class UploadWorker:
                     # rimasto 'running' da un errore che non si è potuto
                     # registrare. Torna in coda con i target sistemati, e la
                     # coda lo finisce (audit 2026-10-18; prima "passo non
-                    # disponibile", con i target bloccati in invio). Un kick
-                    # vecchio dell'esecutore "light" non lo tocca.
-                    if from_queue and upload_jobs.requeue_orphan(session, job, self.data_dir):
+                    # disponibile", con i target bloccati in invio). Mai
+                    # mentre un altro passo dello stesso job gira ancora.
+                    if busy:
+                        logger.info("Upload %s: in esecuzione con un altro passo ancora aperto, la coda riprova",
+                                    job_id)
+                        return False, False
+                    if upload_jobs.requeue_orphan(session, job, self.data_dir):
                         logger.warning("Upload %s: rimasto in esecuzione senza un passo, torna in coda", job_id)
                 elif job.status in upload_jobs.WORKER_STATES:
                     # Uno stato senza handler non deve restare in coda per sempre.
                     self._fail(session, job, "upload_step_not_available", status=job.status)
-                return
+                return False, True
             status_before = job.status
             try:
                 handler(session, job, self)
             except Exception as exc:
                 self._step_failed(session, job_id, job, status_before, exc)
-                return
+                return False, True
             try:
                 session.refresh(job)
             except Exception:
                 logger.info("Upload %s: eliminato mentre il passo %r finiva", job_id, status_before)
-                return
-            if job.status != status_before and job.status in LIGHT_STATES:
-                self.kick(job.id, job.status)
+                return False, True
+            return job.status != status_before and job.status in LIGHT_STATES, True
         finally:
-            with self._lock:
-                self._active.discard(job_id)
             session.close()
 
     def _step_failed(self, session: Session, job_id: int, job: UploadJob, step: str, exc: Exception) -> None:

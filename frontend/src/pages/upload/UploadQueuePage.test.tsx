@@ -15,6 +15,7 @@ const job = (id: number, status: string, extra = {}) => ({
 
 const fetchNextPage = vi.fn()
 const history = { hasNextPage: true, isFetchingNextPage: false }
+// Uno storico che non arriva (un'istanza remota di prima, un 5xx): null = arriva.
 const refetchHistory = vi.fn()
 let historyError: Error | null = null
 
@@ -104,29 +105,30 @@ describe('UploadQueuePage', () => {
     expect(cancel).toHaveBeenCalledWith(2)
   })
 
-  it('keeps the queue usable when the history fails (a remote instance that cannot give it)', () => {
-    historyError = new Error('Not Found')
-    try {
-      render(<MemoryRouter><UploadQueuePage /></MemoryRouter>)
-      // Non l'anello caduto al posto della pagina: la coda c'è.
-      expect(screen.getByText('Movie 1 (2024)')).toBeTruthy()
-      cleanup()
-
-      render(<MemoryRouter initialEntries={['/?tab=history']}><UploadQueuePage /></MemoryRouter>)
-      expect(screen.getByText('This list could not be loaded.')).toBeTruthy()
-      expect(screen.queryByText('No uploads yet.')).toBeNull()
-      fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
-      expect(refetchHistory).toHaveBeenCalledTimes(1)
-    } finally {
-      historyError = null
-    }
-  })
-
   it('shows how many uploads the history holds and loads it a page at a time', () => {
     render(<MemoryRouter initialEntries={['/?tab=history']}><UploadQueuePage /></MemoryRouter>)
 
     expect(screen.getByText('History (41)')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Load more' }))
     expect(fetchNextPage).toHaveBeenCalled()
+  })
+
+  it('keeps the queue when the history fails, and says so in its tab with a retry', () => {
+    // Audit 2026-10-18 (R10): l'errore dello storico prendeva il posto di tutta la pagina.
+    historyError = new Error('422 Unprocessable Entity')
+    try {
+      render(<MemoryRouter><UploadQueuePage /></MemoryRouter>)
+      expect(screen.getByText('Movie 1 (2024)')).toBeTruthy()
+      expect(screen.getByText('History')).toBeTruthy()
+      cleanup()
+
+      render(<MemoryRouter initialEntries={['/?tab=history']}><UploadQueuePage /></MemoryRouter>)
+      expect(screen.getByText('The history could not be loaded: 422 Unprocessable Entity')).toBeTruthy()
+      expect(screen.queryByText('No uploads yet.')).toBeNull()
+      fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+      expect(refetchHistory).toHaveBeenCalled()
+    } finally {
+      historyError = null
+    }
   })
 })

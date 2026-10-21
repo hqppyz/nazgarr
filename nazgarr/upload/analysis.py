@@ -8,6 +8,7 @@ locale. Porta il job al secondo punto di approvazione, awaiting_decision.
    (hardlink, gli stessi byte) o stessa dimensione di un video;
 3. Radarr/Sonarr, se configurati: se la history dice che il file è stato
    scaricato da un tracker, non è una release propria dell'utente;
+   e gli altri upload non finiti con gli stessi video (other_jobs);
 4. per ogni tracker, il dupe check (nazgarr/upload/dupes.py) e l'azione
    suggerita. Un tracker che non risponde non ferma gli altri.
 """
@@ -22,6 +23,7 @@ from sqlalchemy.orm import Session
 
 from nazgarr.adapters.tracker.base import catalog_truncated
 from nazgarr.core import events
+from nazgarr.core.errors import CodedError
 from nazgarr.core.file_types import is_video
 from nazgarr.core.models import (
     ClientTorrent,
@@ -139,6 +141,59 @@ def _client_matches(session: Session, files: list[tuple[str, int]]) -> list[dict
         })
     matches.sort(key=lambda m: (m["match"] != "hardlink", -m["videos_matched"]))
     return matches
+
+
+def _video_ids(paths) -> set[tuple[int, int]]:
+    """(dispositivo, inode) dei video fra i percorsi dati; un file che non
+    si legge non conta."""
+    out = set()
+    for path in paths:
+        if not is_video(path):
+            continue
+        try:
+            st = os.stat(path, follow_symlinks=False)
+        except OSError:
+            continue
+        out.add((st.st_dev, st.st_ino))
+    return out
+
+
+def other_jobs(session: Session, job: UploadJob, files: list[tuple[str, int]]) -> list[dict]:
+    """Gli altri upload non finiti con gli stessi video (stessi byte: lo
+    stesso inode, anche da un altro percorso), audit 2026-10-18: una stagione
+    di una cartella divisa confermata a mano come la cartella intera, un
+    upload creato a mano per una release che la cartella osservata ha già.
+    Arrivavano alla decisione senza che niente dicesse che un altro upload
+    pubblicava quei file. Mai il pack da cui viene una divisione, né quelli
+    nati da questo."""
+    mine = _video_ids(path for path, _size in files)
+    if not mine:
+        return []
+    others = (
+        session.query(UploadJob)
+        .filter(UploadJob.id != job.id, UploadJob.status.notin_(upload_jobs.FINAL_STATES))
+        .order_by(UploadJob.id)
+        .all()
+    )
+    found = []
+    for other in others:
+        if other.id == job.split_from_id or other.split_from_id == job.id:
+            continue
+        try:
+            shared = mine & _video_ids(f.path for f in upload_inventory.job_files(other))
+            if shared:
+                found.append({
+                    "id": other.id, "status": other.status, "kind": other.kind, "title": other.title,
+                    "seasons": json.loads(other.seasons_json or "[]"), "episode": other.episode,
+                    "videos": len(shared),
+                })
+        except (OSError, ValueError, CodedError) as exc:
+            # La sua sorgente non si legge (un file del pack sparito, il suo
+            # disco tolto, un symlink): lo dirà la sua analisi. Mai un errore
+            # di un altro job che fa fallire questa.
+            logger.debug("upload %s: sorgente dell'upload %s non leggibile (%s)", job.id, other.id,
+                         type(exc).__name__)
+    return found
 
 
 def _arr_grabs(index, files: list[tuple[str, int]]) -> list[dict]:
@@ -392,6 +447,7 @@ def handle(session: Session, job: UploadJob, worker) -> None:
         "arr_grabs": _arr_grabs(index, files),
         "mediainfo": mediainfo_summary,
         "name_source": name_source(job, files, client_matches, index),
+        "other_jobs": other_jobs(session, job, files),
     }
     if upload_pack.is_pack(job):
         job.stage = "pack"
@@ -400,6 +456,12 @@ def handle(session: Session, job: UploadJob, worker) -> None:
         if analysis["pack_mixed"]:
             upload_jobs.log_event(session, job, "pack_mixed", level="warning",
                                   fields=", ".join(sorted(analysis["pack_mixed"])))
+    if not _still_mine(session, job, run.id):
+        # Annullato durante mediainfo e indici: niente analisi scritta su un
+        # job che non è più in analisi (audit 2026-10-18).
+        session.rollback()
+        logger.info("Upload %s: analisi interrotta prima dei tracker", job.id)
+        return
     job.analysis_json = json.dumps(analysis)
     if analysis["client_matches"]:
         upload_jobs.log_event(session, job, "already_on_client", level="warning", count=len(analysis["client_matches"]))
@@ -408,6 +470,9 @@ def handle(session: Session, job: UploadJob, worker) -> None:
             session, job, "grabbed_from_tracker", level="warning",
             trackers=[g["tracker_host"] for g in analysis["arr_grabs"]],
         )
+    if analysis["other_jobs"]:
+        upload_jobs.log_event(session, job, "other_upload_same_files", level="warning",
+                              jobs=", ".join(f"#{o['id']}" for o in analysis["other_jobs"]))
     session.commit()
 
     job.stage = "trackers"

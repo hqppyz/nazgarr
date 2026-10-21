@@ -27,8 +27,6 @@ export const upload = {
   'upload.starting': 'Avvio…',
   'upload.createFailed': 'Impossibile avviare l’upload: {message}',
   'upload.noUploadsYet': 'Ancora nessun upload.',
-  'upload.columnContent': 'Contenuto',
-  'upload.columnStatus': 'Stato',
   'upload.untitled': 'Non ancora identificato',
   'upload.backToList': 'Tutti gli upload',
   'upload.cancelJob': 'Annulla',
@@ -111,7 +109,6 @@ export const upload = {
   'upload.match.seasonsLabel': 'Stagioni',
   'upload.match.seasonN': 'Stagione {n}',
   'upload.match.orderLabel': "Ordinamento degli episodi",
-  'upload.match.orderFit': "{matched}/{files} file combaciano",
   'upload.match.orderWarning': "I file non seguono {tvdb}, l’ordine usato da Sonarr: combaciano meglio con {order}, scelto per questo. Puoi cambiarlo: vale per nome, file e campi del tracker.",
   'upload.match.orderUse': "Usa {order}",
   'upload.match.orderMapping': "Corrispondenza dei file ({count} episodi)",
@@ -137,9 +134,6 @@ export const upload = {
   'upload.analysis.title': 'Cosa ha trovato Nazgarr',
   'upload.analysis.files': '{count} file, {size}.',
   'upload.analysis.clean': 'Non è su nessun client e non è stato scaricato da un tracker, per quanto ne sa Nazgarr.',
-  'upload.analysis.grabbed':
-    'Radarr/Sonarr l’ha scaricato da {tracker} (torrent {id}): probabilmente non è una tua release, forse ti serve un reseed.',
-  'upload.analysis.onClient': 'Già su un client, controlla prima di caricare:',
   'upload.analysis.grabbedRecap':
     'Radarr/Sonarr l’ha scaricato da {tracker} ({count} torrent): probabilmente non è una tua release.',
   'upload.analysis.torrentId': 'torrent {id}',
@@ -149,6 +143,9 @@ export const upload = {
   'upload.analysis.noTracker': 'nessun tracker',
   'upload.analysis.hardlink': 'stessi file (hardlink)',
   'upload.analysis.sameSize': 'stessa dimensione, {matched}/{total} video',
+  'upload.analysis.otherJobsRecap':
+    'Altri upload non ancora finiti con questi stessi file: {count}. Controlla prima di approvare, la stessa release potrebbe uscire due volte.',
+  'upload.analysis.otherJob': '{status}, {count} video in comune',
 
   'upload.action.upload': 'Upload',
   'upload.action.reseed': 'Reseed',
@@ -303,6 +300,8 @@ export const upload = {
 
   'upload.history.activeTab': 'In corso ({count})',
   'upload.history.historyTab': 'Storico ({count})',
+  'upload.history.historyTabPlain': 'Storico',
+  'upload.history.loadFailed': 'Lo storico non si è caricato: {message}',
   'upload.history.noActive': 'Niente in corso.',
   'upload.history.moveUp': 'Prima nella coda',
   'upload.history.moveDown': 'Dopo nella coda',
@@ -372,6 +371,7 @@ export const upload = {
   'upload.event.dolby_vision_from_stream': 'MediaInfo non ha visto il Dolby Vision (il contenitore non lo dichiara): trovato nel flusso video, profilo {profile}. Controlla il campo HDR.',
   'upload.event.pack_mixed': 'Gli episodi del pack sono diversi in: {fields}.',
   'upload.event.grabbed_from_tracker': 'Radarr/Sonarr l’ha scaricato da {trackers}.',
+  'upload.event.other_upload_same_files': 'Altri upload non ancora finiti hanno gli stessi file: {jobs}.',
   'upload.event.dupe_check_done':
     '{results} risultati sul tracker, {identical} identici, {same_slot} dupe: consigliato {suggested}.',
   'upload.event.already_seeding_here': 'Già in seed su {client} per questo tracker ({torrent}): consigliato saltare.',
@@ -387,7 +387,7 @@ export const upload = {
   'upload.event.job_queued': 'Approvato e messo in coda (posizione {position}).',
   'upload.event.execution_started': 'Esecuzione avviata.',
   'upload.event.torrent_created': 'Torrent creato.',
-  'upload.event.file_links_kept': '{count} link fatti per i nomi restano: li usa un torrent del client o un reseed.',
+  'upload.event.file_links_kept': '{count} link fatti per i nomi restano: li usa un torrent del client, un reseed o un altro upload.',
   'upload.event.upload_extra_files_left_out': 'Lasciati fuori dal torrent: già nella sua cartella per gli upload, ma non di questo upload ({files}).',
   'upload.event.screenshots_done': '{count} screenshot caricati.',
   'upload.steps.hashing': 'Torrent',

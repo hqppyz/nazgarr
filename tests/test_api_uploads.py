@@ -348,8 +348,11 @@ def test_metadata_search_details_and_poster(client, tmp_path, monkeypatch):
 
     monkeypatch.setattr(metadata_api, "download_poster", fake_download)
 
-    assert [r["tmdb_id"] for r in client.get("/api/metadata/search?content_type=movie&query=Matrix").json()] == [603]
-    assert client.get("/api/metadata/movie/603").json()["genres"] == ["SF"]
+    assert client.get("/api/metadata/search?content_type=movie&query=Matrix").json() == [
+        tmdb_result(603, "The Matrix", 1999, poster_path="/m.jpg")]
+    details = client.get("/api/metadata/movie/603").json()
+    # Tipizzati (audit 2026-10-18): quello che TMDB non ha dato c'è lo stesso, vuoto.
+    assert (details["genres"], details["cast"], details["seasons"], details["runtime"]) == (["SF"], [], [], None)
     assert client.get("/api/metadata/search?content_type=book&query=x").status_code == 400
 
     # Con il path dal candidato non serve chiedere i dettagli; un path che
@@ -440,8 +443,14 @@ def test_the_file_naming_pattern_is_editable_and_previewed(client):
     assert names["uhd_remux"].startswith("Dune.Part.Two.2024.2160p.BluRay.REMUX.")
     assert names["uhd_remux"].endswith("-FraMeSToR.mkv") and ":" not in names["uhd_remux"]
 
+    # La forma tipizzata (audit 2026-10-18, finding 61): i valori del nome
+    # come testo, anche l'anno (un numero nei valori di release_values).
+    assert preview["sample"]["kind"] == "example" and preview["variables"]["year"] == "2024"
+    assert all(isinstance(v, str) or v is None for v in preview["variables"].values())
+
     mine = {**current["rules"], "templates": {"default": "{title} {year} {group}"}}
-    assert client.put("/api/uploads/file-naming", json={"rules": mine}).json()["rules"] == mine
+    assert client.put("/api/uploads/file-naming", json={"rules": mine}).json() == {
+        "rules": mine, "default": current["default"]}
 
 
 @pytest.mark.parametrize("bad", [{"templates": 5}, {"separator": 3}, {"audio_languages": "all"},

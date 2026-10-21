@@ -30,6 +30,21 @@ function isJobWorking(job: UploadJobSummary | undefined) {
   return !!job && (isWorking(job.status) || job.targets.some((target) => TARGET_WORKING_STATES.includes(target.status)))
 }
 
+// Un target 'done' col torrent fermo nel client, in attesa del suo recheck
+// (nazgarr/upload/execute.py reconcile_held_seeds, ogni 30 s): il job è
+// finito, ma l'esito arriva dopo (avviato, o "Riprova il seed"). Prima la
+// pagina smetteva di aggiornarsi proprio lì (audit 2026-10-18).
+const HELD_POLL_MS = 10_000
+
+export function awaitsRecheck(job: UploadJobSummary | undefined) {
+  return !!job && job.targets.some((target) => target.status === 'done' && target.error_message === 'seed_recheck_pending')
+}
+
+export function uploadPollInterval(job: UploadJobSummary | undefined): number | false {
+  if (isJobWorking(job)) return POLL_MS
+  return awaitsRecheck(job) ? HELD_POLL_MS : false
+}
+
 // Dopo una mutation che ha già messo il job aggiornato in ['uploads', id]:
 // solo le liste da ricaricare, la coda e lo storico (un job ripreso o
 // riprovato passa dall'uno all'altra) (audit 2026-10-18). Il prefisso
@@ -56,17 +71,25 @@ export function useUploads() {
 export const HISTORY_KEY = ['uploads', 'history']
 export const HISTORY_PAGE_SIZE = 50
 
+type UploadHistoryPage = Schemas['UploadHistoryResponse']
+
+// Una pagina dello storico. Verso un'istanza remota di prima dello storico a
+// pagine (le 0.9.x) la risposta la ricostruisce il client dalla lista di
+// sempre (frontend/src/api/compat.ts, audit 2026-10-18, R10).
+export async function fetchHistoryPage(pageParam: number | null): Promise<UploadHistoryPage> {
+  return unwrap(
+    api.GET('/api/uploads/history', {
+      params: { query: { limit: HISTORY_PAGE_SIZE, ...(pageParam === null ? {} : { before_id: pageParam }) } },
+    }),
+  )
+}
+
 // Lo storico, dal più recente, una pagina alla volta ("Carica altri"). Non
 // si interroga da solo: lo rinnovano le mutation e la coda quando un job ne esce.
 export function useUploadHistory() {
   return useInfiniteQuery({
     queryKey: HISTORY_KEY,
-    queryFn: ({ pageParam }) =>
-      unwrap(
-        api.GET('/api/uploads/history', {
-          params: { query: { limit: HISTORY_PAGE_SIZE, ...(pageParam === null ? {} : { before_id: pageParam }) } },
-        }),
-      ),
+    queryFn: ({ pageParam }) => fetchHistoryPage(pageParam),
     initialPageParam: null as number | null,
     getNextPageParam: (last) => last.next_before_id ?? undefined,
   })
@@ -94,7 +117,7 @@ export function useUpload(uploadId: number | null) {
     queryKey: ['uploads', uploadId],
     queryFn: () => unwrap(api.GET('/api/uploads/{upload_id}', { params: { path: { upload_id: uploadId! } } })),
     enabled: uploadId !== null,
-    refetchInterval: (query) => (isJobWorking(query.state.data) ? POLL_MS : false),
+    refetchInterval: (query) => uploadPollInterval(query.state.data),
   })
 }
 
@@ -331,12 +354,12 @@ export function useReorderQueue() {
   })
 }
 
-// Il pattern dei nomi dei file nel torrent (Settings > Upload).
+// Il pattern dei nomi dei file nel torrent (Settings > Upload). Risposte
+// tipizzate dall'OpenAPI (audit 2026-10-18), non più forzate a mano.
 export function useFileNaming() {
   return useQuery({
     queryKey: ['uploads', 'file-naming'],
-    queryFn: async () =>
-      (await unwrap(api.GET('/api/uploads/file-naming'))) as unknown as { rules: NamingRulesShape; default: NamingRulesShape },
+    queryFn: () => unwrap(api.GET('/api/uploads/file-naming')),
   })
 }
 
@@ -353,8 +376,7 @@ export function useSaveFileNaming() {
 export function useFileNamingPreview(rules: NamingRulesShape | null) {
   return useQuery({
     queryKey: ['uploads', 'file-naming', 'preview', rules],
-    queryFn: async () =>
-      (await unwrap(api.POST('/api/uploads/file-naming/preview', { body: { rules: rules! } }))) as unknown as NamingPreview,
+    queryFn: (): Promise<NamingPreview> => unwrap(api.POST('/api/uploads/file-naming/preview', { body: { rules: rules! } })),
     enabled: rules !== null,
     placeholderData: (previous) => previous,
     retry: false,
