@@ -23,8 +23,8 @@ from sqlalchemy.orm import Session
 
 from nazgarr.adapters.tracker.base import catalog_truncated
 from nazgarr.core import events
+from nazgarr.core.errors import CodedError
 from nazgarr.core.file_types import is_video
-from nazgarr.core.fs_scope import ScopeViolation
 from nazgarr.core.models import (
     ClientTorrent,
     ClientTorrentFile,
@@ -180,16 +180,19 @@ def other_jobs(session: Session, job: UploadJob, files: list[tuple[str, int]]) -
         if other.id == job.split_from_id or other.split_from_id == job.id:
             continue
         try:
-            theirs = _video_ids(f.path for f in upload_inventory.job_files(other))
-        except (OSError, ValueError, ScopeViolation):
-            continue  # la sua sorgente non si legge: lo dirà la sua analisi
-        shared = mine & theirs
-        if shared:
-            found.append({
-                "id": other.id, "status": other.status, "kind": other.kind, "title": other.title,
-                "seasons": json.loads(other.seasons_json or "[]"), "episode": other.episode,
-                "videos": len(shared),
-            })
+            shared = mine & _video_ids(f.path for f in upload_inventory.job_files(other))
+            if shared:
+                found.append({
+                    "id": other.id, "status": other.status, "kind": other.kind, "title": other.title,
+                    "seasons": json.loads(other.seasons_json or "[]"), "episode": other.episode,
+                    "videos": len(shared),
+                })
+        except (OSError, ValueError, CodedError) as exc:
+            # La sua sorgente non si legge (un file del pack sparito, il suo
+            # disco tolto, un symlink): lo dirà la sua analisi. Mai un errore
+            # di un altro job che fa fallire questa.
+            logger.debug("upload %s: sorgente dell'upload %s non leggibile (%s)", job.id, other.id,
+                         type(exc).__name__)
     return found
 
 

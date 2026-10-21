@@ -462,3 +462,46 @@ def test_the_pack_a_split_came_from_never_counts_as_another_upload(db_session, t
 
     assert upload_analysis.other_jobs(db_session, analyzing_job, files) == []
     assert upload_analysis.other_jobs(db_session, child, files) == []
+
+
+def _live_pack(db_session, disk, folder):
+    """Un pack di due episodi a mano, ancora da identificare."""
+    from nazgarr.upload import pack as upload_pack
+
+    root = os.path.realpath(disk.root_path)
+    episodes = [write_video(folder / f"Show.S01E0{n}.1080p.WEB-DL-GRP.mkv", 60 * MB) for n in (1, 2)]
+    job = upload_pack.create_job(db_session, disk, [os.path.relpath(e, root) for e in episodes])
+    return job, episodes
+
+
+def test_another_upload_whose_files_are_gone_never_fails_this_analysis(db_session, tmp_path, monkeypatch,
+                                                                         analyzing_job):
+    """Revisione wave 7 (finding 163): un pack vivo con un episodio sparito
+    (o un symlink al suo posto) alzava un UploadJobError, non un ValueError,
+    e l'analisi di un altro upload falliva con l'errore di quel job."""
+    monkeypatch.setattr(upload_analysis.adapter_factory, "build_tracker_adapter", lambda t: _FakeTracker())
+    pack, episodes = _live_pack(db_session, analyzing_job.disk, tmp_path / "Show")
+    os.unlink(episodes[1])
+
+    _run(db_session, tmp_path, analyzing_job)
+
+    assert analyzing_job.status == "awaiting_decision"
+    assert json.loads(analyzing_job.analysis_json)["other_jobs"] == []
+    db_session.refresh(pack)
+    assert pack.status == "identifying"
+
+
+def test_another_upload_whose_disk_was_removed_never_fails_this_analysis(db_session, tmp_path, monkeypatch,
+                                                                         analyzing_job):
+    monkeypatch.setattr(upload_analysis.adapter_factory, "build_tracker_adapter", lambda t: _FakeTracker())
+    other_disk = make_disk(db_session, tmp_path / "other")
+    pack, _episodes = _live_pack(db_session, other_disk, tmp_path / "other" / "Show")
+    db_session.delete(other_disk)
+    db_session.commit()
+    db_session.refresh(pack)
+    assert pack.disk is None
+
+    _run(db_session, tmp_path, analyzing_job)
+
+    assert analyzing_job.status == "awaiting_decision"
+    assert json.loads(analyzing_job.analysis_json)["other_jobs"] == []
