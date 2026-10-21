@@ -569,3 +569,27 @@ def test_a_history_that_does_not_continue_is_read_again(db_session, monkeypatch)
     assert index.imported_content_for("/x/OTHER2/Matrix.mkv", 32) == ("movie", 603, None, None)
     assert index.imported_content_for("/x/OLD5/Interstellar.mkv", 64) is None
     assert index.grab_for("/y/I/Interstellar.mkv", 64) is None
+
+
+def test_a_history_forgotten_while_it_is_read_is_not_cached_again():
+    # Un indice partito prima che l'istanza fosse spenta o cambiata non
+    # rimette la sua history dopo che _forget_history l'ha tolta; e la
+    # scrittura nel dizionario è sotto lo stesso guard che lo scorre.
+    from nazgarr.integrations import arr
+
+    key = ("sqlite:///forget-test", "radarr_instance", 1, "http://radarr")
+
+    class Api:
+        def history(self, event_type):
+            arr._forget_history(key[0], set())  # intanto la run toglie l'istanza
+            yield {"id": 1}
+
+    try:
+        assert arr._history_value(Api(), key, 1, list, lambda new, old: new + old) == [{"id": 1}]
+        assert not [k for k in arr._history_cache if k[0] == key[0]]
+        # Senza niente che la toglie, invece, resta.
+        Api.history = lambda self, event_type: iter([{"id": 1}])
+        arr._history_value(Api(), key, 1, list, lambda new, old: new + old)
+        assert (*key, 1) in arr._history_cache
+    finally:
+        arr._forget_history(key[0], set())

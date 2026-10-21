@@ -364,17 +364,27 @@ def _history_value(api, key: tuple | None, event_type: int, parse: Callable[[Ite
         if cached is None:
             ids = _Ids()
             value = parse(ids.track(api.history(event_type)))
-        if ids.complete:
-            _history_cache[full_key] = _CachedHistory(ids.newest, value)
-        else:
-            _history_cache.pop(full_key, None)
+        # Si scrive sotto il guard, come legge _forget_history: un indice di
+        # un altro thread che inserisce una chiave mentre quello scorre il
+        # dizionario era un RuntimeError a metà run. E solo se la chiave è
+        # ancora questa: tolta intanto (istanza spenta o cambiata), un indice
+        # partito prima non la rimette (e non tocca quella che un indice
+        # partito dopo, con un lock nuovo, ha già scritto).
+        with _history_guard:
+            if _history_locks.get(full_key) is not lock:
+                pass
+            elif ids.complete:
+                _history_cache[full_key] = _CachedHistory(ids.newest, value)
+            else:
+                _history_cache.pop(full_key, None)
         return value
 
 
 def _forget_history(db: str, keep: set[tuple]) -> None:
     """Toglie la history delle istanze di quel DB che non si indicizzano più."""
     with _history_guard:
-        for full_key in [k for k in _history_cache if k[0] == db and k[:4] not in keep]:
+        # Anche le chiavi di una prima lettura in corso, che hanno solo il lock.
+        for full_key in [k for k in {*_history_cache, *_history_locks} if k[0] == db and k[:4] not in keep]:
             _history_cache.pop(full_key, None)
             _history_locks.pop(full_key, None)
 
