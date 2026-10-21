@@ -480,3 +480,92 @@ def test_a_grab_written_with_the_default_port_still_matches_the_tracker():
     assert host_of("https://itt.example:8443/x") == "itt.example:8443"
     assert host_of("http://itt.example:443/x") == "itt.example:443"
     assert host_of("http://[::1") is None
+
+
+def _history_instance(db_session, monkeypatch):
+    """Una Radarr vera (ArrApi) su un MockTransport, con la history a pagine
+    da 2 e le richieste contate."""
+    import httpx
+
+    from nazgarr.integrations import arr
+
+    monkeypatch.setattr(arr, "HISTORY_PAGE_SIZE", 2)
+    movies = [
+        {"id": 1, "tmdbId": 157336, "movieFile": {"path": "/data/media/I/Interstellar.mkv", "size": 64}},
+        {"id": 2, "tmdbId": 603, "movieFile": {"path": "/data/media/M/Matrix.mkv", "size": 32}},
+    ]
+    state = {"history": {1: [], 3: []}, "calls": []}
+
+    def event(record_id, download, movie, file, size):
+        return {
+            1: {"id": record_id, "downloadId": download, "movieId": movie,
+                "data": {"guid": f"https://itt.example/torrent/download/{record_id}.key"}},
+            3: {"id": record_id, "downloadId": download, "movieId": movie,
+                "data": {"size": str(size), "importedPath": f"/data/media/{file}",
+                         "droppedPath": f"/data/torrents/{download}/{file.rsplit('/', 1)[1]}"}},
+        }
+
+    def add(*events):  # dal più recente
+        for record in reversed(events):
+            for kind in (1, 3):
+                state["history"][kind].insert(0, record[kind])
+
+    def handler(request):
+        if request.url.path == "/api/v3/movie":
+            return httpx.Response(200, json=movies)
+        kind, page = int(request.url.params["eventType"]), int(request.url.params["page"])
+        state["calls"].append((kind, page))
+        records = state["history"][kind]
+        size = arr.HISTORY_PAGE_SIZE
+        return httpx.Response(200, json={"records": records[(page - 1) * size: page * size],
+                                         "totalRecords": len(records)})
+
+    db_session.add(RadarrInstance(label="radarr", base_url="http://radarr", api_key="k"))
+    db_session.commit()
+
+    def build():
+        state["calls"].clear()
+        return build_arr_index(db_session, api_factory=lambda row: arr.ArrApi(
+            row, client=httpx.Client(transport=httpx.MockTransport(handler), base_url=row.base_url)))
+
+    return state, event, add, build
+
+
+def test_the_history_is_read_once_then_only_what_is_new(db_session, monkeypatch):
+    """Prima ogni indice (la run, l'Aggiorna di Not imported, gli upload)
+    riscaricava tutta la history (audit 2026-10-18): ora tutta una volta,
+    poi solo gli eventi più nuovi dell'ultimo letto."""
+    state, event, add, build = _history_instance(db_session, monkeypatch)
+    add(*[event(i, f"OLD{i}", 1, "I/Interstellar.mkv", 64) for i in range(5, 0, -1)])
+
+    index = build()
+    assert sorted(state["calls"]) == [(1, 1), (1, 2), (1, 3), (3, 1), (3, 2), (3, 3)]
+    assert index.imported_content_for("/x/OLD5/Interstellar.mkv", 64) == ("movie", 157336, None, None)
+    assert index.grab_for("/y/I/Interstellar.mkv", 64).torrent_id_remote == "5"  # il più recente
+
+    index = build()  # niente di nuovo: una pagina per tipo, e basta
+    assert sorted(state["calls"]) == [(1, 1), (3, 1)]
+    assert index.imported_content_for("/x/OLD1/Interstellar.mkv", 64) == ("movie", 157336, None, None)
+
+    add(event(6, "NEW6", 2, "M/Matrix.mkv", 32), event(7, "NEW7", 1, "I/Interstellar.mkv", 64))
+    index = build()
+    assert sorted(state["calls"]) == [(1, 1), (1, 2), (3, 1), (3, 2)]  # fino al primo già letto
+    assert index.imported_content_for("/x/NEW6/Matrix.mkv", 32) == ("movie", 603, None, None)
+    assert index.imported_content_for("/x/OLD3/Interstellar.mkv", 64) == ("movie", 157336, None, None)
+    assert index.grab_for("/y/I/Interstellar.mkv", 64).torrent_id_remote == "7"  # il nuovo vince
+    assert index.grab_for("/y/M/Matrix.mkv", 32).torrent_id_remote == "6"
+
+
+def test_a_history_that_does_not_continue_is_read_again(db_session, monkeypatch):
+    # Svuotata, o un'altra istanza allo stesso indirizzo: il più recente è
+    # più vecchio dell'ultimo letto, e quello che c'era non vale più.
+    state, event, add, build = _history_instance(db_session, monkeypatch)
+    add(*[event(i, f"OLD{i}", 1, "I/Interstellar.mkv", 64) for i in range(5, 0, -1)])
+    build()
+    state["history"] = {1: [], 3: []}
+    add(event(2, "OTHER2", 2, "M/Matrix.mkv", 32), event(1, "OTHER1", 2, "M/Matrix.mkv", 32))
+
+    index = build()
+    assert index.imported_content_for("/x/OTHER2/Matrix.mkv", 32) == ("movie", 603, None, None)
+    assert index.imported_content_for("/x/OLD5/Interstellar.mkv", 64) is None
+    assert index.grab_for("/y/I/Interstellar.mkv", 64) is None
