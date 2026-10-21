@@ -360,7 +360,7 @@ class _BulkRun:
                 run.id, torrent_client.label, torrent_client.adapter_type, torrent_client.base_url,
             )
             progress.detail(f"{torrent_client.label} ({i}/{len(torrent_clients)}): listing torrents…")
-            client_total = {"known": False}
+            client_total = {"known": False, "done": 0}
 
             def on_torrent(done: int, total: int, _label=torrent_client.label, _i=i,
                            client_total=client_total) -> None:
@@ -368,7 +368,13 @@ class _BulkRun:
                     client_total["known"] = True
                     progress.add_total(total)
                     progress.detail(f"{_label} ({_i}/{len(torrent_clients)})")
-                progress.advance()
+                # done è il conto dei torrent fatti finora, non un torrent in
+                # più: qBittorrent riporta in una chiamata sola tutti quelli
+                # coi file riusati, rTorrent uno ogni 100. Contare le
+                # chiamate fermava la fase a 1/8 (revisione dell'audit 2026-10-18).
+                if done > client_total["done"]:
+                    progress.advance(done - client_total["done"])
+                    client_total["done"] = done
 
             try:
                 with adapter_factory.torrent_client(torrent_client) as adapter:
