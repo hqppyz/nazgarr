@@ -184,7 +184,7 @@ def _hardlink(session: Session, job: UploadJob, files: list[tuple[str, str]]) ->
         return None
     torrent = session.get(ClientTorrent, min(common))
     planned = []
-    for path, relative in files:
+    for path, _relative in files:
         in_torrent = paths.get(path, {}).get(torrent.id)
         if in_torrent is None:
             continue  # un file che quel torrent non ha (un nfo nostro): resta fuori

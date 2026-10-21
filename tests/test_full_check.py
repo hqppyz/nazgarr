@@ -107,7 +107,7 @@ def test_a_missing_file_makes_its_pieces_unreadable_not_mismatched(db_session, t
 
 
 def test_after_an_execution_the_files_are_read_where_the_client_sees_them(db_session, tmp_path):
-    disk, candidate = _setup(db_session, tmp_path, FILES)
+    _disk, candidate = _setup(db_session, tmp_path, FILES)
     video = next(f for f in candidate.files if f.is_video)
     seed_dir = tmp_path / "disk/torrents/Movie"
     seed_dir.mkdir()
@@ -336,7 +336,7 @@ def test_a_file_the_client_renamed_as_incomplete_is_still_found(db_session, tmp_
     """Transmission (rename-partial-files) rinomina "<nome>.part" un file
     incompleto, anche durante il recheck di un torrent fermo: è lo stesso
     file, e la verifica degli extra lo legge lì."""
-    disk, candidate = _setup(db_session, tmp_path, FILES)
+    _disk, candidate = _setup(db_session, tmp_path, FILES)
     video = next(f for f in candidate.files if f.is_video)
     seed_dir = tmp_path / "disk/torrents/Movie"
     seed_dir.mkdir()

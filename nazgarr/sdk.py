@@ -43,11 +43,9 @@ from nazgarr.plugins.registry import KINDS, AdapterContext, AdapterSpec, ConfigF
 SDK_VERSION = "1.6.0"
 
 __all__ = [
-    "KINDS", "SDK_VERSION", "AdapterContext", "AdapterSpec", "CatalogResults", "ClientTorrentFileInfo",
-    "ClientTorrentInfo",
-    "CheveretoImageHost", "ConfigField", "ImageHostAdapter", "ImageHostError", "MediaResolverAdapter",
-    "NotSupportedError",
-    "Notification", "NotificationAdapter", "NotificationError",
+    "KINDS", "SDK_VERSION", "AdapterContext", "AdapterSpec", "CatalogResults", "CheveretoImageHost",
+    "ClientTorrentFileInfo", "ClientTorrentInfo", "ConfigField", "ImageHostAdapter", "ImageHostError",
+    "MediaResolverAdapter", "NotSupportedError", "Notification", "NotificationAdapter", "NotificationError",
     "ResolvedMedia", "TorrentAddTimeoutError", "TorrentAlreadyInClientError", "TorrentCandidate",
     "TorrentClientAdapter", "TorrentRecord", "TorrentStatus", "TrackerAdapter", "TrackerRateLimitedError",
     "UploadError", "UploadFields", "UploadedTorrent", "catalog_truncated", "chevereto_image_url", "register",

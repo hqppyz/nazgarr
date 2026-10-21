@@ -155,7 +155,7 @@ def test_without_the_label_plugin_there_are_no_categories():
 def test_add_rejects_force_recheck_false_and_duplicates():
     mock = _DelugeMock(torrents={"abc123": {"state": "Seeding"}})
     adapter = _adapter(mock)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="force_recheck=False"):
         adapter.add_torrent("magnet:?x", save_path="/d", force_recheck=False)
     with pytest.raises(TorrentAlreadyInClientError):
         adapter.add_torrent("magnet:?x", save_path="/d", expected_info_hash="ABC123")
@@ -163,7 +163,7 @@ def test_add_rejects_force_recheck_false_and_duplicates():
 
 # is_auto_managed è sempre vero, come lo riporta Deluge: è l'opzione salvata,
 # non lo stato di libtorrent, e la mappatura non la guarda (audit 2026-10-18).
-@pytest.mark.parametrize("state,progress,paused,expected", [
+@pytest.mark.parametrize(("state", "progress", "paused", "expected"), [
     ("Checking", 40.0, False, "pending"),
     # Subito dopo force_recheck, visto sull'istanza reale: in coda per il controllo.
     ("Seeding", 0.0, True, "pending"),
@@ -247,7 +247,7 @@ def test_the_recheck_of_a_paused_torrent_waits_like_the_add():
 
 
 def test_status_of_an_unknown_torrent_raises():
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="missing"):
         _adapter(_DelugeMock()).get_torrent_status("missing")
 
 

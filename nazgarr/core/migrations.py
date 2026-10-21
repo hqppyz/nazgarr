@@ -158,7 +158,7 @@ def _vacuum(engine: Engine) -> None:
     try:
         raw.cursor().execute("VACUUM")
         logger.info("Database compattato")
-    except Exception as exc:  # noqa: BLE001 — mai fermare l'avvio per questo
+    except Exception as exc:  # qualunque errore: mai fermare l'avvio per questo
         logger.warning("Database non compattato (VACUUM): %s", exc)
     finally:
         raw.close()

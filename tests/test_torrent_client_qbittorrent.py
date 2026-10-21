@@ -95,7 +95,7 @@ def test_a_local_torrent_file_is_sent_by_content_not_by_path(tmp_path):
 
 def test_add_torrent_rejects_force_recheck_false():
     adapter = _adapter(FakeQbtClient())
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="force_recheck=False"):
         adapter.add_torrent("magnet:?xt=...", save_path="/torrents/movie", force_recheck=False)
 
 
@@ -112,7 +112,7 @@ def test_add_torrent_times_out_if_no_new_hash_appears():
 
 
 @pytest.mark.parametrize(
-    "state,progress,expected",
+    ("state", "progress", "expected"),
     [
         ("checkingResumeData", 0.5, "pending"),
         ("error", 0.0, "failed"),
@@ -132,7 +132,7 @@ def test_get_torrent_status_maps_native_state(state, progress, expected):
 
 def test_get_torrent_status_raises_if_not_found():
     adapter = _adapter(FakeQbtClient())
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="missing"):
         adapter.get_torrent_status("missing")
 
 

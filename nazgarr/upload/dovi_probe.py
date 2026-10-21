@@ -38,7 +38,8 @@ def _side_data(path: str) -> list[dict] | None:
         "-show_streams", "-show_frames", "-read_intervals", f"%+#{PACKETS}", path,
     ]
     try:
-        result = subprocess.run(command, capture_output=True, text=True, timeout=TIMEOUT_SECONDS, check=False)
+        # ffprobe trovato nel PATH, il file (un percorso assoluto) come ultimo argomento: mai una shell.
+        result = subprocess.run(command, capture_output=True, text=True, timeout=TIMEOUT_SECONDS, check=False)  # noqa: S603
         data = json.loads(result.stdout or "{}")
     except (OSError, subprocess.TimeoutExpired, ValueError):
         logger.warning("ffprobe non è riuscito a leggere %r", path, exc_info=True)

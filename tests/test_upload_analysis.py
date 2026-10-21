@@ -335,7 +335,7 @@ def test_a_truncated_catalogue_is_said_at_the_decision(db_session, tmp_path, mon
 
     _run(db_session, tmp_path, analyzing_job)
 
-    a, b = analyzing_job.targets
+    _a, b = analyzing_job.targets
     assert json.loads(analyzing_job.analysis_json)["dupes_truncated"] == {str(b.id): 1}
     event = next(e for e in analyzing_job.events if e.code == "dupe_check_truncated")
     assert (event.target_id, event.level, json.loads(event.params_json)) == (b.id, "warning", {"results": 1})

@@ -174,7 +174,7 @@ def cached_json(request: Request, session: Session, key: str, compute: Callable[
     # (es. test) con la stessa "versione" non devono mai condividere risposte.
     key = f"{session.get_bind().url}|{key}"
     version = data_version(session)
-    etag = f'W/"{hashlib.sha1(f"{key}:{version}".encode()).hexdigest()[:20]}"'
+    etag = f'W/"{hashlib.sha1(f"{key}:{version}".encode(), usedforsecurity=False).hexdigest()[:20]}"'
     headers = {"ETag": etag, "Cache-Control": "private, no-cache"}  # no-cache = rivalida sempre, via ETag
     if request.headers.get("if-none-match") == etag:
         return Response(status_code=304, headers=headers)

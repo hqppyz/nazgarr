@@ -19,7 +19,7 @@ def area(tmp_path):
 
 
 def test_check_link_accepts_a_free_target_and_reuses_the_same_file(area):
-    tmp_path, source, root = area
+    _tmp_path, source, root = area
     target = os.path.join(root, "Release", "Movie.mkv")
     assert hardlinks.check_link(source, target, root) == os.path.realpath(target)
     os.makedirs(os.path.dirname(target))
@@ -45,13 +45,13 @@ def test_check_link_refuses_symlinks_other_files_and_paths_outside(area):
 
 
 def test_create_links_removes_what_it_created_if_one_fails(area, monkeypatch):
-    tmp_path, source, root = area
+    _tmp_path, source, root = area
     first, second = os.path.join(root, "a", "1.mkv"), os.path.join(root, "b", "2.mkv")
     real = os.link
     # Il link si crea dentro la cartella aperta (dst_dir_fd): t è il solo nome.
     monkeypatch.setattr(os, "link", lambda s, t, **kw: (_ for _ in ()).throw(OSError("full"))
                         if os.path.basename(t) == "2.mkv" else real(s, t, **kw))
-    with pytest.raises(OSError):
+    with pytest.raises(OSError, match="full"):
         hardlinks.create_links([(source, first), (source, second)])
     assert not os.path.lexists(first) and os.path.isfile(source)
 
@@ -68,7 +68,7 @@ def strict_umask():
 def test_new_folders_copy_the_permissions_of_the_folder_above(area, strict_umask):
     # Con la umask 077 le cartelle di seed nascevano 0700: un client torrent con
     # un altro utente dello stesso gruppo non ci entrava (audit 2026-10-18).
-    tmp_path, source, root = area
+    _tmp_path, source, root = area
     os.chmod(root, 0o2775)
     os.chmod(source, 0o664)
     target = os.path.join(root, "Movie.2020.1080p", "Sub", "Movie.mkv")
@@ -175,7 +175,7 @@ def test_a_symlink_at_the_destination_is_never_followed(area):
 
 
 def test_a_destination_written_outside_the_root_is_out_of_scope(area):
-    tmp_path, source, root = area
+    _tmp_path, source, root = area
     with pytest.raises(ScopeViolation):
         hardlinks.check_link(source, os.path.join(root, "..", "Movie.mkv"), root)
     assert not os.path.lexists(os.path.join(os.path.dirname(root), "Movie.mkv"))
@@ -195,7 +195,7 @@ def test_a_symlinked_folder_on_the_way_is_out_of_scope_wherever_it_points(area):
 
 
 def test_cross_device_is_refused(area, monkeypatch):
-    tmp_path, source, root = area
+    _tmp_path, source, root = area
     real_stat = os.stat
 
     class Other:
@@ -225,7 +225,8 @@ def test_a_folder_swapped_for_a_symlink_after_the_check_is_not_followed(area):
     resolved = hardlinks.check_link(source, target, root)  # la cartella non c'è ancora
 
     os.symlink(outside, os.path.join(root, "Release.Folder"))
-    with pytest.raises(OSError):
+    # ELOOP su Linux, ENOTDIR su macOS: sempre sulla cartella diventata link.
+    with pytest.raises(OSError, match=r"Release\.Folder"):
         hardlinks.create_links([(source, resolved)])
     assert os.listdir(outside) == []
 
@@ -246,7 +247,7 @@ def test_removing_never_goes_through_a_folder_swapped_for_a_symlink(area):
 
 
 def test_remove_links_can_prune_the_folders_left_empty(area):
-    tmp_path, source, root = area
+    _tmp_path, source, root = area
     first = hardlinks.check_link(source, os.path.join(root, "Pack", "Season 1", "e1.mkv"), root)
     second = hardlinks.check_link(source, os.path.join(root, "Pack", "Other", "e2.mkv"), root)
     created = hardlinks.create_links([(source, first), (source, second)])
@@ -263,7 +264,7 @@ def test_remove_links_can_prune_the_folders_left_empty(area):
 def test_a_folder_that_can_only_be_traversed_does_not_stop_the_link(area):
     """Un NAS con una cartella 0711 sopra i dischi: come con un percorso,
     basta poterla attraversare (O_PATH / O_SEARCH), non leggerla."""
-    tmp_path, source, root = area
+    _tmp_path, source, root = area
     os.makedirs(os.path.join(root, "pool", "Movies"))
     target = hardlinks.check_link(source, os.path.join(root, "pool", "Movies", "New", "Movie.mkv"), root)
     os.chmod(os.path.join(root, "pool"), 0o311)
@@ -281,7 +282,7 @@ def test_a_file_put_in_place_of_a_created_link_is_never_removed(area):
     posto. create_links ricorda dispositivo e inode di ogni link creato, e
     remove_links li confronta nella cartella aperta, subito prima di
     togliere."""
-    tmp_path, source, root = area
+    _tmp_path, source, root = area
     target = hardlinks.check_link(source, os.path.join(root, "Release", "Movie.mkv"), root)
     created = hardlinks.create_links([(source, target)])
     os.unlink(target)
@@ -299,7 +300,7 @@ def test_the_identity_is_checked_in_the_folder_the_unlink_goes_through(area, mon
     aperta: un file scambiato dopo il controllo del chiamante (per percorso)
     ma prima dell'unlink resta. expected dà l'identità a percorsi salvati
     come semplici stringhe."""
-    tmp_path, source, root = area
+    _tmp_path, source, root = area
     target = hardlinks.check_link(source, os.path.join(root, "Release", "Movie.mkv"), root)
     created = hardlinks.create_links([(source, target)])
     st = os.lstat(target)
@@ -322,7 +323,7 @@ def test_the_identity_is_checked_in_the_folder_the_unlink_goes_through(area, mon
 
 
 def test_a_plain_path_is_removed_only_if_it_is_still_a_regular_file(area):
-    tmp_path, source, root = area
+    _tmp_path, source, root = area
     target = hardlinks.check_link(source, os.path.join(root, "Release", "Movie.mkv"), root)
     hardlinks.create_links([(source, target)])
     os.unlink(target)

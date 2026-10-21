@@ -33,7 +33,7 @@ def hash_range(fh, start: int, length: int) -> bytes:
     HASH_CHUNK. Un file più corto dà l'hash di quello che c'è, cioè un
     mismatch, come prima."""
     fh.seek(start)
-    digest = hashlib.sha1()
+    digest = hashlib.sha1(usedforsecurity=False)  # i piece di BitTorrent v1: SHA-1 per protocollo
     left = length
     while left > 0:
         buf = fh.read(min(HASH_CHUNK, left))

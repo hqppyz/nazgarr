@@ -15,7 +15,7 @@ from tests.test_executor import (  # noqa: F401 (fixture autouse)
     ReseedClient,
     _movie_review,
     _movie_torrent,
-    _tracker_torrent,
+    tracker_torrent,
 )
 from tests.test_season_pack import _bencode
 

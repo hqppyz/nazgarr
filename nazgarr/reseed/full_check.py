@@ -138,7 +138,7 @@ def verify_all_pieces(
                     handle.close()
                 first += 1
             touched: list[int] = []
-            digest = hashlib.sha1()
+            digest = hashlib.sha1(usedforsecurity=False)  # i piece di BitTorrent v1: SHA-1 per protocollo
             readable = True
             i = first
             while i < len(parsed.files) and parsed.files[i].offset < end:

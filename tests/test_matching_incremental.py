@@ -156,7 +156,7 @@ def test_rate_limit_stops_the_tracker_for_the_rest_of_the_run(db_session, monkey
 def test_user_rejected_torrent_is_not_proposed_again(db_session, monkeypatch):
     monkeypatch.setattr(matching, "compute_unique_id", lambda path: None)
     settings_repo.set_setting(db_session, "rematch_interval_days", "0")
-    tracker, (mf,) = _setup(db_session)
+    tracker, (_mf,) = _setup(db_session)
     adapter = CountingTracker(candidates=[_tc(torrent_id_remote="7", size_bytes=1000)])
 
     matching.run_media_to_torrent_matching(db_session, tracker, adapter)
@@ -266,7 +266,7 @@ def test_torrent_to_client_matching_is_skipped_when_no_client_file_is_linked(db_
     from nazgarr.core.models import SeedFile, TorrentClient
     from nazgarr.integrations import adapter_factory
 
-    tracker, _ = _setup(db_session)
+    _tracker, _ = _setup(db_session)
     run0 = pipeline.start_run(db_session, "manual")
     db_session.add(SeedFile(disk_id=1, relative_path="torrents/a.mkv", size_bytes=1, st_dev=1, inode=9,
                             last_scan_id=run0.id, last_seen_at=datetime.now(UTC)))

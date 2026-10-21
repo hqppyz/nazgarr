@@ -36,7 +36,7 @@ def compute_fast_hash(path: str) -> str | None:
             if size > _CHUNK_SIZE:
                 f.seek(max(size - _CHUNK_SIZE, 0))
                 tail = f.read(_CHUNK_SIZE)
-        return hashlib.md5(head + tail).hexdigest()
+        return hashlib.md5(head + tail, usedforsecurity=False).hexdigest()  # un'impronta per confronto, non un segreto
     except OSError:
         return None
 

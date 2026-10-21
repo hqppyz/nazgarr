@@ -92,12 +92,8 @@ def test_the_parse_runs_in_a_child_and_its_crash_or_hang_is_only_an_error(tmp_pa
 
     monkeypatch.setattr(mediainfo_util, "_CHILD", "import time\ntime.sleep(30)\n")
     monkeypatch.setattr(mediainfo_util, "PARSE_TIMEOUT_SECONDS", 0.5)
-    try:
+    with pytest.raises(mediainfo_util.MediaInfoFailed, match="did not finish"):  # un blocco deve scadere
         mediainfo_util.parse(str(video))
-    except mediainfo_util.MediaInfoFailed as exc:
-        assert "did not finish" in str(exc)
-    else:
-        raise AssertionError("un blocco deve scadere")
 
 
 def test_a_huge_report_from_the_child_is_cut_off_not_buffered(tmp_path, monkeypatch):

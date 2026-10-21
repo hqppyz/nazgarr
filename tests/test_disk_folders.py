@@ -1,5 +1,6 @@
 import os
 import types
+from pathlib import Path
 
 import pytest
 from sqlalchemy import text
@@ -31,7 +32,7 @@ def test_more_media_and_seeding_folders_on_one_disk(db_session, disk):
     assert disk.effective_new_torrent_rel_path == disk.effective_upload_rel_path == "torrents"
 
 
-@pytest.mark.parametrize("kind, path, code", [
+@pytest.mark.parametrize(("kind", "path", "code"), [
     ("media", "../outside", "path_outside_scope"),
     ("media", "", "folder_is_disk_root"),
     ("media", "missing", "folder_not_found"),
@@ -87,11 +88,11 @@ def test_the_scan_reads_every_folder_and_keeps_an_unreachable_one(db_session, di
     root = disk.root_path
     for kind, path in (("media", "movies"), ("media", "tv"), ("seeding", "torrents"), ("seeding", "cross-seed")):
         disk_folders.add(db_session, disk, kind, path)
-    open(os.path.join(root, "movies", "a.mkv"), "wb").write(b"a" * 100)
-    open(os.path.join(root, "tv", "b.mkv"), "wb").write(b"b" * 100)
-    open(os.path.join(root, "torrents", "old.mkv"), "wb").write(b"o" * 100)
+    Path(root, "movies", "a.mkv").write_bytes(b"a" * 100)
+    Path(root, "tv", "b.mkv").write_bytes(b"b" * 100)
+    Path(root, "torrents", "old.mkv").write_bytes(b"o" * 100)
     os.link(os.path.join(root, "tv", "b.mkv"), os.path.join(root, "cross-seed", "b.mkv"))
-    open(os.path.join(root, "releases", "not-a-folder.mkv"), "wb").write(b"r" * 100)
+    Path(root, "releases", "not-a-folder.mkv").write_bytes(b"r" * 100)
 
     scanner.scan_disk(db_session, disk, pipeline.start_run(db_session, "manual"))
 

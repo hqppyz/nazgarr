@@ -241,7 +241,7 @@ def test_an_upgrade_with_the_same_name_unlinks_the_old_torrent(db_session, tmp_p
 
 
 def test_a_path_from_the_webhook_never_leaves_the_media_folders(db_session, tmp_path):
-    root, disk = _library(db_session, tmp_path)
+    root, _disk = _library(db_session, tmp_path)
     (root / "secret.mkv").write_bytes(b"s" * 10)  # sul disco, fuori dalle cartelle media
     os.symlink(root / "secret.mkv", root / "media" / "movies" / "link.mkv")
 
@@ -328,7 +328,7 @@ def test_the_torrent_it_was_imported_from_counts_as_seeding_right_away(db_sessio
     from nazgarr.library.seeding import seeding_media_file_ids
     from nazgarr.reseed import matching
 
-    root, disk = _library(db_session, tmp_path)
+    root, _disk = _library(db_session, tmp_path)
     # Scaricato dopo l'ultima scansione: né il file né il torrent sono ancora noti a Nazgarr.
     download = root / "torrents" / "Movie.2020.1080p.WEB-DL-GRP" / "Movie.2020.1080p.WEB-DL-GRP.mkv"
     download.parent.mkdir()

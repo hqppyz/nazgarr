@@ -149,7 +149,7 @@ def test_a_pinned_client_still_talks_http_with_the_original_host(monkeypatch):
     hosts = []
 
     class Handler(BaseHTTPRequestHandler):
-        def do_GET(self):  # noqa: N802
+        def do_GET(self):  # il nome lo vuole BaseHTTPRequestHandler
             hosts.append(self.headers["Host"])
             self.send_response(200)
             self.send_header("Content-Length", "2")

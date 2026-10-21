@@ -619,7 +619,8 @@ def _pieces_key(path: str, parsed: TorrentInfo, entry) -> tuple:
     tracker si rileggeva per ognuno."""
     first = entry.offset // parsed.piece_length
     last = max(entry.offset + entry.length - 1, entry.offset) // parsed.piece_length
-    digest = hashlib.sha1(b"".join(parsed.pieces[first:last + 1])).digest()
+    # Una chiave di cache, non un segreto.
+    digest = hashlib.sha1(b"".join(parsed.pieces[first:last + 1]), usedforsecurity=False).digest()
     return (path, entry.offset, entry.length, parsed.piece_length, parsed.total_length, digest)
 
 

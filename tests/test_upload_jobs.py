@@ -672,7 +672,7 @@ def test_target_statuses_go_through_one_function(caplog):
     target = SimpleNamespace(id=1, status="approved")
     set_target_status(target, TargetStatus.UPLOADING)
     assert target.status == "uploading"
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="uplaoding"):
         set_target_status(target, "uplaoding")
     with caplog.at_level(logging.WARNING, logger=upload_jobs.logger.name):
         set_target_status(target, TargetStatus.CHECKING)  # da uploading: non previsto

@@ -203,7 +203,7 @@ def test_recheck_really_reads_the_data(workspace):
     ws = workspace
     adapter = _adapter(ws.name)
     source = _payload_single(ws)
-    torrent_path, torrent = _make_torrent(ws, source)
+    torrent_path, _torrent = _make_torrent(ws, source)
     with open(source, "r+b") as f:  # stessa dimensione, contenuto diverso
         f.write(os.urandom(300_000))
 
@@ -226,7 +226,7 @@ def test_a_reseed_added_stopped_is_rechecked_and_starts_only_when_asked(workspac
     ws = workspace
     adapter = _adapter(ws.name)
     source = _payload_single(ws)
-    torrent_path, torrent = _make_torrent(ws, source)
+    torrent_path, _torrent = _make_torrent(ws, source)
     assert adapter.can_add_stopped
 
     info_hash = adapter.add_torrent(torrent_path, save_path=CLIENT_ROOT, stopped=True)
@@ -249,7 +249,7 @@ def test_a_reseed_with_wrong_data_stays_stopped_after_its_recheck(workspace):
     ws = workspace
     adapter = _adapter(ws.name)
     source = _payload_single(ws)
-    torrent_path, torrent = _make_torrent(ws, source)
+    torrent_path, _torrent = _make_torrent(ws, source)
     with open(source, "r+b") as f:  # stessa dimensione, contenuto diverso
         f.write(os.urandom(300_000))
 
@@ -273,7 +273,7 @@ def test_the_retry_of_a_stopped_failed_reseed_rechecks_it_and_it_stays_stopped(w
     ws = workspace
     adapter = _adapter(ws.name)
     source = _payload_single(ws)
-    torrent_path, torrent = _make_torrent(ws, source)
+    torrent_path, _torrent = _make_torrent(ws, source)
     with open(source, "rb") as f:
         good = f.read()
     with open(source, "r+b") as f:  # stessa dimensione, contenuto diverso
@@ -308,7 +308,7 @@ def test_a_file_renamed_partial_during_a_failed_recheck_gets_its_name_back(works
     ws = workspace
     adapter = _adapter(ws.name)
     source = _payload_single(ws)
-    torrent_path, torrent = _make_torrent(ws, source)
+    torrent_path, _torrent = _make_torrent(ws, source)
     with open(source, "r+b") as f:  # stessa dimensione, contenuto diverso
         f.write(os.urandom(300_000))
     st = os.stat(source)
@@ -342,7 +342,7 @@ def test_stop_after_a_failed_recheck(workspace):
     ws = workspace
     adapter = _adapter(ws.name)
     source = _payload_single(ws)
-    torrent_path, torrent = _make_torrent(ws, source)
+    torrent_path, _torrent = _make_torrent(ws, source)
     with open(source, "r+b") as f:  # stessa dimensione, contenuto diverso
         f.write(os.urandom(300_000))
 
@@ -365,7 +365,7 @@ def test_skip_check_verified(workspace):
     ws = workspace
     adapter = _adapter(ws.name)
     source = _payload_single(ws)
-    torrent_path, torrent = _make_torrent(ws, source)
+    torrent_path, _torrent = _make_torrent(ws, source)
 
     info_hash = adapter.add_torrent(torrent_path, save_path=CLIENT_ROOT, skip_check_verified=True)
 
@@ -381,7 +381,7 @@ def test_skip_check_verified(workspace):
 class _OneFile(http.server.BaseHTTPRequestHandler):
     payload = b""
 
-    def do_GET(self):  # noqa: N802
+    def do_GET(self):  # il nome lo vuole BaseHTTPRequestHandler
         self.send_response(200)
         self.send_header("Content-Type", "application/x-bittorrent")
         self.send_header("Content-Length", str(len(self.payload)))

@@ -216,7 +216,7 @@ def inline_checks(monkeypatch):
 def test_executing_a_pack_hardlinks_every_local_file_and_tolerates_missing_extras(
         db_session, tmp_path, monkeypatch, inline_checks):
     _no_mediainfo(monkeypatch)
-    disk, tracker, _ = _library(db_session, tmp_path)
+    _disk, tracker, _ = _library(db_session, tmp_path)
     matching.run_media_to_torrent_matching(db_session, tracker, PackTracker([_pack_candidate()]))
     review = db_session.query(MatchReview).one()
     client = FakeClient()
@@ -906,7 +906,7 @@ def test_reconcile_between_runs_is_scheduled_and_skipped_during_a_run(db_session
     assert sched.get_job(scheduler.RECONCILE_JOB_ID) is not None
 
 
-def _DownClient():  # noqa: N802 — si usa come le classi dei client qui sopra
+def _DownClient():  # maiuscolo: si usa come le classi dei client qui sopra
     return FakeClient(add_error=RuntimeError("client down"))
 
 

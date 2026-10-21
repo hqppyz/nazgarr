@@ -107,7 +107,7 @@ def test_an_endless_chunked_body_stops_at_the_limit(client):
 
 def test_with_a_valid_token_or_write_key_a_large_body_reaches_the_route(client):
     payload = _empty_objects(MAX_BODY_BYTES - 1)
-    status, body, _ = _send_request(client.app, "/api/disks", chunks=[payload],
+    status, _body, _ = _send_request(client.app, "/api/disks", chunks=[payload],
                                     headers=[_length(payload), _bearer(client)])
     assert status == 422  # letto e validato: un elenco non è un disco
     write_key = client.post("/api/api-keys", json={"name": "rw", "level": "write"}).json()["key"]

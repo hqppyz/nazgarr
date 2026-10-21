@@ -39,7 +39,7 @@ def test_it_records_every_add_and_never_accepts_a_skipped_recheck(tmp_path):
     (added,) = client.added
     assert (added.content, added.save_path) == (b"not really a torrent", "/seed")
     assert added.options["stopped"] is True and added.options["category"] == "tv"
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="force_recheck=False"):
         client.add_torrent(str(torrent), "/seed", force_recheck=False)
 
 

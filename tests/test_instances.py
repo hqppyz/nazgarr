@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from nazgarr.integrations import instances
 
 
-@pytest.mark.parametrize("remote, local, expected", [
+@pytest.mark.parametrize(("remote", "local", "expected"), [
     ("0.7.3", "0.7.7", "ok"),            # stessa minor: le patch non contano
     ("0.6.64", "0.7.7", "warn"),         # l'altra è più vecchia di una minor
     ("0.8.0", "0.7.7", "block_newer"),   # l'altra è più nuova: questa UI non la conosce

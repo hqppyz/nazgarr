@@ -91,7 +91,7 @@ def test_labels_carry_category_and_tags():
 def test_add_rejects_force_recheck_false_and_duplicates():
     mock = _TransmissionMock(torrents=[{"hashString": "abc123"}])
     adapter = _adapter(mock)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="force_recheck=False"):
         adapter.add_torrent("magnet:?x", save_path="/d", force_recheck=False)
     with pytest.raises(TorrentAlreadyInClientError):
         adapter.add_torrent("magnet:?x", save_path="/d", expected_info_hash="ABC123")
@@ -111,7 +111,7 @@ def test_a_duplicate_reported_by_transmission_is_not_a_timeout():
         _adapter(Duplicate()).add_torrent("magnet:?x", save_path="/d")
 
 
-@pytest.mark.parametrize("status,error,done,expected,incomplete", [
+@pytest.mark.parametrize(("status", "error", "done", "expected", "incomplete"), [
     (2, 0, 0.5, "pending", False),
     (1, 0, 0.0, "pending", False),
     (6, 0, 1.0, "ok", False),
@@ -130,7 +130,7 @@ def test_status_mapping(status, error, done, expected, incomplete):
 
 
 def test_status_of_an_unknown_torrent_raises():
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="missing"):
         _adapter(_TransmissionMock()).get_torrent_status("missing")
 
 
@@ -213,7 +213,7 @@ def test_the_live_path_check_asks_only_save_path_and_files():
     assert [(t.info_hash, [f.path_in_torrent for f in t.files]) for t in largest] == [("h1", ["M/a.mkv"])]
 
 
-@pytest.mark.parametrize("enabled, suffix", [(True, ".part"), (False, None)])
+@pytest.mark.parametrize(("enabled", "suffix"), [(True, ".part"), (False, None)])
 def test_rename_partial_files_is_read_from_the_session(enabled, suffix):
     """Decisione dell'utente, 2026-10-19: con rename-partial-files Transmission
     rinomina un file incompleto in "<nome>.part" già durante il recheck."""

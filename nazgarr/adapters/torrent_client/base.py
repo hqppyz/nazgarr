@@ -180,7 +180,7 @@ class TorrentClientAdapter(ABC):
         "file controllati")."""
         raise NotImplementedError
 
-    def start(self, info_hash: str) -> None:
+    def start(self, info_hash: str) -> None:  # noqa: B027 — niente di proposito, non astratto: vedi sotto
         """Avvia un torrent fermo: un reseed aggiunto con stopped, quando il
         suo recheck è riuscito (nazgarr/reseed/executor.py::reconcile_seed_job),
         o un torrent che le preferenze del client hanno lasciato fermo.

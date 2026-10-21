@@ -17,6 +17,7 @@ from nazgarr.adapters.torrent_client.base import (
 )
 from nazgarr.adapters.tracker.base import UploadedTorrent, UploadError
 from nazgarr.core.db_utils import as_utc
+from nazgarr.core.fs_scope import ScopeViolation
 from nazgarr.core.models import Disk, TrackerUploadProfile
 from nazgarr.torrents import create as torrent_create
 from nazgarr.torrents.metainfo import compute_info_hash
@@ -689,7 +690,7 @@ def test_files_touched_since_the_check_are_read_again_before_starting(db_session
     """Stessi byte ma un'altra data di modifica: Nazgarr rilegge i piece
     fuori dagli extra, e passati il torrent parte. Così anche una verifica
     di prima del 2026-10-21, che non si segnava i file."""
-    job, video = _reseed_job(db_session, tmp_path, env, extras={"The.Matrix.nfo": b"n" * 600}, recorded=False)
+    job, _video = _reseed_job(db_session, tmp_path, env, extras={"The.Matrix.nfo": b"n" * 600}, recorded=False)
     client = env["client"]
     client.held_recheck = "failed"
     _run(db_session, tmp_path, job)
@@ -1189,7 +1190,8 @@ def test_link_files_checks_everything_first_and_never_follows_symlinks(tmp_path)
     assert exc.value.code == "upload_source_not_a_file"
     assert not (root / "a.mkv").exists()  # niente hardlink a metà
 
-    with pytest.raises(Exception):
+    # La guardia di traversal, non un errore qualunque prima (audit 2026-10-18, finding 141).
+    with pytest.raises(ScopeViolation):
         upload_execute.link_files([(str(other), str(root / ".." / "escaped.mkv"))], str(root))
     assert not (tmp_path / "escaped.mkv").exists()
 
@@ -1640,7 +1642,6 @@ def test_a_pack_checks_every_file(db_session, tmp_path, env):
     os.symlink(b, env["root"] / "torrents" / "link.mkv")
     with pytest.raises(UploadJobError, match="upload_source_has_symlinks"):
         upload_pack.create_job(db_session, env["disk"], [rel(a), "torrents/link.mkv"])
-    from nazgarr.core.fs_scope import ScopeViolation
     with pytest.raises(ScopeViolation):
         upload_pack.create_job(db_session, env["disk"], [rel(a), "../outside.mkv"])
 
@@ -2005,7 +2006,8 @@ def test_a_published_upload_whose_record_cannot_be_written_is_never_marked_faile
     assert (a.status, a.error_message, a.torrent_id_remote) == ("done", "seed_failed", "100")
     assert len(env["trackers"]["a"].uploads) == 1 and _adds(env["client"]) == []
     journal = upload_jobs.published_journal(str(tmp_path / "data" / "uploads" / str(job.id)), a.id)
-    assert json.load(open(journal)) == {"torrent_id_remote": "100"}
+    with open(journal) as f:
+        assert json.load(f) == {"torrent_id_remote": "100"}
 
 
 def test_the_published_id_is_written_again_after_a_locked_commit(monkeypatch):
@@ -2511,7 +2513,7 @@ def test_a_cancel_during_the_last_tracker_that_then_fails_can_still_be_retried(
     assert not video.exists() and (env["root"] / "torrents" / "My.Movie.2024.mkv").is_file()
 
 
-@pytest.mark.parametrize("cause, unsure", [
+@pytest.mark.parametrize(("cause", "unsure"), [
     (httpx.ReadTimeout("timed out"), True),  # la risposta non è arrivata: il tracker può averlo salvato
     (None, True),  # "nessun id riconoscibile", con success: true
     (httpx.ConnectError("refused"), False),  # mai partita
@@ -2625,7 +2627,7 @@ def test_a_torrent_that_differs_from_the_plan_never_reaches_the_tracker(db_sessi
 # --- i link creati per i nomi che usa qualcun altro (audit 2026-10-18) ---------
 
 
-@pytest.mark.parametrize("user, kept", [("index", True), ("reseed", True), ("old_reseed", False)])
+@pytest.mark.parametrize(("user", "kept"), [("index", True), ("reseed", True), ("old_reseed", False)])
 def test_links_another_torrent_uses_survive_a_failed_upload(db_session, tmp_path, env, user, kept):
     """Un reseed del motore approvato durante l'upload, con lo stesso nome,
     riusa l'hardlink appena creato (stesso inode): la pulizia dopo un upload

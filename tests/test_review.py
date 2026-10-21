@@ -273,7 +273,7 @@ def test_approval_adds_the_torrent_to_the_client_chosen_for_its_tracker(db_sessi
     db_session.commit()
     built = []
     monkeypatch.setattr(review, "build_torrent_client_adapter", lambda row: built.append(row.label) or object())
-    adapter, client_id = review._client_for_candidate(db_session, candidate)
+    _adapter, client_id = review._client_for_candidate(db_session, candidate)
     assert (built, client_id) == (["qbit private"], private.id)
 
     private.enabled = False  # client disabilitato: si torna al primo abilitato

@@ -582,7 +582,9 @@ def sonarr_order(session: Session, tmdb_id: int, tvdb_id: int | None, api_factor
             # Tutte le serie dell'istanza in una risposta: in cache per istanza
             # (prima si riscaricava a ogni scheda, match e serie del reseeding).
             where = (instance.id, instance.base_url)
-            all_series = _cached(("sonarr_series", *where), lambda: api.get("/api/v3/series") or [],
+            # api e series legati alla lambda (B023): _cached la chiama subito,
+            # ma così resta vero anche se un giorno la tenesse per dopo.
+            all_series = _cached(("sonarr_series", *where), lambda api=api: api.get("/api/v3/series") or [],
                                  ttl=SONARR_CACHE_SECONDS)
             series = next(
                 (s for s in all_series
@@ -593,7 +595,7 @@ def sonarr_order(session: Session, tmdb_id: int, tvdb_id: int | None, api_factor
                 continue
             order = EpisodeOrder("sonarr:aired", f"TVDB · Aired ({instance.label})", "sonarr")
             episodes = _cached(("sonarr_episodes", *where, series["id"]),
-                               lambda: api.get("/api/v3/episode", seriesId=series["id"]) or [],
+                               lambda api=api, series=series: api.get("/api/v3/episode", seriesId=series["id"]) or [],
                                ttl=SONARR_CACHE_SECONDS)
             for e in episodes:
                 season, number = _int(e.get("seasonNumber")), _int(e.get("episodeNumber"))

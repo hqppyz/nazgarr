@@ -44,7 +44,8 @@ def _run(stream, timeout: float = COMMAND_TIMEOUT_SECONDS) -> tuple[bytes, bytes
     ffmpeg.Error, quelli che i chiamanti gestiscono già."""
     argv = ffmpeg.compile(stream)
     try:
-        done = subprocess.run(argv, stdin=subprocess.DEVNULL, capture_output=True, timeout=max(timeout, 1))
+        # Gli argomenti di ffmpeg-python, uno per uno: mai una shell.
+        done = subprocess.run(argv, stdin=subprocess.DEVNULL, capture_output=True, timeout=max(timeout, 1))  # noqa: S603
     except subprocess.TimeoutExpired as exc:
         raise ffmpeg.Error("ffmpeg", exc.stdout or b"", f"ffmpeg stopped after {timeout:.0f} s".encode()) from exc
     if done.returncode != 0:

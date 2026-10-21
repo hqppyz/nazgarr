@@ -2,6 +2,7 @@
 
 from datetime import UTC, datetime
 
+import pytest
 from sqlalchemy import text
 
 from nazgarr.core import db as db_module
@@ -49,8 +50,8 @@ def test_an_existing_instance_is_migrated_and_still_starts(db_session):
     startup_checks.verify_secret_key(db_session)  # il canary è intatto: l'app riparte
 
 
-def test_the_data_folder_and_the_database_are_private_without_touching_the_umask(tmp_path, monkeypatch,
-                                                                                   _quiet_background):
+@pytest.mark.usefixtures("_quiet_background")
+def test_the_data_folder_and_the_database_are_private_without_touching_the_umask(tmp_path, monkeypatch):
     # La lifespan vera, ma senza lavoro in background (conftest._quiet_background).
     # Prima una umask 077 per tutto il processo, che valeva anche per le
     # cartelle create sui dischi dei media (audit 2026-10-18): ora i permessi

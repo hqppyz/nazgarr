@@ -142,7 +142,7 @@ def test_create_rejects_missing_source_and_unknown_disk(client, setup):
     assert resp.status_code == 404
 
 
-@pytest.mark.parametrize("overrides, code", [
+@pytest.mark.parametrize(("overrides", "code"), [
     ({"content_name": "."}, "upload_invalid_override"),
     ({"screenshot_count": 999}, "upload_invalid_override"),
     ({"file_naming": "whatever"}, "upload_invalid_override"),

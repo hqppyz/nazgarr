@@ -176,7 +176,7 @@ def _covered_by_pack(session: Session, media_file_id: int, tracker_id: int) -> b
         .join(CandidateFile, CandidateFile.candidate_id == Candidate.id)
         .filter(Candidate.tracker_id == tracker_id, CandidateFile.media_file_id == media_file_id,
                 MatchReview.media_file_id != media_file_id,
-                MatchReview.status.in_(READY_FOR_DECISION_STATUSES + ("approved",)))
+                MatchReview.status.in_((*READY_FOR_DECISION_STATUSES, "approved")))
         .all()
     )
     return any(candidate_format(c) == PACK for c in rows)
@@ -222,7 +222,7 @@ def _busy_rows(session: Session, in_client: set[str]) -> tuple[dict, list]:
             session.query(MatchReview.id, Candidate.tracker_id, Candidate.torrent_id_remote,
                           MatchReview.media_file_id, MatchReview.seed_file_id)
             .join(Candidate, Candidate.id == MatchReview.candidate_id)
-            .filter(MatchReview.status.in_(READY_FOR_DECISION_STATUSES + ("approved",)))
+            .filter(MatchReview.status.in_((*READY_FOR_DECISION_STATUSES, "approved")))
         )
     }
     running = (
@@ -401,7 +401,7 @@ class _Exclusions:
         che ha già (con un'altra copia dei file), un upload di Nazgarr è già
         in seed, e un "no" dell'utente resta."""
         return ((candidate.tracker_id, candidate.torrent_id_remote) in self.refused
-                or bool(candidate.info_hash) and candidate.info_hash.lower() in self.hashes)
+                or (bool(candidate.info_hash) and candidate.info_hash.lower() in self.hashes))
 
     def allows(self, candidate: Candidate) -> bool:
         return (not self.impossible(candidate)
@@ -1122,7 +1122,7 @@ def delete_seed_job(session: Session, seed_job: SeedJob) -> None:
     )
     for row in (
         session.query(MatchReview).filter_by(candidate_id=seed_job.candidate_id, **file_filter)
-        .filter(MatchReview.status.in_(READY_FOR_DECISION_STATUSES + ("approved",)))
+        .filter(MatchReview.status.in_((*READY_FOR_DECISION_STATUSES, "approved")))
     ):
         row.status, row.decided_by, row.decided_at = "rejected", "system", datetime.now(UTC)
     if candidate is not None:

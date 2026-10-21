@@ -48,7 +48,7 @@ DETECTED_FIELDS = (
 # valore rilevato né un default, es. un gruppo rilevato per sbaglio. Non il
 # tipo e la risoluzione (danno gli id del tracker) né la sorgente (senza, la
 # decisione avvisa).
-CLEARABLE_FIELDS = tuple(k for k in DETECTED_FIELDS if k not in ("type", "resolution", "source")) + ("year",)
+CLEARABLE_FIELDS = (*(k for k in DETECTED_FIELDS if k not in ("type", "resolution", "source")), "year")
 
 DEFAULT_TEMPLATE = "{title} ({year}) {season} {edition} {resolution} {source} {video_codec} {audio} {group}"
 # Come si scrive {type} nel nome: la chiave del profilo (REMUX, WEBDL, ...)

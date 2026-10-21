@@ -134,7 +134,7 @@ def test_add_rejects_force_recheck_false_and_duplicates(tmp_path):
     path, torrent = _torrent_file(tmp_path)
     mock = _RTorrentMock(rows=[_row(**{"d.hash": torrent.infohash.upper()})])
     adapter = _adapter(mock)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="force_recheck=False"):
         adapter.add_torrent("magnet:?x", save_path="/d", force_recheck=False)
     with pytest.raises(TorrentAlreadyInClientError):
         adapter.add_torrent("magnet:?x", save_path="/d", expected_info_hash=torrent.infohash)
@@ -144,7 +144,7 @@ def test_add_rejects_force_recheck_false_and_duplicates(tmp_path):
     assert not mock.called("load.raw")
 
 
-@pytest.mark.parametrize("fields,state,expected", [
+@pytest.mark.parametrize(("fields", "state", "expected"), [
     ({"d.hashing": 3}, "checking", "pending"),
     ({"d.is_hash_checking": 1, "d.complete": 0}, "checking", "pending"),
     ({}, "seeding", "ok"),
@@ -163,7 +163,7 @@ def test_status_mapping(fields, state, expected):
 
 
 def test_status_of_an_unknown_torrent_raises():
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="missing"):
         _adapter(_RTorrentMock()).get_torrent_status("missing")
 
 
@@ -278,7 +278,7 @@ def test_the_index_asks_files_and_trackers_of_many_torrents_in_one_request():
 
 
 def test_an_endpoint_without_system_multicall_falls_back_to_one_request_per_torrent():
-    mock, hashes = _many(3)
+    mock, _hashes = _many(3)
     mock.refuse_multicall = True
 
     torrents = _adapter(mock).list_torrents()

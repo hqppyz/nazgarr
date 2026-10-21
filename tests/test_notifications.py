@@ -227,7 +227,7 @@ def test_a_global_plugin_adapter_pointed_elsewhere_needs_its_secrets_again(clien
 
 
 def test_a_plugin_icon_must_be_a_small_data_image():
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="data:image"):
         sdk.register(sdk.AdapterSpec("notification", "x", "X", lambda ctx: None, icon="https://example.com/x.svg"))
     spec = sdk.register(sdk.AdapterSpec("notification", "x", "X", lambda ctx: None,
                                         icon="data:image/svg+xml;base64,PHN2Zy8+"))

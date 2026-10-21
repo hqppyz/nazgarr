@@ -4,7 +4,7 @@ from nazgarr.library.guess import clean_name, guess
 from nazgarr.upload.source import scan_source
 
 
-@pytest.mark.parametrize("name, cleaned", [
+@pytest.mark.parametrize(("name", "cleaned"), [
     ("The Matrix_t00.mkv", "The Matrix.mkv"),
     ("The Matrix (1999)_t01.mkv", "The Matrix (1999).mkv"),
     ("Inception t02.mkv", "Inception.mkv"),

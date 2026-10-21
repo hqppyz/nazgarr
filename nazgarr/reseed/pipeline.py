@@ -23,7 +23,7 @@ Ogni fase committa run.current_phase PRIMA di eseguirsi (non solo a
 inizio/fine run, come faceva la prima versione) così un poller su
 GET /api/runs vede un avanzamento vero, non "scanning" per l'intera
 durata. Ogni eccezione di fase fa, via _record_failure: log completo
-(logger.exception, finisce nel log file letto dalla tab Logs),
+(col traceback, finisce nel log file letto dalla tab Logs),
 session.rollback() — senza, un'eccezione DB a metà transazione lascia
 la sessione inutilizzabile per tutto il resto della run, incluso il
 commit finale che salva errors/finished_at: la run resta agganciata per
@@ -124,11 +124,13 @@ def _note_error(run: RunLog, message: str) -> None:
         kept = json.loads(run.errors_json) if run.errors_json else []
     except ValueError:
         kept = []
-    run.errors_json = json.dumps((kept + [message])[-MAX_RUN_ERRORS_KEPT:])
+    run.errors_json = json.dumps([*kept, message][-MAX_RUN_ERRORS_KEPT:])
 
 
 def _record_failure(session: Session, run: RunLog, errors: int, label: str, exc: Exception) -> int:
-    logger.exception("Run #%s: %s fallito", run.id, label)
+    # Il traceback dall'eccezione ricevuta, non da quella "in corso": chi
+    # chiama è dentro un except, ma logger.exception lo darebbe per scontato.
+    logger.error("Run #%s: %s fallito", run.id, label, exc_info=exc)
     session.rollback()
     run.errors = errors + 1
     _note_error(run, f"{label}: {exc}")
@@ -360,7 +362,8 @@ class _BulkRun:
             progress.detail(f"{torrent_client.label} ({i}/{len(torrent_clients)}): listing torrents…")
             client_total = {"known": False}
 
-            def on_torrent(done: int, total: int, _label=torrent_client.label, _i=i) -> None:
+            def on_torrent(done: int, total: int, _label=torrent_client.label, _i=i,
+                           client_total=client_total) -> None:
                 if not client_total["known"]:
                     client_total["known"] = True
                     progress.add_total(total)

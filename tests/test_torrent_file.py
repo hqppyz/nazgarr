@@ -117,7 +117,7 @@ def test_parse_torrent_info_raises_on_missing_info_dict():
         parse_torrent_info(_bencode({"announce": "x"}))
 
 
-@pytest.mark.parametrize("name,parts", [
+@pytest.mark.parametrize(("name", "parts"), [
     ("Movie", [b"..", b"..", b"etc", b"passwd"]),
     ("Movie", [b"", b"mnt", b"disk1", b"private.mkv"]),
     ("Movie", [b"a/b", b"c.mkv"]),

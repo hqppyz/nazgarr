@@ -114,7 +114,7 @@ def test_two_clients_on_same_disk_can_have_different_root_paths(db_session):
 
 
 def test_unresolved_file_has_null_seed_file_id(db_session):
-    disk, tc = _make_disk_and_client(db_session, root_path="/mnt/disk1")
+    _disk, tc = _make_disk_and_client(db_session, root_path="/mnt/disk1")
     run = pipeline.start_run(db_session, run_type="manual")
     # nessun seed_file corrispondente creato
 
@@ -217,7 +217,7 @@ def test_a_torrent_removed_from_the_client_leaves_the_index(db_session):
 def test_the_single_torrent_refresh_never_removes_the_others(db_session):
     from nazgarr.core.models import ClientTorrent
 
-    disk, tc = _make_disk_and_client(db_session, root_path="/mnt/disk1")
+    _disk, tc = _make_disk_and_client(db_session, root_path="/mnt/disk1")
     run = pipeline.start_run(db_session, run_type="manual")
     torrents = [
         ClientTorrentInfo(info_hash=h, name=h, save_path="/mnt/disk1/torrents", state="uploading", files=[])

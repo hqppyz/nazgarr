@@ -26,7 +26,7 @@ COMMIT_EVERY = 50
 COMMIT_INTERVAL_SECONDS = 1.0
 
 
-class RunCancelled(BaseException):  # noqa: N818 (non è un errore: è una richiesta dell'utente)
+class RunCancelled(BaseException):  # senza "Error" nel nome: non è un errore, è una richiesta dell'utente
     """L'utente ha chiesto di fermare la run ("Stop run"). BaseException e
     non Exception di proposito: ogni fase intercetta Exception per isolare
     i propri errori e proseguire (un file, un client, un tracker) — una

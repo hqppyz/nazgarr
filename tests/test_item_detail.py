@@ -43,7 +43,7 @@ def _movie(db_session):
 
 
 def test_detail_shows_hardlinks_with_the_torrent_client_and_tracker(db_session):
-    disk, tracker, item, mf, run = _movie(db_session)
+    disk, _tracker, _item, mf, run = _movie(db_session)
     sf = SeedFile(disk_id=disk.id, relative_path="torrents/Interstellar.2014.1080p/Interstellar.mkv", size_bytes=100,
                   st_dev=1, inode=1, media_file_id=mf.id, last_scan_id=run.id, last_seen_at=datetime.now(UTC))
     client = TorrentClient(label="qbit private", adapter_type="qui", base_url="http://qui")
@@ -74,7 +74,7 @@ def test_detail_shows_hardlinks_with_the_torrent_client_and_tracker(db_session):
 
 
 def test_detail_sums_up_seeding_per_tracker_configured_or_not(db_session):
-    disk, tracker, item, mf, run = _movie(db_session)
+    disk, tracker, _item, mf, run = _movie(db_session)
     other = Tracker(label="Other", adapter_type="unit3d", base_url="https://other.example", api_token="x")
     sf = SeedFile(disk_id=disk.id, relative_path="torrents/public/Interstellar.mkv", size_bytes=100,
                   st_dev=1, inode=1, media_file_id=mf.id, last_scan_id=run.id, last_seen_at=datetime.now(UTC))
@@ -104,7 +104,7 @@ def test_detail_sums_up_seeding_per_tracker_configured_or_not(db_session):
 
 
 def test_detail_explains_what_was_searched_and_found(db_session):
-    _disk, tracker, item, mf, _run = _movie(db_session)
+    _disk, tracker, _item, _mf, _run = _movie(db_session)
 
     class Tracker1:
         def search_by_tmdb(self, tmdb_id):
@@ -169,7 +169,7 @@ def test_search_now_forces_a_new_search_for_that_item_only(db_session, monkeypat
     from nazgarr.api import library as library_api
     from nazgarr.integrations import adapter_factory
 
-    _disk, tracker, item, mf, run = _movie(db_session)
+    _disk, _tracker, _item, mf, run = _movie(db_session)
     run.finished_at = datetime.now(UTC)  # nessuna run in corso: "Cerca ora" è permesso
     other = MediaItem(content_type="movie", tmdb_id=1)
     db_session.add(other)

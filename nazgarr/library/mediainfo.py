@@ -67,7 +67,8 @@ def _run_isolated(file_path: str, kind: str) -> str:
     scattava dopo): oltre MAX_OUTPUT_BYTES il figlio si ferma subito. Di
     stderr si tengono solo le ultime righe, per il messaggio d'errore. Un
     thread per pipe, così nessuna delle due si riempie e blocca il figlio."""
-    child = subprocess.Popen(
+    # Il nostro interprete, il percorso come argomento a sé: mai una shell.
+    child = subprocess.Popen(  # noqa: S603
         [sys.executable, "-P", "-c", _CHILD, file_path, kind],
         stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
     )

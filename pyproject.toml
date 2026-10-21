@@ -55,7 +55,50 @@ line-length = 120
 target-version = "py312"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP"]
+# E, F, I, UP dall'inizio: errori, nomi non definiti, import, sintassi
+# moderna. Le altre famiglie solo per quel che trovano di vero qui, bug o
+# test sbagliati (audit 2026-10-18, finding 141), non per lo stile:
+# - B (bugbear): default mutabili, closure su una variabile del ciclo,
+#   raise senza from in un except, pytest.raises(Exception), zip senza strict;
+# - PT: pytest.raises troppo larghi o senza match, fixture passate come
+#   parametro, parametri con un default in un test (pytest non li riempie);
+# - RUF: variabili spacchettate e mai usate (spesso un assert dimenticato),
+#   noqa che non servono più, match= con metacaratteri non voluti;
+# - LOG: logger.exception fuori da un except (il traceback che manca);
+# - DTZ: datetime senza fuso (nel DB è tutto UTC: core/db_utils.as_utc);
+# - SIM115: un file aperto senza with, che resta aperto;
+# - S, solo le regole che contano per un servizio che legge dati da tracker
+#   e utenti: SQL costruito a stringhe (S608), exec/eval/pickle/marshal e
+#   yaml.load (S102, S307, S301, S302, S506), template senza autoescape fuori
+#   dal sandbox (S701, S702), subprocess con la shell (S602, S604, S605) o
+#   da rivedere a ogni nuovo comando (S603), TLS senza verifica (S501),
+#   richieste senza timeout (S113), tar e mktemp insicuri (S202, S306),
+#   permessi larghi (S103), hash deboli (S324: SHA-1 dei piece e impronte,
+#   dichiarati usedforsecurity=False).
+# Fuori: le famiglie che qui danno solo rumore (PL, TRY, BLE, C4, SIM, RET,
+# PERF, il resto di S: assert, password "trovate" nei nomi delle chiavi).
+select = [
+    "E", "F", "I", "UP", "B", "PT", "RUF", "LOG", "DTZ", "SIM115",
+    "S102", "S103", "S113", "S202", "S301", "S302", "S306", "S307", "S324", "S501", "S506",
+    "S602", "S603", "S604", "S605", "S608", "S701", "S702",
+]
+ignore = [
+    "B008",  # Depends()/Query() nei default: lo stile di FastAPI
+    "PT018",  # assert composti: lo stile dei test qui, e pytest mostra comunque ogni operando
+    "RUF001", "RUF002", "RUF003",  # ’ – × voluti nei testi e nei commenti in italiano
+]
+
+[tool.ruff.lint.per-file-ignores]
+# PT è per i test: in nazgarr/ le funzioni test_* sono la prova di connessione
+# (endpoint e comandi della CLI), non test di pytest.
+"nazgarr/**" = ["PT"]
+# Le migrazioni nominano tabelle e colonne di schema.sql e del catalogo del DB
+# stesso, mai un valore (quelli passano come parametri). File fuori da questo
+# batch: l'eccezione è per file, invece di un noqa per riga.
+"nazgarr/core/db.py" = ["S608"]
+# I test costruiscono i piece SHA-1 dei loro torrent, SQL di prova sulle loro
+# tabelle, file con permessi tolti apposta e video di prova con ffmpeg.
+"tests/**" = ["S103", "S324", "S603", "S608"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

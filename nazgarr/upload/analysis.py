@@ -164,7 +164,7 @@ def _arr_grabs(index, files: list[tuple[str, int]]) -> list[dict]:
 
 
 def _strip_video_ext(name: str) -> str:
-    base, ext = os.path.splitext(name)
+    base, _ext = os.path.splitext(name)
     return base if is_video(name) else name
 
 

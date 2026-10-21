@@ -218,7 +218,7 @@ def compute_info_hash(torrent_bytes: bytes) -> str:
     l'ordine delle chiavi o l'encoding e produrre un hash diverso da quello
     che client/tracker calcolano dal file originale."""
     start, end = _find_info_span(torrent_bytes)
-    return hashlib.sha1(torrent_bytes[start:end]).hexdigest()
+    return hashlib.sha1(torrent_bytes[start:end], usedforsecurity=False).hexdigest()  # l'info hash v1 è SHA-1
 
 
 def _find_info_span(data: bytes) -> tuple[int, int]:

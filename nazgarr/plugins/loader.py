@@ -153,7 +153,8 @@ def install(data_dir: str, requested: list[str]) -> str | None:
                    "--target", fresh, *requested]
         logger.info("Installazione dei plugin: %s", " ".join(requested))
         try:
-            result = subprocess.run(command, capture_output=True, text=True, timeout=PIP_TIMEOUT_SECONDS)
+            # pip del nostro interprete coi pacchetti che l'utente ha scelto, ognuno un argomento: mai una shell.
+            result = subprocess.run(command, capture_output=True, text=True, timeout=PIP_TIMEOUT_SECONDS)  # noqa: S603
         except (OSError, subprocess.TimeoutExpired) as exc:
             return str(exc)
         if result.returncode != 0:

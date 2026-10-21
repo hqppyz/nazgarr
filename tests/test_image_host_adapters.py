@@ -82,7 +82,7 @@ def test_chain_raises_last_error_if_all_fail():
 
 
 def test_chain_requires_at_least_one_adapter():
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="almeno un adapter"):
         ImageHostChain([])
 
 
@@ -124,7 +124,7 @@ def test_a_chevereto_error_carries_the_host_message(tmp_path):
     host = CheveretoImageHost("bad", endpoint="https://www.imageride.net/api/1/upload", name="imageride",
                               client=_client(handler))
 
-    with pytest.raises(ImageHostError, match="imageride.*Invalid API v1 key"):
+    with pytest.raises(ImageHostError, match=r"imageride.*Invalid API v1 key"):
         host.upload(_image(tmp_path))
 
 

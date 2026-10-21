@@ -404,7 +404,7 @@ def test_setting_values_are_checked_like_the_server_does_without_rewriting_them(
     assert normalize("update_check_auto", "on") == "true"
     for key, value in (("upload_screenshot_count", "1.5"), ("rematch_interval_days", "soon"),
                        ("upload_single_file_folder", "delete"), ("arr_webhook_search", "maybe")):
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match=key):
             normalize(key, value)
 
 
