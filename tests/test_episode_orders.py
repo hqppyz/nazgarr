@@ -644,6 +644,24 @@ def test_cached_orders_are_copies_and_sonarr_is_asked_once(db_session):
     assert asked == ["/api/v3/series", "/api/v3/episode"]
 
 
+def test_the_sonarr_instance_with_the_highest_priority_is_asked_first(db_session):
+    """Come l'indice delle run (nazgarr/integrations/arr.py): priority più
+    alta prima, senza priority come 0. Prima vinceva la più bassa (e una
+    senza priority, che SQLite mette davanti in ordine crescente)."""
+    from nazgarr.core.models import SonarrInstance
+
+    db_session.add_all([
+        SonarrInstance(label="none", base_url="http://n", api_key="k"),
+        SonarrInstance(label="low", base_url="http://l", api_key="k", priority=1),
+        SonarrInstance(label="high", base_url="http://h", api_key="k", priority=5),
+    ])
+    db_session.commit()
+
+    order = eo.sonarr_order(db_session, 96677, 375921, FakeSonarr)
+
+    assert order is not None and order.label.endswith("(high)")
+
+
 def test_the_cache_keeps_a_bounded_number_of_entries(monkeypatch):
     monkeypatch.setattr(eo, "_CACHE_MAX", 3)
     for n in range(5):

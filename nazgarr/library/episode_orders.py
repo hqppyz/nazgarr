@@ -34,6 +34,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import date, timedelta
 
 import httpx
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from nazgarr.core import net_guard, settings_repo
@@ -575,7 +576,12 @@ def sonarr_order(session: Session, tmdb_id: int, tvdb_id: int | None, api_factor
     from nazgarr.integrations.arr import ArrApi, close_api
 
     factory = api_factory or ArrApi
-    for instance in session.query(SonarrInstance).filter_by(enabled=True).order_by(SonarrInstance.priority):
+    # Priority più alta prima, senza priority come 0: lo stesso ordine
+    # dell'indice delle run (nazgarr/integrations/arr.py::build_arr_index).
+    # Prima, in ordine crescente, vinceva la più bassa (audit 2026-10-18).
+    instances = (session.query(SonarrInstance).filter_by(enabled=True)
+                 .order_by(func.coalesce(SonarrInstance.priority, 0).desc(), SonarrInstance.id))
+    for instance in instances:
         api = None
         try:
             api = factory(instance)
