@@ -16,7 +16,7 @@ export const CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
 
 // Da incrementare quando cambia la forma delle risposte persistite: una
 // cache vecchia con campi diversi viene scartata invece di rompere la vista.
-export const CACHE_BUSTER = 'library-v3' // v3: seed_requirement in Not imported
+export const CACHE_BUSTER = 'library-v4' // v4: blocking in RemovalWarning (Not imported)
 
 // Le viste che si salvano: le liste che una pagina disegna appena aperta.
 // Non le schede di dettaglio (una per ogni titolo aperto, si accumulerebbero).
