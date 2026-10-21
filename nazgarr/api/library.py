@@ -1,8 +1,8 @@
 """Lettura dello stato unificato per file (docs/SPEC.md sezione 3) e la
 vista Libreria (sezione 7) — media_item raggruppati coi loro media_file,
-base dati condivisa per la futura vista ad albero e a griglia poster
-(il frontend che le renderizza non è ancora costruito, il progetto resta
-API-only fino a quel punto)."""
+la base dati condivisa dalla vista ad albero e dalla griglia dei poster
+della SPA (frontend/src/pages/library), più la scheda di dettaglio di un
+contenuto, i duplicati, i poster, "Cerca ora" e l'esclusione di un file."""
 
 import os
 from datetime import datetime

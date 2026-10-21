@@ -1,10 +1,14 @@
-"""Trigger e stato delle run (docs/SPEC.md sezione 11) — scan filesystem
-+ indicizzazione client torrent, orchestrati da nazgarr/reseed/pipeline.py.
+"""Trigger e stato delle run (docs/SPEC.md sezione 11) — scan filesystem,
+risoluzione dei media, indicizzazione dei client torrent e matching,
+orchestrati da nazgarr/reseed/pipeline.py.
 
-Solo import massivo per ora, innescato manualmente via API e mandato in
-background (FastAPI BackgroundTasks — niente scheduler vero, quello
-arriva in Fase 5 con APScheduler) così la richiesta HTTP non resta
-bloccata per la durata di una run su una libreria grande.
+Qui la run lanciata a mano ("Scan now"), mandata in background con
+BackgroundTasks di FastAPI, così la richiesta HTTP non resta bloccata per
+la durata di una run su una libreria grande. Quelle pianificate le lancia
+lo scheduler (nazgarr/scheduler.py, APScheduler nello stesso processo) dal
+suo thread: due strade diverse, una run sola alla volta per entrambe
+(pipeline.try_start_run; quella a mano aspetta anche il lavoro a lato,
+nazgarr/reseed/exclusive.py).
 """
 
 import json

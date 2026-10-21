@@ -1,11 +1,15 @@
 """Esecutore: hardlink + aggiunta al client (direzione media_to_torrent)
 o solo aggiunta al client (direzione torrent_to_client, il file esiste
 già) — sempre con recheck forzato, mai skip_checking (docs/SPEC.md
-sezione 8). Ordine dei passi per media_to_torrent, mai bypassabile:
+sezione 8), salvo l'eccezione opt-in di execute_review(skip_recheck=True):
+il controllo completo di Nazgarr appena passato al 100% (decisione
+dell'utente, 2026-09-29). Ordine dei passi per media_to_torrent, mai
+bypassabile:
 1. verifica st_dev sorgente/destinazione (mai un cross-device silente)
 2. hardlink col nome esatto atteso dal tracker
 3. add_torrent sul client, sempre con force_recheck=True, fermo: parte solo
-   a recheck riuscito (reconcile_seed_job, decisione dell'utente 2026-10-18)
+   a recheck riuscito (reconcile_seed_job, decisione dell'utente 2026-10-18);
+   con skip_recheck entra avviato, come prima (_add_to_client)
 
 Un candidato con righe candidate_file (nazgarr/torrents/layout.py: film con
 extra, season pack) si ricrea file per file: un hardlink per ogni file del

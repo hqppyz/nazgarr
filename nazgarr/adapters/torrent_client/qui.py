@@ -26,7 +26,9 @@ pragmatica originale (vedi ancora qbittorrent.py in questo pacchetto):
   lista paginata) — get_torrent_status() fa quindi una scansione paginata
   completa ad ogni chiamata, non solo per il nuovo hash dopo un add.
 - Il recheck forzato passa da `POST /torrents/bulk-action` con
-  `action: "recheck"` (SPEC.md sezione 8, mai skip_checking=True).
+  `action: "recheck"` (SPEC.md sezione 8). `skip_checking` è "true" solo
+  con skip_check_verified, le eccezioni documentate (Nazgarr ha appena
+  verificato ogni piece: CLAUDE.md), mai di default.
 
 Un deployment qui gestisce più istanze qBittorrent dietro un solo host+api
 token: un TorrentClient di nazgarr punta sempre a UNA istanza specifica

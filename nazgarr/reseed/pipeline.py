@@ -15,8 +15,9 @@ Ordine vincolante:
   sull'ordine relativo, ma deve comunque precedere il matching (serve
   media_item_id risolto per cercare sul tracker).
 
-Import massivo e run schedulato (Fase 5) condivideranno questo stesso
-motore — la differenza è solo nel trigger, non nella pipeline.
+La run lanciata a mano (nazgarr/api/runs.py) e quella pianificata
+(nazgarr/scheduler.py) usano questo stesso motore: cambia solo il
+trigger, non la pipeline.
 
 Ogni fase committa run.current_phase PRIMA di eseguirsi (non solo a
 inizio/fine run, come faceva la prima versione) così un poller su
