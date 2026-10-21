@@ -2538,6 +2538,58 @@ def test_a_cancel_during_the_last_tracker_that_then_fails_can_still_be_retried(
     assert not video.exists() and (env["root"] / "torrents" / "My.Movie.2024.mkv").is_file()
 
 
+def test_resuming_a_cancel_whose_only_send_may_have_arrived_asks_like_retry(db_session, tmp_path, env, monkeypatch):
+    """Audit 2026-10-18 (R1): un tracker solo, annullato mentre inviava, e
+    l'invio finito in un timeout. La ripresa lo rimandava all'analisi: il
+    dupe check rifatto non vede un torrent in moderazione, l'errore incerto
+    spariva, e una nuova approvazione lo pubblicava due volte senza la
+    conferma di "Riprova". Ora il job finisce 'failed', e "Riprova" la chiede."""
+    video = write_video(env["root"] / "media" / "The.Matrix.1999.1080p.WEB-DL.H.264-GRP.mkv", 300 * KB)
+    job = _approved(db_session, env, "media/" + video.name, {"a": _upload("Matrix A"), "b": {"action": "skip"}})
+    tracker_a = env["trackers"]["a"]
+
+    def cancel_then_timeout(fields, torrent_path):
+        other = db_session.__class__(bind=db_session.get_bind())
+        upload_jobs.cancel_job(other, other.get(upload_jobs.UploadJob, job.id))
+        other.close()
+        error = UploadError("UNIT3D upload failed: timeout")
+        error.__cause__ = httpx.ReadTimeout("timed out")
+        raise error
+
+    monkeypatch.setattr(tracker_a, "upload_torrent", cancel_then_timeout)
+    _run(db_session, tmp_path, job)
+
+    a = job.targets[0]
+    assert (job.status, a.status, a.error_message) == ("cancelled", "failed", "upload_outcome_unknown")
+    assert upload_jobs.resume_job(db_session, job) == "failed"
+    assert (job.status, a.error_message) == ("failed", "upload_outcome_unknown")  # l'avviso resta
+    last = job.events[-1]
+    assert (last.code, json.loads(last.params_json)) == ("job_failed", {"after_cancel": True})
+    with pytest.raises(UploadJobError) as exc:
+        upload_jobs.retry_failed(db_session, job)
+    assert exc.value.code == "upload_retry_needs_confirm"
+
+
+def test_resuming_a_cancel_whose_only_send_was_refused_goes_back_to_the_decision(db_session, tmp_path, env,
+                                                                                  monkeypatch):
+    """Un invio rifiutato con certezza (un 4xx) non ha niente da confermare:
+    la ripresa resta quella di prima, di nuovo alla decisione."""
+    video = write_video(env["root"] / "media" / "The.Matrix.1999.1080p.WEB-DL.H.264-GRP.mkv", 300 * KB)
+    job = _approved(db_session, env, "media/" + video.name, {"a": _upload("Matrix A"), "b": {"action": "skip"}})
+
+    def cancel_then_refuse(fields, torrent_path):
+        other = db_session.__class__(bind=db_session.get_bind())
+        upload_jobs.cancel_job(other, other.get(upload_jobs.UploadJob, job.id))
+        other.close()
+        raise _rejected()
+
+    monkeypatch.setattr(env["trackers"]["a"], "upload_torrent", cancel_then_refuse)
+    _run(db_session, tmp_path, job)
+
+    assert (job.status, job.targets[0].status) == ("cancelled", "failed")
+    assert upload_jobs.resume_job(db_session, job) == "analyzing"
+
+
 @pytest.mark.parametrize(("cause", "unsure"), [
     (httpx.ReadTimeout("timed out"), True),  # la risposta non è arrivata: il tracker può averlo salvato
     (None, True),  # "nessun id riconoscibile", con success: true
