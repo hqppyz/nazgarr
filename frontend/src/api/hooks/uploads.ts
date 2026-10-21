@@ -1,7 +1,7 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef } from 'react'
 
-import { api, unwrap } from '@/api/client'
+import { api, ApiError, unwrap } from '@/api/client'
 import type { Schemas } from '@/api/client'
 import type { NamingPreview } from '@/api/hooks/trackers'
 
@@ -71,17 +71,39 @@ export function useUploads() {
 export const HISTORY_KEY = ['uploads', 'history']
 export const HISTORY_PAGE_SIZE = 50
 
+type UploadHistoryPage = Schemas['UploadHistoryResponse']
+
+// Gli stati finali (nazgarr/upload/jobs.py FINAL_STATES).
+const FINAL_STATES = ['done', 'partial', 'failed', 'cancelled']
+// Un'istanza remota di prima dello storico a pagine (le 0.9.x uscite, che
+// questa versione dice compatibili): /api/uploads/history lì finisce su
+// /{upload_id} (422) o non esiste (404, 405), e la pagina degli upload
+// diventava tutta un errore (audit 2026-10-18, R10).
+const OLD_SERVER_STATUSES = [404, 405, 422]
+
+// Una pagina dello storico; da un'istanza di prima, la lista di sempre
+// (GET /api/uploads, tutti i job) con i soli finiti, in una pagina sola.
+export async function fetchHistoryPage(pageParam: number | null): Promise<UploadHistoryPage> {
+  try {
+    return await unwrap(
+      api.GET('/api/uploads/history', {
+        params: { query: { limit: HISTORY_PAGE_SIZE, ...(pageParam === null ? {} : { before_id: pageParam }) } },
+      }),
+    )
+  } catch (error) {
+    if (pageParam !== null || !(error instanceof ApiError) || !OLD_SERVER_STATUSES.includes(error.status)) throw error
+    const all = await unwrap(api.GET('/api/uploads'))
+    const jobs = all.filter((job) => FINAL_STATES.includes(job.status)).sort((a, b) => b.id - a.id)
+    return { jobs, total: jobs.length, next_before_id: null }
+  }
+}
+
 // Lo storico, dal più recente, una pagina alla volta ("Carica altri"). Non
 // si interroga da solo: lo rinnovano le mutation e la coda quando un job ne esce.
 export function useUploadHistory() {
   return useInfiniteQuery({
     queryKey: HISTORY_KEY,
-    queryFn: ({ pageParam }) =>
-      unwrap(
-        api.GET('/api/uploads/history', {
-          params: { query: { limit: HISTORY_PAGE_SIZE, ...(pageParam === null ? {} : { before_id: pageParam }) } },
-        }),
-      ),
+    queryFn: ({ pageParam }) => fetchHistoryPage(pageParam),
     initialPageParam: null as number | null,
     getNextPageParam: (last) => last.next_before_id ?? undefined,
   })
