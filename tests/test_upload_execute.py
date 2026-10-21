@@ -1653,6 +1653,35 @@ def test_the_cleanup_never_follows_a_folder_turned_into_a_symlink(db_session, tm
     assert "file_links_removed" not in [e.code for e in job.events]
 
 
+def test_the_cleanup_never_removes_a_file_swapped_in_after_its_last_check(db_session, tmp_path, env, monkeypatch):
+    """Audit 2026-10-18 (finding 75): fra _still_our_link e l'unlink resta
+    una finestra. remove_links riceve l'identità di quando il link è nato
+    (expected) e la ricontrolla nella cartella da cui toglie: un file messo
+    lì in quel momento resta, anche per un percorso che non porta più la
+    sua identità (una stringa, non un CreatedLink)."""
+    video = write_video(env["root"] / "media" / "The Matrix (1999).mkv", 300 * KB)
+    job = _approved(db_session, env, "media/" + video.name, {"a": _upload("Matrix A"), "b": {"action": "skip"}})
+    seed = env["root"] / "torrents"
+    link = seed / "The.Matrix.1999" / "The.Matrix.1999.mkv"
+    [created] = upload_execute.link_files([(str(video), str(link))], str(seed))
+    ctx = {"created_links": [str(created)], "created_ids": upload_execute._link_identities([created]),
+           "seed_root": lambda: str(seed)}
+    checked = upload_execute._still_our_link
+
+    def check_then_swap(path, recorded):
+        ours = checked(path, recorded)
+        os.unlink(path)
+        with open(path, "wb") as f:
+            f.write(b"someone else's file")
+        return ours
+
+    monkeypatch.setattr(upload_execute, "_still_our_link", check_then_swap)
+    upload_execute._cleanup_unused_links(db_session, job, ctx, {})
+
+    assert link.read_bytes() == b"someone else's file"
+    assert "file_links_removed" not in [e.code for e in job.events]
+
+
 def test_a_cleanup_error_never_changes_the_outcome(db_session, tmp_path, env, monkeypatch):
     video = _watched_job(db_session, env, "My.Movie.2024.mkv", {"a": _upload("Movie A"), "b": {"action": "skip"}})
     job = db_session.query(upload_jobs.UploadJob).one()

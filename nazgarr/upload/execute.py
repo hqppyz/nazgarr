@@ -1269,7 +1269,8 @@ def _cleanup_unused_links(session: Session, job: UploadJob, ctx: dict, overrides
     Ognuno si ricontrolla subito prima (audit 2026-10-18): deve essere
     ancora un file vero con l'inode di quando è nato (_still_our_link), e
     si toglie con hardlinks.remove_links, che non segue mai un link
-    simbolico nelle cartelle sopra. Prima un unlink per percorso: un altro
+    simbolico nelle cartelle sopra e ricontrolla quell'inode nella cartella
+    da cui toglie il file. Prima un unlink per percorso: un altro
     file messo con lo stesso nome nel frattempo, o una cartella diventata
     un link simbolico, portavano a cancellare un file non nostro."""
     created = ctx.get("created_links") or []
@@ -1292,9 +1293,11 @@ def _cleanup_unused_links(session: Session, job: UploadJob, ctx: dict, overrides
             removable.append(path)
         elif ours is False:
             changed.append(path)
-    hardlinks.remove_links(removable, prune_up_to=root)
-    # Quelli che remove_links non ha potuto togliere (lo scrive nel log) non contano.
-    removed = [path for path in removable if not os.path.lexists(path)]
+    # Con l'identità di quando sono nati anche lì (expected): fra il
+    # controllo qui sopra e l'unlink un altro file può prendere il posto di
+    # un link, e remove_links lo guarda di nuovo nella cartella da cui lo
+    # toglie. Quelli che non ha potuto togliere (lo scrive nel log) non contano.
+    removed = hardlinks.remove_links(removable, prune_up_to=root, expected=recorded)
     if changed:
         upload_jobs.log_event(session, job, "file_links_changed", level="warning", count=len(changed),
                               files=[os.path.relpath(path, root) for path in changed[:10]])
