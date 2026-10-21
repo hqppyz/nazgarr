@@ -42,7 +42,10 @@ class TelegramNotificationAdapter(NotificationAdapter):
         }
         if self.thread_id is not None:
             payload["message_thread_id"] = self.thread_id
-        client = self._client or httpx.Client(timeout=TIMEOUT, follow_redirects=False)
+        # Connesso solo all'indirizzo controllato quando si connette (audit
+        # 2026-10-18), come gli altri URL che escono: check_url da solo
+        # lasciava la finestra fra il controllo e la connessione.
+        client = self._client or net_guard.http_client(timeout=TIMEOUT, follow_redirects=False)
         try:
             response = client.post(url, json=payload)
         except httpx.HTTPError as exc:

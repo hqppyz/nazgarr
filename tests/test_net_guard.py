@@ -268,3 +268,35 @@ def test_qbittorrent_checks_its_host_whenever_an_adapter_is_built(monkeypatch):
     for url in ("http://rebound.example:8080", "rebound.example:8080"):
         with pytest.raises(net_guard.ForbiddenDestination):
             QBittorrentAdapter(url, "u", "p")
+
+
+def test_the_notification_services_are_pinned_too(monkeypatch, connects):
+    """Discord e Telegram hanno host fissi, ma il loro nome passa per lo
+    stesso DNS: anche loro col client che si connette solo all'indirizzo
+    controllato (audit 2026-10-18, #79), non un httpx.Client dopo check_url."""
+    from nazgarr.adapters.notification.base import Notification, NotificationError
+    from nazgarr.adapters.notification.discord import DiscordNotificationAdapter
+    from nazgarr.adapters.notification.telegram import TelegramNotificationAdapter
+
+    resolve, _asked = _changing_resolver({
+        "discord.com": [["162.159.135.232"], ["169.254.169.254"]],
+        "api.telegram.org": [["149.154.167.220"], ["169.254.169.254"]],
+    })
+    monkeypatch.setattr(net_guard.socket, "getaddrinfo", resolve)
+    built = []
+    real = net_guard.http_client
+
+    def recording(**kwargs):
+        built.append(real(**kwargs))
+        return built[-1]
+
+    monkeypatch.setattr(net_guard, "http_client", recording)
+    note = Notification(event="upload.finished", title="t", body="b")
+    for adapter in (DiscordNotificationAdapter("https://discord.com/api/webhooks/1/abc"),
+                    TelegramNotificationAdapter("1:secret", "42")):
+        with pytest.raises(NotificationError, match="not reachable"):
+            adapter.send(note)  # al controllo un indirizzo pubblico, alla connessione i metadati
+
+    assert len(built) == 2
+    assert all(isinstance(c._transport._pool._network_backend, net_guard._CheckedBackend) for c in built)
+    assert connects == []  # mai un socket verso i metadati

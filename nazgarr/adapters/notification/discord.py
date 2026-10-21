@@ -39,7 +39,10 @@ class DiscordNotificationAdapter(NotificationAdapter):
             # Mai menzioni dal testo di un evento (il nome di un torrent, per esempio).
             "allowed_mentions": {"parse": []},
         }
-        client = self._client or httpx.Client(timeout=TIMEOUT, follow_redirects=False)
+        # Connesso solo all'indirizzo controllato quando si connette (audit
+        # 2026-10-18), come gli altri URL che escono: check_url da solo
+        # lasciava la finestra fra il controllo e la connessione.
+        client = self._client or net_guard.http_client(timeout=TIMEOUT, follow_redirects=False)
         try:
             response = client.post(self.webhook_url, json=payload)
         except httpx.HTTPError as exc:
