@@ -22,8 +22,9 @@ import {
 // lì si misurano e si ritrovano.
 export const ROW_KEY_ATTR = 'data-row-key'
 
-// Altezza di una riga finché non se ne misura nessuna: poi la media di
-// quelle misurate.
+// Altezza di una riga finché non se ne misura nessuna: poi la media delle
+// prime misurate, che resta fino al prossimo cambio di larghezza
+// (lib/virtualRows.ts, mergeHeights).
 const DEFAULT_ROW_HEIGHT = 33
 // Margini attorno alla parte visibile: sotto i NEAR px si ricalcola la
 // finestra, che poi copre FAR px sopra e sotto.
@@ -207,7 +208,8 @@ export function useVirtualRows({ keys, resetKey, pinned = null, hasControls }: V
         const next = body.getBoundingClientRect().width
         if (Math.abs(next - width) >= 1) {
           width = next
-          // Si rimisura quello che è montato; il resto torna alla stima.
+          // Si rimisura quello che è montato, e la media di queste righe è la
+          // stima nuova per tutte le altre.
           setMeasures((prev) => ({ heights: new Map(), estimate: prev.estimate }))
         } else {
           measure()

@@ -131,6 +131,24 @@ describe('FileTree window', () => {
     // Le righe attorno alla 500 sono più alte della stima: la riga in cima resta quella.
     expect(listOffsetOf(name(500))).toBe(scrollTop - HEADER)
   })
+
+  it('after a jump into taller rows moves the view only by the height they gained', () => {
+    renderTree(<FileTree expandAll files={many(1000)} />)
+    rowHeight = (key) => (key >= name(400) ? 30 : 20)
+    // Dritti a metà (la barra di scorrimento trascinata), senza passare per le righe in mezzo.
+    const target = HEADER + 500 * 20
+    scrollTo(target)
+    expect(listOffsetOf(name(500))).toBe(scrollTop - HEADER)
+    // Sopra la vista cambiano solo le righe montate fra la 400 e la 500, di
+    // 10 px l'una: le righe mai montate restano alla stima, non alla media
+    // nuova (che spostava la vista di migliaia di px, in proporzione alla riga).
+    const tallAbove = mounted().filter((key) => key !== null && key >= name(400) && key < name(500)).length
+    expect(tallAbove).toBeGreaterThan(0)
+    expect(scrollTop - target).toBeGreaterThan(0)
+    expect(scrollTop - target).toBeLessThanOrEqual(tallAbove * 10)
+    // Le righe mai montate sopra la finestra contano ancora 20 px l'una.
+    expect(listOffsetOf(name(500))).toBe(500 * 20 + tallAbove * 10)
+  })
 })
 
 describe('FileTree window keeps rows mounted', () => {

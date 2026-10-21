@@ -140,10 +140,19 @@ describe('mergeHeights', () => {
     expect(mergeHeights(start, [['a', 20.2], ['b', 0]])).toBe(start)
   })
 
-  it('records new heights and makes their average the estimate', () => {
-    const next = mergeHeights(start, [['a', 20], ['b', 40]])
-    expect([...next.heights]).toEqual([['a', 20], ['b', 40]])
-    expect(next.estimate).toBe(30)
+  it('makes the average of the first rows measured the estimate', () => {
+    const first = mergeHeights({ heights: new Map(), estimate: 33 }, [['a', 20], ['b', 40], ['c', 0]])
+    expect([...first.heights]).toEqual([['a', 20], ['b', 40]])
+    expect(first.estimate).toBe(30)
+  })
+
+  it('records new heights and keeps the estimate until the measures are cleared', () => {
+    const next = mergeHeights(start, [['a', 20], ['b', 40], ['c', 60]])
+    expect([...next.heights]).toEqual([['a', 20], ['b', 40], ['c', 60]])
+    // Le righe mai montate restano dov'erano: si spostano solo quelle misurate.
+    expect(next.estimate).toBe(20)
     expect(start.heights.size).toBe(1) // mai modificato sul posto
+    // Dopo un cambio di larghezza (misure vuote) la stima riparte dalle prime righe misurate.
+    expect(mergeHeights({ heights: new Map(), estimate: next.estimate }, [['d', 50]]).estimate).toBe(50)
   })
 })

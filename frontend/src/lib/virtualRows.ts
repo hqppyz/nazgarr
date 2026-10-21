@@ -121,7 +121,7 @@ export function nextRowWith(from: number, step: 1 | -1, count: number, has: (ind
 }
 
 // Le altezze misurate per id, e la stima per le righe mai montate (la media
-// di quelle misurate).
+// delle prime misurate, vedi mergeHeights).
 export interface RowMeasures {
   heights: ReadonlyMap<string, number>
   estimate: number
@@ -129,6 +129,15 @@ export interface RowMeasures {
 
 // Le altezze appena lette dal DOM sopra quelle note: lo stesso oggetto se
 // nessuna è cambiata di almeno mezzo pixel, così React non ridisegna.
+//
+// La stima è la media delle prime righe misurate (dopo il montaggio, o dopo
+// un cambio di larghezza, che svuota le misure) e poi resta quella: così
+// una misura nuova sposta solo le righe misurate, e la vista (che l'ancora
+// tiene sulla riga in cima) si muove di quanto sono cambiate loro. Con la
+// media ricalcolata a ogni misura cambiava l'inizio di ogni riga mai
+// montata: dopo un salto a metà di un albero di 10.000 righe la vista si
+// spostava di decine di migliaia di px, e trascinando la barra di
+// scorrimento contenuto e cursore si rincorrevano.
 export function mergeHeights(prev: RowMeasures, found: readonly (readonly [string, number])[]): RowMeasures {
   let next: Map<string, number> | null = null
   for (const [key, height] of found) {
@@ -139,6 +148,7 @@ export function mergeHeights(prev: RowMeasures, found: readonly (readonly [strin
     next.set(key, height)
   }
   if (!next) return prev
+  if (prev.heights.size > 0) return { heights: next, estimate: prev.estimate }
   let total = 0
   for (const height of next.values()) total += height
   return { heights: next, estimate: total / next.size }
