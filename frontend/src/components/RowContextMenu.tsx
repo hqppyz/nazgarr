@@ -1,6 +1,6 @@
 import { Menu as MenuPrimitive } from '@base-ui/react/menu'
 import { EllipsisIcon } from 'lucide-react'
-import { useState, type ReactElement, type ReactNode, type SyntheticEvent } from 'react'
+import { useRef, useState, type ReactElement, type ReactNode, type SyntheticEvent } from 'react'
 
 import { Button } from '@/components/ui/button'
 
@@ -139,17 +139,22 @@ export function RowMenuButton({ items, title, className }: { items: RowMenuItem[
 // Il menu contestuale di tutte le righe dentro `render` (di solito il
 // <tbody>): la riga sotto il cursore (o il dito) è quella col data-row-menu
 // più vicino. Senza voci per quella riga resta il menu del browser, come
-// prima.
+// prima. onOpenChange dice da quale riga è aperto (null alla chiusura): una
+// lista che smonta le righe fuori vista (FileTree) tiene montata quella.
 export function SharedRowContextMenu({
   menuFor,
   render,
   children,
+  onOpenChange,
 }: {
   menuFor: (id: string) => RowMenu | null
   render: ReactElement
   children: ReactNode
+  onOpenChange?: (id: string | null) => void
 }) {
   const [target, setTarget] = useState<string | null>(null)
+  // La riga mirata anche prima del render: Base UI apre il menu nello stesso evento.
+  const aimed = useRef<string | null>(null)
   // In cattura: prima che il trigger di Base UI apra il menu, così il menu si
   // apre già con le voci della riga giusta.
   const aim = (event: SyntheticEvent) => {
@@ -159,11 +164,12 @@ export function SharedRowContextMenu({
       event.stopPropagation()
       return
     }
+    aimed.current = id
     setTarget(id)
   }
   const menu = target !== null ? menuFor(target) : null
   return (
-    <ContextMenu>
+    <ContextMenu onOpenChange={(open) => onOpenChange?.(open ? aimed.current : null)}>
       <ContextMenuTrigger render={render} className={TOUCH_TRIGGER} onContextMenuCapture={aim} onTouchStartCapture={aim}>
         {children}
       </ContextMenuTrigger>

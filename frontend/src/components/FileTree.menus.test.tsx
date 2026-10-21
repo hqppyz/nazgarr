@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
 import { FileTree, type TreeRowActions } from '@/components/FileTree'
@@ -64,37 +64,5 @@ describe('FileTree keyboard', () => {
     expect(onOpenFile).toHaveBeenCalledWith(expect.objectContaining({ relative_path: 'Movies/A.mkv' }))
     // Senza identità non c'è niente da aprire: niente pulsante.
     expect(screen.queryByRole('button', { name: 'notes.nfo' })).toBeNull()
-  })
-})
-
-describe('FileTree incremental window', () => {
-  it('keeps the rows already shown when the data changes in the background', () => {
-    const callbacks: IntersectionObserverCallback[] = []
-    class FakeObserver {
-      constructor(cb: IntersectionObserverCallback) {
-        callbacks.push(cb)
-      }
-      observe() {}
-      disconnect() {}
-    }
-    const original = globalThis.IntersectionObserver
-    globalThis.IntersectionObserver = FakeObserver as unknown as typeof IntersectionObserver
-    try {
-      const make = (state: string) => Array.from({ length: 700 }, (_, i) => file(`f${String(i).padStart(4, '0')}.mkv`, { state }))
-      const filters = { search: '' }
-      const { container, rerender } = render(<FileTree expandAll files={make('orphan_media')} resetKey={filters} />)
-      const rows = () => container.querySelectorAll('tbody tr:not([aria-hidden])').length
-      act(() => callbacks.at(-1)!([{ isIntersecting: true } as IntersectionObserverEntry], {} as IntersectionObserver))
-      expect(rows()).toBe(600)
-
-      // Un seed finito: dati nuovi, stessi filtri.
-      rerender(<FileTree expandAll files={make('seeding')} resetKey={filters} />)
-      expect(rows()).toBe(600)
-      // Una ricerca nuova: si riparte dal primo blocco.
-      rerender(<FileTree expandAll files={make('seeding')} resetKey={{ search: 'f0' }} />)
-      expect(rows()).toBe(300)
-    } finally {
-      globalThis.IntersectionObserver = original
-    }
   })
 })

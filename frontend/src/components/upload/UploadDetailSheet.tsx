@@ -9,6 +9,7 @@ import { isBusy } from '@/components/upload/jobState'
 import { MediaInfoPreview } from '@/components/upload/MediaInfoPreview'
 import { MetadataLinks } from '@/components/upload/MetadataLinks'
 import { RetryUploadButton } from '@/components/upload/RetryUploadButton'
+import { TargetWarning } from '@/components/upload/TargetWarning'
 import { ActionBadge } from '@/components/upload/TrackerCheckCard'
 import { UploadEventLog } from '@/components/upload/UploadEventLog'
 import { UploadStatusBadge } from '@/components/upload/UploadStatusBadge'
@@ -118,7 +119,13 @@ export function UploadDetailSheet({ uploadId, onClose }: { uploadId: number | nu
                       </div>
                       {target.approved_name && <p className="font-mono break-all">{target.approved_name}</p>}
                       {target.info_hash && <p className="font-mono break-all text-muted-foreground">{target.info_hash}</p>}
-                      {target.error_message && <p className="text-red-600 dark:text-red-400">{target.error_message}</p>}
+                      {/* Un tracker pubblicato non ancora in seed (in attesa del recheck, o
+                          col seed fallito) è un avviso tradotto, non un errore in rosso. */}
+                      {target.error_message && (target.status === 'done' ? (
+                        <TargetWarning code={target.error_message} />
+                      ) : (
+                        <p className="text-red-600 dark:text-red-400">{target.error_message}</p>
+                      ))}
                       {matches.length > 0 && (
                         <div className="grid min-w-0 gap-0.5">
                           <span className="text-muted-foreground">{t('upload.history.matchesOnTracker')}</span>

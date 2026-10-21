@@ -3,8 +3,9 @@ import { toast } from 'sonner'
 
 import { useRetrySeed, type UploadJob } from '@/api/hooks/uploads'
 import { ExecutionSteps } from '@/components/upload/ExecutionSteps'
-import { currentRunEvents } from '@/components/upload/jobState'
+import { canRetrySeed, currentRunEvents } from '@/components/upload/jobState'
 import { RetryUploadButton } from '@/components/upload/RetryUploadButton'
+import { TargetWarning } from '@/components/upload/TargetWarning'
 import { ActionBadge } from '@/components/upload/TrackerCheckCard'
 import { UploadStatusBadge } from '@/components/upload/UploadStatusBadge'
 import { Button } from '@/components/ui/button'
@@ -16,9 +17,9 @@ import { safeHref } from '@/lib/safeUrl'
 // Esito finale, tracker per tracker: cosa è stato fatto, il link al
 // torrent sul tracker e, se qualcosa è andato storto, perché (l'ultimo
 // errore del registro eventi per quel tracker). Pubblicato ma non in seed:
-// "Riprova il seed" rifà solo l'aggiunta al client; "Riprova" in alto rimette
-// in coda i tracker falliti prima di pubblicare.
-const SEED_RETRYABLE = ['seed_failed', 'no_client']
+// "Riprova il seed" rifà solo l'aggiunta al client, o dopo un recheck fallito
+// (anche di un reseed) ne chiede un altro (canRetrySeed); "Riprova" in alto
+// rimette in coda i tracker falliti prima di pubblicare.
 
 export function ResultStep({ job }: { job: UploadJob }) {
   const retrySeed = useRetrySeed(job.id)
@@ -62,13 +63,8 @@ export function ResultStep({ job }: { job: UploadJob }) {
                 )}
               </div>
               {target.approved_name && <p className="font-mono text-xs break-all">{target.approved_name}</p>}
-              {target.status === 'done' && target.error_message && (
-                <p className="flex items-start gap-1.5 text-xs text-amber-600 dark:text-amber-400">
-                  <TriangleAlertIcon className="mt-0.5 size-3.5 shrink-0" />
-                  {t(`upload.result.warning.${target.error_message}`)}
-                </p>
-              )}
-              {target.status === 'done' && target.action === 'upload' && SEED_RETRYABLE.includes(target.error_message ?? '') && (
+              {target.status === 'done' && target.error_message && <TargetWarning code={target.error_message} />}
+              {canRetrySeed(target) && (
                 <Button
                   variant="outline"
                   size="sm"
@@ -76,7 +72,9 @@ export function ResultStep({ job }: { job: UploadJob }) {
                   disabled={retrySeed.isPending}
                   onClick={() =>
                     retrySeed.mutate(target.id, {
-                      onSuccess: () => toast.success(t('upload.result.seedRetried')),
+                      // Dopo un recheck fallito il torrent è ancora nel client: se ne chiede un altro.
+                      onSuccess: () => toast.success(t(target.error_message === 'seed_recheck_failed'
+                        ? 'upload.result.recheckRetried' : 'upload.result.seedRetried')),
                       onError: (e) => toast.error(e.message),
                     })
                   }
