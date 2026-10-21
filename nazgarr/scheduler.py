@@ -26,7 +26,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from nazgarr.core import settings_repo
 from nazgarr.core.db_utils import as_utc
 from nazgarr.core.models import RunLog
-from nazgarr.reseed import pipeline, review
+from nazgarr.reseed import exclusive, pipeline, review
 
 logger = logging.getLogger(__name__)
 
@@ -181,14 +181,21 @@ RECONCILE_INTERVAL_SECONDS = 120
 def _reconcile_between_runs(session_factory: sessionmaker) -> None:
     """Esito dei recheck fra una run e l'altra: senza, un seed approvato a
     mano restava "pending" fino alla run successiva, anche col torrent già
-    in seed. Solo se c'è qualcosa in attesa e nessuna run in corso (la run
-    fa già il suo reconcile alla fine, e non si scrive in due sul DB)."""
+    in seed. Solo se c'è qualcosa in attesa, ed è lavoro a lato
+    (nazgarr/reseed/exclusive.py, audit 2026-10-18): mai insieme a una run
+    (che fa già il suo reconcile alla fine), a "Controlla ora" o
+    all'eliminazione di un'esecuzione. Prima guardava solo che nessuna run
+    fosse in corso, e lo stesso seed job si riconciliava in due sessioni:
+    avvii e arresti doppi nel client, due eventi seed_job.finished. Se è
+    occupato, si riprova al giro dopo."""
     session = session_factory()
     try:
-        if pipeline.run_in_progress(session):
+        if not review.has_pending_seed_jobs(session):
             return
-        if review.has_pending_seed_jobs(session):
+        with exclusive.side_work(session, holder="seed_jobs"):
             review.reconcile_pending_seed_jobs(session)
+    except exclusive.Busy:
+        logger.debug("Reconcile periodico dei seed_job rimandato: una run o altro lavoro in corso")
     except Exception:
         logger.exception("Reconcile periodico dei seed_job fallito")
     finally:

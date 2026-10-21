@@ -37,12 +37,19 @@ export const errors = {
   'errors.run_in_progress': 'A scan is in progress: try again when it has finished.',
   // Solo il lavoro a lato tiene il lock (nazgarr/reseed/exclusive.py): nessuna scansione da aspettare.
   'errors.side_work_in_progress': 'Other work is in progress (Radarr/Sonarr events or a search): try again shortly.',
+  'errors.side_work_seed_jobs_in_progress': 'Nazgarr is checking the reseeds in progress in the torrent clients: try again shortly.',
   'errors.invalid_path': 'Invalid path.',
   'errors.run_already_finished': 'Scan {id} has already finished.',
 
   'errors.review_not_found': 'Review {id} not found.',
   'errors.seed_job_not_found': 'SeedJob {id} not found.',
   'errors.seed_job_not_deletable': 'SeedJob {id} is {status}: only failed or in-progress executions can be deleted.',
+  'errors.seed_job_not_failed': 'SeedJob {id} is {status}: only a failed execution can be retried.',
+  'errors.seed_job_already_retried': 'SeedJob {id} has already been retried: see its newer execution.',
+  'errors.seed_job_no_client': 'No torrent client is enabled: enable one, then retry.',
+  'errors.seed_job_torrent_not_ours': 'The client has torrent {info_hash}, but this execution did not add it (another program or a manual add did): Nazgarr leaves it alone. Remove it from the client, then retry; or delete this execution.',
+  // Il testo dell'errore (inglese, dall'esecutore) di un retry rifatto e fallito.
+  'errors.seed_job_retry_failed': 'Execution {id}: {error}',
   'errors.review_already_verifying': 'Review {id} is already being verified: wait for its full hash check to finish.',
   'errors.full_check_not_found': 'Full hash check {id} not found: it ended a while ago, or Nazgarr restarted.',
   'errors.full_check_candidate_not_found': 'Torrent candidate {id} not found.',

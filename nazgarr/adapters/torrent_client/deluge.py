@@ -274,7 +274,7 @@ class DelugeAdapter(TorrentClientAdapter):
     def get_torrent_status(self, info_hash: str) -> TorrentStatus:
         torrent = self._call("core.get_torrent_status", info_hash.lower(), STATUS_KEYS) or {}
         if not torrent:
-            raise ValueError(f"Torrent {info_hash} non trovato nel client")
+            raise ValueError(f"Torrent {info_hash} not found in the client")
         state = torrent.get("state") or ""
         progress = float(torrent.get("progress") or 0.0) / 100.0
         recheck_status = _status(torrent)

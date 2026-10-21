@@ -13,6 +13,7 @@ from nazgarr.core.models import (
     MediaFile,
     MediaItem,
     SeedFile,
+    SeedJob,
     TorrentClient,
     Tracker,
 )
@@ -1217,3 +1218,217 @@ def test_an_error_in_nazgarrs_own_check_never_starts_the_torrent(db_session, tmp
 
     assert (seed_job.final_status, seed_job.error_message) == ("in_progress", executor.EXTRAS_NOT_CHECKED)
     assert adapter.started == []
+
+
+def _foreign_torrent(save_path="/other/downloads", state="downloading"):
+    from nazgarr.adapters.torrent_client.base import ClientTorrentInfo
+
+    return ClientTorrentInfo(info_hash=compute_info_hash(_movie_torrent()), name="Movie.2024.mkv",
+                             save_path=save_path, state=state)
+
+
+def test_a_retry_never_takes_over_a_torrent_another_program_had_added(db_session, tmp_path):
+    """Revisione dell'audit 2026-10-18 (R5): l'aggiunta fallisce perché il
+    client ha già il torrent (un cross-seed, autobrr, l'utente), e il retry
+    lo seguiva come suo: in download lo fermava, fermo al 100% lo avviava."""
+    from nazgarr.adapters.torrent_client.base import TorrentAlreadyInClientError
+
+    root, review = _movie_review(db_session, tmp_path)
+    foreign = _foreign_torrent()
+    adapter = ReseedClient(add_error=TorrentAlreadyInClientError("already there"), torrents=[foreign],
+                           status=TorrentStatus(foreign.info_hash, "downloading", "failed", 0.4, incomplete=True))
+    with pytest.raises(executor.ExecutionError, match="already had this torrent"):
+        executor.execute_review(db_session, review, adapter)
+    seed_job = db_session.query(SeedJob).one()
+    assert not (root / "torrents" / "Movie.2024.mkv").exists()  # i suoi hardlink tolti
+
+    with pytest.raises(executor.RetryRefused) as refused:
+        executor.adopt_for_retry(db_session, seed_job, adapter)
+
+    assert refused.value.code == "seed_job_torrent_not_ours"
+    assert refused.value.params == {"id": seed_job.id, "info_hash": foreign.info_hash}
+    assert (adapter.stopped, adapter.started, adapter.rechecked) == ([], [], [])
+    db_session.refresh(seed_job)
+    assert (seed_job.final_status, seed_job.info_hash) == ("failed", None)
+
+    adapter.torrents.clear()  # l'utente lo toglie dal client: il retry riparte da zero
+    assert executor.adopt_for_retry(db_session, seed_job, adapter) is None
+
+
+def test_a_retry_never_takes_over_a_torrent_after_a_failure_before_the_add(db_session, tmp_path, tracker_torrent):
+    # Il .torrent del tracker non è quello verificato: niente mandato al
+    # client. Un torrent con quell'hash che compare dopo è di qualcun altro.
+    from nazgarr.adapters.torrent_client.base import ClientTorrentInfo
+
+    _root, review = _movie_review(db_session, tmp_path)
+    review.candidate.info_hash = "ab" * 20
+    db_session.commit()
+    tracker_torrent["content"] = _movie_torrent(b"other!!")
+    adapter = ReseedClient()
+    with pytest.raises(executor.ExecutionError, match=r"different \.torrent"):
+        executor.execute_review(db_session, review, adapter)
+    seed_job = db_session.query(SeedJob).one()
+    assert adapter.added == [] and seed_job.error_message.endswith(executor.NOTHING_SENT)
+
+    adapter.torrents["ab" * 20] = ClientTorrentInfo(info_hash="ab" * 20, name="Movie.2024.mkv",
+                                                   save_path="/other/downloads", state="stoppedUP")
+    with pytest.raises(executor.RetryRefused):
+        executor.adopt_for_retry(db_session, seed_job, adapter)
+    assert (adapter.started, adapter.rechecked, seed_job.info_hash) == ([], [], None)
+
+
+def test_an_execution_failed_with_the_old_duplicate_text_is_not_taken_over_either(db_session, tmp_path):
+    _root, review = _movie_review(db_session, tmp_path)
+    foreign = _foreign_torrent(state="stoppedUP")
+    seed_job = SeedJob(
+        candidate_id=review.candidate_id, source_media_file_id=review.media_file_id, final_status="failed",
+        error_message=f"Torrent {foreign.info_hash} is already in the client (possibly with another save path): "
+                      "nothing added",
+    )
+    review.candidate.info_hash = foreign.info_hash
+    db_session.add(seed_job)
+    db_session.commit()
+    adapter = ReseedClient(torrents=[foreign])
+
+    with pytest.raises(executor.RetryRefused):
+        executor.adopt_for_retry(db_session, seed_job, adapter)
+    assert adapter.started == []
+
+
+def test_a_retry_of_an_execution_whose_torrent_left_the_client_adds_it_again(db_session, tmp_path):
+    """Audit 2026-10-18, finding 113 (residuo): il retry che il messaggio
+    "no longer in the client" proponeva finiva in un ValueError (un 500), e
+    restava solo l'eliminazione."""
+    _root, review = _movie_review(db_session, tmp_path)
+
+    class Gone(ReseedClient):
+        def get_torrent_status(self, info_hash):
+            raise ValueError(f"Torrent {info_hash} not found in the client")
+
+    seed_job = SeedJob(
+        candidate_id=review.candidate_id, source_media_file_id=review.media_file_id, final_status="failed",
+        info_hash="deadbeef", error_message="The torrent is no longer in the client: retry it to add it again, "
+                                            "or delete it",
+    )
+    db_session.add(seed_job)
+    db_session.commit()
+    adapter = Gone()
+
+    assert executor.adopt_for_retry(db_session, seed_job, adapter) is None  # da rifare
+    again = executor.retry_from_scratch(db_session, seed_job, adapter)
+
+    assert again.id != seed_job.id and len(adapter.added) == 1
+    assert (again.final_status, again.info_hash) == ("in_progress", "deadbeef")
+
+
+def test_a_retry_when_the_client_does_not_answer_is_a_failed_retry_not_a_crash(db_session, tmp_path):
+    seed_job = _failed_recheck_job(db_session, tmp_path)
+    seed_job.final_status = "failed"
+    db_session.commit()
+
+    class Down(ReseedClient):
+        def get_torrent_status(self, info_hash):
+            raise ConnectionError("connection refused")
+
+        def get_torrent_info(self, info_hash):
+            raise ConnectionError("connection refused")
+
+    with pytest.raises(executor.ExecutionError, match="Could not read torrent deadbeef"):
+        executor.adopt_for_retry(db_session, seed_job, Down())
+    assert seed_job.final_status == "failed"
+
+
+def _timed_out_execution(db_session, tmp_path):
+    """Un'esecuzione la cui aggiunta scade (TorrentAddTimeoutError) prima
+    che il torrent compaia nel client: fallita, senza info hash, gli
+    hardlink lasciati al loro posto. Restituisce il seed job e il save path
+    mandato al client."""
+    from nazgarr.adapters.torrent_client.base import TorrentAddTimeoutError
+
+    root, review = _movie_review(db_session, tmp_path)
+    first = ReseedClient(add_error=TorrentAddTimeoutError("no new torrent within 30s"))
+    with pytest.raises(executor.ExecutionError):
+        executor.execute_review(db_session, review, first)
+    seed_job = db_session.query(SeedJob).one()
+    assert (seed_job.final_status, seed_job.info_hash) == ("failed", None)
+    assert (root / "torrents" / "Movie.2024.mkv").is_file()
+    return seed_job, first.added[0].save_path
+
+
+def test_a_retry_follows_its_own_torrent_that_showed_up_late(db_session, tmp_path):
+    """Revisione dell'audit 2026-10-18: l'aggiunta della prima esecuzione
+    scade, il retry parte (il controllo completo dura minuti) e intanto il
+    torrent della prima compare. L'aggiunta del retry trovava il client che
+    l'aveva già e falliva con "l'ha messo un altro programma": il torrent di
+    Nazgarr restava fermo, mai ricontrollato, e il retry dopo lo rifiutava."""
+    from nazgarr.adapters.torrent_client.base import TorrentAlreadyInClientError
+
+    seed_job, save_path = _timed_out_execution(db_session, tmp_path)
+    late = _foreign_torrent(save_path=save_path, state="stoppedDL")
+    adapter = ReseedClient(add_error=TorrentAlreadyInClientError("already there"), torrents=[late])
+
+    again = executor.retry_from_scratch(db_session, seed_job, adapter)
+
+    assert again.id != seed_job.id
+    assert (again.final_status, again.info_hash, again.recheck_status) == ("in_progress", late.info_hash, "pending")
+    assert adapter.rechecked == [late.info_hash] and adapter.started == [] and adapter.stopped == []
+
+
+def test_a_torrent_elsewhere_after_an_earlier_timeout_is_still_not_followed(db_session, tmp_path):
+    # Stesso hash, ma in un'altra cartella: non l'ha mandato la prima
+    # esecuzione (ce l'ha messo un altro programma), e non si tocca.
+    from nazgarr.adapters.torrent_client.base import TorrentAlreadyInClientError
+
+    seed_job, _save_path = _timed_out_execution(db_session, tmp_path)
+    foreign = _foreign_torrent(save_path="/other/downloads", state="downloading")
+    adapter = ReseedClient(add_error=TorrentAlreadyInClientError("already there"), torrents=[foreign])
+
+    with pytest.raises(executor.ExecutionError, match="already had this torrent"):
+        executor.retry_from_scratch(db_session, seed_job, adapter)
+
+    assert (adapter.rechecked, adapter.started, adapter.stopped) == ([], [], [])
+
+
+def _gone_execution(db_session, tmp_path):
+    """Un'esecuzione riuscita il cui torrent è poi sparito dal client
+    (GONE_FROM_CLIENT, review.reconcile_pending_seed_jobs)."""
+    _root, review = _movie_review(db_session, tmp_path)
+    first = ReseedClient()
+    seed_job = executor.execute_review(db_session, review, first)
+    seed_job.final_status, seed_job.error_message = "failed", executor.GONE_FROM_CLIENT
+    db_session.commit()
+    return seed_job, first.added[0].save_path
+
+
+def test_a_retry_never_follows_a_torrent_that_came_back_somewhere_else(db_session, tmp_path):
+    """Revisione dell'audit 2026-10-18 (R5): il torrent di Nazgarr sparisce,
+    un altro programma riaggiunge lo stesso hash nella sua cartella, e il
+    retry lo seguiva: in download lo fermava, fermo al 100% lo avviava."""
+    from nazgarr.adapters.torrent_client.base import ClientTorrentInfo
+
+    seed_job, _save_path = _gone_execution(db_session, tmp_path)
+    back = ClientTorrentInfo(info_hash="deadbeef", name="Movie.2024.mkv", save_path="/other/downloads",
+                             state="downloading")
+    adapter = ReseedClient(torrents=[back],
+                           status=TorrentStatus("deadbeef", "downloading", "failed", 0.4, incomplete=True))
+
+    with pytest.raises(executor.RetryRefused) as refused:
+        executor.adopt_for_retry(db_session, seed_job, adapter)
+
+    assert refused.value.code == "seed_job_torrent_not_ours"
+    assert adapter.stopped == adapter.started == adapter.rechecked == []
+    assert seed_job.final_status == "failed"
+
+
+def test_a_retry_follows_its_torrent_back_where_it_was_added(db_session, tmp_path):
+    from nazgarr.adapters.torrent_client.base import ClientTorrentInfo
+
+    seed_job, save_path = _gone_execution(db_session, tmp_path)
+    back = ClientTorrentInfo(info_hash="deadbeef", name="Movie.2024.mkv", save_path=save_path + "/",
+                             state="stoppedDL")
+    adapter = ReseedClient(torrents=[back], recheck_status="failed", progress=0.0)
+
+    assert executor.adopt_for_retry(db_session, seed_job, adapter) is seed_job
+
+    assert adapter.rechecked == ["deadbeef"] and adapter.started == []
+    assert (seed_job.final_status, seed_job.recheck_status) == ("in_progress", "pending")

@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session, object_session, selectinload
 
-from nazgarr.core.errors import coded_detail, from_coded_error
+from nazgarr.core.errors import CodedError, coded_detail, from_coded_error
 from nazgarr.core.logs import safe_error
 from nazgarr.core.models import Candidate, MatchReview, SeedJob, TorrentClient, Tracker
 from nazgarr.library import seeding
@@ -379,7 +379,7 @@ def reconcile_now(session: Session = Depends(get_session)):
     audit 2026-10-18): prima controllava solo che nessuna run fosse in
     corso, e una run poteva partire a metà e riconciliare gli stessi job."""
     try:
-        with exclusive.side_work(session):
+        with exclusive.side_work(session, holder="seed_jobs", wait_seconds=exclusive.API_WAIT_SECONDS):
             return review.reconcile_pending_seed_jobs(session)
     except exclusive.Busy as exc:
         raise HTTPException(status_code=409, detail=coded_detail(exc.code)) from exc
@@ -395,7 +395,7 @@ def delete_seed_job(seed_job_id: int, session: Session = Depends(get_session)):
     if seed_job is None:
         raise HTTPException(status_code=404, detail=coded_detail("seed_job_not_found", id=seed_job_id))
     try:
-        with exclusive.side_work(session):
+        with exclusive.side_work(session, wait_seconds=exclusive.API_WAIT_SECONDS):
             review.delete_seed_job(session, seed_job)
     except exclusive.Busy as exc:
         raise HTTPException(status_code=409, detail=coded_detail(exc.code)) from exc
@@ -428,10 +428,16 @@ def retry_failed(seed_job_id: int, request: Request, session: Session = Depends(
         raise HTTPException(status_code=404, detail=coded_detail("seed_job_not_found", id=seed_job_id))
     try:
         result = review.retry_failed(session, seed_job, request.app.state.session_factory)
+    except CodedError as exc:
+        # Un retry che non si fa (executor.RetryRefused: non fallito, già
+        # ritentato, nessun client, un torrent nel client non suo), col suo codice.
+        raise HTTPException(status_code=409, detail=from_coded_error(exc)) from exc
     except ExecutionError as exc:
-        # Il testo inglese dell'errore, senza chiavi o passkey (prima a volte
-        # solo il codice, o il messaggio del client così com'era).
-        raise HTTPException(status_code=409, detail=safe_error(exc)) from exc
+        # L'esecuzione rifatta è fallita: il suo testo inglese, senza chiavi o
+        # passkey, dentro un codice che interfaccia e CLI riconoscono (audit
+        # 2026-10-18: prima era un testo libero, a volte italiano).
+        raise HTTPException(status_code=409, detail=coded_detail(
+            "seed_job_retry_failed", id=seed_job_id, error=safe_error(exc))) from exc
     if isinstance(result, SeedJob):
         return RetryResponse(**SeedJobResponse.from_model(result).model_dump())
     session.refresh(seed_job)

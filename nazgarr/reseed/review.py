@@ -23,14 +23,13 @@ default, mai un bypass "perché il file esiste già"."""
 
 import logging
 from collections import Counter
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import NamedTuple
 
 from sqlalchemy import exists, func, select
 from sqlalchemy.orm import Session, selectinload
 
 from nazgarr.core import settings_registry
-from nazgarr.core.db_utils import as_utc
 from nazgarr.core.errors import CodedError
 from nazgarr.core.logs import safe_error
 from nazgarr.core.models import (
@@ -66,14 +65,17 @@ from nazgarr.library.seeding import (
 )
 from nazgarr.reseed import full_check
 from nazgarr.reseed.executor import (
-    MISSING_TORRENT_GRACE,
+    GONE_FROM_CLIENT,
     ExecutionError,
+    RetryRefused,
     adopt_for_retry,
     execute_review,
+    lookup_torrent,
+    missing_long_enough,
     reconcile_seed_job,
     retry_from_scratch,
     review_of,
-    torrent_missing,
+    seen_in_client,
 )
 from nazgarr.torrents import client_labels
 from nazgarr.upload.jobs import SEED_RECHECK_PENDING
@@ -301,9 +303,11 @@ class ReviewQueue:
     nei client e i torrent già occupati, letti una volta sola invece che a
     ogni orfano (audit 2026-10-18: ogni orfano rileggeva tutte le review
     attive e le esecuzioni), e aggiornati qui a ogni review creata o chiusa.
-    Durante il matching nessun torrent entra in un client e nessun'altra
-    parte crea review (la ricerca mirata e quella dopo un import non girano
-    durante una run)."""
+    Durante il matching nessun'altra parte crea review (la ricerca mirata e
+    quella dopo un import non girano durante una run, nazgarr/reseed/exclusive.py),
+    ma il worker degli upload sì aggiunge torrent ai client: gli upload e
+    i loro torrent si rileggono subito prima di creare ogni review
+    (refresh_uploads)."""
 
     def __init__(self, session: Session, in_client: set[str] | None = None):
         self.in_client = hashes_in_clients(session) if in_client is None else in_client
@@ -330,6 +334,28 @@ class ReviewQueue:
             if entry is not None:
                 tracker_id, _remote, mf_id, sf_id = entry
                 self._by_file[(tracker_id, mf_id, sf_id)] -= 1
+
+    def refresh_uploads(self, session: Session, candidates: list[Candidate]) -> None:
+        """Gli upload di Nazgarr e, fra gli info hash di questi candidati,
+        quelli ora in un client, riletti adesso: il worker degli upload non
+        aspetta le run, e un upload pubblicato e messo in seed durante il
+        passaggio (letto all'inizio, prima che partisse) veniva proposto
+        come un reseed da rifare, eseguito con l'esecuzione automatica
+        accesa (audit 2026-10-18, revisione). Due query piccole, una volta
+        per file con un candidato plausibile, mai per ogni orfano."""
+        self.uploaded, self.uploaded_hashes = _own_uploads(session)
+        self.in_client |= _now_in_clients(session, {c.info_hash for c in candidates if c.info_hash})
+
+
+def _now_in_clients(session: Session, hashes: set[str]) -> set[str]:
+    """Quali di questi info hash sono ora in un client (in minuscolo). Un
+    client può riportarli in maiuscolo (rTorrent): si cercano in entrambe le
+    forme, senza leggere tutti i torrent dei client."""
+    if not hashes:
+        return set()
+    forms = {form for h in hashes for form in (h.lower(), h.upper())}
+    return {row[0].lower() for row in session.query(ClientTorrent.info_hash)
+            .filter(ClientTorrent.info_hash.in_(forms)).distinct()}
 
 
 def _status_for(session: Session, candidate: Candidate) -> str:
@@ -406,6 +432,11 @@ class _Exclusions:
     def allows(self, candidate: Candidate) -> bool:
         return (not self.impossible(candidate)
                 and (candidate.tracker_id, candidate.torrent_id_remote) not in self.busy)
+
+    def follow(self, queue: ReviewQueue) -> None:
+        """Gli upload e gli info hash appena riletti dalla coda (refresh_uploads)."""
+        self.refused = self.rejected | queue.uploaded
+        self.hashes = queue.in_client | queue.uploaded_hashes
 
 
 def _drop_unavailable(
@@ -487,6 +518,12 @@ def _create_review(
     exclusions = _Exclusions(session, media_file_id=media_file_id, seed_file_id=seed_file_id,
                              in_client=in_client, queue=queue)
     plausible = [c for c in plausible if exclusions.allows(c)]
+    if plausible and queue is not None:
+        # La coda è del passaggio, letta al suo inizio: un upload pubblicato e
+        # messo in seed nel frattempo si vede solo rileggendo, adesso.
+        queue.refresh_uploads(session, plausible)
+        exclusions.follow(queue)
+        plausible = [c for c in plausible if exclusions.allows(c)]
     if not plausible:
         _drop_unavailable(session, media_file_id=media_file_id, seed_file_id=seed_file_id, tracker_id=tracker_id,
                           formats=formats, queue=queue, exclusions=exclusions, returned=returned,
@@ -1128,6 +1165,7 @@ def delete_seed_job(session: Session, seed_job: SeedJob) -> None:
     if candidate is not None:
         session.query(MatchAttempt).filter_by(tracker_id=candidate.tracker_id, **file_filter).delete()
     logger.info("Seed job %s (%s) eliminato su richiesta", seed_job.id, seed_job.final_status)
+    seen_in_client(seed_job.id)
     session.delete(seed_job)
     session.commit()
 
@@ -1155,14 +1193,16 @@ def retry_failed(session: Session, seed_job: SeedJob, session_factory=None):
     l'esecuzione arriva solo se passa (audit 2026-10-18: il retry
     rieseguiva senza, anche se i file erano cambiati dall'ultima volta).
     Restituisce il seed_job, o lo stato del controllo partito
-    (full_check.CheckState)."""
+    (full_check.CheckState). Un retry che non si fa: RetryRefused, col suo
+    codice (non fallito, già ritentato, nessun client, il torrent nel
+    client non è di questa esecuzione)."""
     if seed_job.final_status != "failed":
-        raise ExecutionError(f"SeedJob {seed_job.id} is not in failed status (current: {seed_job.final_status})")
+        raise RetryRefused("seed_job_not_failed", id=seed_job.id, status=seed_job.final_status)
     if _retried_already(session, seed_job):
-        raise ExecutionError(f"SeedJob {seed_job.id} has already been retried: see its newer execution")
+        raise RetryRefused("seed_job_already_retried", id=seed_job.id)
     adapter, torrent_client_id = _client_for_seed_job(session, seed_job)
     if adapter is None:
-        raise ExecutionError("No torrent client is enabled")
+        raise RetryRefused("seed_job_no_client")
     try:
         adopted = adopt_for_retry(session, seed_job, adapter)
         if adopted is not None:
@@ -1269,17 +1309,43 @@ def reconcile_pending_seed_jobs(session: Session, progress=NULL_PROGRESS) -> dic
             try:
                 reconcile_seed_job(session, seed_job, adapter)
                 reconciled += 1
-            except Exception:
+                seen_in_client(seed_job.id)
+                _failing.discard(seed_job.id)
+            except Exception as exc:
                 session.rollback()
-                if _missing_from_client(adapter, seed_job):
-                    if _added_before(seed_job, MISSING_TORRENT_GRACE):
-                        _give_up(session, seed_job, "The torrent is no longer in the client: retry it to add it "
-                                                    "again, or delete it")
+                found = lookup_torrent(adapter, seed_job.info_hash)
+                if found == "missing":
+                    # 10 minuti di fila (executor.missing_long_enough), non
+                    # dall'aggiunta: un client riavviato che ricarica ancora
+                    # i suoi torrent non fa fallire un reseed in corso da ore.
+                    if missing_long_enough(seed_job):
+                        _give_up(session, seed_job, GONE_FROM_CLIENT)
                     else:
                         logger.info("Seed_job %s: torrent non (ancora) nel client, riprovo dopo", seed_job.id)
                     continue
-                logger.exception("Reconcile fallito per seed_job %s", seed_job.id)
+                if seed_job.id in _failing:
+                    # La traccia è già nel log: ogni 2 minuti, per sempre (un
+                    # plugin che non sa dire se il torrent c'è), una riga.
+                    logger.warning("Reconcile ancora fallito per seed_job %s: %s", seed_job.id, safe_error(exc))
+                else:
+                    _failing.add(seed_job.id)
+                    logger.exception("Reconcile fallito per seed_job %s", seed_job.id)
                 errors += 1
+                if found == "unreachable":
+                    # Il client non ha risposto a nessuna delle due domande:
+                    # gli altri suoi job saltano questo giro (contati come
+                    # errori). Il giro è lavoro a lato e tiene il lock delle
+                    # run (scheduler._reconcile_between_runs): con un client
+                    # che non risponde ogni job costava due timeout, minuti
+                    # di webhook, "Cerca ora" e run fermi (revisione
+                    # dell'audit 2026-10-18). Un adapter che non sa cercare
+                    # un torrent solo ("unknown", un plugin) va avanti: un
+                    # torrent sbagliato non ferma gli altri.
+                    logger.warning("Il client del seed_job %s non risponde: i suoi reseed si ricontrollano al "
+                                   "prossimo giro", seed_job.id)
+                    close_adapter(adapter)
+                    adapters[key] = (None, None)
+                    broken.add(key)
                 continue
             if seed_job.final_status == "seeding":
                 try:
@@ -1295,22 +1361,15 @@ def reconcile_pending_seed_jobs(session: Session, progress=NULL_PROGRESS) -> dic
     return {"reconciled": reconciled, "errors": errors}
 
 
+# I seed job il cui reconcile è fallito con un errore che non dice "il
+# torrent non c'è" (il client non risponde, un plugin senza get_torrent_info):
+# la traccia la prima volta, poi una riga (audit 2026-10-18, finding 113).
+_failing: set[int] = set()
+
+
 def _client_enabled(session: Session, torrent_client_id: int) -> bool:
     row = session.get(TorrentClient, torrent_client_id)
     return row is not None and bool(row.enabled)
-
-
-def _missing_from_client(adapter, seed_job: SeedJob) -> bool:
-    """Il client risponde, e quel torrent non ce l'ha (executor.torrent_missing,
-    lo stesso controllo del flusso degli upload)."""
-    return torrent_missing(adapter, seed_job.info_hash)
-
-
-def _added_before(seed_job: SeedJob, grace: timedelta) -> bool:
-    added = seed_job.torrent_added_at
-    if added is None:
-        return True
-    return datetime.now(UTC) - as_utc(added) >= grace
 
 
 def _give_up(session: Session, seed_job: SeedJob, message: str) -> None:
@@ -1318,6 +1377,8 @@ def _give_up(session: Session, seed_job: SeedJob, message: str) -> None:
     perché, così si ritenta o si elimina dalla pagina Reseeding."""
     seed_job.final_status, seed_job.error_message = "failed", message
     session.commit()
+    seen_in_client(seed_job.id)
+    _failing.discard(seed_job.id)
     logger.warning("Seed_job %s: %s", seed_job.id, message)
 
 

@@ -4,8 +4,27 @@ client, o nel client di un client poi spento."""
 
 from datetime import UTC, datetime, timedelta
 
+import pytest
+
 from nazgarr.core.models import Candidate, MatchReview, MediaItem, SeedJob, TorrentClient, Tracker
-from nazgarr.reseed import review
+from nazgarr.reseed import executor, review
+
+
+@pytest.fixture(autouse=True)
+def _forget_missing():
+    """Le assenze viste (executor._missing_since) e i reconcile già falliti
+    (review._failing) sono per id di seed job, e ogni test ha il suo DB con
+    gli stessi id."""
+    executor._missing_since.clear()
+    review._failing.clear()
+    yield
+    executor._missing_since.clear()
+    review._failing.clear()
+
+
+def _missing_for(job, minutes):
+    """Come se il controllo l'avesse visto mancare per la prima volta minuti fa."""
+    executor._missing_since[job.id] = datetime.now(UTC) - timedelta(minutes=minutes)
 
 
 def _job(session, *, info_hash="abc", added_minutes_ago=60, client=None, tmdb_id=1):
@@ -65,9 +84,57 @@ def test_a_torrent_gone_from_the_client_ends_the_execution(db_session, monkeypat
     gone = _Gone()
     monkeypatch.setattr(review, "build_torrent_client_adapter", lambda row: gone)
 
+    # La prima lettura che non lo trova non basta, anche per un'esecuzione
+    # aggiunta un'ora fa: i 10 minuti contano di fila.
+    assert review.reconcile_pending_seed_jobs(db_session) == {"reconciled": 0, "errors": 0}
+    assert job.final_status == "in_progress"
+
+    _missing_for(job, 11)
     assert review.reconcile_pending_seed_jobs(db_session) == {"reconciled": 0, "errors": 0}
     assert job.final_status == "failed" and "no longer in the client" in job.error_message
     assert review.has_pending_seed_jobs(db_session) is False  # niente più controlli ogni 2 minuti
+    assert job.id not in executor._missing_since
+
+
+def test_a_client_restarted_while_loading_its_torrents_does_not_fail_a_long_reseed(db_session, monkeypatch):
+    """Revisione dell'audit 2026-10-18 (R7): la grazia contava da
+    torrent_added_at, e un reseed in corso da più di 10 minuti falliva alla
+    prima lettura di un client appena riavviato, che lo ricaricava un minuto
+    dopo."""
+    from nazgarr.adapters.torrent_client.base import TorrentStatus
+
+    client = _client(db_session)
+    job = _job(db_session, client=client, added_minutes_ago=30)
+
+    class Restarting(_Gone):
+        """Non lo trova alla prima lettura, poi lo ha di nuovo, in recheck."""
+
+        def get_torrent_status(self, info_hash):
+            if self.status_calls == 0:
+                return super().get_torrent_status(info_hash)
+            return TorrentStatus(info_hash, "checkingUP", "pending", 0.3)
+
+    restarting = Restarting()
+    monkeypatch.setattr(review, "build_torrent_client_adapter", lambda row: restarting)
+
+    review.reconcile_pending_seed_jobs(db_session)
+    assert job.final_status == "in_progress" and job.id in executor._missing_since
+    review.reconcile_pending_seed_jobs(db_session)
+
+    assert (job.final_status, job.recheck_status) == ("in_progress", "pending")
+    assert job.id not in executor._missing_since  # riapparso: il conto ricomincia
+
+
+def test_the_grace_never_counts_from_before_the_torrent_was_added(db_session, monkeypatch):
+    # Visto mancare 20 minuti fa, ma aggiunto (o riaggiunto da un retry) 2 minuti fa.
+    client = _client(db_session)
+    job = _job(db_session, client=client, added_minutes_ago=2)
+    _missing_for(job, 20)
+    monkeypatch.setattr(review, "build_torrent_client_adapter", lambda row: _Gone())
+
+    review.reconcile_pending_seed_jobs(db_session)
+
+    assert job.final_status == "in_progress"
 
 
 def test_a_torrent_just_added_gets_a_grace_period(db_session, monkeypatch):
@@ -132,3 +199,89 @@ def test_a_client_that_cannot_be_built_does_not_stop_the_reconcile_of_the_others
 
     assert review.reconcile_pending_seed_jobs(db_session) == {"reconciled": 1, "errors": 1}
     assert stuck.final_status == "in_progress" and job.final_status == "seeding"
+
+
+def test_a_reconcile_that_keeps_failing_logs_its_traceback_once(db_session, monkeypatch, caplog):
+    """Un client il cui adapter non sa dire se il torrent c'è (un plugin):
+    il seed job resta in corso, apposta, e il log riceveva una traccia ogni
+    2 minuti, per sempre (audit 2026-10-18, finding 113)."""
+    import logging
+
+    from tests.fakes import FakeAdapter
+
+    class Unreachable(FakeAdapter):
+        def get_torrent_status(self, info_hash):
+            raise ConnectionError("connection refused")
+
+    client = _client(db_session)
+    job = _job(db_session, client=client)
+    monkeypatch.setattr(review, "build_torrent_client_adapter", lambda row: Unreachable([]))
+
+    with caplog.at_level(logging.WARNING, logger="nazgarr.reseed.review"):
+        review.reconcile_pending_seed_jobs(db_session)
+        review.reconcile_pending_seed_jobs(db_session)
+
+    records = [r for r in caplog.records if f"seed_job {job.id}" in r.getMessage()]
+    assert [r.exc_info is not None for r in records] == [True, False]
+    assert "connection refused" in records[1].getMessage()
+
+
+def test_a_client_that_does_not_answer_is_asked_once_per_round(db_session, monkeypatch):
+    """Revisione dell'audit 2026-10-18: il giro tiene il lock delle run, e
+    con un client che non risponde (pacchetti scartati, non rifiutati) ogni
+    job costava due timeout. Gli altri job di quel client saltano il giro,
+    contati come errori, e il client si chiude; gli altri client vanno avanti."""
+    from nazgarr.adapters.torrent_client.base import TorrentStatus
+    from tests.fakes import RecordingClient
+
+    class Silent:
+        def __init__(self):
+            self.calls, self.closed = [], False
+
+        def get_torrent_status(self, info_hash):
+            self.calls.append(("status", info_hash))
+            raise ConnectionError("timed out")
+
+        def get_torrent_info(self, info_hash):
+            self.calls.append(("info", info_hash))
+            raise ConnectionError("timed out")
+
+        def close(self):
+            self.closed = True
+
+    silent_row, fine_row = _client(db_session), _client(db_session)
+    first = _job(db_session, info_hash="aaa", client=silent_row)
+    second = _job(db_session, info_hash="bbb", client=silent_row, tmdb_id=2)
+    other = _job(db_session, info_hash="ccc", client=fine_row, tmdb_id=3)
+    silent = Silent()
+    fine = RecordingClient(status=TorrentStatus("ccc", "uploading", "ok", 1.0))
+    monkeypatch.setattr(review, "build_torrent_client_adapter",
+                        lambda row: silent if row.id == silent_row.id else fine)
+
+    assert review.reconcile_pending_seed_jobs(db_session) == {"reconciled": 1, "errors": 2}
+
+    assert silent.calls == [("status", "aaa"), ("info", "aaa")]  # il secondo job non chiede niente
+    assert silent.closed
+    assert (first.final_status, second.final_status, other.final_status) == ("in_progress", "in_progress",
+                                                                             "seeding")
+
+
+def test_a_plugin_that_cannot_look_up_one_torrent_still_reconciles_its_other_jobs(db_session, monkeypatch):
+    # Un errore su un torrent solo, con un adapter che non sa dire se c'è:
+    # non è un client che non risponde, e gli altri suoi job si controllano.
+    from nazgarr.adapters.torrent_client.base import TorrentStatus
+    from tests.fakes import FakeAdapter
+
+    class OneBad(FakeAdapter):
+        def get_torrent_status(self, info_hash):
+            if info_hash == "aaa":
+                raise ValueError("unexpected answer")
+            return TorrentStatus(info_hash, "uploading", "ok", 1.0)
+
+    row = _client(db_session)
+    bad = _job(db_session, info_hash="aaa", client=row)
+    good = _job(db_session, info_hash="bbb", client=row, tmdb_id=2)
+    monkeypatch.setattr(review, "build_torrent_client_adapter", lambda r: OneBad([]))
+
+    assert review.reconcile_pending_seed_jobs(db_session) == {"reconciled": 1, "errors": 1}
+    assert (bad.final_status, good.final_status) == ("in_progress", "seeding")

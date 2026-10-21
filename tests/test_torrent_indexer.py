@@ -289,3 +289,51 @@ def test_a_torrent_registered_while_the_client_is_listed_survives_the_prune(db_s
 
     assert counts["torrents_removed"] == 1
     assert [ct.info_hash for ct in db_session.query(ClientTorrent).all()] == ["h1"]
+
+
+class _KnownAware(FakeAdapter):
+    """Un adapter che, come qBittorrent, riusa i file dell'ultima
+    indicizzazione (list_torrents(known=...)): qui li prende così come sono."""
+
+    def __init__(self, torrents):
+        super().__init__(torrents)
+        self.known_seen: list[dict] = []
+
+    def list_torrents(self, on_progress=None, known=None):
+        self.known_seen.append(dict(known or {}))
+        return [known[t.info_hash] if known and t.info_hash in known else t for t in self._torrents]
+
+
+def test_the_index_hands_the_last_file_lists_to_an_adapter_that_reuses_them(db_session, monkeypatch):
+    """Audit 2026-10-18, finding 35 (residuo). I file riusati si riscrivono
+    con la run di adesso, così la potatura (last_scan_id) non li toglie, e un
+    torrent alla volta, a turno, si rilegge comunque (FILES_REFRESH_RUNS)."""
+    _disk, tc = _make_disk_and_client(db_session, root_path="/mnt/disk1")
+    first_run = pipeline.start_run(db_session, run_type="manual")
+    infos = [
+        ClientTorrentInfo(info_hash=f"h{i}", name=f"M{i}.mkv", save_path="/mnt/disk1/torrents", state="uploading",
+                          files=[ClientTorrentFileInfo(path_in_torrent=f"M{i}.mkv", size_bytes=i + 1)])
+        for i in range(40)
+    ]
+    adapter = _KnownAware(infos)
+    torrent_indexer.index_torrent_client(db_session, tc, adapter, first_run)
+    second_run = pipeline.start_run(db_session, run_type="manual")
+
+    counts = torrent_indexer.index_torrent_client(db_session, tc, adapter, second_run)
+
+    known = adapter.known_seen[-1]
+    due = {t.info_hash for t in infos if torrent_indexer._refresh_now(t.info_hash, second_run.id)}
+    assert due and set(known) == {t.info_hash for t in infos} - due  # il turno di questa run si rilegge
+    assert [(f.path_in_torrent, f.size_bytes) for f in known["h1" if "h1" not in due else "h2"].files] in (
+        [("M1.mkv", 2)], [("M2.mkv", 3)])
+    assert counts["files_indexed"] == 40
+    rows = db_session.query(ClientTorrentFile).all()
+    assert len(rows) == 40 and {r.last_scan_id for r in rows} == {second_run.id}
+
+
+def test_an_adapter_without_known_is_never_given_it(db_session):
+    _disk, tc = _make_disk_and_client(db_session, root_path="/mnt/disk1")
+    run = pipeline.start_run(db_session, run_type="manual")
+    adapter = FakeAdapter([])  # list_torrents(self): nessun parametro
+
+    assert torrent_indexer.index_torrent_client(db_session, tc, adapter, run)["torrents_indexed"] == 0

@@ -11,9 +11,10 @@ saltato, o due review attive per lo stesso file).
 
 Ora quel lavoro tiene per tutta la sua durata lo stesso lock con cui una run
 parte (side_work):
-- lo prende senza aspettare: se è preso (una run sta partendo, o c'è già un
-  altro lavoro a lato) o se una run è in corso, Busy, e chi chiama salta (lo
-  scheduler riprova al giro dopo) o risponde 409;
+- lo prende senza aspettare (o, per le richieste dell'API, aspettando un
+  altro lavoro a lato al massimo API_WAIT_SECONDS): se è preso (una run sta
+  partendo, o c'è già un altro lavoro a lato) o se una run è in corso, Busy,
+  e chi chiama salta (lo scheduler riprova al giro dopo) o risponde 409;
 - una run programmata che parte nel frattempo aspetta che finisca, invece di
   partire a metà o di essere saltata; una volta partita, la sua riga RunLog
   ancora aperta tiene fuori il lavoro a lato finché non finisce, come prima.
@@ -21,9 +22,18 @@ parte (side_work):
 richiesta HTTP non resta appesa per i minuti di un "Cerca ora".
 
 Il 409 dice cosa c'è in corso (Busy.code, revisione dell'audit 2026-10-18):
-run_in_progress per una run, side_work_in_progress per il lavoro a lato.
+run_in_progress per una run, side_work_in_progress per il lavoro a lato,
+side_work_seed_jobs_in_progress quando lo tiene il controllo dei reseed in
+corso (holder="seed_jobs", ogni 2 minuti dallo scheduler, o "Controlla ora").
 Prima era sempre "C'è una scansione in corso", anche quando nessuna
 scansione girava e l'indicatore delle run non mostrava niente.
+
+Le richieste dell'API che l'utente fa a mano ("Controlla ora", l'eliminazione
+di un'esecuzione) aspettano un altro lavoro a lato al massimo
+API_WAIT_SECONDS prima del 409: il controllo periodico dei reseed prende il
+lock ogni 2 minuti finché ce n'è qualcuno in attesa, di solito per un
+attimo, e il 409 arrivava molto più spesso. Lo scheduler e i webhook non
+aspettano (riprovano al giro dopo), né si aspetta una run.
 
 Nessun lavoro a lato avvia una run né chiama un altro lavoro a lato: il lock
 non è rientrante, e non serve che lo sia.
@@ -39,19 +49,27 @@ from nazgarr.core.models import RunLog
 from nazgarr.reseed import pipeline
 
 START_WAIT_SECONDS = 10.0
+API_WAIT_SECONDS = 5.0
+
+# Chi tiene adesso il lavoro a lato (side_work(holder=...)), solo per dire
+# nel 409 cosa c'è in corso: letto senza lock, un'indicazione e basta.
+_holder: str | None = None
 
 
 class Busy(Exception):
     """Una run in corso o un altro lavoro a lato: non adesso. `code` è il
     codice dell'errore per l'API (nazgarr/core/errors.py)."""
 
-    def __init__(self, run: bool = False):
+    def __init__(self, run: bool = False, holder: str | None = None):
         super().__init__("run in progress" if run else "other work in progress")
         self.run = run
+        self.holder = holder
 
     @property
     def code(self) -> str:
-        return "run_in_progress" if self.run else "side_work_in_progress"
+        if self.run:
+            return "run_in_progress"
+        return "side_work_seed_jobs_in_progress" if self.holder == "seed_jobs" else "side_work_in_progress"
 
 
 def _lock() -> threading.Lock:
@@ -61,17 +79,27 @@ def _lock() -> threading.Lock:
 
 
 @contextmanager
-def side_work(session: Session) -> Iterator[None]:
+def side_work(session: Session, holder: str | None = None, wait_seconds: float = 0) -> Iterator[None]:
     """Il lavoro a lato, mai insieme a una run né a un altro lavoro a lato.
-    Solleva Busy prima di cominciare, se non è il momento."""
+    Solleva Busy prima di cominciare, se non è il momento. holder: chi è
+    (solo per il codice del 409 di chi lo trova preso). wait_seconds: quanto
+    aspettare un altro lavoro a lato che tiene il lock (mai una run)."""
+    global _holder
     lock = _lock()
     if not lock.acquire(blocking=False):
         # Preso da un altro lavoro a lato, o da una run che sta partendo.
-        raise Busy(run=pipeline.run_in_progress(session))
+        if pipeline.run_in_progress(session):
+            raise Busy(run=True)
+        if wait_seconds <= 0 or not lock.acquire(timeout=wait_seconds):
+            raise Busy(run=pipeline.run_in_progress(session), holder=_holder)
     try:
         if pipeline.run_in_progress(session):
             raise Busy(run=True)
-        yield
+        _holder = holder
+        try:
+            yield
+        finally:
+            _holder = None
     finally:
         lock.release()
 
@@ -84,7 +112,7 @@ def start_run(session: Session, run_type: str, wait_seconds: float | None = None
     if not lock.acquire(timeout=START_WAIT_SECONDS if wait_seconds is None else wait_seconds):
         if pipeline.run_in_progress(session):
             raise pipeline.RunInProgressError()
-        raise Busy()
+        raise Busy(holder=_holder)
     try:
         if pipeline.run_in_progress(session):
             raise pipeline.RunInProgressError()

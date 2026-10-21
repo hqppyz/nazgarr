@@ -25,7 +25,9 @@ nativa di qBittorrent che qbittorrent-api si aspetta — confermato contro il
 suo swagger/OpenAPI reale, non solo dedotto. Vedi nazgarr/adapters/torrent_client/qui.py.
 """
 
+import functools
 import logging
+import threading
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -43,6 +45,7 @@ from nazgarr.adapters.torrent_client.base import (
     local_torrent_bytes,
     number,
     require_recheck,
+    reusable_files,
     seeders,
     wait_for_hash,
 )
@@ -57,6 +60,51 @@ logger = logging.getLogger(__name__)
 # poco; si guadagna con un client remoto o dietro un proxy (audit
 # 2026-10-18). Pochi, per non caricare il client.
 FILE_WORKERS = 4
+
+
+@functools.cache
+def pinned_client_class():
+    """qbittorrentapi.Client, ma ogni sessione di requests che costruisce
+    (una nuova anche dopo che ha scelto lo schema, o dopo un errore) si
+    connette solo agli indirizzi che net_guard controlla nel momento della
+    connessione (net_guard.requests_adapter), come gli altri adapter con
+    net_guard.http_client (revisione dell'audit 2026-10-18: restava la
+    finestra fra il controllo dell'host e la risoluzione di requests). I
+    tentativi e il pool dell'adapter di qbittorrent-api restano i suoi.
+
+    Sotto un lock, e la sessione segnata solo dopo aver montato l'adapter:
+    qbittorrent-api pubblica la sessione nuova (_http_session) prima di
+    montarci il suo HTTPAdapter, e i thread che chiedono i file durante
+    l'indicizzazione (FILE_WORKERS), dopo un errore che la rifà, potevano
+    prenderla in quel momento e connettersi con l'adapter senza controlli
+    (revisione dell'audit 2026-10-18)."""
+    import qbittorrentapi
+
+    class PinnedClient(qbittorrentapi.Client):
+        def __init__(self, *args, **kwargs):
+            self._pin_lock = threading.Lock()
+            super().__init__(*args, **kwargs)
+
+        @property
+        def _session(self):
+            with self._pin_lock:
+                session = self._http_session
+                if session is None or not getattr(session, "_nazgarr_pinned", False):
+                    session = super()._session
+                    default = session.get_adapter("http://")
+                    adapter = net_guard.requests_adapter(
+                        max_retries=default.max_retries,
+                        pool_connections=getattr(default, "_pool_connections", 10),
+                        pool_maxsize=getattr(default, "_pool_maxsize", 10),
+                        pool_block=getattr(default, "_pool_block", False),
+                    )
+                    session.mount("http://", adapter)
+                    session.mount("https://", adapter)
+                    default.close()
+                    session._nazgarr_pinned = True
+                return session
+
+    return PinnedClient
 
 
 class QBittorrentAdapter(TorrentClientAdapter):
@@ -79,17 +127,12 @@ class QBittorrentAdapter(TorrentClientAdapter):
         if client is not None:
             self._client = client
         else:
-            import qbittorrentapi
-
-            # qbittorrent-api va con requests, che net_guard non sa agganciare
-            # alla connessione (gli altri adapter usano net_guard.http_client):
-            # l'indirizzo si ricontrolla qui, a ogni adapter costruito (uno per
-            # operazione), non solo quando si salva. Un DNS cambiato dopo il
-            # salvataggio verso i metadati del cloud non passa; resta la
-            # finestra fra questo controllo e la connessione di requests. Un
-            # host senza schema (qbittorrent-api lo accetta) vale come http.
+            # L'indirizzo si ricontrolla qui, a ogni adapter costruito (uno per
+            # operazione), non solo quando si salva: un DNS cambiato dopo il
+            # salvataggio verso i metadati del cloud dà subito l'errore chiaro.
+            # Un host senza schema (qbittorrent-api lo accetta) vale come http.
             net_guard.check_url(base_url if "://" in base_url else f"http://{base_url}")
-            self._client = qbittorrentapi.Client(host=base_url, username=username, password=password)
+            self._client = pinned_client_class()(host=base_url, username=username, password=password)
 
     def close(self) -> None:
         """Logout: ogni login apre una sessione nel client, che resta viva
@@ -186,7 +229,7 @@ class QBittorrentAdapter(TorrentClientAdapter):
     def get_torrent_status(self, info_hash: str) -> TorrentStatus:
         results = self._client.torrents_info(torrent_hashes=info_hash)
         if not results:
-            raise ValueError(f"Torrent {info_hash} non trovato nel client")
+            raise ValueError(f"Torrent {info_hash} not found in the client")
         torrent = results[0]
         state = torrent.state
 
@@ -216,12 +259,43 @@ class QBittorrentAdapter(TorrentClientAdapter):
     def count_torrents(self) -> int:
         return len(self._client.torrents_info())
 
-    def list_torrents(self, on_progress: Callable[[int, int], None] | None = None) -> list[ClientTorrentInfo]:
+    def list_torrents(self, on_progress: Callable[[int, int], None] | None = None,
+                      known: dict[str, ClientTorrentInfo] | None = None) -> list[ClientTorrentInfo]:
         # L'elenco nel thread chiamante (anche il login, se serve), poi i
         # file FILE_WORKERS alla volta; ordine e avanzamento restano qui.
+        # Solo per i torrent nuovi o cambiati: degli altri valgono i file
+        # dell'ultima indicizzazione (known, reusable_files; audit
+        # 2026-10-18, finding 35: una richiesta per ogni torrent a ogni run).
         torrents = list(self._client.torrents_info())
-        return [self._info(torrent, torrent_files)
-                for torrent, torrent_files in zip(torrents, self._files_of(torrents, on_progress), strict=True)]
+        total = len(torrents)
+        files = [self._reusable(torrent, known) for torrent in torrents]
+        todo = [i for i, torrent_files in enumerate(files) if torrent_files is None]
+        reused = total - len(todo)
+        if known is not None:
+            logger.debug("qBittorrent: file di %d torrent dall'ultima indicizzazione, %d da chiedere", reused,
+                         len(todo))
+
+        def progress(done: int, _todo: int) -> None:
+            if on_progress is not None:
+                on_progress(reused + done, total)
+
+        if on_progress is not None and reused:
+            on_progress(reused, total)
+        fetched = self._files_of([torrents[i] for i in todo], progress if on_progress is not None else None)
+        for i, torrent_files in zip(todo, fetched, strict=True):
+            files[i] = torrent_files
+        return [self._info(torrent, torrent_files or [])
+                for torrent, torrent_files in zip(torrents, files, strict=True)]
+
+    @staticmethod
+    def _reusable(torrent, known: dict[str, ClientTorrentInfo] | None) -> list[ClientTorrentFileInfo] | None:
+        if not known:
+            return None
+        return reusable_files(
+            known.get(torrent.hash), name=torrent.name, save_path=torrent.save_path, state=torrent.state,
+            total_size=number(getattr(torrent, "total_size", None), int),
+            content_path=getattr(torrent, "content_path", None) or None,
+        )
 
     def list_largest_files(self, limit: int | None = None) -> list[ClientTorrentInfo]:
         # Nessun endpoint per i file di più torrent: le richieste restano una

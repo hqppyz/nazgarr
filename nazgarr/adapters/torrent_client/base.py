@@ -253,8 +253,15 @@ class TorrentClientAdapter(ABC):
         """Ogni torrent noto al client, coi suoi file. Usata per popolare
         client_torrent/client_torrent_file (Fase 2) — mai per aggiungere o
         modificare nulla sul client. `on_progress(fatti, totale)` dopo ogni
-        torrent, per l'avanzamento della run: il totale è noto appena il
-        client restituisce l'elenco, i file arrivano poi uno a uno."""
+        torrent, o gruppo di torrent, per l'avanzamento della run: fatti è
+        il conto dei torrent fatti finora (non uno in più a ogni chiamata),
+        il totale è noto appena il client restituisce l'elenco.
+
+        Un adapter che chiede i file un torrent alla volta può accettare
+        anche `known` (SDK 1.7): {info_hash: ClientTorrentInfo} dell'ultima
+        indicizzazione, coi file, per riusare quelli di un torrent che non è
+        cambiato (reusable_files) invece di richiederli. L'indicizzazione lo
+        passa solo a chi ha il parametro (nazgarr/torrents/indexer.py)."""
         raise NotImplementedError
 
     def list_largest_files(self, limit: int | None = None) -> list[ClientTorrentInfo]:
@@ -278,6 +285,61 @@ class TorrentClientAdapter(ABC):
         torrent solo per contarli). Default: list_torrents(), per un plugin
         che non lo implementa."""
         return len(self.list_torrents())
+
+
+def reusable_files(
+    known: ClientTorrentInfo | None, *, name: str, save_path: str, state: str | None, total_size: int | None,
+    content_path: str | None = None, complete: Callable[[str | None], bool] | None = None,
+) -> list[ClientTorrentFileInfo] | None:
+    """I file dell'ultima indicizzazione (known) di un torrent, se valgono
+    ancora per quello che il client ne dice adesso, None se vanno richiesti
+    (audit 2026-10-18, finding 35: qBittorrent ha una richiesta dei file per
+    torrent, e un client di 10.000 torrent costava minuti a ogni run).
+    Valgono se il torrent ha lo stesso nome e la stessa cartella, era ed è
+    completo ("uploading" e gli stati "*UP" di qBittorrent: i file
+    incompleti possono avere un altro nome, es. ".!qB"), la somma dei file è
+    la sua dimensione totale e, se il client lo dice, il percorso del
+    contenuto è lo stesso (un file o la cartella radice rinominati). Un file
+    rinominato più in fondo non si vede da qui: l'indicizzazione li richiede
+    comunque tutti, a turno (indexer.FILES_REFRESH_RUNS).
+
+    complete: quando uno stato del client è di un torrent completo, per un
+    plugin coi suoi nomi degli stati (es. "seeding"); di default quelli di
+    qBittorrent, e con altri nomi nessun file si riusava mai (revisione
+    dell'audit 2026-10-18)."""
+    if known is None or not known.files or total_size is None:
+        return None
+    if (known.name, known.save_path) != (name, save_path):
+        return None
+    is_complete = complete or _complete
+    if not (is_complete(known.state) and is_complete(state)):
+        return None
+    if sum(f.size_bytes for f in known.files) != total_size:
+        return None
+    if content_path:
+        expected = _content_path(known)
+        if expected is None or os.path.normpath(content_path) != os.path.normpath(expected):
+            return None
+    return known.files
+
+
+def _complete(state: str | None) -> bool:
+    # qBittorrent (e qui): "uploading" e gli stati "*UP" (stalledUP, stoppedUP,
+    # pausedUP, queuedUP, forcedUP, checkingUP) sono di un torrent completo.
+    return state == "uploading" or (state or "").endswith("UP")
+
+
+def _content_path(info: ClientTorrentInfo) -> str | None:
+    """Il percorso del contenuto come lo riporta qBittorrent (content_path):
+    il file, per un torrent con un file solo; la cartella radice, se tutti i
+    file ne hanno una; None se non si sa dire."""
+    paths = [f.path_in_torrent for f in info.files]
+    if len(paths) == 1:
+        return os.path.join(info.save_path, paths[0])
+    roots = {p.split("/", 1)[0] for p in paths if "/" in p}
+    if len(roots) == 1 and all("/" in p for p in paths):
+        return os.path.join(info.save_path, roots.pop())
+    return None
 
 
 def largest_file_only(info: ClientTorrentInfo) -> ClientTorrentInfo:
@@ -404,8 +466,12 @@ def wait_for_hash(
                     logger.warning("Più torrent nuovi rilevati dopo add_torrent: %s", new_hashes)
                 return next(iter(new_hashes))
         if time.monotonic() >= deadline:
+            # In inglese (audit 2026-10-18): finisce nel messaggio del seed
+            # job e nel 409 del retry, come gli altri errori mostrati.
             raise TorrentAddTimeoutError(
-                f"Nessun nuovo torrent rilevato in {where} entro {poll_timeout}s dall'aggiunta"
+                f"Torrent {expected} did not show up in {where} within {poll_timeout:g}s of adding it"
+                if expected is not None else
+                f"No new torrent showed up in {where} within {poll_timeout:g}s of adding it"
             )
         time.sleep(poll_interval)
 
@@ -413,6 +479,6 @@ def wait_for_hash(
 def require_recheck(force_recheck: bool) -> None:
     if not force_recheck:
         raise ValueError(
-            "force_recheck=False non è permesso: il recheck reale è "
-            "un requisito funzionale, vedi docs/SPEC.md sezione 8."
+            "force_recheck=False is not allowed: a real recheck is a functional requirement, "
+            "see docs/SPEC.md section 8."
         )

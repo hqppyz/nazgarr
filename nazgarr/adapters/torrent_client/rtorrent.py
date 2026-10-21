@@ -279,7 +279,7 @@ class RTorrentAdapter(TorrentClientAdapter):
     def get_torrent_status(self, info_hash: str) -> TorrentStatus:
         rows = self._rows(info_hash.upper())
         if not rows:
-            raise ValueError(f"Torrent {info_hash} non trovato nel client")
+            raise ValueError(f"Torrent {info_hash} not found in the client")
         row = rows[0]
         state = _state(row)
         size = int(row["size_bytes"] or 0)

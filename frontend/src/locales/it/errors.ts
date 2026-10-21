@@ -37,12 +37,19 @@ export const errors = {
   'errors.run_in_progress': 'C’è una scansione in corso: riprova quando sarà finita.',
   // Solo il lavoro a lato tiene il lock (nazgarr/reseed/exclusive.py): nessuna scansione da aspettare.
   'errors.side_work_in_progress': 'C’è altro lavoro in corso (eventi di Radarr/Sonarr o una ricerca): riprova fra poco.',
+  'errors.side_work_seed_jobs_in_progress': 'Nazgarr sta controllando i reseed in corso nei client torrent: riprova fra poco.',
   'errors.invalid_path': 'Percorso non valido.',
   'errors.run_already_finished': 'La scansione {id} è già finita.',
 
   'errors.review_not_found': 'Proposta {id} non trovata.',
   'errors.seed_job_not_found': 'SeedJob {id} non trovato.',
   'errors.seed_job_not_deletable': 'Il SeedJob {id} è {status}: si eliminano solo le esecuzioni fallite o in corso.',
+  'errors.seed_job_not_failed': 'Il SeedJob {id} è {status}: si ritenta solo un’esecuzione fallita.',
+  'errors.seed_job_already_retried': 'Il SeedJob {id} è già stato ritentato: guarda la sua esecuzione più recente.',
+  'errors.seed_job_no_client': 'Nessun client torrent è abilitato: abilitane uno, poi ritenta.',
+  'errors.seed_job_torrent_not_ours': 'Il client ha il torrent {info_hash}, ma non l’ha aggiunto questa esecuzione (un altro programma o un’aggiunta a mano): Nazgarr non lo tocca. Toglilo dal client, poi ritenta; o elimina questa esecuzione.',
+  // Il testo dell'errore (inglese, dall'esecutore) di un retry rifatto e fallito.
+  'errors.seed_job_retry_failed': 'Esecuzione {id}: {error}',
   'errors.review_already_verifying': 'La proposta {id} è già in verifica: aspetta che finisca il suo controllo completo degli hash.',
   'errors.full_check_not_found': 'Controllo completo degli hash {id} non trovato: è finito da tempo, o Nazgarr si è riavviato.',
   'errors.full_check_candidate_not_found': 'Candidato torrent {id} non trovato.',
