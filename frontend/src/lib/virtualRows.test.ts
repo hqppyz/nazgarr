@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   anchorAt,
   anchorShift,
+  gapKey,
   mergeHeights,
   nextRange,
   nextRowWith,
@@ -73,11 +74,11 @@ describe('windowSlots', () => {
   it('renders the window with the space of the rows above and below', () => {
     const slots = windowSlots({ start: 10, end: 13 }, [], even(20))
     expect(slots).toEqual([
-      { kind: 'gap', key: 'gap-0', height: 200 },
+      { kind: 'gap', key: gapKey(0), height: 200 },
       { kind: 'row', index: 10 },
       { kind: 'row', index: 11 },
       { kind: 'row', index: 12 },
-      { kind: 'gap', key: 'gap-13', height: 140 },
+      { kind: 'gap', key: gapKey(13), height: 140 },
     ])
   })
 
@@ -86,13 +87,13 @@ describe('windowSlots', () => {
     expect(rows(slots)).toEqual([2, 10, 11, 12, 18])
     // Ogni riga resta dove sarebbe nell'albero intero: l'altezza totale non cambia.
     expect(height(slots)).toBe(400)
-    expect(slots[0]).toEqual({ kind: 'gap', key: 'gap-0', height: 40 })
-    expect(slots[2]).toEqual({ kind: 'gap', key: 'gap-3', height: 140 })
+    expect(slots[0]).toEqual({ kind: 'gap', key: gapKey(0), height: 40 })
+    expect(slots[2]).toEqual({ kind: 'gap', key: gapKey(3), height: 140 })
   })
 
   it('needs no space when the window reaches the ends', () => {
     expect(windowSlots({ start: 0, end: 3 }, [], even(3)).every((slot) => slot.kind === 'row')).toBe(true)
-    expect(windowSlots({ start: 5, end: 50 }, [], even(3))).toEqual([{ kind: 'gap', key: 'gap-0', height: 60 }])
+    expect(windowSlots({ start: 5, end: 50 }, [], even(3))).toEqual([{ kind: 'gap', key: gapKey(0), height: 60 }])
   })
 })
 
@@ -154,5 +155,10 @@ describe('mergeHeights', () => {
     expect(start.heights.size).toBe(1) // mai modificato sul posto
     // Dopo un cambio di larghezza (misure vuote) la stima riparte dalle prime righe misurate.
     expect(mergeHeights({ heights: new Map(), estimate: next.estimate }, [['d', 50]]).estimate).toBe(50)
+  })
+
+  it("never gives a gap a key a file's path can have", () => {
+    const slots = windowSlots({ start: 1, end: 2 }, [], even(3))
+    expect(slots.filter((slot) => slot.kind === 'gap').map((slot) => slot.key)).toEqual(['\0gap-0', '\0gap-2'])
   })
 })

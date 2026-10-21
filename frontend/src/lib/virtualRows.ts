@@ -66,6 +66,12 @@ export function nextRange(current: RowRange | null, offsets: Float64Array, view:
 // l'altra, così ogni riga resta al suo posto.
 export type RowSlot = { kind: 'row'; index: number } | { kind: 'gap'; key: string; height: number }
 
+// La chiave React di uno spazio, accanto alle righe che hanno per chiave il
+// loro id (per l'albero il path): col NUL davanti, che nessun nome di file
+// può contenere. Con "gap-0" un file "gap-0" in cima all'albero aveva la
+// stessa chiave dello spazio che comincia dalla riga 0.
+export const gapKey = (start: number) => `\0gap-${start}`
+
 export function windowSlots(range: RowRange, kept: readonly number[], offsets: Float64Array): RowSlot[] {
   const count = offsets.length - 1
   const start = Math.max(0, Math.min(range.start, count))
@@ -81,11 +87,11 @@ export function windowSlots(range: RowRange, kept: readonly number[], offsets: F
   const slots: RowSlot[] = []
   let cursor = 0
   for (const index of ordered) {
-    if (index > cursor) slots.push({ kind: 'gap', key: `gap-${cursor}`, height: offsets[index] - offsets[cursor] })
+    if (index > cursor) slots.push({ kind: 'gap', key: gapKey(cursor), height: offsets[index] - offsets[cursor] })
     slots.push({ kind: 'row', index })
     cursor = index + 1
   }
-  if (cursor < count) slots.push({ kind: 'gap', key: `gap-${cursor}`, height: offsets[count] - offsets[cursor] })
+  if (cursor < count) slots.push({ kind: 'gap', key: gapKey(cursor), height: offsets[count] - offsets[cursor] })
   return slots
 }
 
