@@ -103,3 +103,25 @@ def test_a_key_cannot_touch_the_login(client):
     assert client.get("/api/auth/me", headers=auth).status_code == 200  # la sessione è ancora buona
     login = {"username": "admin", "password": "supersecret1"}
     assert client.post("/api/auth/login", json=login, headers=NO_LOGIN).status_code == 200
+
+
+def test_last_used_is_written_at_most_once_a_minute(db_session):
+    """Uno script che fa polling non scrive sul DB a ogni richiesta; la data
+    riletta da SQLite è senza fuso (as_utc) e si confronta lo stesso."""
+    from datetime import UTC, datetime, timedelta
+
+    from nazgarr.web import api_keys
+
+    key, raw = api_keys.create(db_session, "poller", "read")
+    assert api_keys.authenticate(db_session, raw) is key
+    first = key.last_used_at
+    assert first is not None
+
+    db_session.expire_all()  # riletta dal DB: naive
+    assert api_keys.authenticate(db_session, raw).last_used_at == first.replace(tzinfo=None)
+
+    key.last_used_at = (datetime.now(UTC) - api_keys.TOUCH_EVERY - timedelta(seconds=1)).replace(tzinfo=None)
+    db_session.commit()
+    db_session.expire_all()
+    touched = api_keys.authenticate(db_session, raw).last_used_at
+    assert touched is not None and touched.replace(tzinfo=None) > first.replace(tzinfo=None)

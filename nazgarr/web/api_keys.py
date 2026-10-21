@@ -21,6 +21,7 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.orm import Session
 
+from nazgarr.core.db_utils import as_utc
 from nazgarr.core.models import ApiKey
 
 HEADER = "X-Api-Key"
@@ -54,9 +55,7 @@ def authenticate(session: Session, raw: str) -> ApiKey | None:
     if key is None or key.revoked_at is not None:
         return None
     now = datetime.now(UTC)
-    last = key.last_used_at
-    if last is not None and last.tzinfo is None:  # SQLite restituisce datetime naive
-        last = last.replace(tzinfo=UTC)
+    last = as_utc(key.last_used_at)
     if last is None or now - last >= TOUCH_EVERY:
         key.last_used_at = now
         session.commit()
