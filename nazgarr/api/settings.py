@@ -1,8 +1,11 @@
-"""API generica per app_settings (docs/SPEC.md — key/value libero, es.
-tmdb_api_key). Non specifica per il resolver: le soglie, le opzioni e le
-chiavi dei plugin passano da qui. Non le chiavi con un endpoint proprio o di
-stato interno (settings_registry.MANAGED_KEYS: il cron dello scheduler, il
-canary, le regole dei nomi, ...), che da qui non si scrivono."""
+"""API generica per app_settings (docs/SPEC.md — key/value, es.
+tmdb_api_key). Non specifica per il resolver: le soglie, le opzioni, i testi
+liberi e lo stato dell'interfaccia passano da qui, ma solo le chiavi del
+registro (nazgarr/core/settings_registry.py, una lista di ammissione: audit
+2026-10-18). Le chiavi con un endpoint proprio o di stato interno
+(settings_registry.MANAGED_KEYS: il cron dello scheduler, il canary, le
+regole dei nomi, ...) si leggono ma da qui non si scrivono; ogni altra
+chiave è un 400 setting_unknown."""
 
 import re
 
@@ -75,6 +78,8 @@ def _check_access(request: Request, key: str) -> None:
     # le cambia, spegnerle vorrebbe dire hardlink e torrent senza controlli.
     if by_api_key and request.method != "GET" and key in settings_registry.SAFETY_KEYS:
         raise HTTPException(status_code=403, detail=coded_detail("setting_safety_for_api_key", key=key))
+    if not settings_registry.is_known(key):
+        raise HTTPException(status_code=400, detail=coded_detail("setting_unknown", key=key))
 
 
 @router.get("/{key}", response_model=SettingResponse)

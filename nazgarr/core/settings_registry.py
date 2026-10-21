@@ -7,13 +7,18 @@ x == "true" dall'altra).
   il suo default; un valore illeggibile vale il default.
 - validate controlla e normalizza un valore prima di salvarlo
   (PUT /api/settings/{key}): una soglia fuori da 0-1 o un "yes" al posto di
-  true non arrivano più al DB. Le chiavi che non sono qui (dinamiche: host
-  di immagini, plugin; o solo dell'interfaccia) passano com'erano, entro
-  MAX_VALUE_LENGTH caratteri.
+  true non arrivano più al DB. Una lista di ammissione (audit 2026-10-18):
+  una chiave che non è qui né in MANAGED_KEYS è rifiutata
+  (SettingUnknownError, 400 setting_unknown). Prima passava qualunque chiave
+  con un valore qualunque, e una chiave di stato interno di un modulo nuovo
+  era scrivibile da PUT /api/settings/{key} finché qualcuno non si
+  ricordava di aggiungerla a MANAGED_KEYS. I testi liberi (le chiavi API, le
+  esclusioni, la firma, quelle solo dell'interfaccia) sono di tipo "text",
+  con una lunghezza massima.
 - SAFETY_KEYS: le protezioni, che una API key legge ma non cambia
   (nazgarr/api/settings.py) e che il CLI chiede con la password.
 - MANAGED_KEYS: le chiavi che hanno un endpoint proprio o sono stato
-  interno, che l'API generica non scrive mai (audit 2026-10-18).
+  interno, che l'API generica legge ma non scrive mai (audit 2026-10-18).
 """
 
 from dataclasses import dataclass
@@ -22,7 +27,11 @@ from sqlalchemy.orm import Session
 
 from nazgarr.core import settings_repo
 
-Kind = str  # bool | int | float | choice
+Kind = str  # bool | int | float | choice | text
+
+# Un testo libero non serve più lungo di così: il più lungo della UI è una
+# firma o un elenco di esclusioni.
+MAX_VALUE_LENGTH = 100_000
 
 
 @dataclass(frozen=True)
@@ -34,6 +43,8 @@ class SettingSpec:
     minimum: float | None = None
     maximum: float | None = None
     choices: tuple[str, ...] = ()
+    max_length: int = MAX_VALUE_LENGTH  # per "text"
+    ui: bool = False  # solo stato dell'interfaccia: il CLI non la elenca (settings_catalog)
 
 
 _SPECS = [
@@ -65,6 +76,29 @@ _SPECS = [
     # Webhook di Radarr/Sonarr: cercare sui tracker un file appena importato
     # (nazgarr/integrations/arr_webhooks.py). Spento: la scansione lo fa comunque.
     SettingSpec("arr_webhook_search", "bool", False),
+    # Testi liberi. Le chiavi API (segrete: settings_repo le cifra, l'API non
+    # le rilegge).
+    SettingSpec("tmdb_api_key", "text", "", max_length=1000),
+    SettingSpec("tvdb_api_key", "text", "", max_length=1000),
+    # Esclusioni (nazgarr/library/exclusions.py): un pattern per riga, e i preset accesi (CSV).
+    SettingSpec("exclusion_patterns", "text", ""),
+    SettingSpec("exclusion_presets", "text", "", max_length=10_000),
+    # Upload: il gruppo (nazgarr/upload/watch.py), intestazione e firma delle descrizioni.
+    SettingSpec("upload_releaser_name", "text", "", max_length=200),
+    SettingSpec("upload_description_header", "text", ""),
+    SettingSpec("upload_description_signature", "text", ""),
+    # Host di immagini (nazgarr/integrations/adapter_factory.py): l'ordine (CSV), e
+    # l'avviso degli host tolti nella 0.8 già chiuso.
+    SettingSpec("image_host_priority", "text", "", max_length=10_000),
+    SettingSpec("image_hosts_removed", "text", "", max_length=10_000, ui=True),
+    # Interfaccia: le legge solo il frontend.
+    SettingSpec("size_units", "choice", "decimal", choices=("decimal", "binary")),
+    SettingSpec("ui_timezone", "text", "", max_length=100),
+    SettingSpec("ui_date_format", "text", "", max_length=50),
+    SettingSpec("ui_time_format", "text", "", max_length=50),
+    SettingSpec("library_default_view", "choice", "folder", choices=("folder", "poster"), ui=True),
+    SettingSpec("tracker_filter", "text", "", max_length=200, ui=True),  # "all", "configured" o l'id di un tracker
+    SettingSpec("onboarding_state", "text", "", max_length=10_000, ui=True),  # il tour del primo accesso, JSON
 ]
 
 REGISTRY: dict[str, SettingSpec] = {spec.key: spec for spec in _SPECS}
@@ -75,9 +109,10 @@ SAFETY_KEYS = frozenset(spec.key for spec in _SPECS if spec.safety)
 # controlli del loro endpoint: un schedule_cron non valido (o un canary
 # rovinato) fermava l'avvio successivo, e si riparava solo a mano nel DB
 # (audit 2026-10-18). Ognuna è la costante del suo modulo
-# (tests/test_api_settings.py lo controlla). Una lista di esclusione, non di
-# ammissione: le chiavi dinamiche (plugin, host di immagini, interfaccia)
-# devono passare.
+# (tests/test_api_settings.py lo controlla). Una chiave nuova di stato
+# interno non ha bisogno di essere qui per non essere scritta (la lista di
+# ammissione sopra la rifiuta già): qui solo per leggerla dall'API e per
+# dire dove si cambia.
 MANAGED_KEYS = frozenset({
     "schedule_cron",  # PUT /api/schedule: lo valida e riprogramma il job (nazgarr/scheduler.py)
     "schedule_last_slot",  # fin dove le ore del cron sono servite, per il recupero all'avvio (idem)
@@ -91,10 +126,6 @@ MANAGED_KEYS = frozenset({
     "not_imported_status",  # nazgarr/library/not_imported.py
 })
 
-# Un valore libero (una chiave non nel registro) non serve più lungo di così:
-# il più lungo della UI è una firma o un elenco di esclusioni.
-MAX_VALUE_LENGTH = 100_000
-
 _TRUE = ("true", "yes", "on", "1")
 _FALSE = ("false", "no", "off", "0")
 
@@ -107,14 +138,25 @@ class SettingValueError(ValueError):
         self.key, self.spec = key, spec
 
 
+class SettingUnknownError(KeyError):
+    """Una chiave che non è un'impostazione (né nel registro né in MANAGED_KEYS)."""
+
+
+def is_known(key: str) -> bool:
+    return key in REGISTRY or key in MANAGED_KEYS
+
+
 def validate(key: str, value: str) -> str:
-    """Il valore da salvare, normalizzato (bool -> "true"/"false"). Una chiave
-    non nel registro torna com'è; una nota con un valore non valido solleva
-    SettingValueError."""
+    """Il valore da salvare, normalizzato (bool -> "true"/"false", un testo
+    com'è). Una chiave non nel registro solleva SettingUnknownError, una nota
+    con un valore non valido SettingValueError."""
     spec = REGISTRY.get(key)
     if spec is None:
-        if len(value) > MAX_VALUE_LENGTH:
-            raise SettingValueError(key, None)
+        raise SettingUnknownError(key)
+    if spec.kind == "text":
+        # Com'è, spazi e a capo compresi (le esclusioni sono una per riga).
+        if len(value) > spec.max_length:
+            raise SettingValueError(key, spec)
         return value
     text = value.strip()
     if text == "":

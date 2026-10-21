@@ -94,6 +94,7 @@
  "setting_protected": "This setting is managed from its own page",
  "setting_safety_for_api_key": "API keys cannot change the safety settings: log in to change them",
  "setting_secret_for_api_key": "API keys cannot read or change secret settings",
+ "setting_unknown": "{key} is not a Nazgarr setting.",
  "side_work_in_progress": "Other work is in progress (Radarr/Sonarr events or a search): try again shortly.",
  "sonarr_instance_not_found": "Sonarr instance {id} not found.",
  "tmdb_api_key_missing": "tmdb_api_key not configured in app_settings (PUT /api/settings/tmdb_api_key).",

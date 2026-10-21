@@ -58,6 +58,7 @@ export const errors = {
   'errors.request_too_large': 'The request is too large: at most {limit} bytes',
   'errors.setting_safety_for_api_key': 'API keys cannot change the safety settings: log in to change them',
   'errors.setting_invalid_value': '{key}: value not valid for this setting.',
+  'errors.setting_unknown': '{key} is not a Nazgarr setting.',
   'errors.setting_protected': 'This setting is managed from its own page',
   'errors.setting_secret_for_api_key': 'API keys cannot read or change secret settings',
   'errors.webhook_event_unknown': 'Unknown event: {event}',

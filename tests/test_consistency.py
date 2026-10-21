@@ -149,7 +149,56 @@ def test_the_cli_catalog_has_every_registered_setting_with_its_type():
     from nazgarr.core.settings_registry import REGISTRY
 
     for key, spec in REGISTRY.items():
+        if spec.ui:  # solo stato dell'interfaccia: il CLI non la elenca
+            assert key not in BY_KEY, key
+            continue
         assert key in BY_KEY, key
-        assert BY_KEY[key].kind == spec.kind, key
+        if spec.kind == "text":
+            # Un testo libero: per il CLI una riga, più righe o un segreto.
+            assert BY_KEY[key].kind in ("text", "lines", "secret"), key
+        else:
+            assert BY_KEY[key].kind == spec.kind, key
         if spec.kind == "choice":
             assert BY_KEY[key].choices == spec.choices, key
+
+
+def _frontend_setting_keys() -> set[str]:
+    """Le chiavi che l'interfaccia legge o scrive con /api/settings/{key}:
+    passate a useSetting/useSetSetting o come settingKey, scritte lì o in una
+    costante (anche esportata da un altro file)."""
+    sources = [
+        path.read_text() for path in (ROOT / "frontend" / "src").rglob("*.ts*")
+        if ".test." not in path.name and path.name != "schema.ts"
+    ]
+    constants = {
+        name: value
+        for text in sources
+        for name, value in re.findall(r"const ([A-Z][A-Z0-9_]*) = '([a-z][a-z0-9_]*)'", text)
+    }
+    keys: set[str] = set()
+    for text in sources:
+        keys |= set(re.findall(r"use(?:Set)?Setting\(\s*'([a-z][a-z0-9_]*)'", text))
+        keys |= set(re.findall(r"settingKey=[\"']([a-z][a-z0-9_]*)[\"']", text))
+        for name in re.findall(r"(?:use(?:Set)?Setting\(\s*|settingKey=\{)([A-Z][A-Z0-9_]*)\b", text):
+            keys.add(constants[name])
+    return keys
+
+
+def test_every_setting_the_interface_uses_is_registered():
+    """L'API generica rifiuta una chiave che non è nel registro (audit
+    2026-10-18): una chiave nuova dell'interfaccia va dichiarata lì, o il
+    suo salvataggio risponde 400 setting_unknown."""
+    from nazgarr.core.settings_registry import REGISTRY
+
+    keys = _frontend_setting_keys()
+    assert {"size_units", "tracker_filter", "onboarding_state", "library_default_view"} <= keys  # la ricerca le vede
+    assert sorted(keys - set(REGISTRY)) == []
+
+
+def test_the_cli_lists_only_registered_settings():
+    """Il server rifiuta una chiave che non è nel registro (audit 2026-10-18):
+    il CLI non ne elenca, né ne esporta, una che non si può salvare."""
+    from nazgarr.cli_client.settings_catalog import CATALOG
+    from nazgarr.core.settings_registry import REGISTRY
+
+    assert [s.key for s in CATALOG if s.key not in REGISTRY] == []
