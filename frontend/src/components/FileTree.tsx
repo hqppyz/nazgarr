@@ -445,7 +445,10 @@ export const FileTree = memo(function FileTree({ files, expandAll = false, dupli
                 colonne al nome non restava spazio. */}
             <TableHead className="hidden w-56 sm:table-cell">{t("library.columnState")}</TableHead>
             <TableHead className="hidden w-28 text-right sm:table-cell">{t("library.columnSize")}</TableHead>
-            {withMenu && <TableHead className="w-8 px-1" />}
+            {/* La larghezza del pulsante "⋯" più il padding: su touch è più
+                grande (size-9), e la colonna fissa più stretta sporgeva
+                dalla tabella, che sul telefono scorreva di lato. */}
+            {withMenu && <TableHead className="w-8 px-1 pointer-coarse:w-11" />}
           </TableRow>
         </TableHeader>
         {/* Mono per tutto il corpo: nomi di cartelle e file allineati, come in un terminale. */}
