@@ -222,3 +222,49 @@ def test_every_client_for_a_user_or_tracker_url_is_pinned(monkeypatch, tmp_path,
     webhooks.deliver_due(db_session)
     tracker_icons.fetch_icon(str(tmp_path), 1, "https://t.example")  # nessun DNS: nessuna icona
     assert len(built) == 2
+
+
+def test_the_torrent_client_adapters_are_pinned_and_keep_the_lan(monkeypatch, connects):
+    """Deluge, qui, Transmission e rTorrent (httpx) si connettono solo
+    all'indirizzo controllato nel momento della connessione, come gli altri
+    URL scritti da un utente (audit 2026-10-18, #79): un nome del client
+    che dopo il salvataggio risolve ai metadati del cloud non si raggiunge
+    mai. La LAN, dove vivono i client, resta raggiungibile."""
+    from nazgarr.adapters.torrent_client.deluge import DelugeAdapter
+    from nazgarr.adapters.torrent_client.qui import QuiTorrentClientAdapter
+    from nazgarr.adapters.torrent_client.rtorrent import RTorrentAdapter
+    from nazgarr.adapters.torrent_client.transmission import TransmissionAdapter
+
+    monkeypatch.setattr(net_guard.socket, "getaddrinfo", _resolver({
+        "nas.example": ["192.168.1.10"], "rebound.example": ["169.254.169.254"]}))
+    adapters = [
+        DelugeAdapter("http://nas.example:8112", "pw"),
+        QuiTorrentClientAdapter("http://nas.example:7476", "key", instance_id=1),
+        TransmissionAdapter("http://nas.example:9091", "u", "p"),
+        RTorrentAdapter("http://nas.example/RPC2", "u", "p"),
+    ]
+    for adapter in adapters:
+        assert isinstance(adapter._client._transport._pool._network_backend, net_guard._CheckedBackend)
+        with pytest.raises(httpx.ConnectError, match="not a destination"):
+            adapter._client.get("http://rebound.example/latest/meta-data/")
+        with pytest.raises(httpx.ConnectError, match="no network in tests"):
+            adapter._client.get("http://nas.example:8080/")  # arriva al socket, verso la LAN
+    assert connects == [("192.168.1.10", 8080)] * len(adapters)
+
+    with pytest.raises(httpx.ConnectError, match="not a destination"):
+        QuiTorrentClientAdapter.list_instances("http://rebound.example:7476", "key")
+
+
+def test_qbittorrent_checks_its_host_whenever_an_adapter_is_built(monkeypatch):
+    """qbittorrent-api usa requests, che net_guard non aggancia alla
+    connessione: l'host si ricontrolla a ogni adapter costruito (uno per
+    operazione), non solo al salvataggio."""
+    from nazgarr.adapters.torrent_client.qbittorrent import QBittorrentAdapter
+
+    monkeypatch.setattr(net_guard.socket, "getaddrinfo", _resolver({
+        "nas.example": ["192.168.1.10"], "rebound.example": ["169.254.169.254"]}))
+    QBittorrentAdapter("http://nas.example:8080", "u", "p")
+    QBittorrentAdapter("nas.example:8080", "u", "p")  # senza schema, come lo accetta qbittorrent-api
+    for url in ("http://rebound.example:8080", "rebound.example:8080"):
+        with pytest.raises(net_guard.ForbiddenDestination):
+            QBittorrentAdapter(url, "u", "p")

@@ -83,6 +83,7 @@ from nazgarr.adapters.torrent_client.base import (
     require_recheck,
     wait_for_hash,
 )
+from nazgarr.core import net_guard
 from nazgarr.torrents.metainfo import compute_info_hash
 
 logger = logging.getLogger(__name__)
@@ -148,8 +149,10 @@ class RTorrentAdapter(TorrentClientAdapter):
         if http_client is not None:
             self._client = http_client
         else:
+            # Connesso solo all'indirizzo controllato nel momento della
+            # connessione (net_guard), la LAN resta raggiungibile.
             auth = (username, password or "") if username else None
-            self._client = httpx.Client(auth=auth, timeout=60.0)
+            self._client = net_guard.http_client(auth=auth, timeout=60.0)
 
     def _call(self, method: str, *params):
         body = xmlrpc.client.dumps(params, method)

@@ -55,6 +55,7 @@ from nazgarr.adapters.torrent_client.base import (
     seeders,
     wait_for_hash,
 )
+from nazgarr.core import net_guard
 
 logger = logging.getLogger(__name__)
 
@@ -80,14 +81,10 @@ class QuiTorrentClientAdapter(TorrentClientAdapter):
         self.poll_interval = poll_interval
         self.poll_timeout = poll_timeout
         self.page_limit = page_limit
-        if http_client is not None:
-            self._client = http_client
-        else:
-            import httpx
-
-            self._client = httpx.Client(
-                base_url=self.base_url, headers={"X-API-Key": api_token}, timeout=30.0
-            )
+        # net_guard.http_client: connesso solo all'indirizzo controllato nel
+        # momento della connessione (la LAN resta raggiungibile).
+        self._client = http_client if http_client is not None else net_guard.http_client(
+            base_url=self.base_url, headers={"X-API-Key": api_token}, timeout=30.0)
 
     @staticmethod
     def list_instances(base_url: str, api_token: str, http_client=None) -> list[dict]:
@@ -96,9 +93,8 @@ class QuiTorrentClientAdapter(TorrentClientAdapter):
         l'istanza da un elenco invece di scriverne il numero."""
         client = http_client
         if client is None:
-            import httpx
-
-            client = httpx.Client(base_url=base_url.rstrip("/"), headers={"X-API-Key": api_token}, timeout=15.0)
+            client = net_guard.http_client(base_url=base_url.rstrip("/"), headers={"X-API-Key": api_token},
+                                           timeout=15.0)
         try:
             response = client.get("/api/instances")
             response.raise_for_status()
