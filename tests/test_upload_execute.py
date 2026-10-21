@@ -13,6 +13,7 @@ from nazgarr.adapters.torrent_client.base import (
     ClientTorrentInfo,
     TorrentAlreadyInClientError,
     TorrentClientAdapter,
+    TorrentStatus,
 )
 from nazgarr.adapters.tracker.base import UploadedTorrent, UploadError
 from nazgarr.core.models import Disk, TrackerUploadProfile
@@ -23,6 +24,7 @@ from nazgarr.upload import execute as upload_execute
 from nazgarr.upload import jobs as upload_jobs
 from nazgarr.upload.jobs import UploadJobError
 from nazgarr.upload.worker import UploadWorker
+from tests.fakes import RecordingClient
 from tests.upload_helpers import InlineExecutor, make_client, make_tracker, write_video
 
 KB = 1024
@@ -72,25 +74,55 @@ class _Tracker:
         return self.torrent_bytes
 
 
-class _Client:
-    def __init__(self):
-        self.added = []
-        self.skipped = []  # per ogni aggiunta: senza il recheck del client?
-        self.rechecked = []
-        self.save_paths = {}
-        self.reported_path = None  # il percorso che il client dice di usare, se diverso
-        self.labels = []  # (categoria, tag) di ogni aggiunta
-        self.files = {}  # info hash -> (nome, file del torrent)
-        self.stopped_adds = []  # per ogni aggiunta: fermo (stopped=True)?
+class _Client(RecordingClient):
+    """Il client dei test: RecordingClient (tests/fakes.py), il contratto
+    come lo seguono gli adapter inclusi (la firma vera di add_torrent, il
+    recheck sempre chiesto, aggiunge fermo, sa saltare il recheck, start,
+    stop, recheck), più quello che guarda il flusso degli upload. Prima era
+    un finto suo, fuori dal contratto: senza stop(), senza can_add_stopped
+    né can_skip_recheck, il flusso prendeva le strade di un plugin vecchio
+    (audit 2026-10-18, finding 151). Un test che vuole proprio quel plugin
+    lo dice (can_add_stopped = False, stop = None).
 
-    def add_torrent(self, torrent_file, save_path, force_recheck=True, skip_check_verified=False, **kwargs):
-        assert force_recheck is True
-        self.added.append((torrent_file, save_path))
-        self.labels.append((kwargs.get("category"), kwargs.get("tags")))
-        self.skipped.append(skip_check_verified)
-        self.stopped_adds.append(kwargs.get("stopped", False))
-        torrent = torf.Torrent.read(torrent_file)
-        info_hash = torrent.infohash
+    I torrent che conosce sono quelli in save_paths (info hash -> cartella):
+    un test che ne toglie uno simula un torrent sparito dal client, e
+    get_torrent_status allora solleva. reported_path è la cartella che il
+    client dice di usare, se diversa; held_recheck l'esito del recheck ("ok"
+    di default), e lo stato dice fermo finché start()."""
+
+    held_recheck = "ok"
+
+    def __init__(self):
+        super().__init__()
+        self.save_paths: dict[str, str] = {}
+        self.reported_path = None
+        self.files = {}  # info hash -> (nome, file del torrent)
+
+    @property
+    def skipped(self) -> list[bool]:  # per ogni aggiunta: senza il recheck del client?
+        return [added.options["skip_check_verified"] for added in self.added]
+
+    @property
+    def stopped_adds(self) -> list[bool]:  # per ogni aggiunta: fermo (stopped=True)?
+        return [added.options["stopped"] for added in self.added]
+
+    @property
+    def labels(self) -> list[tuple]:  # (categoria, tag) di ogni aggiunta
+        return [(added.options["category"], added.options["tags"]) for added in self.added]
+
+    def add_torrent(
+        self, torrent_file_or_url: str, save_path: str, force_recheck: bool = True,
+        expected_info_hash: str | None = None, skip_check_verified: bool = False,
+        category: str | None = None, tags: list[str] | None = None, content_layout: str = "Original",
+        stopped: bool = False,
+    ) -> str:
+        info_hash = super().add_torrent(
+            torrent_file_or_url, save_path, force_recheck=force_recheck, expected_info_hash=expected_info_hash,
+            skip_check_verified=skip_check_verified, category=category, tags=tags, content_layout=content_layout,
+            stopped=stopped,
+        )
+        torrent = torf.Torrent.read(torrent_file_or_url)
+        assert info_hash == torrent.infohash
         self.save_paths[info_hash] = save_path
         self.files[info_hash] = (torrent.name,
                                  [ClientTorrentFileInfo("/".join(f.parts), f.size) for f in torrent.files])
@@ -104,26 +136,27 @@ class _Client:
         return ClientTorrentInfo(info_hash=info_hash, name=name, save_path=save_path, state="uploading",
                                  tracker_url="https://tracker/announce", files=files)
 
-    def recheck(self, info_hash):
-        self.rechecked.append(info_hash)
+    def list_torrents(self, on_progress=None):
+        return [self.get_torrent_info(info_hash) for info_hash in self.save_paths]
 
-    def start(self, info_hash):
-        self.started = [*getattr(self, "started", []), info_hash]
-
-    # L'esito del recheck (reconcile_held_seeds): "ok" di default, fermo
-    # finché start(); held_state cambia l'esito.
-    held_recheck = "ok"
+    def stop(self, info_hash):
+        super().stop(info_hash)
+        if info_hash in self.started:
+            self.started.remove(info_hash)
 
     def get_torrent_status(self, info_hash):
-        from nazgarr.adapters.torrent_client.base import TorrentStatus
-
         if info_hash not in self.save_paths:
             raise ValueError("not in the client")
-        running = info_hash in getattr(self, "started", [])
+        running = info_hash in self.started
         done = self.held_recheck == "ok"
         state = ("uploading" if done else "downloading") if running else ("stoppedUP" if done else "stoppedDL")
         return TorrentStatus(info_hash=info_hash, state=state, recheck_status=self.held_recheck,
                              progress=1.0 if done else 0.9, incomplete=not done, amount_left=0 if done else 1000)
+
+
+def _adds(client) -> list[tuple[str, str]]:
+    """(.torrent, cartella) di ogni aggiunta al client."""
+    return [(added.source, added.save_path) for added in client.added]
 
 
 class _Chain:
@@ -215,7 +248,7 @@ def test_uploads_to_every_tracker_and_seeds_from_hardlinks(db_session, tmp_path,
     assert "https://img.example/0.png" in fields.description
     linked = env["root"] / "torrents" / video.name
     assert os.path.samefile(linked, video)
-    assert env["client"].added == [(a.torrent_path, str(env["root"] / "torrents")),
+    assert _adds(env["client"]) == [(a.torrent_path, str(env["root"] / "torrents")),
                                    (b.torrent_path, str(env["root"] / "torrents"))]
     # Il torrent l'ha creato Nazgarr da quei file: niente recheck del client.
     assert env["client"].skipped == [True, True] and env["client"].rechecked == []
@@ -302,7 +335,7 @@ def test_a_locked_db_right_after_the_add_never_fails_the_upload(db_session, tmp_
     target = job.targets[0]
     assert job.status == "done"
     assert (target.status, target.error_message) == ("done", None)
-    assert env["client"].added == [(target.torrent_path, str(env["root"] / "torrents"))]
+    assert _adds(env["client"]) == [(target.torrent_path, str(env["root"] / "torrents"))]
 
 
 def test_a_locked_db_right_after_a_retried_add_keeps_the_chosen_client(db_session, tmp_path, env, monkeypatch):
@@ -326,7 +359,7 @@ def test_a_locked_db_right_after_a_retried_add_keeps_the_chosen_client(db_sessio
     # In attesa del recheck (decisione dell'utente, 2026-10-19): il rollback
     # del DB occupato non la perde.
     assert (target.torrent_client_id, target.error_message) == (env["client_row"].id, "seed_recheck_pending")
-    assert client.added == [(target.torrent_path, str(env["root"] / "torrents"))]
+    assert _adds(client) == [(target.torrent_path, str(env["root"] / "torrents"))]
     assert {"seed_retried", "added_to_client_held"} <= {e.code for e in job.events}
 
 
@@ -344,7 +377,7 @@ def test_a_source_inside_the_seeding_folder_seeds_in_place(db_session, tmp_path,
     torrent = torf.Torrent.read(job.targets[0].torrent_path)
     assert sorted(str(f) for f in torrent.files) == ["Show.S01.1080p-GRP/Show.S01E01.mkv",
                                                      "Show.S01.1080p-GRP/Show.S01E02.mkv"]
-    assert env["client"].added == [(job.targets[0].torrent_path, str(env["root"] / "torrents"))]
+    assert _adds(env["client"]) == [(job.targets[0].torrent_path, str(env["root"] / "torrents"))]
     fields, _ = env["trackers"]["a"].uploads[0]
     assert (fields.season_number, fields.episode_number) == (1, 0)
 
@@ -389,7 +422,7 @@ def test_reseed_links_the_files_with_the_tracker_names(db_session, tmp_path, env
     assert job.status == "done", [e.code for e in job.events]
     linked = env["root"] / "torrents" / "The.Matrix.1999.1080p-GRP" / "The.Matrix.1999.1080p-GRP.mkv"
     assert os.path.samefile(linked, video)
-    assert env["client"].added == [(job.targets[0].torrent_path, str(env["root"] / "torrents"))]
+    assert _adds(env["client"]) == [(job.targets[0].torrent_path, str(env["root"] / "torrents"))]
     assert env["client"].skipped == [False]  # il .torrent è del tracker: recheck del client
     assert env["trackers"]["a"].uploads == []  # un reseed non pubblica niente
 
@@ -426,7 +459,6 @@ def test_a_reseed_enters_the_client_stopped_and_starts_after_its_recheck(db_sess
     dentro gli hardlink, cioè nei file della libreria."""
     job, _video = _reseed_job(db_session, tmp_path, env)
     client = env["client"]
-    client.can_add_stopped = True
 
     _run(db_session, tmp_path, job)
 
@@ -447,7 +479,6 @@ def test_an_upload_of_a_new_torrent_still_starts_at_once(db_session, tmp_path, e
     """Un upload (il torrent appena creato da Nazgarr) resta com'era."""
     video = write_video(env["root"] / "media" / "The.Matrix.1999.1080p.WEB-DL.H.264-GRP.mkv", 300 * KB)
     job = _approved(db_session, env, "media/" + video.name, {"a": _upload("Matrix A"), "b": {"action": "skip"}})
-    env["client"].can_add_stopped = True
 
     _run(db_session, tmp_path, job)
 
@@ -458,7 +489,7 @@ def test_an_upload_of_a_new_torrent_still_starts_at_once(db_session, tmp_path, e
 def test_a_failed_recheck_leaves_the_reseed_stopped_and_retry_rechecks_it(db_session, tmp_path, env):
     job, _video = _reseed_job(db_session, tmp_path, env)
     client = env["client"]
-    client.can_add_stopped, client.held_recheck = True, "failed"
+    client.held_recheck = "failed"
     _run(db_session, tmp_path, job)
     target = job.targets[0]
 
@@ -484,25 +515,26 @@ def test_a_held_reseed_running_anyway_is_stopped_when_its_recheck_fails(db_sessi
     """Un plugin senza can_add_stopped lo aggiunge avviato: fallito, si ferma."""
     job, _video = _reseed_job(db_session, tmp_path, env)
     client = env["client"]
-    client.held_recheck = "failed"
+    client.can_add_stopped, client.held_recheck = False, "failed"
     _run(db_session, tmp_path, job)
     target = job.targets[0]
     assert client.stopped_adds == [False] and target.error_message == "seed_recheck_pending"
     client.started = [target.info_hash]  # gira
-    client.stop = lambda info_hash: client.started.remove(info_hash)
 
     upload_execute.reconcile_held_seeds(db_session)
 
-    assert client.started == [] and target.error_message == "seed_recheck_failed"
+    assert client.started == [] and client.stopped == [target.info_hash]
+    assert target.error_message == "seed_recheck_failed"
     assert "seed_recheck_failed" in [e.code for e in job.events]
 
 
 def test_a_held_reseed_that_cannot_be_stopped_says_so(db_session, tmp_path, env):
     job, _video = _reseed_job(db_session, tmp_path, env)
     client = env["client"]
-    client.held_recheck = "failed"
+    client.can_add_stopped, client.held_recheck = False, "failed"
+    client.stop = None  # un plugin senza stop()
     _run(db_session, tmp_path, job)
-    client.started = [job.targets[0].info_hash]  # gira, e il fake non ha stop()
+    client.started = [job.targets[0].info_hash]  # gira
 
     upload_execute.reconcile_held_seeds(db_session)
 
@@ -514,7 +546,7 @@ def test_the_extras_a_reseed_lacks_still_count_as_a_good_recheck(db_session, tmp
     dopo l'avvio: il recheck a cui manca solo quello è riuscito."""
     job, _video = _reseed_job(db_session, tmp_path, env, extras={"The.Matrix.nfo": b"n" * 600})
     client = env["client"]
-    client.can_add_stopped, client.held_recheck = True, "failed"  # al client mancano 1000 byte
+    client.held_recheck = "failed"  # al client mancano 1000 byte
     _run(db_session, tmp_path, job)
     target = job.targets[0]
     assert _events(job, "added_to_client_held")[0]["allowed"] >= 1000
@@ -526,7 +558,6 @@ def test_the_extras_a_reseed_lacks_still_count_as_a_good_recheck(db_session, tmp
 
 def test_a_held_reseed_is_left_alone_while_its_job_runs(db_session, tmp_path, env):
     job, _video = _reseed_job(db_session, tmp_path, env)
-    env["client"].can_add_stopped = True
     _run(db_session, tmp_path, job)
     job.status = "running"  # il worker sullo stesso job (un nuovo tentativo di un altro tracker)
     db_session.commit()
@@ -538,7 +569,6 @@ def test_a_held_reseed_is_left_alone_while_its_job_runs(db_session, tmp_path, en
 def test_a_reseed_whose_torrent_left_the_client_is_added_again_on_retry(db_session, tmp_path, env):
     job, _video = _reseed_job(db_session, tmp_path, env)
     client = env["client"]
-    client.can_add_stopped = True
     _run(db_session, tmp_path, job)
     target = job.targets[0]
     del client.save_paths[target.info_hash]  # tolto a mano dal client
@@ -554,7 +584,7 @@ def test_a_reseed_whose_torrent_left_the_client_is_added_again_on_retry(db_sessi
 
     upload_execute.retry_seed(db_session, job, target)
 
-    assert client.added == [(target.torrent_path, str(env["root"] / "torrents"))] * 2
+    assert _adds(client) == [(target.torrent_path, str(env["root"] / "torrents"))] * 2
     assert client.stopped_adds == [True, True] and target.error_message == "seed_recheck_pending"
 
 
@@ -565,7 +595,6 @@ def test_a_held_torrent_missing_right_after_a_restart_is_not_given_up(db_session
     resta in attesa, e quando il client l'ha ricaricato il recheck conta."""
     job, _video = _reseed_job(db_session, tmp_path, env)
     client = env["client"]
-    client.can_add_stopped = True
     _run(db_session, tmp_path, job)
     target = job.targets[0]
     save_path = client.save_paths.pop(target.info_hash)  # il client non l'ha ancora ricaricato
@@ -595,7 +624,7 @@ def test_a_plugin_that_cannot_look_up_one_torrent_never_reads_as_gone(db_session
     (upload_already_in_client)."""
     job, _video = _reseed_job(db_session, tmp_path, env)
     client = env["client"]
-    client.can_add_stopped, client.held_recheck = True, "failed"
+    client.held_recheck = "failed"
     _run(db_session, tmp_path, job)
     target = job.targets[0]
     client.__class__ = _PluginLikeClient
@@ -622,7 +651,7 @@ def test_a_running_torrent_already_in_the_client_is_stopped_before_its_recheck(
     scaricare dentro gli hardlink."""
     job, _video = _reseed_job(db_session, tmp_path, env)
     client = env["client"]
-    client.can_add_stopped, client.held_recheck = True, "failed"
+    client.held_recheck = "failed"
     expected = compute_info_hash(env["trackers"]["a"].torrent_bytes)
     client.save_paths[expected] = str(env["root"] / "torrents")
     client.started = [expected]  # gira
@@ -659,7 +688,6 @@ def test_a_job_with_a_torrent_waiting_for_its_recheck_is_not_deleted(db_session,
     """Audit 2026-10-18: eliminato il job, il torrent restava fermo nel
     client per sempre, senza più niente che lo seguisse."""
     job, _video = _reseed_job(db_session, tmp_path, env)
-    env["client"].can_add_stopped = True
     _run(db_session, tmp_path, job)
     data_dir = str(tmp_path / "data")
 
@@ -676,7 +704,6 @@ def test_a_job_whose_held_torrent_is_in_a_disabled_client_can_be_deleted(db_sess
     """Con il client spento il reconcile non lo segue: il job resterebbe
     da non eliminare per sempre."""
     job, _video = _reseed_job(db_session, tmp_path, env)
-    env["client"].can_add_stopped = True
     _run(db_session, tmp_path, job)
     env["client_row"].enabled = False
     db_session.commit()
@@ -691,7 +718,7 @@ def test_after_a_failed_recheck_the_files_the_client_renamed_get_their_name_back
     inode, tornano al loro nome."""
     job, video = _reseed_job(db_session, tmp_path, env)
     client = env["client"]
-    client.can_add_stopped, client.held_recheck = True, "failed"
+    client.held_recheck = "failed"
     client.partial_file_suffix = lambda: ".part"
     _run(db_session, tmp_path, job)
     linked = env["root"] / "torrents" / "The.Matrix.1999.1080p-GRP" / "The.Matrix.1999.1080p-GRP.mkv"
@@ -710,7 +737,7 @@ def test_after_a_failed_recheck_the_files_the_client_renamed_get_their_name_back
 def test_a_renamed_file_is_never_put_back_over_another(db_session, tmp_path, env):
     job, _video = _reseed_job(db_session, tmp_path, env)
     client = env["client"]
-    client.can_add_stopped, client.held_recheck = True, "failed"
+    client.held_recheck = "failed"
     client.partial_file_suffix = lambda: ".part"
     _run(db_session, tmp_path, job)
     linked = env["root"] / "torrents" / "The.Matrix.1999.1080p-GRP" / "The.Matrix.1999.1080p-GRP.mkv"
@@ -753,7 +780,7 @@ def test_a_reseed_refuses_a_torrent_other_than_the_verified_one(db_session, tmp_
     _run(db_session, tmp_path, job)
 
     target = job.targets[0]
-    assert env["client"].added == []
+    assert _adds(env["client"]) == []
     assert not (env["root"] / "torrents" / "The.Matrix.1999.1080p-GRP").exists()
     assert "upload_reseed_torrent_changed" in [e.code for e in job.events] + [target.error_message]
 
@@ -811,7 +838,7 @@ def test_no_seed_and_existing_destination(db_session, tmp_path, env):
     # Upload riuscito, seed no: mai ripetere l'upload per un problema del client.
     target = job.targets[0]
     assert (job.status, target.status, target.error_message) == ("done", "done", "seed_failed")
-    assert env["client"].added == []
+    assert _adds(env["client"]) == []
 
     job2 = _approved(db_session, env, "media/" + video.name, {"a": _upload("A"), "b": {"action": "skip"}})
     job2.overrides_json = json.dumps({"no_seed": True})
@@ -939,7 +966,7 @@ def test_a_library_file_is_uploaded_with_a_generated_release_name(db_session, tm
     assert torrent.name == "The.Matrix.1999.mkv"
     linked = env["root"] / "torrents" / "The.Matrix.1999.mkv"
     assert os.path.samefile(linked, video)  # in seed con quel nome, stessi byte
-    assert env["client"].added == [(job.targets[0].torrent_path, str(env["root"] / "torrents"))]
+    assert _adds(env["client"]) == [(job.targets[0].torrent_path, str(env["root"] / "torrents"))]
 
 
 
@@ -1119,7 +1146,7 @@ def test_a_failed_upload_never_removes_the_links_a_reseed_of_the_same_job_seeds(
 
     assert job.status == "partial", [e.code for e in job.events]
     seeding = env["root"] / "torrents" / video.name
-    assert env["client"].added == [(job.targets[1].torrent_path, str(env["root"] / "torrents"))]
+    assert _adds(env["client"]) == [(job.targets[1].torrent_path, str(env["root"] / "torrents"))]
     assert seeding.is_file()  # il reseed su "b" ha i suoi dati
     assert "file_links_removed" not in [e.code for e in job.events]
     if video.exists():
@@ -1224,7 +1251,7 @@ def test_a_folder_with_one_file_becomes_a_single_file_torrent(db_session, tmp_pa
     assert torrent.mode == "singlefile" and torrent.name == "My.Movie.2024.1080p.WEB-DL-NZG.mkv"
     seeds_in = env["root"] / "torrents" / ("My Movie 2024" if choice == "keep" else "")
     assert (seeds_in / "My.Movie.2024.1080p.WEB-DL-NZG.mkv").is_file()
-    assert env["client"].added == [(job.targets[0].torrent_path, str(seeds_in).rstrip(os.sep))]
+    assert _adds(env["client"]) == [(job.targets[0].torrent_path, str(seeds_in).rstrip(os.sep))]
     assert env["client"].skipped == [True]
     assert not (folder / "My.Movie.2024.1080p.WEB-DL-NZG.mkv").exists()  # spostato dalla cartella osservata
 
@@ -1238,7 +1265,7 @@ def test_a_single_file_already_in_the_seeding_folder_seeds_in_place(db_session, 
 
     assert job.status == "done", [e.code for e in job.events]
     assert torf.Torrent.read(job.targets[0].torrent_path).mode == "singlefile"
-    assert env["client"].added == [(job.targets[0].torrent_path, str(video.parent))]
+    assert _adds(env["client"]) == [(job.targets[0].torrent_path, str(video.parent))]
     assert video.stat().st_nlink == 1  # nessun hardlink nuovo
 
 
@@ -1315,7 +1342,7 @@ def test_a_pack_of_episodes_already_seeding_becomes_one_season_torrent(db_sessio
     pack = env["root"] / "torrents" / "Show.S01.1080p.WEB-DL-GRP"
     assert os.path.samefile(pack / "Show.S01E02.1080p.WEB-DL-GRP.mkv", episodes[1])
     assert episodes[1].is_file()  # i torrent degli episodi restano come sono
-    assert env["client"].added == [(job.targets[0].torrent_path, str(env["root"] / "torrents"))]
+    assert _adds(env["client"]) == [(job.targets[0].torrent_path, str(env["root"] / "torrents"))]
 
 
 def test_a_complete_pack_puts_each_season_in_its_folder(db_session, tmp_path, env):
@@ -1422,7 +1449,7 @@ def test_seeding_can_be_retried_without_uploading_again(db_session, tmp_path, en
     upload_execute.retry_seed(db_session, job, target)
 
     assert target.error_message == "seed_recheck_pending"  # parte a recheck riuscito
-    assert client.added == [(target.torrent_path, str(env["root"] / "torrents"))]
+    assert _adds(client) == [(target.torrent_path, str(env["root"] / "torrents"))]
     assert client.skipped == [False]  # un nuovo tentativo ha sempre il recheck del client
     assert len(env["trackers"]["a"].uploads) == uploads  # nessun nuovo upload
     assert "seed_retried" in [e.code for e in job.events]
@@ -1736,7 +1763,7 @@ def test_a_published_upload_whose_record_cannot_be_written_is_never_marked_faile
 
     a = job.targets[0]
     assert (a.status, a.error_message, a.torrent_id_remote) == ("done", "seed_failed", "100")
-    assert len(env["trackers"]["a"].uploads) == 1 and env["client"].added == []
+    assert len(env["trackers"]["a"].uploads) == 1 and _adds(env["client"]) == []
     journal = upload_jobs.published_journal(str(tmp_path / "data" / "uploads" / str(job.id)), a.id)
     assert json.load(open(journal)) == {"torrent_id_remote": "100"}
 
@@ -1854,7 +1881,7 @@ def test_a_retried_seed_relinks_into_the_seed_folder_never_the_library(db_sessio
 
     upload_execute.retry_seed(db_session, job, target)
 
-    assert client.added == [(target.torrent_path, str(env["root"] / "torrents"))]
+    assert _adds(client) == [(target.torrent_path, str(env["root"] / "torrents"))]
     assert os.path.samefile(env["root"] / "torrents" / video.name, video)
     assert "seed_files_linked" in [e.code for e in job.events]
 
@@ -1879,7 +1906,7 @@ def test_a_retried_seed_uses_the_trackers_own_torrent(db_session, tmp_path, env,
 
     upload_execute.retry_seed(db_session, job, target, str(tmp_path / "data"))
 
-    added = torf.Torrent.read(env["client"].added[-1][0])
+    added = torf.Torrent.read(env["client"].added[-1].source)
     codes = [e.code for e in job.events]
     if tracker_can_give_it_back:
         assert added.source == "Tracker100" and target.torrent_path.endswith("-seed.torrent")
