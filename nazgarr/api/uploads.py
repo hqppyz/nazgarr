@@ -275,6 +275,20 @@ class UploadTypeBasis(BaseModel):
     encoder: str | None = None
 
 
+class UploadOtherJob(BaseModel):
+    """Un altro upload non finito con gli stessi video (analysis.py other_jobs)."""
+
+    model_config = ConfigDict(json_schema_serialization_defaults_required=True)
+
+    id: int
+    status: str
+    kind: str | None = None
+    title: str | None = None
+    seasons: list[int] = []
+    episode: int | None = None
+    videos: int = 0  # quanti video in comune
+
+
 class UploadAnalysisResponse(BaseModel):
     """Quello che l'analisi ha trovato (nazgarr/upload/analysis.py) e la
     decisione vi ha aggiunto (nazgarr/upload/decision.py propose). Le chiavi
@@ -296,6 +310,7 @@ class UploadAnalysisResponse(BaseModel):
     detected: dict[str, Any] = {}  # i valori rilevati per il nome, senza override
     type_basis: UploadTypeBasis | None = None
     field_options: dict[str, list[str]] = {}  # i valori che i tracker del job accettano
+    other_jobs: list[UploadOtherJob] = []  # altri upload non finiti sugli stessi file
 
 
 # I candidati TMDB come TypedDict, non BaseModel: una chiave che un job di

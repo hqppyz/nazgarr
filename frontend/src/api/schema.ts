@@ -1876,6 +1876,9 @@ export interface paths {
          * @description Al match, "Dividi in episodi": conferma il match del season pack e lo
          *     divide in un upload per episodio (nazgarr/upload/split.py). L'upload
          *     originale si chiude; gli episodi vanno avanti da soli fino alla decisione.
+         *     La divisione chiesta si scrive con il match: un riavvio a metà non la
+         *     perde, la rifà l'analisi (upload_identify.resume_split; audit 2026-10-18,
+         *     prima il pack ripartiva intero).
          */
         post: operations["split_upload_api_uploads__upload_id__split_post"];
         delete?: never;
@@ -5420,6 +5423,11 @@ export interface components {
             field_options: {
                 [key: string]: string[];
             };
+            /**
+             * Other Jobs
+             * @default []
+             */
+            other_jobs: components["schemas"]["UploadOtherJob"][];
         } & {
             [key: string]: unknown;
         };
@@ -5919,6 +5927,32 @@ export interface components {
             notices: components["schemas"]["UploadNotice"][];
             /** Latest Id */
             latest_id: number;
+        };
+        /**
+         * UploadOtherJob
+         * @description Un altro upload non finito con gli stessi video (analysis.py other_jobs).
+         */
+        UploadOtherJob: {
+            /** Id */
+            id: number;
+            /** Status */
+            status: string;
+            /** Kind */
+            kind: string | null;
+            /** Title */
+            title: string | null;
+            /**
+             * Seasons
+             * @default []
+             */
+            seasons: number[];
+            /** Episode */
+            episode: number | null;
+            /**
+             * Videos
+             * @default 0
+             */
+            videos: number;
         };
         /** UploadOverridesRequest */
         UploadOverridesRequest: {

@@ -149,6 +149,9 @@ export const upload = {
   'upload.analysis.noTracker': 'nessun tracker',
   'upload.analysis.hardlink': 'stessi file (hardlink)',
   'upload.analysis.sameSize': 'stessa dimensione, {matched}/{total} video',
+  'upload.analysis.otherJobsRecap':
+    'Altri upload non ancora finiti con questi stessi file: {count}. Controlla prima di approvare, la stessa release potrebbe uscire due volte.',
+  'upload.analysis.otherJob': '{status}, {count} video in comune',
 
   'upload.action.upload': 'Upload',
   'upload.action.reseed': 'Reseed',
@@ -372,6 +375,7 @@ export const upload = {
   'upload.event.dolby_vision_from_stream': 'MediaInfo non ha visto il Dolby Vision (il contenitore non lo dichiara): trovato nel flusso video, profilo {profile}. Controlla il campo HDR.',
   'upload.event.pack_mixed': 'Gli episodi del pack sono diversi in: {fields}.',
   'upload.event.grabbed_from_tracker': 'Radarr/Sonarr l’ha scaricato da {trackers}.',
+  'upload.event.other_upload_same_files': 'Altri upload non ancora finiti hanno gli stessi file: {jobs}.',
   'upload.event.dupe_check_done':
     '{results} risultati sul tracker, {identical} identici, {same_slot} dupe: consigliato {suggested}.',
   'upload.event.already_seeding_here': 'Già in seed su {client} per questo tracker ({torrent}): consigliato saltare.',

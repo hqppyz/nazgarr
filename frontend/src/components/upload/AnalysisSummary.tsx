@@ -1,5 +1,6 @@
 import { ChevronDownIcon, CircleCheckIcon, TriangleAlertIcon } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
+import { Link } from 'react-router-dom'
 
 import type { UploadJob } from '@/api/hooks/uploads'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -35,14 +36,16 @@ function Recap({ summary, children }: { summary: ReactNode; children: ReactNode 
 }
 
 // Quello che l'analisi locale ha trovato (nazgarr/upload/analysis.py): se la
-// sorgente è già in seed su un client, o se Radarr/Sonarr dicono che è
-// stata scaricata da un tracker. Avvisi, mai blocchi: decide l'utente.
+// sorgente è già in seed su un client, se Radarr/Sonarr dicono che è stata
+// scaricata da un tracker, o se un altro upload non finito ha gli stessi
+// file (other_jobs, audit 2026-10-18). Avvisi, mai blocchi: decide l'utente.
 export function AnalysisSummary({ job }: { job: UploadJob }) {
   const analysis = job.analysis
   if (!analysis) return null
   const clientMatches = analysis.client_matches ?? []
   const arrGrabs = analysis.arr_grabs ?? []
-  const clean = clientMatches.length === 0 && arrGrabs.length === 0
+  const otherJobs = analysis.other_jobs ?? []
+  const clean = clientMatches.length === 0 && arrGrabs.length === 0 && otherJobs.length === 0
   const grabs = groupBy(arrGrabs, (g) => g.indexer ?? g.tracker_host ?? '?')
   const matches = groupBy(clientMatches, (m) => `${m.client ?? '?'}\u0000${m.tracker_host ?? ''}`)
   return (
@@ -59,6 +62,20 @@ export function AnalysisSummary({ job }: { job: UploadJob }) {
             <CircleCheckIcon className="size-4 text-emerald-500" />
             {t('upload.analysis.clean')}
           </p>
+        )}
+        {otherJobs.length > 0 && (
+          <Recap summary={t('upload.analysis.otherJobsRecap', { count: otherJobs.length })}>
+            {otherJobs.map((other) => (
+              <li key={other.id} className="flex min-w-0 gap-2">
+                <Link to={`/upload/${other.id}`} className="truncate font-medium text-primary underline-offset-4 hover:underline">
+                  #{other.id} {other.title ?? ''}
+                </Link>
+                <span className="shrink-0 text-muted-foreground">
+                  {t('upload.analysis.otherJob', { status: t(`upload.status.${other.status}`), count: other.videos })}
+                </span>
+              </li>
+            ))}
+          </Recap>
         )}
         {grabs.map(([tracker, items]) => (
           <Recap key={tracker} summary={t('upload.analysis.grabbedRecap', { tracker, count: items.length })}>

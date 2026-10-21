@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it } from 'vitest'
 
 import type { UploadJob } from '@/api/hooks/uploads'
@@ -29,6 +30,23 @@ describe('AnalysisSummary', () => {
     expect(screen.queryByText('Show.S01E02.mkv')).toBeNull()
     fireEvent.click(screen.getByText(recap))
     expect(screen.getByText('Show.S01E02.mkv')).toBeTruthy()
+  })
+
+  it('says when another upload not finished has the same files, with a link to it', () => {
+    // Audit 2026-10-18 (finding 163): due upload vivi sugli stessi file arrivavano alla decisione in silenzio.
+    const job = {
+      analysis: {
+        total_size_bytes: 1, file_count: 1, arr_grabs: [], client_matches: [],
+        other_jobs: [{ id: 12, status: 'awaiting_decision', kind: 'season_pack', title: 'Show', seasons: [1], episode: null, videos: 8 }],
+      },
+    } as unknown as UploadJob
+
+    render(<AnalysisSummary job={job} />, { wrapper: MemoryRouter })
+
+    expect(screen.queryByText(/Not on any client/)).toBeNull()
+    fireEvent.click(screen.getByText(/Other uploads not finished yet with these same files: 1\./))
+    expect(screen.getByRole('link', { name: '#12 Show' }).getAttribute('href')).toBe('/upload/12')
+    expect(screen.getByText('Review and approve, 8 video(s) in common')).toBeTruthy()
   })
 })
 

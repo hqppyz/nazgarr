@@ -422,3 +422,43 @@ def test_a_dupe_torrent_comes_from_its_link_as_stored_or_from_the_torrent_detail
     assert tracker.downloads[-1] == detail
     with pytest.raises(upload_jobs.UploadJobError):
         upload_verify.dupe_torrent(tracker, {"torrent_id_remote": "5", "download_link": None})
+
+
+def test_another_live_upload_of_the_same_files_is_said_at_the_decision(db_session, tmp_path, monkeypatch,
+                                                                       analyzing_job):
+    """Audit 2026-10-18 (finding 163): due upload vivi sugli stessi file (una
+    stagione di una cartella divisa confermata come la cartella intera, un
+    upload a mano di una release della cartella osservata) arrivavano alla
+    decisione senza che niente lo dicesse. Anche da un altro percorso, con
+    un hardlink: gli stessi byte."""
+    monkeypatch.setattr(upload_analysis.adapter_factory, "build_tracker_adapter", lambda t: _FakeTracker())
+    disk = analyzing_job.disk
+    elsewhere = tmp_path / "releases" / "Movie.Name.2024"
+    elsewhere.mkdir(parents=True)
+    os.link(analyzing_job.source_path, elsewhere / "movie.mkv")
+    same_path = upload_jobs.create_job(db_session, disk, analyzing_job.relative_path)  # ancora da identificare
+    hardlinked = upload_jobs.create_job(db_session, disk, "releases/Movie.Name.2024")
+    finished = upload_jobs.create_job(db_session, disk, analyzing_job.relative_path)
+    upload_jobs.cancel_job(db_session, finished)
+    write_video(tmp_path / "Other.2023.mkv", 60 * MB)
+    upload_jobs.create_job(db_session, disk, "Other.2023.mkv")  # altri file: niente
+
+    _run(db_session, tmp_path, analyzing_job)
+
+    assert analyzing_job.status == "awaiting_decision"
+    others = json.loads(analyzing_job.analysis_json)["other_jobs"]
+    assert [(o["id"], o["status"], o["videos"]) for o in others] == [
+        (same_path.id, "identifying", 1), (hardlinked.id, "identifying", 1)]
+    event = next(e for e in analyzing_job.events if e.code == "other_upload_same_files")
+    assert (event.level, json.loads(event.params_json)) == (
+        "warning", {"jobs": f"#{same_path.id}, #{hardlinked.id}"})
+
+
+def test_the_pack_a_split_came_from_never_counts_as_another_upload(db_session, tmp_path, analyzing_job):
+    child = upload_jobs.create_job(db_session, analyzing_job.disk, analyzing_job.relative_path)
+    child.split_from_id = analyzing_job.id
+    db_session.commit()
+    files = upload_analysis.source_files(analyzing_job)
+
+    assert upload_analysis.other_jobs(db_session, analyzing_job, files) == []
+    assert upload_analysis.other_jobs(db_session, child, files) == []
