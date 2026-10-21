@@ -28,6 +28,7 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
+from typing import NamedTuple
 
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -411,10 +412,13 @@ def _download_torrent(candidate: Candidate) -> bytes:
 # dimensione e data di modifica di allora: _passed).
 
 Identity = tuple[int, int, int, int]
-# I controlli passati, per (candidato, info hash del .torrent letto): per
-# ogni file del torrent letto, l'identità che aveva (_identity). In memoria
-# come i controlli: dopo un riavvio la tolleranza rilegge.
-_passed: dict[tuple[int, str], dict[str, Identity]] = {}
+# Per ogni file del torrent, l'identità che aveva quando un controllo
+# passato l'ha letto (_identity); None se non c'era e i suoi piece erano
+# scusati (solo check_outside_missing: _unchanged).
+Record = dict[str, Identity | None]
+# I controlli passati, per (candidato, info hash del .torrent letto). In
+# memoria come i controlli: dopo un riavvio la tolleranza rilegge.
+_passed: dict[tuple[int, str], Record] = {}
 MAX_REMEMBERED_PASSES = 200
 
 
@@ -444,12 +448,20 @@ def _recording(locate: Locator) -> tuple[Locator, dict[str, Identity | None]]:
     return recording, identities
 
 
-def _unchanged(identities: dict[str, Identity | None], files: list[FileCheck]) -> dict[str, Identity] | None:
+def _unchanged(identities: dict[str, Identity | None], files: list[FileCheck], absent: bool = False) -> Record | None:
     """Le identità dei file letti, se nessuno è cambiato mentre lo si
-    leggeva; None se uno sì."""
-    out: dict[str, Identity] = {}
+    leggeva; None se uno sì. absent: anche i file che non c'erano, come
+    None, per un controllo passato che ne ha scusato ogni piece
+    (check_outside_missing: o un extra mancante, o un file i cui piece
+    toccano tutti un extra mancante). Prima non si segnavano, e un file così
+    non era mai "lo stesso di allora": la tolleranza rileggeva l'intero pack
+    a ogni reconcile. Un controllo completo (run_full_check) non li segna:
+    i loro piece non li ha verificati nessuno."""
+    out: Record = {}
     for f in files:
         if f.local_path is None:
+            if absent:
+                out[f.torrent_path] = None
             continue
         identity = identities.get(f.torrent_path)
         if identity is None or _identity(f.local_path) != identity:
@@ -459,19 +471,20 @@ def _unchanged(identities: dict[str, Identity | None], files: list[FileCheck]) -
 
 
 def _remember_passed(candidate_id: int, info_hash: str, identities: dict[str, Identity | None],
-                     files: list[FileCheck]) -> bool:
+                     files: list[FileCheck], absent: bool = False) -> Record | None:
     """Si ricorda un controllo passato, se i file letti non sono cambiati
-    mentre li leggeva. False se uno sì."""
-    unchanged = _unchanged(identities, files)
+    mentre li leggeva: ritorna quel che si è segnato (_unchanged), None se
+    uno è cambiato."""
+    unchanged = _unchanged(identities, files, absent)
     if unchanged is None:
-        return False
+        return None
     key = (candidate_id, info_hash.lower())
     with _lock:
         _passed.pop(key, None)
         _passed[key] = unchanged
         while len(_passed) > MAX_REMEMBERED_PASSES:
             _passed.pop(next(iter(_passed)))
-    return True
+    return unchanged
 
 
 def identities_now(session: Session, candidate: Candidate, seed_job: SeedJob, skip: set[str],
@@ -489,11 +502,19 @@ def verified_for(session: Session, candidate: Candidate, seed_job: SeedJob, skip
     seed job) ha letto proprio questi file, tranne skip, e nessuno è
     cambiato da allora: ogni loro piece è già verificato."""
     recorded = _passed.get((candidate.id, (seed_job.info_hash or "").lower()))
+    return unchanged_since(session, candidate, seed_job, skip, recorded, partial_suffix)
+
+
+def unchanged_since(session: Session, candidate: Candidate, seed_job: SeedJob, skip: set[str],
+                    recorded: Record | None, partial_suffix: str | None = None) -> bool:
+    """Ogni file del torrent tranne skip è com'era in recorded (quel che un
+    controllo passato ha segnato): la stessa identità, o assente come allora
+    se recorded lo segna assente (_unchanged). Almeno uno deve esserci."""
     if recorded is None or not candidate.files:
         return False
     now = identities_now(session, candidate, seed_job, skip, partial_suffix)
-    return bool(now) and all(identity is not None and recorded.get(path) == identity
-                             for path, identity in now.items())
+    return (any(identity is not None for identity in now.values())
+            and all(path in recorded and recorded[path] == identity for path, identity in now.items()))
 
 
 def pieces_touching(parsed: TorrentInfo, paths: set[str]) -> set[int]:
@@ -519,28 +540,37 @@ def _files_of(parsed: TorrentInfo, pieces: list[int], skip: set[str]) -> list[st
     return out
 
 
+class ExtrasCheck(NamedTuple):
+    """L'esito di check_outside_missing: recorded è quel che ha letto (come
+    _passed), solo se è passato."""
+    result: CheckResult | None
+    passed: bool
+    reason: str | None
+    recorded: Record | None = None
+
+
 def check_outside_missing(
     session: Session, candidate: Candidate, seed_job: SeedJob, missing: set[str],
     fetch_torrent: Callable[[Candidate], bytes] | None = None, partial_suffix: str | None = None,
     on_start: Callable[[int], None] = lambda _: None, on_progress: Callable[[int], None] = lambda _: None,
     cancelled: Callable[[], bool] = lambda: False,
-) -> tuple[CheckResult | None, bool, str | None]:
+) -> ExtrasCheck:
     """Ogni piece che non tocca un extra mancante (missing: i loro percorsi
     nel torrent) coincide con il torrent nel client, letto dai file dove li
-    legge il client: (risultato, passato, perché no). Gli extra mancanti non
-    si leggono (un client che li ha già creati vuoti o preallocati li
-    farebbe sembrare diversi), e i piece a cavallo fra uno di loro e un
-    altro file non si possono verificare da nessuno finché il client non
-    scarica l'extra: sono quelli che il margine copre. Il .torrent si
-    riscarica dal tracker e deve essere quello nel client (l'info hash del
-    seed job), se no non si legge niente."""
+    legge il client. Gli extra mancanti non si leggono (un client che li ha
+    già creati vuoti o preallocati li farebbe sembrare diversi), e i piece a
+    cavallo fra uno di loro e un altro file non si possono verificare da
+    nessuno finché il client non scarica l'extra: sono quelli che il margine
+    copre. Il .torrent (fetch_torrent: quello aggiunto al client, se
+    l'esecutore ce l'ha ancora, se no riscaricato dal tracker) deve essere
+    quello nel client (l'info hash del seed job), se no non si legge niente."""
     content = (fetch_torrent or _download_torrent)(candidate)
     parsed = parse_torrent_info(content)
     info_hash = compute_info_hash(content)
     expected = (seed_job.info_hash or "").lower()
     if info_hash != expected:
-        return None, False, (f"the tracker's .torrent (info hash {info_hash}) is not the one in the client "
-                             f"({expected}), so its pieces could not be checked")
+        return ExtrasCheck(None, False, f"the tracker's .torrent (info hash {info_hash}) is not the one in the "
+                                        f"client ({expected}), so its pieces could not be checked")
     found, identities = _recording(build_locator(session, candidate, seed_job, partial_suffix=partial_suffix))
 
     def outside(entry: TorrentFileEntry) -> tuple[str | None, str | None]:
@@ -560,11 +590,12 @@ def check_outside_missing(
     )
     if wrong:
         names = ", ".join(f"'{path}'" for path in _files_of(parsed, wrong, missing)[:3])
-        return result, False, (f"pieces outside the missing extras do not match the torrent ({len(wrong)} of "
-                               f"{checked}, in {names}), and the client would rewrite them")
-    if not _remember_passed(candidate.id, info_hash, identities, files):
-        return result, False, "a file changed while it was being checked"
-    return result, True, None
+        return ExtrasCheck(result, False, f"pieces outside the missing extras do not match the torrent "
+                                          f"({len(wrong)} of {checked}, in {names}), and the client would rewrite them")
+    recorded = _remember_passed(candidate.id, info_hash, identities, files, absent=True)
+    if recorded is None:
+        return ExtrasCheck(result, False, "a file changed while it was being checked")
+    return ExtrasCheck(result, True, None, recorded)
 
 
 # --- Esecuzione in background -------------------------------------------------
@@ -596,6 +627,9 @@ class CheckState:
     verdict_reason: str | None = None
     execution: str | None = None  # added | failed | no_client | skipped
     execution_error: str | None = None
+    # Solo purpose="extras", passato: quel che ha letto (ExtrasCheck.recorded),
+    # perché il reconcile dopo veda se da allora è cambiato qualcosa.
+    recorded: Record | None = None
 
 
 _lock = threading.Lock()
@@ -737,14 +771,15 @@ def _run_extras(session_factory: sessionmaker, state: CheckState, missing: froze
         def on_progress(done: int) -> None:
             state.bytes_done = done
 
-        result, passed, reason = check_outside_missing(
+        checked = check_outside_missing(
             session, candidate, seed_job, set(missing), fetch_torrent, partial_suffix,
             on_start=on_start, on_progress=on_progress, cancelled=lambda: state.cancel_requested,
         )
-        state.result = _result_dict(result) if result is not None else None
-        state.verdict, state.verdict_reason = ("passed" if passed else "failed"), reason
+        state.result = _result_dict(checked.result) if checked.result is not None else None
+        state.recorded = checked.recorded
+        state.verdict, state.verdict_reason = ("passed" if checked.passed else "failed"), checked.reason
         logger.info("Tolleranza degli extra di %r: %s%s", state.label, state.verdict,
-                    f" ({reason})" if reason else "")
+                    f" ({checked.reason})" if checked.reason else "")
         state.status = "done"
     except CheckCancelled:
         state.status = "cancelled"

@@ -299,7 +299,7 @@ def test_only_the_missing_extras_pass_even_when_the_client_created_them(
 
     assert (seed_job.recheck_status, seed_job.final_status) == ("ok", "seeding")
     assert client.started == [PACK_HASH]
-    check = full_check.get_check(executor._extras_checks[seed_job.id])
+    check = executor._extras_checks[seed_job.id].state
     assert (check.purpose, check.seed_job_id, check.verdict) == ("extras", seed_job.id, "passed")
     assert check.result["bad_pieces"] == []
 
@@ -375,6 +375,165 @@ def test_while_nazgarr_checks_the_reseed_waits_and_retry_checks_again(db_session
     fn(*args)
     executor.reconcile_seed_job(db_session, seed_job, client)
     assert (seed_job.final_status, client.started) == ("seeding", [PACK_HASH])
+
+
+@pytest.fixture
+def deferred_checks(monkeypatch):
+    """La coda dei controlli completi che non gira da sola: la verifica dei
+    piece resta in coda finché il test non la fa girare (_run_queued)."""
+    queued = []
+    monkeypatch.setattr(full_check, "_executor", type("Later", (), {
+        "submit": lambda self, fn, *args: queued.append((fn, args))})())
+    return queued
+
+
+def _run_queued(queued) -> None:
+    while queued:
+        fn, args = queued.pop(0)
+        fn(*args)
+
+
+def test_a_running_reseed_is_stopped_while_nazgarr_checks_and_a_later_100_percent_waits_for_it(
+        db_session, tmp_path, monkeypatch, deferred_checks):
+    """Un reseed che gira (un plugin senza can_add_stopped, o avviato a mano)
+    entro il margine: intanto scaricherebbe i byte "mancanti" dentro gli
+    hardlink, e con loro il piece diverso del video. Si ferma, e un 100% del
+    client dopo non salta la verifica di Nazgarr."""
+    seed_job, client, target = _executed_pack(db_session, tmp_path, monkeypatch)
+    _edit_in_place(target / "Show.S01E01.1080p-GRP.mkv", 5)
+    client.status = TorrentStatus(PACK_HASH, "downloading", "failed", 0.7, incomplete=True, amount_left=56)
+
+    executor.reconcile_seed_job(db_session, seed_job, client)
+
+    assert (seed_job.final_status, seed_job.recheck_status) == ("in_progress", "pending")
+    assert client.stopped == [PACK_HASH] and client.started == [] and len(deferred_checks) == 1
+    assert seed_job.error_message.startswith(executor.EXTRAS_CHECKING)
+    assert "stopped in the client meanwhile" in seed_job.error_message
+
+    # Riavviato a mano, il client arriva al 100%: senza la verifica non vale.
+    client.status = TorrentStatus(PACK_HASH, "uploading", "ok", 1.0)
+    executor.reconcile_seed_job(db_session, seed_job, client)
+    assert (seed_job.final_status, seed_job.recheck_status) == ("in_progress", "pending")
+    assert client.stopped == [PACK_HASH] * 2 and client.started == []
+    assert len(deferred_checks) == 1  # la stessa verifica, ancora in coda
+
+    _run_queued(deferred_checks)
+    executor.reconcile_seed_job(db_session, seed_job, client)
+    assert seed_job.final_status == "failed" and client.started == []
+    assert "Nazgarr's own check of the other pieces failed" in seed_job.error_message
+    assert "stopped in the client so it does not download" in seed_job.error_message
+
+
+def test_a_running_reseed_stopped_for_the_check_starts_once_it_passes(
+        db_session, tmp_path, monkeypatch, deferred_checks):
+    seed_job, client, _target = _executed_pack(db_session, tmp_path, monkeypatch)
+    client.status = TorrentStatus(PACK_HASH, "downloading", "failed", 0.7, incomplete=True, amount_left=56)
+    executor.reconcile_seed_job(db_session, seed_job, client)
+    assert client.stopped == [PACK_HASH]
+
+    _within_the_allowance(client)  # fermo, ora
+    _run_queued(deferred_checks)
+    executor.reconcile_seed_job(db_session, seed_job, client)
+
+    assert (seed_job.final_status, seed_job.error_message, client.started) == ("seeding", None, [PACK_HASH])
+
+
+def test_a_client_that_cannot_stop_it_says_to_stop_it_by_hand(db_session, tmp_path, monkeypatch, deferred_checks):
+    seed_job, client, _target = _executed_pack(db_session, tmp_path, monkeypatch)
+    client.stop = lambda info_hash: (_ for _ in ()).throw(NotImplementedError)
+    client.status = TorrentStatus(PACK_HASH, "downloading", "failed", 0.7, incomplete=True, amount_left=56)
+
+    executor.reconcile_seed_job(db_session, seed_job, client)
+
+    assert seed_job.final_status == "in_progress" and "stop it by hand" in seed_job.error_message
+
+
+def test_a_passed_check_is_not_read_again_when_only_the_remembered_passes_are_gone(
+        db_session, tmp_path, monkeypatch, deferred_checks):
+    """Il reconcile dopo confronta i file con quel che la verifica ha letto,
+    non solo con la memoria dei controlli passati (gli ultimi 200, che un
+    altro controllo può sostituire): prima, senza, la verifica ripartiva a
+    ogni reconcile, per sempre."""
+    seed_job, client, _target = _executed_pack(db_session, tmp_path, monkeypatch)
+    _within_the_allowance(client)
+    executor.reconcile_seed_job(db_session, seed_job, client)
+    _run_queued(deferred_checks)
+    full_check._passed.clear()
+
+    executor.reconcile_seed_job(db_session, seed_job, client)
+
+    assert (seed_job.final_status, client.started, deferred_checks) == ("seeding", [PACK_HASH], [])
+
+
+def test_files_that_change_after_every_check_fail_the_reseed_after_a_few_checks(
+        db_session, tmp_path, monkeypatch, deferred_checks):
+    seed_job, client, target = _executed_pack(db_session, tmp_path, monkeypatch)
+    _within_the_allowance(client)
+    video = target / "Show.S01E02.1080p-GRP.mkv"
+    for _ in range(executor.MAX_EXTRAS_CHECKS):
+        executor.reconcile_seed_job(db_session, seed_job, client)
+        assert seed_job.final_status == "in_progress" and len(deferred_checks) == 1
+        _run_queued(deferred_checks)
+        stat = os.stat(video)
+        os.utime(video, ns=(stat.st_atime_ns, stat.st_mtime_ns + 5_000_000_000))  # toccato dopo la verifica
+
+    executor.reconcile_seed_job(db_session, seed_job, client)
+
+    assert seed_job.final_status == "failed" and client.started == [] and deferred_checks == []
+    assert "the files changed after Nazgarr checked their pieces, 3 times" in seed_job.error_message
+
+
+def test_the_check_reads_the_torrent_added_to_the_client_not_the_tracker_again(
+        db_session, tmp_path, monkeypatch, inline_checks):
+    seed_job, client, _target = _executed_pack(db_session, tmp_path, monkeypatch)
+    monkeypatch.setattr(executor, "_download_torrent", lambda candidate: pytest.fail("downloaded again"))
+    _within_the_allowance(client)
+
+    executor.reconcile_seed_job(db_session, seed_job, client)
+
+    assert (seed_job.final_status, client.started) == ("seeding", [PACK_HASH])
+    assert seed_job.id not in executor._added_torrents  # in seeding non serve più
+
+
+def test_a_check_that_could_not_run_is_tried_again_at_the_next_reconcile(
+        db_session, tmp_path, monkeypatch, inline_checks):
+    """Il tracker irraggiungibile (dopo un riavvio il .torrent si riscarica)
+    è un errore, non un esito: il seed job resta in corso, e il reconcile
+    dopo riprova; prima il reseed falliva, fermo finché un Retry a mano."""
+    seed_job, client, _target = _executed_pack(db_session, tmp_path, monkeypatch)
+    executor._added_torrents.clear()  # un riavvio
+    calls = []
+
+    def flaky(candidate):
+        calls.append(candidate.id)
+        if len(calls) == 1:
+            raise executor.ExecutionError("Could not download the .torrent from t: 429 Too Many Requests")
+        return _pack_torrent()
+
+    monkeypatch.setattr(executor, "_download_torrent", flaky)
+    _within_the_allowance(client)
+
+    executor.reconcile_seed_job(db_session, seed_job, client)
+    assert (seed_job.final_status, seed_job.recheck_status, client.started) == ("in_progress", "pending", [])
+    assert seed_job.error_message.startswith(executor.EXTRAS_NOT_CHECKED) and "429" in seed_job.error_message
+
+    executor.reconcile_seed_job(db_session, seed_job, client)
+    assert (seed_job.final_status, client.started, len(calls)) == ("seeding", [PACK_HASH], 2)
+
+
+def test_a_check_that_never_runs_fails_the_reseed_after_a_few_tries(
+        db_session, tmp_path, monkeypatch, inline_checks):
+    seed_job, client, _target = _executed_pack(db_session, tmp_path, monkeypatch)
+    executor._added_torrents.clear()
+    monkeypatch.setattr(executor, "_download_torrent",
+                        lambda candidate: (_ for _ in ()).throw(executor.ExecutionError("tracker down")))
+    _within_the_allowance(client)
+
+    for _ in range(executor.MAX_EXTRAS_CHECKS):
+        executor.reconcile_seed_job(db_session, seed_job, client)
+    assert seed_job.final_status == "failed" and client.started == []
+    assert "could not check the other pieces, 3 times (tracker down)" in seed_job.error_message
+    assert "left stopped" in seed_job.error_message
 
 
 def test_a_pack_for_a_client_without_root_folders_is_hardlinked_without_it(db_session, tmp_path, monkeypatch):

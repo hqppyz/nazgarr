@@ -42,16 +42,20 @@ def _no_dns(monkeypatch):
 @pytest.fixture(autouse=True)
 def _no_check_memory():
     """Le verifiche in memoria del processo (i controlli completi passati,
-    le verifiche della tolleranza degli extra per seed job): da zero a ogni
-    test. Gli id dei seed job ripartono da 1 in ogni DB dei test, e la
-    verifica di un test precedente passava per quella del seed job nuovo."""
+    le verifiche della tolleranza degli extra per seed job e i loro
+    .torrent): da zero a ogni test. Gli id dei seed job ripartono da 1 in
+    ogni DB dei test, e la verifica di un test precedente passava per
+    quella del seed job nuovo."""
     from nazgarr.reseed import executor, full_check
 
-    executor._extras_checks.clear()
-    full_check._passed.clear()
+    def clear():
+        executor._extras_checks.clear()
+        executor._added_torrents.clear()
+        full_check._passed.clear()
+
+    clear()
     yield
-    executor._extras_checks.clear()
-    full_check._passed.clear()
+    clear()
 
 
 @pytest.fixture
