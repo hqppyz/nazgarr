@@ -27,7 +27,7 @@ from nazgarr.core.models import (
 )
 from nazgarr.integrations import adapter_factory, arr
 from nazgarr.library import not_imported
-from nazgarr.library.detail import _host, _quality
+from nazgarr.library.detail import release_quality
 from nazgarr.reseed import exclusive
 from nazgarr.torrents import seed_requirements
 from nazgarr.torrents.tracker_scope import torrent_host
@@ -200,7 +200,7 @@ class NotImportedResponse(BaseModel):
 # La qualità dal nome del file (guessit, qualche ms a nome): la stessa per
 # lo stesso nome, e con migliaia di righe era quasi tutto il tempo della
 # vista, a ogni richiesta (audit 2026-10-18: 1500 righe, 14 s).
-_quality_of = functools.lru_cache(maxsize=16384)(_quality)
+_quality_of = functools.lru_cache(maxsize=16384)(release_quality)
 
 
 @router.get("/not-imported", response_model=NotImportedResponse)
@@ -241,7 +241,7 @@ def list_not_imported(session: Session) -> NotImportedResponse:
         replaced = row.replaced_by
         torrents.append(NotImportedItem(
             client_torrent_id=ct.id, name=ct.name, info_hash=ct.info_hash, client=clients.get(ct.torrent_client_id),
-            tracker=_host(ct.tracker_url), category=row.category, detail=row.detail, matched_by=row.matched_by,
+            tracker=torrent_host(ct.tracker_url), category=row.category, detail=row.detail, matched_by=row.matched_by,
             content_type=row.content_type, tmdb_id=row.tmdb_id, title=title, year=year,
             season_number=row.season_number, episode_number=row.episode_number,
             quality=_quality_of(os.path.basename(row.main_path)) if row.main_path else None,

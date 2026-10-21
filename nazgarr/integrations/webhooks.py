@@ -29,6 +29,7 @@ import httpx
 from sqlalchemy.orm import Session
 
 from nazgarr.core import net_guard
+from nazgarr.core.db_utils import as_utc
 from nazgarr.core.models import Event, EventDelivery
 from nazgarr.core.version import __version__
 
@@ -47,7 +48,7 @@ def signature(secret: str, timestamp: str, body: bytes) -> str:
 
 
 def body_of(event: Event) -> bytes:
-    created = event.created_at if event.created_at.tzinfo else event.created_at.replace(tzinfo=UTC)
+    created = as_utc(event.created_at)
     return json.dumps({
         "id": event.id, "event": event.name, "created_at": created.isoformat(),
         "data": json.loads(event.payload_json),

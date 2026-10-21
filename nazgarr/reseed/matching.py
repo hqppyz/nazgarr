@@ -33,7 +33,7 @@ from nazgarr.adapters.tracker.base import (
     UploadError,
 )
 from nazgarr.core import settings_registry
-from nazgarr.core.db_utils import keep_loaded_on_commit
+from nazgarr.core.db_utils import as_utc, keep_loaded_on_commit
 from nazgarr.core.file_types import is_video
 from nazgarr.core.logs import safe_error
 from nazgarr.core.models import (
@@ -668,11 +668,6 @@ def get_rematch_interval(session: Session) -> timedelta:
     return timedelta(days=max(settings_registry.get_float(session, "rematch_interval_days"), 0))
 
 
-def _as_utc(value: datetime) -> datetime:
-    # SQLite restituisce datetime naive anche se salvati aware.
-    return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
-
-
 def _attempts_by_file(session: Session, tracker_row: Tracker, side: str) -> dict[int, MatchAttempt]:
     """I tentativi precedenti su questo tracker, per media_file_id o
     seed_file_id: letti in blocco invece che con una query per file."""
@@ -691,7 +686,7 @@ def _is_fresh(attempt: MatchAttempt | None, size_bytes: int, tmdb_id: int, inter
         return False
     if attempt.size_bytes != size_bytes or attempt.tmdb_id != tmdb_id:
         return False
-    return datetime.now(UTC) - _as_utc(attempt.attempted_at) < interval
+    return datetime.now(UTC) - as_utc(attempt.attempted_at) < interval
 
 
 def _record_attempt(

@@ -22,6 +22,7 @@ from enum import StrEnum
 from sqlalchemy import or_, update
 from sqlalchemy.orm import Session
 
+from nazgarr.core.db_utils import as_utc
 from nazgarr.core.errors import CodedError
 from nazgarr.core.file_types import is_video
 from nazgarr.core.fs_scope import ScopeViolation, resolve_scoped
@@ -209,13 +210,6 @@ def emit_seed_checked(session: Session, job: UploadJob, target: UploadTarget, ou
         "torrent_id_remote": target.torrent_id_remote or target.reseed_torrent_id, "info_hash": target.info_hash,
         "client": client, "outcome": outcome, "state": state, "stopped": stopped,
     })
-
-
-def as_utc(value: datetime | None) -> datetime | None:
-    """SQLite restituisce le date senza fuso: sono UTC."""
-    if value is None:
-        return None
-    return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
 
 
 def start_time(when: datetime | None, now: datetime | None = None) -> datetime | None:

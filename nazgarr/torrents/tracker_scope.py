@@ -22,7 +22,12 @@ CONFIGURED = "configured"
 
 
 def torrent_host(url: str | None) -> str | None:
-    """Host di un URL senza porta e senza "www.", come in nazgarr/library/detail.py."""
+    """Host di un URL senza porta e senza "www.": l'host dell'announce di un
+    torrent confrontato con announce_url e base_url del tracker, che spesso
+    non hanno la porta dell'announce. La stessa regola per la scheda di
+    dettaglio e la pagina dei torrent (prima una copia in library/detail.py).
+    I controlli di sicurezza del tracker tengono la porta (host_of_url in
+    nazgarr/adapters/tracker/base.py): mai questa."""
     host = urlsplit(url).hostname if url else None
     return host.removeprefix("www.") if host else None
 

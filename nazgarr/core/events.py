@@ -23,6 +23,8 @@ from datetime import UTC, datetime
 from sqlalchemy import event as sa_event
 from sqlalchemy.orm import Session
 
+from nazgarr.core.db_utils import as_utc
+
 logger = logging.getLogger(__name__)
 
 CATALOG: dict[str, str] = {
@@ -46,7 +48,7 @@ REVIEW_DECIDED = ("approved", "rejected", "auto_approved")
 def _iso(value: datetime | None) -> str | None:
     if value is None:
         return None
-    return (value if value.tzinfo else value.replace(tzinfo=UTC)).isoformat()
+    return as_utc(value).isoformat()
 
 
 def webhook_targets(session: Session, name: str) -> list:

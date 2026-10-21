@@ -24,6 +24,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 from sqlalchemy.orm import Session, sessionmaker
 
 from nazgarr.core import settings_repo
+from nazgarr.core.db_utils import as_utc
 from nazgarr.core.models import RunLog
 from nazgarr.reseed import pipeline, review
 
@@ -61,12 +62,12 @@ def _slot_reference(session: Session) -> datetime | None:
         except ValueError:
             when = None
         if when is not None:
-            return when if when.tzinfo is not None else when.replace(tzinfo=UTC)
+            return as_utc(when)
     row = (session.query(RunLog.started_at).filter(RunLog.run_type == "scheduled")
            .order_by(RunLog.started_at.desc()).first())
     if row is None or row[0] is None:
         return None
-    return row[0] if row[0].tzinfo is not None else row[0].replace(tzinfo=UTC)  # SQLite: UTC senza fuso
+    return as_utc(row[0])
 
 
 def missed_slot(session: Session, cron_expr: str, now: datetime | None = None) -> datetime | None:

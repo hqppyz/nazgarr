@@ -16,6 +16,7 @@ from nazgarr.adapters.torrent_client.base import (
     TorrentStatus,
 )
 from nazgarr.adapters.tracker.base import UploadedTorrent, UploadError
+from nazgarr.core.db_utils import as_utc
 from nazgarr.core.models import Disk, TrackerUploadProfile
 from nazgarr.torrents import create as torrent_create
 from nazgarr.torrents.metainfo import compute_info_hash
@@ -1544,7 +1545,7 @@ def test_a_scheduled_upload_waits_for_its_time(db_session, tmp_path, env):
     later = datetime.now(UTC) + timedelta(hours=3)
     job = _approved(db_session, env, "media/" + video.name, {"a": _upload("Matrix A"), "b": {"action": "skip"}},
                     scheduled_at=later)
-    assert (job.status, upload_jobs.as_utc(job.scheduled_at)) == ("queued", later)
+    assert (job.status, as_utc(job.scheduled_at)) == ("queued", later)
     assert any(e.code == "job_scheduled" for e in job.events)
 
     _run(db_session, tmp_path, job)

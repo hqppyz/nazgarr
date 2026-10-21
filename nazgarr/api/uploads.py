@@ -16,6 +16,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session, defer, joinedload, object_session, selectinload
 
 from nazgarr.core import settings_repo
+from nazgarr.core.db_utils import as_utc
 from nazgarr.core.errors import coded_detail, from_coded_error
 from nazgarr.core.fs_scope import ScopeViolation
 from nazgarr.core.logs import safe_error
@@ -454,7 +455,7 @@ class UploadJobSummary(BaseModel):
             error_message=j.error_message, created_at=j.created_at, finished_at=j.finished_at,
             targets=[UploadTargetResponse.from_model(t, profiles) for t in j.targets], origin=j.origin,
             pack_name=upload_pack.name(j) if upload_pack.is_pack(j) else None,
-            scheduled_at=upload_jobs.as_utc(j.scheduled_at),
+            scheduled_at=as_utc(j.scheduled_at),
         )
 
     @classmethod

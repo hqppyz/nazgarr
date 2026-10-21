@@ -20,7 +20,7 @@ from nazgarr.core import settings_registry
 from nazgarr.core.file_types import is_video
 from nazgarr.core.models import ClientTorrent, ClientTorrentFile, MediaItem, Tracker
 from nazgarr.library.hardlinks import media_links
-from nazgarr.library.states import _tracking
+from nazgarr.library.states import tracking
 from nazgarr.torrents.tracker_scope import torrent_host, tracker_torrent_ids
 
 CROSS_SEED_SETTING = "cross_seed_search"
@@ -83,7 +83,7 @@ def seeding_media_file_ids(
     tracker, se c'è e la ricerca dei cross-seed è accesa, di qualunque se no.
     media_file_ids: solo questi file (una ricerca mirata), None = tutti."""
     torrent_ids = tracker_torrent_ids(session, tracker) if tracker is not None and cross_seed_enabled(session) else None
-    tracked, _active = _tracking(session, torrent_ids)
+    tracked, _active = tracking(session, torrent_ids)
     return {
         mf_id for mf_id, seeds in media_links(session, media_file_ids).items()
         if any(sf_id in tracked for sf_id, _ in seeds)

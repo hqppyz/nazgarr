@@ -30,6 +30,7 @@ from sqlalchemy import exists, func, select
 from sqlalchemy.orm import Session, selectinload
 
 from nazgarr.core import settings_registry
+from nazgarr.core.db_utils import as_utc
 from nazgarr.core.errors import CodedError
 from nazgarr.core.logs import safe_error
 from nazgarr.core.models import (
@@ -1309,8 +1310,7 @@ def _added_before(seed_job: SeedJob, grace: timedelta) -> bool:
     added = seed_job.torrent_added_at
     if added is None:
         return True
-    added = added if added.tzinfo is not None else added.replace(tzinfo=UTC)
-    return datetime.now(UTC) - added >= grace
+    return datetime.now(UTC) - as_utc(added) >= grace
 
 
 def _give_up(session: Session, seed_job: SeedJob, message: str) -> None:

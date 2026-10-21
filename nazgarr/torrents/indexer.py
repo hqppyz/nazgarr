@@ -33,7 +33,7 @@ from urllib.parse import urlsplit
 from sqlalchemy.orm import Session
 
 from nazgarr.adapters.torrent_client.base import ClientTorrentInfo, TorrentClientAdapter
-from nazgarr.core.db_utils import bulk_upsert
+from nazgarr.core.db_utils import as_utc, bulk_upsert
 from nazgarr.core.models import (
     ClientTorrent,
     ClientTorrentFile,
@@ -110,10 +110,6 @@ def index_torrent_client(
     return counts
 
 
-def _utc(value: datetime) -> datetime:
-    return value if value.tzinfo is not None else value.replace(tzinfo=UTC)  # SQLite li rende senza fuso
-
-
 def prune_missing_torrents(
     session: Session, torrent_client: TorrentClient, torrents: list[ClientTorrentInfo], run_id: int,
     listed_at: datetime | None = None,
@@ -143,7 +139,7 @@ def prune_missing_torrents(
     ):
         if info_hash in present:
             continue
-        if listed_at is not None and polled_at is not None and _utc(polled_at) > listed_at:
+        if listed_at is not None and polled_at is not None and as_utc(polled_at) > listed_at:
             registered_since.append(ct_id)
         else:
             stale_ids.append(ct_id)

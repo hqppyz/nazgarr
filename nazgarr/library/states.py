@@ -110,7 +110,7 @@ def _identity_by_media_file(session: Session) -> dict[int, tuple[str, int]]:
     }
 
 
-def _tracking(session: Session, torrent_ids: set[int] | None = None) -> tuple[set[int], set[int]]:
+def tracking(session: Session, torrent_ids: set[int] | None = None) -> tuple[set[int], set[int]]:
     """(seed_file tracciati da un client, seed_file tracciati da almeno un
     torrent non fermo): un file in più torrent (cross-seed) è "stopped" solo
     se lo sono tutti. torrent_ids: solo questi torrent (filtro per tracker,

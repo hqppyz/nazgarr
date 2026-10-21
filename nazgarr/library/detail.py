@@ -12,11 +12,11 @@ attesa ed esecuzioni già fatte.
 
 from collections import defaultdict
 from datetime import UTC
-from urllib.parse import urlsplit
 
 from sqlalchemy.orm import Session, selectinload
 
 from nazgarr.adapters.torrent_client.base import is_stopped_state
+from nazgarr.core.db_utils import as_utc
 from nazgarr.core.file_types import is_video
 from nazgarr.core.models import (
     ClientTorrent,
@@ -38,7 +38,7 @@ from nazgarr.library.exclusions import load_exclusions
 from nazgarr.library.guess import guess as guess_name
 from nazgarr.library.hardlinks import media_links
 from nazgarr.library.scan_state import is_current, latest_scan_by_disk
-from nazgarr.reseed.matching import _as_utc, get_rematch_interval
+from nazgarr.reseed.matching import get_rematch_interval
 from nazgarr.reseed.review import (
     READY_FOR_DECISION_STATUSES,
     hashes_in_clients,
@@ -47,16 +47,12 @@ from nazgarr.reseed.review import (
     with_details,
     without_seed_job,
 )
+from nazgarr.torrents.tracker_scope import torrent_host
 
 MAX_CANDIDATES = 30
 
 
-def _host(url: str | None) -> str | None:
-    host = urlsplit(url).hostname if url else None
-    return host.removeprefix("www.") if host else None
-
-
-def _quality(filename: str) -> str | None:
+def release_quality(filename: str) -> str | None:
     """"1080p · BluRay · H.265" dal nome del file (guessit), nessuna lettura
     del file e nessuna chiamata esterna."""
     guess = guess_name(filename)
@@ -91,7 +87,7 @@ def tracker_overview(session: Session, files: list[dict]) -> list[dict]:
     by_host: dict[str, Tracker] = {}
     for tracker in configured:
         for url in (tracker.announce_url, tracker.base_url):
-            host = _host(url)
+            host = torrent_host(url)
             if host:
                 by_host.setdefault(host, tracker)
 
@@ -166,7 +162,7 @@ def item_detail(session: Session, content_type: str, tmdb_id: int) -> dict | Non
         )
         for seed_file_id, torrent, client_label, client_enabled in rows:
             torrents_by_seed[seed_file_id].append({
-                "name": torrent.name, "client": client_label, "tracker": _host(torrent.tracker_url),
+                "name": torrent.name, "client": client_label, "tracker": torrent_host(torrent.tracker_url),
                 "state": torrent.state, "client_enabled": bool(client_enabled),
             })
 
@@ -221,8 +217,8 @@ def item_detail(session: Session, content_type: str, tmdb_id: int) -> dict | Non
         for attempt in session.query(MatchAttempt).filter(MatchAttempt.media_file_id.in_(mf_ids)).all():
             by_tracker[attempt.tracker_id].append(attempt)
         for tracker_id, attempts in by_tracker.items():
-            last = max(_as_utc(a.attempted_at) for a in attempts)
-            first = min(_as_utc(a.attempted_at) for a in attempts)
+            last = max(as_utc(a.attempted_at) for a in attempts)
+            first = min(as_utc(a.attempted_at) for a in attempts)
             searches.append({
                 "tracker": tracker_labels.get(tracker_id, f"#{tracker_id}"),
                 "files_searched": len(attempts),
@@ -269,7 +265,7 @@ def item_detail(session: Session, content_type: str, tmdb_id: int) -> dict | Non
         "imdb_id": next((i.imdb_id for i in items if i.imdb_id), None),
         "arr_kind": head.arr_kind,
         "arr_url": next((u for u in (_arr_url(session, i) for i in items) if u), None),
-        "quality": _quality(first_video.rsplit("/", 1)[-1]) if first_video else None,
+        "quality": release_quality(first_video.rsplit("/", 1)[-1]) if first_video else None,
         "total_size_bytes": sum(f["size_bytes"] for f in files if not f["excluded"]),
         "files": files,
         "trackers": tracker_overview(session, files),

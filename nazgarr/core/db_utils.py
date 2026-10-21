@@ -5,9 +5,21 @@ riga — qui per evitare di duplicare la stessa costruzione dello statement
 in ogni modulo che scrive."""
 
 from contextlib import contextmanager
+from datetime import UTC, datetime
 
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
+
+
+def as_utc(value: datetime | None) -> datetime | None:
+    """Una data letta dal DB, con il fuso: SQLite restituisce senza fuso
+    anche le date salvate con, e sono UTC. None resta None. L'unico posto
+    (audit 2026-10-18): prima la stessa riga era copiata in matching,
+    upload/jobs, indexer e scritta per esteso in altri cinque moduli."""
+    if value is None:
+        return None
+    return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+
 
 # Righe per istruzione: SQLite limita i parametri di una singola istruzione
 # (SQLITE_MAX_VARIABLE_NUMBER: 250000 nel Python dell'immagine, 32766 in

@@ -42,6 +42,7 @@ from nazgarr.adapters.image_host.base import ImageHostError
 from nazgarr.adapters.torrent_client.base import TorrentAlreadyInClientError, is_stopped_state, stopped_kwargs
 from nazgarr.adapters.tracker.base import UploadFields, catalog_truncated
 from nazgarr.core import settings_registry
+from nazgarr.core.db_utils import as_utc
 from nazgarr.core.errors import CodedError
 from nazgarr.core.file_types import is_video
 from nazgarr.core.fs_scope import ScopeViolation, resolve_scoped
@@ -1172,7 +1173,7 @@ def _missing_long_enough(job: UploadJob, target: UploadTarget) -> bool:
     held = max((e.created_at for e in job.events if e.target_id == target.id and e.code in _HELD_AGAIN_EVENTS
                 and e.created_at is not None), default=None)
     if held is not None:
-        since = max(since, held if held.tzinfo is not None else held.replace(tzinfo=UTC))
+        since = max(since, as_utc(held))
     return now - since >= MISSING_TORRENT_GRACE
 
 
