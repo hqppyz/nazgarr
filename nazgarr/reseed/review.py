@@ -69,12 +69,12 @@ from nazgarr.reseed.executor import (
     RetryRefused,
     adopt_for_retry,
     execute_review,
+    lookup_torrent,
     missing_long_enough,
     reconcile_seed_job,
     retry_from_scratch,
     review_of,
     seen_in_client,
-    torrent_missing,
 )
 from nazgarr.torrents import client_labels
 from nazgarr.upload.jobs import SEED_RECHECK_PENDING
@@ -1312,7 +1312,8 @@ def reconcile_pending_seed_jobs(session: Session, progress=NULL_PROGRESS) -> dic
                 _failing.discard(seed_job.id)
             except Exception as exc:
                 session.rollback()
-                if _missing_from_client(adapter, seed_job):
+                found = lookup_torrent(adapter, seed_job.info_hash)
+                if found == "missing":
                     # 10 minuti di fila (executor.missing_long_enough), non
                     # dall'aggiunta: un client riavviato che ricarica ancora
                     # i suoi torrent non fa fallire un reseed in corso da ore.
@@ -1329,6 +1330,21 @@ def reconcile_pending_seed_jobs(session: Session, progress=NULL_PROGRESS) -> dic
                     _failing.add(seed_job.id)
                     logger.exception("Reconcile fallito per seed_job %s", seed_job.id)
                 errors += 1
+                if found == "unreachable":
+                    # Il client non ha risposto a nessuna delle due domande:
+                    # gli altri suoi job saltano questo giro (contati come
+                    # errori). Il giro è lavoro a lato e tiene il lock delle
+                    # run (scheduler._reconcile_between_runs): con un client
+                    # che non risponde ogni job costava due timeout, minuti
+                    # di webhook, "Cerca ora" e run fermi (revisione
+                    # dell'audit 2026-10-18). Un adapter che non sa cercare
+                    # un torrent solo ("unknown", un plugin) va avanti: un
+                    # torrent sbagliato non ferma gli altri.
+                    logger.warning("Il client del seed_job %s non risponde: i suoi reseed si ricontrollano al "
+                                   "prossimo giro", seed_job.id)
+                    close_adapter(adapter)
+                    adapters[key] = (None, None)
+                    broken.add(key)
                 continue
             if seed_job.final_status == "seeding":
                 try:
@@ -1353,12 +1369,6 @@ _failing: set[int] = set()
 def _client_enabled(session: Session, torrent_client_id: int) -> bool:
     row = session.get(TorrentClient, torrent_client_id)
     return row is not None and bool(row.enabled)
-
-
-def _missing_from_client(adapter, seed_job: SeedJob) -> bool:
-    """Il client risponde, e quel torrent non ce l'ha (executor.torrent_missing,
-    lo stesso controllo del flusso degli upload)."""
-    return torrent_missing(adapter, seed_job.info_hash)
 
 
 GONE_FROM_CLIENT = "The torrent is no longer in the client: retry it to add it again, or delete it"

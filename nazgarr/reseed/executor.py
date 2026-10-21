@@ -971,18 +971,26 @@ def can_look_up_torrent(adapter: TorrentClientAdapter) -> bool:
     return method is not None and method is not TorrentClientAdapter.get_torrent_info
 
 
-def torrent_missing(adapter: TorrentClientAdapter, info_hash: str) -> bool:
-    """Il client risponde, e quel torrent non ce l'ha (get_torrent_info None,
-    il contratto degli adapter). Un client che non risponde non è "mancante",
-    e nemmeno uno il cui adapter non sa cercare un torrent solo
-    (can_look_up_torrent): un client irraggiungibile diventava "il torrent
-    non c'è più", con l'esecuzione fallita e la notifica."""
+def lookup_torrent(adapter: TorrentClientAdapter, info_hash: str) -> str:
+    """Cosa dice il client di un torrent solo: "present"; "missing" se
+    risponde e non ce l'ha (get_torrent_info None, il contratto degli
+    adapter); "unknown" se l'adapter non sa cercarlo (can_look_up_torrent);
+    "unreachable" se la domanda è fallita (il client non risponde)."""
     if not can_look_up_torrent(adapter):
-        return False
+        return "unknown"
     try:
-        return adapter.get_torrent_info(info_hash) is None
+        return "missing" if adapter.get_torrent_info(info_hash) is None else "present"
     except Exception:
-        return False
+        return "unreachable"
+
+
+def torrent_missing(adapter: TorrentClientAdapter, info_hash: str) -> bool:
+    """Il client risponde, e quel torrent non ce l'ha (lookup_torrent). Un
+    client che non risponde non è "mancante", e nemmeno uno il cui adapter
+    non sa cercare un torrent solo (can_look_up_torrent): un client
+    irraggiungibile diventava "il torrent non c'è più", con l'esecuzione
+    fallita e la notifica."""
+    return lookup_torrent(adapter, info_hash) == "missing"
 
 
 def _start_after_recheck(adapter: TorrentClientAdapter, seed_job: SeedJob) -> bool:

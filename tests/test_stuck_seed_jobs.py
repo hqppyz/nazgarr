@@ -224,3 +224,64 @@ def test_a_reconcile_that_keeps_failing_logs_its_traceback_once(db_session, monk
     records = [r for r in caplog.records if f"seed_job {job.id}" in r.getMessage()]
     assert [r.exc_info is not None for r in records] == [True, False]
     assert "connection refused" in records[1].getMessage()
+
+
+def test_a_client_that_does_not_answer_is_asked_once_per_round(db_session, monkeypatch):
+    """Revisione dell'audit 2026-10-18: il giro tiene il lock delle run, e
+    con un client che non risponde (pacchetti scartati, non rifiutati) ogni
+    job costava due timeout. Gli altri job di quel client saltano il giro,
+    contati come errori, e il client si chiude; gli altri client vanno avanti."""
+    from nazgarr.adapters.torrent_client.base import TorrentStatus
+    from tests.fakes import RecordingClient
+
+    class Silent:
+        def __init__(self):
+            self.calls, self.closed = [], False
+
+        def get_torrent_status(self, info_hash):
+            self.calls.append(("status", info_hash))
+            raise ConnectionError("timed out")
+
+        def get_torrent_info(self, info_hash):
+            self.calls.append(("info", info_hash))
+            raise ConnectionError("timed out")
+
+        def close(self):
+            self.closed = True
+
+    silent_row, fine_row = _client(db_session), _client(db_session)
+    first = _job(db_session, info_hash="aaa", client=silent_row)
+    second = _job(db_session, info_hash="bbb", client=silent_row, tmdb_id=2)
+    other = _job(db_session, info_hash="ccc", client=fine_row, tmdb_id=3)
+    silent = Silent()
+    fine = RecordingClient(status=TorrentStatus("ccc", "uploading", "ok", 1.0))
+    monkeypatch.setattr(review, "build_torrent_client_adapter",
+                        lambda row: silent if row.id == silent_row.id else fine)
+
+    assert review.reconcile_pending_seed_jobs(db_session) == {"reconciled": 1, "errors": 2}
+
+    assert silent.calls == [("status", "aaa"), ("info", "aaa")]  # il secondo job non chiede niente
+    assert silent.closed
+    assert (first.final_status, second.final_status, other.final_status) == ("in_progress", "in_progress",
+                                                                             "seeding")
+
+
+def test_a_plugin_that_cannot_look_up_one_torrent_still_reconciles_its_other_jobs(db_session, monkeypatch):
+    # Un errore su un torrent solo, con un adapter che non sa dire se c'è:
+    # non è un client che non risponde, e gli altri suoi job si controllano.
+    from nazgarr.adapters.torrent_client.base import TorrentStatus
+    from tests.fakes import FakeAdapter
+
+    class OneBad(FakeAdapter):
+        def get_torrent_status(self, info_hash):
+            if info_hash == "aaa":
+                raise ValueError("unexpected answer")
+            return TorrentStatus(info_hash, "uploading", "ok", 1.0)
+
+    row = _client(db_session)
+    bad = _job(db_session, info_hash="aaa", client=row)
+    good = _job(db_session, info_hash="bbb", client=row, tmdb_id=2)
+    monkeypatch.setattr(review, "build_torrent_client_adapter", lambda r: OneBad([]))
+
+    assert review.reconcile_pending_seed_jobs(db_session) == {"reconciled": 1, "errors": 1}
+    assert (bad.final_status, good.final_status) == ("in_progress", "seeding")
