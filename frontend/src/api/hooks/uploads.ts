@@ -30,6 +30,21 @@ function isJobWorking(job: UploadJobSummary | undefined) {
   return !!job && (isWorking(job.status) || job.targets.some((target) => TARGET_WORKING_STATES.includes(target.status)))
 }
 
+// Un target 'done' col torrent fermo nel client, in attesa del suo recheck
+// (nazgarr/upload/execute.py reconcile_held_seeds, ogni 30 s): il job è
+// finito, ma l'esito arriva dopo (avviato, o "Riprova il seed"). Prima la
+// pagina smetteva di aggiornarsi proprio lì (audit 2026-10-18).
+const HELD_POLL_MS = 10_000
+
+export function awaitsRecheck(job: UploadJobSummary | undefined) {
+  return !!job && job.targets.some((target) => target.status === 'done' && target.error_message === 'seed_recheck_pending')
+}
+
+export function uploadPollInterval(job: UploadJobSummary | undefined): number | false {
+  if (isJobWorking(job)) return POLL_MS
+  return awaitsRecheck(job) ? HELD_POLL_MS : false
+}
+
 // Dopo una mutation che ha già messo il job aggiornato in ['uploads', id]:
 // solo le liste da ricaricare, la coda e lo storico (un job ripreso o
 // riprovato passa dall'uno all'altra) (audit 2026-10-18). Il prefisso
@@ -94,7 +109,7 @@ export function useUpload(uploadId: number | null) {
     queryKey: ['uploads', uploadId],
     queryFn: () => unwrap(api.GET('/api/uploads/{upload_id}', { params: { path: { upload_id: uploadId! } } })),
     enabled: uploadId !== null,
-    refetchInterval: (query) => (isJobWorking(query.state.data) ? POLL_MS : false),
+    refetchInterval: (query) => uploadPollInterval(query.state.data),
   })
 }
 
