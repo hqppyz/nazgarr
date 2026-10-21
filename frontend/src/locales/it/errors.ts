@@ -49,7 +49,7 @@ export const errors = {
   'errors.full_check_seed_job_mismatch': "L'esecuzione {seed_job_id} non è del candidato torrent {candidate_id}.",
 
   'errors.tracker_not_found': 'Tracker {id} non trovato.',
-  'errors.tracker_busy': '{label} ha un’esecuzione o un upload in corso: aspetta che finisca, annulla l’upload o elimina l’esecuzione bloccata in Reseeding, poi eliminalo',
+  'errors.tracker_busy': '{label} ha un’esecuzione o un upload in corso, o un reseed fermo nel suo client in attesa del recheck: aspetta che finisca, annulla l’upload o elimina l’esecuzione bloccata in Reseeding, poi eliminalo',
   'errors.tracker_in_use': '{label} è ancora usato da altri dati e non si può eliminare: disattivalo invece',
   'errors.secret_required_for_new_host':
     'L’indirizzo punta a un altro host: inserisci di nuovo {fields}, così non vengono mai inviati per errore a un nuovo server',

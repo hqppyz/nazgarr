@@ -120,6 +120,42 @@ def test_a_tracker_with_an_execution_or_an_upload_in_progress_is_not_deleted(cli
     assert client.delete(f"/api/trackers/{tracker_id}").status_code == 204
 
 
+
+def test_a_tracker_with_a_reseed_waiting_for_its_recheck_is_not_deleted(client):
+    """Un target del flusso degli upload col torrent fermo nel client in
+    attesa del recheck: il reconcile segue solo quella riga per avviarlo, e
+    la cascata la toglieva, lasciandolo fermo per sempre (audit 2026-10-18).
+    Con il client spento il reconcile non lo segue comunque: lì si elimina."""
+    from nazgarr.core.models import TorrentClient, UploadJob, UploadTarget
+    from nazgarr.upload.jobs import SEED_RECHECK_PENDING
+
+    tracker_id = client.post("/api/trackers", json={
+        "label": "ITT", "adapter_type": "unit3d", "base_url": "https://itt.example", "api_token": "secret",
+    }).json()["id"]
+    with client.app.state.session_factory() as session:
+        torrent_client = TorrentClient(label="qbit", adapter_type="qbittorrent", base_url="http://q")
+        session.add(torrent_client)
+        session.flush()
+        upload = UploadJob(relative_path="media/m.mkv", source_path="/x/media/m.mkv", status="done", title="M")
+        upload.targets = [UploadTarget(tracker_id=tracker_id, status="done", action="reseed", info_hash="ab" * 20,
+                                       torrent_client_id=torrent_client.id, error_message=SEED_RECHECK_PENDING)]
+        session.add(upload)
+        session.commit()
+        client_id = torrent_client.id
+
+    assert client.get(f"/api/trackers/{tracker_id}/delete-preview").json()["busy"] is True
+    response = client.delete(f"/api/trackers/{tracker_id}")
+    assert response.status_code == 409
+    assert response.json()["detail"] == {"code": "tracker_busy", "params": {"label": "ITT"}}
+    assert _count(client, UploadTarget) == 1
+
+    with client.app.state.session_factory() as session:
+        session.get(TorrentClient, client_id).enabled = False
+        session.commit()
+    assert client.get(f"/api/trackers/{tracker_id}/delete-preview").json()["busy"] is False
+    assert client.delete(f"/api/trackers/{tracker_id}").status_code == 204
+    assert _count(client, UploadTarget) == 0
+
 def test_a_row_without_a_delete_action_gives_a_409(client):
     """Un DB con un riferimento senza ON DELETE (di prima della migrazione
     10): un 409 col suo codice, non un 500."""

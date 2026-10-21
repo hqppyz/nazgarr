@@ -97,7 +97,7 @@ export const trackers = {
   'trackers.deletePreview.uploadTargets': 'Upload verso di lui',
   'trackers.deletePreview.uploadProfile': 'Il suo profilo di upload',
   'trackers.deletePreview.untouched': 'Sul tracker, sui tuoi dischi e nei tuoi client torrent non cambia niente.',
-  'trackers.deletePreview.busy': 'Un’esecuzione o un upload di questo tracker è in corso: aspetta che finisca, annulla l’upload o elimina l’esecuzione bloccata in Reseeding, poi eliminalo.',
+  'trackers.deletePreview.busy': 'Un’esecuzione o un upload di questo tracker è in corso, o un suo reseed è fermo nel client in attesa del recheck: aspetta che finisca, annulla l’upload o elimina l’esecuzione bloccata in Reseeding, poi eliminalo.',
   'trackers.deleteProfileTitle': 'Eliminare il profilo di upload di {trackerLabel}?',
   'trackers.deleteProfileDescription': 'Nomi, descrizione e valori predefiniti di questo profilo vanno persi. Potrai crearne uno nuovo da zero o da un profilo incluso.',
 } as const
