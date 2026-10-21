@@ -573,3 +573,50 @@ def test_a_rate_limit_below_one_still_lets_requests_through_one_per_minute(bad):
         assert base._shared_limiter("https://neg.example", bad) is shared and shared.max_per_min == 1
     finally:
         base.reset_shared_state()
+
+
+def test_the_search_cache_drops_expired_searches_and_stays_bounded(monkeypatch):
+    """Audit 2026-10-18, finding 130 (residuo): la cache delle ricerche
+    controllava la scadenza solo in lettura e non toglieva mai niente, così
+    teneva ogni titolo cercato su ogni tracker per tutta la vita del processo."""
+    from nazgarr.adapters.tracker import base
+
+    clock = [1000.0]
+    monkeypatch.setattr(base.time, "monotonic", lambda: clock[0])
+    cache = base.SearchCache(max_entries=3)
+    cache.store(1, 600, ["a"])
+    cache.store(2, 600, ["b"])
+    clock[0] += 601
+    cache.store(3, 600, ["c"])
+    assert list(cache) == [3]  # le scadute escono a ogni scrittura
+
+    cache.store(4, 600, ["d"])
+    cache.store(5, 600, ["e"])
+    assert cache.lookup(3, 600) == ["c"]  # la più vecchia, appena usata
+    cache.store(6, 600, ["f"])
+    assert list(cache) == [5, 3, 6]  # oltre il tetto esce quella usata meno di recente
+    assert cache.lookup(4, 600) is None
+    assert isinstance(cache, dict) and cache.pop(5, None) == (1601.0, 600, ["e"])  # upload/execute._forget_search
+
+
+def test_the_search_cache_of_a_replaced_token_is_forgotten(monkeypatch):
+    from nazgarr.adapters.tracker import base
+
+    clock = [1000.0]
+    monkeypatch.setattr(base.time, "monotonic", lambda: clock[0])
+    base.reset_shared_state()
+
+    def handler(request):
+        return httpx.Response(200, json={"data": []})
+
+    try:
+        _adapter(handler, shared=True).search_by_tmdb(1)
+        assert len(base._shared_search_caches) == 1
+        clock[0] += 601
+        client = httpx.Client(transport=httpx.MockTransport(handler), base_url="https://tracker.example")
+        replaced = base.Unit3dTrackerAdapter(base_url="https://tracker.example", api_token="new-token", shared=True,
+                                             http_client=client)
+        replaced.search_by_tmdb(1)
+        assert len(base._shared_search_caches) == 1  # quella del vecchio token, scaduta, non c'è più
+    finally:
+        base.reset_shared_state()

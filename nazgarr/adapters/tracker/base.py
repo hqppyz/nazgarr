@@ -14,7 +14,7 @@ import re
 import threading
 import time
 from abc import ABC, abstractmethod
-from collections import deque
+from collections import OrderedDict, deque
 from collections.abc import Callable
 from dataclasses import dataclass
 from email.utils import parsedate_to_datetime
@@ -236,13 +236,70 @@ class _RateLimiter:
             sleep(slot - now)
 
 
+# Le ricerche tenute per tracker (e token): oltre, la meno usata di recente
+# esce. Una voce è qualche decina di KB (i candidati di un titolo), e prima
+# nessuna usciva mai: per tutta la vita del processo restavano tutti i
+# titoli cercati, per ogni tracker (audit 2026-10-18, finding 130).
+MAX_CACHED_SEARCHES = 2000
+
+
+class SearchCache(OrderedDict):
+    """Le ricerche di un tracker per tmdb_id, con la loro scadenza (il
+    cache_ttl_seconds dell'adapter che le ha scritte) e al più max_entries:
+    a ogni scrittura escono quelle scadute, e oltre il tetto quella usata
+    meno di recente. Prima la scadenza si guardava solo in lettura, e niente
+    usciva mai. È un dict (tmdb_id -> (scritta, ttl, candidati)): chi deve
+    dimenticare una ricerca la toglie con pop (nazgarr/upload/execute.py).
+    Condivisa fra i thread (le run, "Cerca ora", gli upload): un lock."""
+
+    def __init__(self, max_entries: int = MAX_CACHED_SEARCHES):
+        super().__init__()
+        self.max_entries = max_entries
+        self._lock = threading.Lock()
+
+    def lookup(self, tmdb_id: int, ttl: float) -> list | None:
+        with self._lock:
+            entry = super().get(tmdb_id)
+            if entry is None:
+                return None
+            stored, _ttl, candidates = entry
+            if time.monotonic() - stored >= ttl:
+                super().pop(tmdb_id, None)
+                return None
+            self.move_to_end(tmdb_id)
+            return candidates
+
+    def store(self, tmdb_id: int, ttl: float, candidates: list) -> None:
+        with self._lock:
+            now = time.monotonic()
+            self._drop_expired(now)
+            self[tmdb_id] = (now, ttl, candidates)
+            self.move_to_end(tmdb_id)
+            while len(self) > self.max_entries:
+                self.popitem(last=False)
+
+    def pop(self, key, *default):
+        with self._lock:
+            return super().pop(key, *default)
+
+    def sweep(self) -> int:
+        """Toglie le ricerche scadute; quante ne restano."""
+        with self._lock:
+            self._drop_expired(time.monotonic())
+            return len(self)
+
+    def _drop_expired(self, now: float) -> None:
+        for key in [key for key, (stored, ttl, _c) in self.items() if now - stored >= ttl]:
+            super().pop(key, None)
+
+
 # Rate limit e cache delle ricerche condivisi per tracker in tutto il
 # processo: ogni operazione (run, "Cerca ora", upload, controllo completo)
 # costruisce il suo adapter, e con un limitatore per adapter ognuna aveva il
 # suo budget, così insieme superavano il limite del tracker.
 _shared_lock = threading.Lock()
 _shared_limiters: dict[str, _RateLimiter] = {}
-_shared_search_caches: dict[tuple[str, str], dict[int, tuple[float, list]]] = {}
+_shared_search_caches: dict[tuple[str, str], SearchCache] = {}
 
 
 def _shared_limiter(base_url: str, max_per_min: int) -> _RateLimiter:
@@ -254,11 +311,18 @@ def _shared_limiter(base_url: str, max_per_min: int) -> _RateLimiter:
         return limiter
 
 
-def _shared_search_cache(base_url: str, api_token: str) -> dict[int, tuple[float, list]]:
+def _shared_search_cache(base_url: str, api_token: str) -> SearchCache:
     # Per token: i risultati possono dipendere dall'utente (freeleech, accesso).
     key = (base_url, hashlib.sha256(api_token.encode()).hexdigest())
     with _shared_lock:
-        return _shared_search_caches.setdefault(key, {})
+        # Le cache degli altri token (uno cambiato, un tracker tolto) senza
+        # più niente di valido escono: restavano per sempre (audit 2026-10-18).
+        for other in [k for k, cache in _shared_search_caches.items() if k != key and cache.sweep() == 0]:
+            del _shared_search_caches[other]
+        cache = _shared_search_caches.get(key)
+        if cache is None:
+            cache = _shared_search_caches[key] = SearchCache()
+        return cache
 
 
 def reset_shared_state() -> None:
@@ -341,8 +405,7 @@ class Unit3dTrackerAdapter(TrackerAdapter):
         self._rate_limiter = (
             _shared_limiter(self.base_url, rate_limit_per_min) if shared else _RateLimiter(rate_limit_per_min))
         self._cache_ttl_seconds = cache_ttl_seconds
-        self._search_cache: dict[int, tuple[float, list[TorrentCandidate]]] = (
-            _shared_search_cache(self.base_url, api_token) if shared else {})
+        self._search_cache: SearchCache = _shared_search_cache(self.base_url, api_token) if shared else SearchCache()
         self._sleep = sleep
         # Chiave attuale dei link di download: quella salvata sul tracker,
         # poi sempre aggiornata dal download_link di ogni risposta dell'API
@@ -354,9 +417,9 @@ class Unit3dTrackerAdapter(TrackerAdapter):
         self.on_rate_limit_wait: Callable[[float | None], None] | None = None
 
     def search_by_tmdb(self, tmdb_id: int) -> list[TorrentCandidate]:
-        cached = self._search_cache.get(tmdb_id)
-        if cached is not None and (time.monotonic() - cached[0]) < self._cache_ttl_seconds:
-            return cached[1]
+        cached = self._search_cache.lookup(tmdb_id, self._cache_ttl_seconds)
+        if cached is not None:
+            return cached
 
         candidates = CatalogResults()
         params: dict = {"tmdbId": tmdb_id, "perPage": self.SEARCH_PER_PAGE}
@@ -388,7 +451,7 @@ class Unit3dTrackerAdapter(TrackerAdapter):
                 "Tracker %s: più di %d pagine di risultati per tmdb %s, letti solo i primi %d torrent",
                 self.base_url, self.MAX_SEARCH_PAGES, tmdb_id, len(candidates),
             )
-        self._search_cache[tmdb_id] = (time.monotonic(), candidates)
+        self._search_cache.store(tmdb_id, self._cache_ttl_seconds, candidates)
         return candidates
 
     @staticmethod
