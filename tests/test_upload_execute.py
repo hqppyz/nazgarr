@@ -702,6 +702,31 @@ def test_files_touched_since_the_check_are_read_again_before_starting(db_session
     assert [e.code for e in job.events].count("seed_pieces_checking") == 1
 
 
+def test_an_old_hold_without_missing_never_counts_an_absent_video_as_an_extra(
+        db_session, tmp_path, env, inline_checks):
+    """Un'aggiunta di prima della regola non segnava gli extra mancanti: si
+    ricavano dai file assenti nella cartella di seed, ma mai un video (come
+    upload_reseed_missing_video). Contato come extra, ogni suo piece era
+    scusato e la lettura "passava": il torrent partiva a scaricarlo."""
+    job, _video = _reseed_job(db_session, tmp_path, env, extras={"The.Matrix.nfo": b"n" * 600})
+    client = env["client"]
+    client.held_recheck = "failed"  # al client mancano 1000 byte, dentro il margine
+    _run(db_session, tmp_path, job)
+    target = job.targets[0]
+    [held] = [e for e in job.events if e.code == "added_to_client_held"]
+    params = json.loads(held.params_json)
+    del params["missing"]  # com'era scritto prima
+    held.params_json = json.dumps(params)
+    db_session.commit()
+    (env["root"] / "torrents" / "The.Matrix.1999.1080p-GRP" / "The.Matrix.1999.1080p-GRP.mkv").unlink()
+
+    upload_execute.reconcile_held_seeds(db_session)
+
+    assert not getattr(client, "started", []) and target.error_message == "seed_recheck_failed"
+    [failed] = _events(job, "seed_pieces_failed")
+    assert "The.Matrix.1999.1080p-GRP.mkv" in failed["reason"]
+
+
 class _Later:
     """La coda dei controlli completi, ferma finché il test non la fa girare."""
 

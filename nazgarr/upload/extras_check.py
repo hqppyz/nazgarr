@@ -28,6 +28,7 @@ import os
 from dataclasses import dataclass
 from typing import NamedTuple
 
+from nazgarr.core.file_types import is_video
 from nazgarr.core.fs_scope import ScopeViolation, resolve_scoped
 from nazgarr.core.logs import safe_error
 from nazgarr.reseed import full_check
@@ -124,8 +125,12 @@ def seed_locator(save_path: str, parsed: TorrentInfo, partial_suffix: str | None
 
 def missing_now(parsed: TorrentInfo, locate: full_check.Locator) -> set[str]:
     """I file del torrent senza file dove li legge il client: gli extra
-    mancanti di un'aggiunta di prima di questa regola, che non li segnava."""
-    return {entry.path for entry in parsed.files if entry.length > 0 and locate(entry)[0] is None}
+    mancanti di un'aggiunta di prima di questa regola, che non li segnava.
+    Mai un video, come all'aggiunta (upload_reseed_missing_video): contato
+    come extra, ogni suo piece sarebbe scusato e la lettura passerebbe.
+    Resta fra i file da leggere, assente, e la lettura fallisce."""
+    return {entry.path for entry in parsed.files
+            if entry.length > 0 and not is_video(entry.path) and locate(entry)[0] is None}
 
 
 def decide(target_id: int, content: bytes, info_hash: str, save_path: str, missing: set[str] | None,
