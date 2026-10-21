@@ -16,6 +16,7 @@ export const common = {
   'common.loading': 'Caricamento…',
   'common.loadMore': 'Carica altri',
   'common.loadFailed': 'Non si è riusciti a caricare questa pagina.',
+  'common.listLoadFailed': 'Non si è riusciti a caricare questo elenco.',
   'common.retry': 'Riprova',
   'common.reload': 'Ricarica la pagina',
   'common.crashTitle': 'Qualcosa è andato storto',

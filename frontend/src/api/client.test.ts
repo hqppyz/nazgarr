@@ -132,6 +132,63 @@ describe('api client middleware', () => {
   })
 })
 
+// Un'istanza remota di una 0.9.x rilasciata: le path che conosce, il resto
+// come risponderebbe lei (lo storico finisce su /api/uploads/{upload_id}, 422).
+function olderRemote(routes: Record<string, unknown>, missing = 404) {
+  const seen: string[] = []
+  const fetch = vi.fn(async (request: Request) => {
+    const url = new URL(request.url)
+    seen.push(`${url.pathname}${url.search}`)
+    const body = routes[url.pathname]
+    return body === undefined
+      ? new Response(JSON.stringify({ detail: 'Not Found' }), { status: missing, headers: { 'Content-Type': 'application/json' } })
+      : new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } })
+  })
+  return { fetch, seen }
+}
+
+describe('older remote instances (audit 2026-10-18)', () => {
+  beforeEach(() => localStorage.clear())
+  afterEach(() => localStorage.clear())
+
+  const job = (id: number, status: string) => ({ id, status })
+
+  it('builds the upload history from the plain list when the remote has no /history', async () => {
+    setToken('tok')
+    localStorage.setItem('nazgarr-instance', '3')
+    const { fetch, seen } = olderRemote(
+      { '/api/remote/3/api/uploads': [job(9, 'running'), job(7, 'done'), job(8, 'failed'), job(5, 'cancelled')] },
+      422,
+    )
+    const data = await unwrap(api.GET('/api/uploads/history', { baseUrl: BASE, fetch, params: { query: { limit: 50 } } }))
+    expect(data).toEqual({ jobs: [job(8, 'failed'), job(7, 'done'), job(5, 'cancelled')], total: 3, next_before_id: null })
+    expect(seen).toEqual(['/api/remote/3/api/uploads/history?limit=50', '/api/remote/3/api/uploads'])
+    expect(fetch.mock.calls[1][0].headers.get('Authorization')).toBe('Bearer tok')
+  })
+
+  it('builds the review queue from the plain list when the remote has no /queue', async () => {
+    localStorage.setItem('nazgarr-instance', '3')
+    const { fetch } = olderRemote({ '/api/remote/3/api/reviews': [{ id: 1 }, { id: 2 }] })
+    const data = await unwrap(api.GET('/api/reviews/queue', { baseUrl: BASE, fetch, params: { query: { offset: 0, limit: 100 } } }))
+    expect(data).toEqual({ items: [{ id: 1 }, { id: 2 }], total: 2, offset: 0, next_offset: null })
+  })
+
+  it('keeps the new endpoints when the remote has them, and the errors of this instance', async () => {
+    localStorage.setItem('nazgarr-instance', '3')
+    const page = { items: [], total: 0, offset: 0, next_offset: null }
+    const current = olderRemote({ '/api/remote/3/api/reviews/queue': page, '/api/remote/3/api/reviews': [{ id: 1 }] })
+    expect(await unwrap(api.GET('/api/reviews/queue', { baseUrl: BASE, fetch: current.fetch }))).toEqual(page)
+    expect(current.seen).toEqual(['/api/remote/3/api/reviews/queue'])
+
+    // Questa istanza ha sempre gli endpoint della sua interfaccia: un 404 resta un errore.
+    localStorage.clear()
+    const local = olderRemote({ '/api/reviews': [{ id: 1 }] })
+    const error = await unwrap(api.GET('/api/reviews/queue', { baseUrl: BASE, fetch: local.fetch })).catch((e: unknown) => e)
+    expect((error as ApiError).status).toBe(404)
+    expect(local.seen).toEqual(['/api/reviews/queue'])
+  })
+})
+
 describe('unwrap', () => {
   it('throws an ApiError with the status and the code of the error', async () => {
     const { fetch } = serve(404, { detail: { code: 'upload_not_found' } })

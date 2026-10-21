@@ -2,6 +2,7 @@ import createClient from 'openapi-fetch'
 import type { FetchResponse } from 'openapi-fetch'
 import type { MediaType } from 'openapi-typescript-helpers'
 
+import { olderRemoteFallback } from '@/api/compat'
 import { clearToken, getToken } from '@/lib/authToken'
 import { demoResponse } from '@/lib/uploadDemo'
 import { instancePath } from '@/lib/instance'
@@ -38,9 +39,12 @@ api.use({
     url.pathname = path
     return rerouted(request, url)
   },
-  async onResponse({ response }) {
-    if (response.status === 401 && (await isSessionFailure(response))) clearToken()
-    return response
+  async onResponse({ request, response, schemaPath, options }) {
+    // Un endpoint che un'istanza remota più vecchia non ha: la stessa
+    // risposta da quello di prima (src/api/compat.ts).
+    const final = (await olderRemoteFallback(schemaPath, request, response, options.fetch)) ?? response
+    if (final.status === 401 && (await isSessionFailure(final))) clearToken()
+    return final
   },
 })
 
