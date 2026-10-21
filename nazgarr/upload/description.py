@@ -4,12 +4,16 @@ dal template del tracker. L'orchestrazione dei passi vive in
 nazgarr/upload/jobs.py e nazgarr/upload/worker.py. Dominio separato dal reseeding:
 non tocca mai media_item/candidate/match_review/seed_job."""
 
+import contextvars
 import functools
 import logging
 import re
 import string
+import time
 
-from jinja2 import TemplateError
+from jinja2 import TemplateError, nodes
+from jinja2.compiler import CodeGenerator, Frame
+from jinja2.runtime import LoopContext
 from jinja2.sandbox import ImmutableSandboxedEnvironment, SecurityError
 from sqlalchemy.orm import Session
 
@@ -43,13 +47,22 @@ def credit_line() -> str:
 # GIL per ore (tutto il processo fermo, API e scheduler compresi), e
 # 'x' * 10**10, 'x'.ljust(10**10) o '%10000000000s' % 'x' chiedevano 10 GB
 # in un colpo. Ogni operazione che fa crescere un valore si controlla prima.
-# E il testo del render ha un tetto mentre si scrive. Resta fuori quello che
-# cresce a passi piccoli dentro un valore: '~' raddoppiato in un ciclo, o una
-# lista o un {% set %} di centomila testi da un mega; per quello servirebbe
-# un tetto di memoria o di tempo al render (es. in un processo a parte).
+# E il testo del render ha un tetto mentre si scrive.
+#
+# Poi quello che cresce a passi piccoli, un giro alla volta (revisione
+# dell'audit): '~' o '+' raddoppiati in un ciclo arrivavano a 128 MB in
+# 0,05 s, e due range(100000) uno dentro l'altro erano CPU senza fine. Ogni
+# render ha un budget (_Budget): quanto testo e quanti elementi le sue
+# operazioni costruiscono in tutto (MAX_GROWTH, sommando ogni risultato: un
+# valore che poi si butta conta lo stesso), quanti giri fanno i suoi cicli
+# (MAX_TURNS) e quanto tempo ha (MAX_RENDER_SECONDS). Una descrizione vera
+# ne usa una frazione piccola: un mediainfo, qualche screenshot.
 MAX_INT_BITS = 64 * 1024
 MAX_SEQUENCE = 1_000_000
 MAX_OUTPUT = 4 * MAX_SEQUENCE
+MAX_GROWTH = 16 * MAX_SEQUENCE
+MAX_TURNS = 500_000
+MAX_RENDER_SECONDS = 5.0
 # Una specifica di % (larghezza e precisione, anche da un argomento con *).
 _PERCENT_SPEC = re.compile(r"%(?:\([^)]*\))?[-#0 +]*(\*|\d+)?(?:\.(\*|\d+))?")
 
@@ -112,6 +125,11 @@ def _replaced_size(text, old, new, count=-1) -> int:
     return len(text) + times * (len(new) - len(old))
 
 
+def _too_big_sum(left, right) -> bool:
+    return (isinstance(left, (str, list, tuple)) and isinstance(right, (str, list, tuple))
+            and len(left) + len(right) > MAX_SEQUENCE)
+
+
 def _joined_size(separator, items) -> int:
     if not isinstance(separator, str):
         return 0
@@ -137,6 +155,100 @@ def _too_big_str_call(text: str, name: str, args: tuple, kwargs: dict) -> bool:
 
 def _refuse(what: str):
     raise SecurityError(f"the result of {what} would be too large")
+
+
+class _Budget:
+    """Quello che un render può ancora fare (vedi MAX_GROWTH)."""
+
+    __slots__ = ("deadline", "grown", "turns")
+
+    def __init__(self):
+        self.deadline = time.monotonic() + MAX_RENDER_SECONDS
+        self.grown = 0
+        self.turns = 0
+
+    def tick(self) -> None:
+        if time.monotonic() > self.deadline:
+            raise SecurityError(f"the template took more than {MAX_RENDER_SECONDS:g} seconds")
+
+    def grow(self, value):
+        if isinstance(value, (str, list, tuple)):
+            self.grown += len(value)
+            if self.grown > MAX_GROWTH:
+                raise SecurityError("the template builds too much text or too many items")
+        self.tick()
+        return value
+
+
+# Il budget del render in corso, nel thread che lo fa (il worker, o una
+# richiesta). Fuori da un render (Jinja che piega le costanti mentre
+# compila) non c'è: niente da contare.
+_BUDGET: contextvars.ContextVar[_Budget | None] = contextvars.ContextVar("description_budget", default=None)
+
+
+def _tick() -> None:
+    budget = _BUDGET.get()
+    if budget is not None:
+        budget.tick()
+
+
+def _grown(value):
+    budget = _BUDGET.get()
+    return value if budget is None else budget.grow(value)
+
+
+class _Turns:
+    """L'iterabile di un {% for %} (o di un loop(...) ricorsivo), contato a
+    ogni giro. La lunghezza resta quella di prima: loop.length non la
+    ricalcola scorrendolo."""
+
+    __slots__ = ("_items",)
+
+    def __init__(self, items):
+        self._items = items
+
+    def __len__(self) -> int:
+        return len(self._items)
+
+    def __iter__(self):
+        budget = _BUDGET.get()
+        for item in self._items:
+            if budget is not None:
+                budget.turns += 1
+                if budget.turns > MAX_TURNS:
+                    raise SecurityError(f"the template's loops ran more than {MAX_TURNS} times")
+                if budget.turns % 256 == 0:
+                    budget.tick()
+            yield item
+
+
+def _charged(function):
+    """Un filtro il cui risultato conta nel budget (|list, |join, |string...)."""
+
+    @functools.wraps(function)  # anche jinja_pass_arg: Jinja passa lo stesso contesto
+    def charged(*args, **kwargs):
+        return _grown(function(*args, **kwargs))
+
+    return charged
+
+
+class _BudgetedCode(CodeGenerator):
+    """Il codice dei template con '~' contato: Jinja lo compila in un join
+    diretto, senza passare da call_binop."""
+
+    def visit_Concat(self, node: nodes.Concat, frame: Frame) -> None:
+        # Come CodeGenerator.visit_Concat, con i pezzi contati prima del join.
+        if frame.eval_ctx.volatile:
+            func_name = "(markup_join if context.eval_ctx.volatile else str_join)"
+        elif frame.eval_ctx.autoescape:
+            func_name = "markup_join"
+        else:
+            func_name = "str_join"
+        self.write(f"{func_name}(environment.checked_concat((")
+        for arg in node.nodes:
+            self.visit(arg, frame)
+            self.write(", ")
+        self.write(")))")
 
 
 def _guard_filter(filters: dict, name: str, too_big, listed: bool = False) -> None:
@@ -181,10 +293,14 @@ class _DescriptionTemplates(ImmutableSandboxedEnvironment):
     operatori spegne anche il calcolo dei valori costanti quando il
     template si compila, che avveniva prima di qualsiasi controllo."""
 
-    intercepted_binops = frozenset({"**", "*", "%"})
+    intercepted_binops = frozenset({"**", "*", "%", "+"})
+    code_generator_class = _BudgetedCode
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        # Un {% set x %}...{% endset %} senza filtro ne riceve uno che non fa
+        # niente, così il testo che raccoglie conta come quello di un filtro.
+        self.filters["_charged"] = lambda value: value
         _guard_filter(self.filters, "center", _int_over)
         _guard_filter(self.filters, "batch", _int_over)
         _guard_filter(self.filters, "slice", _int_over)
@@ -204,12 +320,53 @@ class _DescriptionTemplates(ImmutableSandboxedEnvironment):
             return lipsum(n, html, min, max)
 
         self.globals["lipsum"] = capped_lipsum
+        for name, function in list(self.filters.items()):
+            self.filters[name] = _charged(function)
+
+    def _parse(self, source, name, filename):
+        template = super()._parse(source, name, filename)
+        # Ogni {% for %} scorre il suo iterabile attraverso _Turns: i giri dei
+        # cicli non passano da nessun'altra operazione che la sandbox veda.
+        for loop in list(template.find_all(nodes.For)):
+            loop.iter = nodes.Call(nodes.EnvironmentAttribute("budgeted_turns"), [loop.iter], [], None, None,
+                                   lineno=loop.iter.lineno)
+        for block in list(template.find_all(nodes.AssignBlock)):
+            if block.filter is None:
+                block.filter = nodes.Filter(None, "_charged", [], [], None, None, lineno=block.lineno)
+        template.set_environment(self)
+        return template
+
+    @staticmethod
+    def budgeted_turns(items):
+        return _Turns(items)
+
+    @staticmethod
+    def checked_concat(parts: tuple) -> tuple:
+        size = sum(len(part) if isinstance(part, str) else len(str(part)) for part in parts)
+        if size > MAX_SEQUENCE:
+            _refuse("~")
+        budget = _BUDGET.get()
+        if budget is not None:
+            budget.grown += size
+            budget.grow(None)  # il controllo del totale e del tempo
+            if budget.grown > MAX_GROWTH:
+                raise SecurityError("the template builds too much text or too many items")
+        return parts
 
     def call_binop(self, context, operator, left, right):
         if ((operator == "**" and _too_big_power(left, right)) or (operator == "*" and _too_big_product(left, right))
-                or (operator == "%" and _too_wide_percent(left, right))):
+                or (operator == "%" and _too_wide_percent(left, right))
+                or (operator == "+" and _too_big_sum(left, right))):
             _refuse(operator)
-        return super().call_binop(context, operator, left, right)
+        return _grown(super().call_binop(context, operator, left, right))
+
+    def getattr(self, obj, attribute):
+        _tick()
+        return super().getattr(obj, attribute)
+
+    def getitem(self, obj, argument):
+        _tick()
+        return super().getitem(obj, argument)
 
     def call(__self, __context, __obj, *args, **kwargs):  # i nomi di Jinja: mai in conflitto con i kwargs
         # str.format passa da un involucro della sandbox (wrap_str_format):
@@ -222,7 +379,12 @@ class _DescriptionTemplates(ImmutableSandboxedEnvironment):
                 args = (list(args[0]), *args[1:])  # per contarlo prima; finito, come range
             if _too_big_str_call(text, name, args, kwargs):
                 _refuse(f".{name}()")
-        return super().call(__context, __obj, *args, **kwargs)
+        if isinstance(__obj, LoopContext) and args:
+            # loop(...) di un ciclo ricorsivo: i suoi giri contano come gli altri.
+            args = (_Turns(args[0]), *args[1:])
+        # Anche quello che una chiamata restituisce (un metodo dei testi, una
+        # macro, caller()) conta nel budget.
+        return _grown(super().call(__context, __obj, *args, **kwargs))
 
 
 # Il template lo scrive l'utente (profilo di upload del tracker): sempre in
@@ -239,14 +401,43 @@ class DescriptionTemplateError(CodedError):
 
 def _render(source: str, values: dict) -> str:
     """Il render a pezzi, come escono: un ciclo che scrive un mega a giro si
-    ferma al tetto, invece di accumulare tutto prima di unirlo."""
-    parts, size = [], 0
-    for part in _TEMPLATES.from_string(source).generate(**values):
-        size += len(part)
-        if size > MAX_OUTPUT:
-            _refuse("the template")
-        parts.append(part)
-    return "".join(parts)
+    ferma al tetto, invece di accumulare tutto prima di unirlo. Con il suo
+    budget (_Budget), dalla compilazione all'ultimo pezzo."""
+    token = _BUDGET.set(_Budget())
+    try:
+        parts, size = [], 0
+        for part in _TEMPLATES.from_string(source).generate(**values):
+            size += len(part)
+            if size > MAX_OUTPUT:
+                _refuse("the template")
+            parts.append(part)
+        return "".join(parts)
+    finally:
+        _BUDGET.reset(token)
+
+
+# Un template più lungo non serve a una descrizione (quelli inclusi sono di
+# qualche KB), e la sua compilazione è il lavoro che si fa prima del budget.
+MAX_TEMPLATE_LENGTH = 100_000
+
+
+def check_template(source: str) -> None:
+    """Il template si compila (sintassi, filtri che esistono) e non è troppo
+    lungo: DescriptionTemplateError se no. Al salvataggio del profilo:
+    prima si salvava qualunque testo, e l'errore usciva solo al primo upload
+    verso quel tracker. Compilare è sicuro: Jinja non piega più le
+    operazioni che crescono (intercepted_binops), e gli altri valori costanti
+    sono grandi al più quanto il testo."""
+    if len(source) > MAX_TEMPLATE_LENGTH:
+        raise DescriptionTemplateError("upload_description_template_invalid",
+                                       error=f"longer than {MAX_TEMPLATE_LENGTH} characters")
+    token = _BUDGET.set(_Budget())
+    try:
+        _TEMPLATES.from_string(source)
+    except TemplateError as exc:
+        raise DescriptionTemplateError("upload_description_template_invalid", error=str(exc)) from exc
+    finally:
+        _BUDGET.reset(token)
 
 
 def render_template(source: str, **values) -> str:

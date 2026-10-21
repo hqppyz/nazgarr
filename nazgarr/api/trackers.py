@@ -34,6 +34,7 @@ from nazgarr.plugins import REGISTRY
 from nazgarr.plugins import config as plugin_config
 from nazgarr.torrents import tracker_icons
 from nazgarr.upload import decision as upload_decision
+from nazgarr.upload import description as upload_description
 from nazgarr.upload import jobs as upload_jobs
 from nazgarr.upload import naming_rules
 from nazgarr.upload import profiles as upload_profiles
@@ -471,6 +472,12 @@ def update_upload_profile(
         profile.naming_rules_json = json.dumps(body.naming_rules)
         profile.naming_customized = True
     if body.description_template is not None:
+        # Si compila prima di salvarlo (audit 2026-10-18): un template rotto o
+        # enorme falliva solo al primo upload, durante la preparazione.
+        try:
+            upload_description.check_template(body.description_template)
+        except upload_description.DescriptionTemplateError as exc:
+            raise HTTPException(status_code=400, detail=from_coded_error(exc)) from exc
         profile.description_template = body.description_template
     if body.default_anonymous is not None:
         profile.default_anonymous = body.default_anonymous
