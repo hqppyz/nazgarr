@@ -12,11 +12,14 @@ from nazgarr.reseed import executor, review
 
 @pytest.fixture(autouse=True)
 def _forget_missing():
-    """Le assenze viste (executor._missing_since) sono per id di seed job, e
-    ogni test ha il suo DB con gli stessi id."""
+    """Le assenze viste (executor._missing_since) e i reconcile già falliti
+    (review._failing) sono per id di seed job, e ogni test ha il suo DB con
+    gli stessi id."""
     executor._missing_since.clear()
+    review._failing.clear()
     yield
     executor._missing_since.clear()
+    review._failing.clear()
 
 
 def _missing_for(job, minutes):
@@ -196,3 +199,28 @@ def test_a_client_that_cannot_be_built_does_not_stop_the_reconcile_of_the_others
 
     assert review.reconcile_pending_seed_jobs(db_session) == {"reconciled": 1, "errors": 1}
     assert stuck.final_status == "in_progress" and job.final_status == "seeding"
+
+
+def test_a_reconcile_that_keeps_failing_logs_its_traceback_once(db_session, monkeypatch, caplog):
+    """Un client il cui adapter non sa dire se il torrent c'è (un plugin):
+    il seed job resta in corso, apposta, e il log riceveva una traccia ogni
+    2 minuti, per sempre (audit 2026-10-18, finding 113)."""
+    import logging
+
+    from tests.fakes import FakeAdapter
+
+    class Unreachable(FakeAdapter):
+        def get_torrent_status(self, info_hash):
+            raise ConnectionError("connection refused")
+
+    client = _client(db_session)
+    job = _job(db_session, client=client)
+    monkeypatch.setattr(review, "build_torrent_client_adapter", lambda row: Unreachable([]))
+
+    with caplog.at_level(logging.WARNING, logger="nazgarr.reseed.review"):
+        review.reconcile_pending_seed_jobs(db_session)
+        review.reconcile_pending_seed_jobs(db_session)
+
+    records = [r for r in caplog.records if f"seed_job {job.id}" in r.getMessage()]
+    assert [r.exc_info is not None for r in records] == [True, False]
+    assert "connection refused" in records[1].getMessage()

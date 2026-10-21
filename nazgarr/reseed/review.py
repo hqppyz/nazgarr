@@ -1309,7 +1309,8 @@ def reconcile_pending_seed_jobs(session: Session, progress=NULL_PROGRESS) -> dic
                 reconcile_seed_job(session, seed_job, adapter)
                 reconciled += 1
                 seen_in_client(seed_job.id)
-            except Exception:
+                _failing.discard(seed_job.id)
+            except Exception as exc:
                 session.rollback()
                 if _missing_from_client(adapter, seed_job):
                     # 10 minuti di fila (executor.missing_long_enough), non
@@ -1320,7 +1321,13 @@ def reconcile_pending_seed_jobs(session: Session, progress=NULL_PROGRESS) -> dic
                     else:
                         logger.info("Seed_job %s: torrent non (ancora) nel client, riprovo dopo", seed_job.id)
                     continue
-                logger.exception("Reconcile fallito per seed_job %s", seed_job.id)
+                if seed_job.id in _failing:
+                    # La traccia è già nel log: ogni 2 minuti, per sempre (un
+                    # plugin che non sa dire se il torrent c'è), una riga.
+                    logger.warning("Reconcile ancora fallito per seed_job %s: %s", seed_job.id, safe_error(exc))
+                else:
+                    _failing.add(seed_job.id)
+                    logger.exception("Reconcile fallito per seed_job %s", seed_job.id)
                 errors += 1
                 continue
             if seed_job.final_status == "seeding":
@@ -1335,6 +1342,12 @@ def reconcile_pending_seed_jobs(session: Session, progress=NULL_PROGRESS) -> dic
             if adapter is not None:
                 close_adapter(adapter)
     return {"reconciled": reconciled, "errors": errors}
+
+
+# I seed job il cui reconcile è fallito con un errore che non dice "il
+# torrent non c'è" (il client non risponde, un plugin senza get_torrent_info):
+# la traccia la prima volta, poi una riga (audit 2026-10-18, finding 113).
+_failing: set[int] = set()
 
 
 def _client_enabled(session: Session, torrent_client_id: int) -> bool:
@@ -1357,6 +1370,7 @@ def _give_up(session: Session, seed_job: SeedJob, message: str) -> None:
     seed_job.final_status, seed_job.error_message = "failed", message
     session.commit()
     seen_in_client(seed_job.id)
+    _failing.discard(seed_job.id)
     logger.warning("Seed_job %s: %s", seed_job.id, message)
 
 
