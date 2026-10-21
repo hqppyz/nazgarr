@@ -832,6 +832,20 @@ def test_a_held_reseed_is_left_alone_while_its_job_runs(db_session, tmp_path, en
     assert job.targets[0].error_message == "seed_recheck_pending"
 
 
+def test_a_held_reseed_starts_while_its_job_waits_in_the_queue(db_session, tmp_path, env):
+    """Audit 2026-10-18 (R4): "Riprova" di un altro tracker rimette il job in
+    coda, dietro upload che possono hashare per ore. Il reseed già in attesa,
+    con il recheck riuscito, restava fermo per tutto quel tempo."""
+    job, _video = _reseed_job(db_session, tmp_path, env)
+    _run(db_session, tmp_path, job)
+    target = job.targets[0]
+    job.status = "queued"  # come dopo retry_failed di un altro tracker
+    db_session.commit()
+
+    assert upload_execute.reconcile_held_seeds(db_session) == 1
+    assert target.error_message is None and target.info_hash in env["client"].started
+
+
 def test_a_reseed_whose_torrent_left_the_client_is_added_again_on_retry(db_session, tmp_path, env):
     job, _video = _reseed_job(db_session, tmp_path, env)
     client = env["client"]

@@ -1075,6 +1075,11 @@ def run_reseed(session: Session, job: UploadJob, target: UploadTarget, ctx: dict
     upload_jobs.log_event(session, job, "reseeded", target=target, torrent=target.reseed_torrent_id)
 
 
+# Gli stati in cui un passo del worker lavora il job: gli stati del worker
+# meno 'queued', dove il job aspetta soltanto il suo turno nella coda.
+_WORKER_RUNNING = tuple(s for s in upload_jobs.WORKER_STATES if s != "queued")
+
+
 def reconcile_held_seeds(session: Session, data_dir: str | None = None) -> int:
     """L'esito del recheck dei torrent aggiunti fermi dal flusso degli upload
     (hold: i reseed e "Riprova il seed"; decisione dell'utente, 2026-10-19),
@@ -1083,11 +1088,15 @@ def reconcile_held_seeds(session: Session, data_dir: str | None = None) -> int:
     Ogni esito, una volta, diventa anche l'evento upload.seed_checked per
     webhook e notifiche (decisione dell'utente, 2026-10-21).
     Mai mentre il worker lavora quel job (lo stesso target, due sessioni).
+    Un job solo in coda sì (audit 2026-10-18): "Riprova" di un altro
+    tracker, o una ripresa, lo rimette in fondo alla coda, dietro upload che
+    hashano per ore, e l'esecuzione non tocca mai un target già 'done'; prima
+    il torrent, con il recheck già riuscito, restava fermo per tutto il tempo.
     Ritorna quanti target ha guardato."""
     targets = (
         session.query(UploadTarget).join(UploadJob, UploadJob.id == UploadTarget.job_id)
         .filter(UploadTarget.error_message == SEED_RECHECK_PENDING, UploadTarget.status == "done",
-                UploadTarget.info_hash.isnot(None), UploadJob.status.notin_(upload_jobs.WORKER_STATES))
+                UploadTarget.info_hash.isnot(None), UploadJob.status.notin_(_WORKER_RUNNING))
         .order_by(UploadTarget.id).all()
     )
     for target in targets:
