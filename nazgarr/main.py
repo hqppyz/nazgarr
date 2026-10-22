@@ -122,15 +122,20 @@ async def lifespan(app: FastAPI):
     app.state.settings = settings
     app.state.started_at = datetime.now(UTC)
     app.state.recovery = None
-    # Il lucchetto di chi usa il DB: `nazgarr db restore` non lo sostituisce
-    # sotto i piedi del server (nazgarr/core/instance_lock.py).
-    lock = instance_lock.acquire(settings.data_dir)
-    if lock is None:
-        logger.warning("Another Nazgarr process seems to use %s: run only one per data folder", settings.data_dir)
+    # Il lucchetto di chi usa il DB, nei due sensi (nazgarr/core/
+    # instance_lock.py): `nazgarr db restore` non sostituisce il database
+    # sotto i piedi del server, e un server non aggiorna il file che un
+    # ripristino (o un altro Nazgarr) sta usando. Qualche secondo per il
+    # processo di prima che sta finendo, poi la modalità di ripristino.
+    lock = instance_lock.acquire(settings.data_dir, wait=instance_lock.WAIT_SECONDS)
     try:
-        # Backup se l'aggiornamento cambierà qualcosa, poi schema, colonne
-        # nuove e passi una tantum (nazgarr/core/db_startup.py, migrations.py).
-        outcome = db_startup.prepare(settings)
+        if lock is None:
+            outcome = db_startup.Outcome(status=db_startup.database_in_use(settings))
+        else:
+            # Backup se l'aggiornamento cambierà qualcosa, poi schema,
+            # colonne nuove e passi una tantum (nazgarr/core/db_startup.py,
+            # migrations.py).
+            outcome = db_startup.prepare(settings)
         if outcome.failed:
             # Modalità di ripristino: niente scheduler, worker, plugin o route
             # che toccano il DB, solo la pagina che dice cosa fare

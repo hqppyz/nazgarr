@@ -758,6 +758,48 @@ def test_the_backup_can_be_restored_while_the_recovery_page_is_up(app_env, monke
     assert _user_version(data_dir / "nazgarr.db") == migrations.LATEST - 1
 
 
+def test_a_running_server_holds_the_lock_and_the_restore_refuses(app_env, capsys):
+    """Revisione del 2026-10-22: niente provava che il server acceso tiene
+    il lucchetto (senza l'acquire nella lifespan i test passavano lo
+    stesso)."""
+    from nazgarr import cli
+    from nazgarr.main import app
+
+    data_dir, started = app_env
+    with TestClient(app) as client:
+        assert client.get("/api/health").status_code == 200 and started == ["scheduler", "worker"]
+        backup = db_backup.list_backups(data_dir / "backups")[0]
+        assert cli.main(["db", "restore", backup.name, "--config", os.environ["CONFIG_PATH"], "--yes"]) == 1
+    assert "running" in capsys.readouterr().err
+    assert _user_version(data_dir / "nazgarr.db") == migrations.LATEST
+    assert not list(data_dir.glob("nazgarr.db.before-restore*"))
+
+
+def test_a_server_started_during_a_restore_does_not_touch_the_database(app_env, monkeypatch):
+    """Il lucchetto vale nei due sensi: un server che parte mentre `nazgarr
+    db restore` (o un altro Nazgarr) lo tiene aspetta un po', poi resta in
+    modalità di ripristino senza aprire il database."""
+    from nazgarr.main import app
+
+    data_dir, started = app_env
+    monkeypatch.setattr(instance_lock, "WAIT_SECONDS", 0.3)
+    restore = instance_lock.acquire(data_dir)
+    try:
+        with TestClient(app) as client:
+            health = client.get("/api/health")
+            assert health.status_code == 503 and health.json()["status"] == "database_in_use"
+            assert client.post("/api/disks", json={"label": "x"}).json()["detail"] == {
+                "code": "database_in_use", "params": {}}
+            page = client.get("/", headers={"Accept-Language": "it"})
+            assert page.status_code == 503 and "non ha aperto il suo database" in page.text
+            assert "migration-status.json" not in page.text
+    finally:
+        restore.release()
+    assert started == []
+    assert _user_version(data_dir / "nazgarr.db") == migrations.LATEST - 1  # niente backup, niente aggiornamento
+    assert not (data_dir / "backups").exists() and not (data_dir / "migration-status.json").exists()
+
+
 def test_a_database_that_cannot_be_read_says_so_and_points_to_the_backups(app_env):
     from nazgarr.main import app
 

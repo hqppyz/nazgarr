@@ -6,12 +6,16 @@ Il processo resta su invece di ripartire in loop, ma niente tocca il DB:
 ogni richiesta si ferma qui, prima delle route. /api/health risponde 503
 (l'HEALTHCHECK del container lo vede), le altre /api/* un 503 con un codice
 che il CLI e le altre istanze traducono (database_update_failed,
-database_backup_failed), tutto il resto una pagina che
+database_backup_failed, database_in_use), tutto il resto una pagina che
 dice cosa è successo, dov'è il backup e come ripristinarlo. Il login non
 c'è: il database può essere a metà. Per questo la pagina è senza
 autenticazione e dice solo il passo, la classe dell'errore, il nome del
 backup e le cartelle; il messaggio e il traceback stanno nel log e in
 migration-status.json.
+
+Anche database_in_use passa da qui: un altro processo (un altro Nazgarr,
+`nazgarr db restore`) tiene il lucchetto della cartella dei dati, e il
+database non si è nemmeno aperto (nazgarr/core/instance_lock.py).
 
 Una pagina sola, senza script (la CSP non ne permette di inline) né file
 del frontend, in italiano o in inglese secondo Accept-Language."""
@@ -22,13 +26,14 @@ from pathlib import Path
 from starlette.responses import HTMLResponse, JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from nazgarr.core.db_startup import BACKUP_FAILED, LOCKED, STATUS_FILENAME, UNREADABLE
+from nazgarr.core.db_startup import BACKUP_FAILED, DATABASE_IN_USE, LOCKED, STATUS_FILENAME, UNREADABLE
 from nazgarr.core.errors import coded_detail
 from nazgarr.core.mounts import in_container
 from nazgarr.core.version import PROJECT_URL
 
 ERROR_CODE = "database_update_failed"
 BACKUP_ERROR_CODE = "database_backup_failed"
+IN_USE_ERROR_CODE = "database_in_use"
 _NO_STORE = {"Cache-Control": "no-store"}
 _CONTAINER_CONFIG = "/app/config"
 
@@ -59,6 +64,12 @@ _TEXT = {
                   "started nothing else.",
         "locked_todo": "Close the program that has {db} open (only one Nazgarr may use a data folder), then restart "
                        "Nazgarr.",
+        "heading_in_use": "Nazgarr did not open its database",
+        "in_use": "Another process is using the data folder {folder}: another Nazgarr, or {restore} putting a backup "
+                  "in place of the database. To keep the database safe Nazgarr {version} did not open it and started "
+                  "nothing else.",
+        "in_use_todo": "Wait for the restore to finish, or stop the other Nazgarr (only one may use a data folder), "
+                       "then restart Nazgarr.",
         "backup_is": "The backup taken right before the update is {file}, in {folder}.",
         "retry_is": "The database had changed since the first attempt of this update ({date}), so it was also copied "
                     "before trying again: {file}. Restore that one instead only if Nazgarr was used after the first "
@@ -78,6 +89,7 @@ _TEXT = {
                        "then restart Nazgarr. If you have your own backup and want to update anyway, set {env} for "
                        "one start.",
         "details": "The details of the error are in the log ({logs}) and in {status}.",
+        "details_log": "The details are in the log ({logs}).",
         "report": "GitHub",
     },
     "it": {
@@ -106,6 +118,12 @@ _TEXT = {
                   "l'ha aggiornato e non ha avviato nient'altro.",
         "locked_todo": "Chiudi il programma che ha aperto {db} (una cartella dei dati può usarla un solo Nazgarr), "
                        "poi riavvia Nazgarr.",
+        "heading_in_use": "Nazgarr non ha aperto il suo database",
+        "in_use": "Un altro processo sta usando la cartella dei dati {folder}: un altro Nazgarr, o {restore} che "
+                  "rimette un backup al posto del database. Per non rischiare il database Nazgarr {version} non l'ha "
+                  "aperto e non ha avviato nient'altro.",
+        "in_use_todo": "Aspetta che il ripristino finisca, o ferma l'altro Nazgarr (una cartella dei dati può usarla "
+                       "uno solo), poi riavvia Nazgarr.",
         "backup_is": "Il backup fatto subito prima dell'aggiornamento è {file}, in {folder}.",
         "retry_is": "Dal primo tentativo di questo aggiornamento ({date}) il database era cambiato, quindi prima di "
                     "riprovare è stato copiato di nuovo: {file}. Ripristina quello invece solo se Nazgarr è stato "
@@ -126,6 +144,7 @@ _TEXT = {
                        "nel log, poi riavvia Nazgarr. Se hai un tuo backup e vuoi aggiornare lo stesso, imposta {env} "
                        "per un avvio.",
         "details": "I dettagli dell'errore sono nel log ({logs}) e in {status}.",
+        "details_log": "I dettagli sono nel log ({logs}).",
         "report": "GitHub",
     },
 }
@@ -221,7 +240,12 @@ def render_page(status: dict, language: str = "en") -> str:
     prefix = "docker exec -it nazgarr " if container else ""
     paragraphs: list[str] = []
     todo: list[str] = []
-    if status.get("status") == BACKUP_FAILED and status.get("reason") == LOCKED:
+    if status.get("status") == DATABASE_IN_USE:
+        heading = text["heading_in_use"]
+        paragraphs.append(text["in_use"].format(folder=_code(data_dir), restore=_code("nazgarr db restore"),
+                                                version=version))
+        todo.append(text["in_use_todo"])
+    elif status.get("status") == BACKUP_FAILED and status.get("reason") == LOCKED:
         heading = text["heading_locked"]
         paragraphs.append(text["locked"].format(version=version))
         todo.append(text["locked_todo"].format(db=_code(db_name)))
@@ -251,7 +275,10 @@ def render_page(status: dict, language: str = "en") -> str:
         more, todo = _backup_paragraphs(text, status, folder, data_dir, db_name, container, link)
         paragraphs += more
     logs = "docker logs nazgarr" if container else str(Path(data_dir) / "logs")
-    details = text["details"].format(logs=_code(logs), status=_code(Path(data_dir) / STATUS_FILENAME))
+    if status.get("status") == DATABASE_IN_USE:  # migration-status.json non si scrive: la cartella è dell'altro
+        details = text["details_log"].format(logs=_code(logs))
+    else:
+        details = text["details"].format(logs=_code(logs), status=_code(Path(data_dir) / STATUS_FILENAME))
     body = "".join(f"<p>{p}</p>" for p in paragraphs)
     steps = "".join(f"<li>{item}</li>" for item in todo)
     return (
@@ -267,6 +294,8 @@ def render_page(status: dict, language: str = "en") -> str:
 def _detail(status: dict) -> dict:
     """Il codice per il CLI e l'interfaccia (frontend/src/locales/*/errors.ts):
     uno per caso, con parametri che hanno sempre un valore."""
+    if status.get("status") == DATABASE_IN_USE:
+        return coded_detail(IN_USE_ERROR_CODE)
     if status.get("status") == BACKUP_FAILED:
         return coded_detail(BACKUP_ERROR_CODE, reason=status.get("reason"))
     backup = status.get("backup")

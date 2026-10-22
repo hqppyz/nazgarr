@@ -46,7 +46,7 @@ from pathlib import Path
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
-from nazgarr.core import crypto, db, db_backup, migrations, settings_repo
+from nazgarr.core import crypto, db, db_backup, instance_lock, migrations, settings_repo
 from nazgarr.core.config import DB_FILENAME, Settings
 from nazgarr.core.logs import redact
 from nazgarr.core.version import PROJECT_URL, __version__
@@ -60,6 +60,9 @@ LAST_BACKUP_KEY = "migration_backup_last"
 IN_PROGRESS = "in_progress"  # scritto prima di aggiornare: se resta, il processo è morto a metà
 MIGRATION_FAILED = "migration_failed"
 BACKUP_FAILED = "backup_failed"
+# Un altro processo tiene il lucchetto della cartella dei dati: solo in
+# memoria, migration-status.json non si scrive (la cartella è sua).
+DATABASE_IN_USE = "database_in_use"
 UNREADABLE = "database_unreadable"  # il motivo di un backup fallito perché il DB non si legge
 LOCKED = "database_locked"  # il motivo: un altro processo tiene il DB (SQLITE_BUSY)
 _ATTEMPTS = (IN_PROGRESS, MIGRATION_FAILED)
@@ -178,6 +181,10 @@ def _same_update(previous: dict | None, pending: db_backup.PendingChanges) -> di
 
 def _restore_hint(status: dict) -> str:
     backup, reason = status.get("backup"), status.get("reason")
+    if status["status"] == DATABASE_IN_USE:
+        return (f"Another Nazgarr process, or `nazgarr db restore`, holds {status['lock']}: wait for the restore to "
+                "finish or stop the other Nazgarr (only one may use a data folder), then restart this one. The "
+                "database was not opened.")
     if status["status"] == BACKUP_FAILED and reason == LOCKED:
         return ("Another program holds a lock on the database (a second Nazgarr on the same data folder, or a tool "
                 "that has it open): close it, then restart Nazgarr. The database was not touched.")
@@ -225,6 +232,24 @@ def _fail(settings: Settings, status: dict, exc: BaseException | None) -> dict:
         "\n%s\n%s\nNazgarr is in recovery mode: nothing else was started (no scans, no uploads, no changes to "
         "files or torrent clients), and the web UI explains what to do. Status saved in %s.\n%s\n%s",
         "=" * 72, what, status_path(settings.data_dir), _restore_hint(status), "=" * 72, exc_info=exc,
+    )
+    return status
+
+
+def database_in_use(settings: Settings) -> dict:
+    """Un altro processo tiene il lucchetto della cartella dei dati
+    (nazgarr/core/instance_lock.py): un altro Nazgarr, o `nazgarr db
+    restore` che sta sostituendo il database. Il database non si apre
+    nemmeno, e migration-status.json non si scrive."""
+    status = {
+        "status": DATABASE_IN_USE, "app_version": __version__, "failed_at": _now(), "database": settings.db_path,
+        "backups_dir": str(db_backup.backups_dir(settings.data_dir)),
+        "lock": str(Path(settings.data_dir) / instance_lock.LOCK_FILENAME),
+    }
+    logger.error(
+        "\n%s\nThe data folder %s is in use by another process.\nNazgarr is in recovery mode: nothing else was "
+        "started, and the web UI explains what to do.\n%s\n%s",
+        "=" * 72, settings.data_dir, _restore_hint(status), "=" * 72,
     )
     return status
 
