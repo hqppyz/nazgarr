@@ -4,13 +4,14 @@ prima) non è riuscito (nazgarr/core/db_startup.py, richiesta dell'utente
 
 Il processo resta su invece di ripartire in loop, ma niente tocca il DB:
 ogni richiesta si ferma qui, prima delle route. /api/health risponde 503
-(l'HEALTHCHECK del container lo vede), le altre /api/* un 503 col codice
-database_update_failed (il CLI e le altre istanze lo traducono), tutto il
-resto una pagina che dice cosa è successo, dov'è il backup e come
-ripristinarlo. Il login non c'è: il database può essere a metà. Per questo
-la pagina è senza autenticazione e dice solo il passo, la classe
-dell'errore, il nome del backup e le cartelle; il messaggio e il traceback
-stanno nel log e in migration-status.json.
+(l'HEALTHCHECK del container lo vede), le altre /api/* un 503 con un codice
+che il CLI e le altre istanze traducono (database_update_failed,
+database_backup_failed), tutto il resto una pagina che
+dice cosa è successo, dov'è il backup e come ripristinarlo. Il login non
+c'è: il database può essere a metà. Per questo la pagina è senza
+autenticazione e dice solo il passo, la classe dell'errore, il nome del
+backup e le cartelle; il messaggio e il traceback stanno nel log e in
+migration-status.json.
 
 Una pagina sola, senza script (la CSP non ne permette di inline) né file
 del frontend, in italiano o in inglese secondo Accept-Language."""
@@ -27,6 +28,7 @@ from nazgarr.core.mounts import in_container
 from nazgarr.core.version import PROJECT_URL
 
 ERROR_CODE = "database_update_failed"
+BACKUP_ERROR_CODE = "database_backup_failed"
 _NO_STORE = {"Cache-Control": "no-store"}
 _CONTAINER_CONFIG = "/app/config"
 
@@ -262,15 +264,22 @@ def render_page(status: dict, language: str = "en") -> str:
     )
 
 
+def _detail(status: dict) -> dict:
+    """Il codice per il CLI e l'interfaccia (frontend/src/locales/*/errors.ts):
+    uno per caso, con parametri che hanno sempre un valore."""
+    if status.get("status") == BACKUP_FAILED:
+        return coded_detail(BACKUP_ERROR_CODE, reason=status.get("reason"))
+    backup = status.get("backup")
+    return coded_detail(ERROR_CODE, step=status.get("step"), step_name=status.get("step_name"),
+                        backup=Path(str(backup)).name if backup else None)
+
+
 def response_for(status: dict, path: str, accept_language: str | None):
     if path == "/api/health":
-        return JSONResponse({"status": ERROR_CODE, "version": None, "commit": None}, status_code=503,
+        return JSONResponse({"status": _detail(status)["code"], "version": None, "commit": None}, status_code=503,
                             headers=_NO_STORE)
     if path == "/api" or path.startswith("/api/"):
-        backup = status.get("backup")
-        detail = coded_detail(ERROR_CODE, step=status.get("step"), step_name=status.get("step_name"),
-                              backup=Path(str(backup)).name if backup else None)
-        return JSONResponse({"detail": detail}, status_code=503, headers=_NO_STORE)
+        return JSONResponse({"detail": _detail(status)}, status_code=503, headers=_NO_STORE)
     return HTMLResponse(render_page(status, _language(accept_language)), status_code=503, headers=_NO_STORE)
 
 

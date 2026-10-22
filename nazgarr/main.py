@@ -137,6 +137,7 @@ async def lifespan(app: FastAPI):
             # (nazgarr/web/recovery.py). Il lucchetto si lascia: il DB è
             # libero per `nazgarr db restore`, anche con il container acceso.
             app.state.recovery = outcome.status
+            app.state.engine = app.state.session_factory = None
             if lock is not None:
                 lock.release()
             try:
@@ -190,6 +191,8 @@ async def _validation_error(request: Request, exc: RequestValidationError) -> JS
 # La modalità di ripristino (l'aggiornamento del DB non è riuscito) per
 # prima, cioè la più interna: le richieste si fermano lì prima di qualunque
 # route, con gli header di sicurezza delle altre (nazgarr/web/recovery.py).
+# BodyLimitMiddleware, fuori, in quella modalità non chiede credenziali: non
+# c'è un database per controllarle, e la risposta è comunque il 503.
 app.add_middleware(RecoveryMiddleware)
 app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=6)
 app.add_middleware(SecurityMiddleware)

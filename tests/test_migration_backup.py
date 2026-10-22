@@ -662,6 +662,15 @@ def test_a_failed_update_keeps_the_app_up_in_recovery_mode(app_env, monkeypatch)
             response = getattr(client, method)(path)
             assert response.status_code == 503, path
             assert response.json()["detail"] == expected
+        # Anche con un corpo: prima BodyLimitMiddleware chiedeva le
+        # credenziali, e senza database era un 401 "rifai il login".
+        assert app.state.session_factory is None
+        for method, path, body in (("post", "/api/disks", {"label": "x", "root_path": "/x"}),
+                                   ("put", "/api/settings", {"values": {"x": "1"}}),
+                                   ("post", "/api/auth/login", {"username": "a", "password": "b"})):
+            response = getattr(client, method)(path, json=body)
+            assert response.status_code == 503, path
+            assert response.json()["detail"] == expected
 
         for path in ("/", "/library", "/assets/app.js", "/openapi.json"):
             page = client.get(path)
@@ -696,7 +705,11 @@ def test_a_failed_backup_keeps_the_app_up_and_explains_why(app_env, monkeypatch)
         page = client.get("/", headers={"Accept-Language": "en"})
         assert page.status_code == 503 and "not enough free space" in page.text
         assert "NAZGARR_SKIP_MIGRATION_BACKUP=1" in page.text
-        assert client.get("/api/health").status_code == 503
+        health = client.get("/api/health")
+        assert health.status_code == 503 and health.json()["status"] == "database_backup_failed"
+        # Niente "passo None" né un backup da ripristinare che non c'è.
+        assert client.get("/api/disks").json()["detail"] == {"code": "database_backup_failed",
+                                                             "params": {"reason": "no_space"}}
         assert started == []
     assert _user_version(data_dir / "nazgarr.db") == migrations.LATEST - 1
 
