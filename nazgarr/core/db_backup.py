@@ -46,6 +46,9 @@ SKIP_ENV = "NAZGARR_SKIP_MIGRATION_BACKUP"
 DEFAULT_KEEP = 3
 PRE_MIGRATION = "pre-migration"  # il database prima del primo tentativo di un aggiornamento
 PRE_RETRY = "pre-retry"  # il database prima di un nuovo tentativo, se è cambiato da quello prima
+# Quanto aspettare un altro processo che tiene il database (SQLITE_BUSY):
+# poi è un errore (database_locked), non un'attesa senza fine.
+BUSY_TIMEOUT = 30.0
 # Oltre al database e al suo -wal: il file temporaneo del journal di SQLite
 # mentre scrive la copia, e un po' di respiro per il resto del sistema.
 MARGIN_BYTES = 32 * 1024 * 1024
@@ -55,9 +58,10 @@ _NAME = re.compile(r"^(?P<kind>pre-migration|pre-retry)-v(?P<start>\d+)-to-v(?P<
 
 
 class BackupError(Exception):
-    """Il backup non si è fatto: reason è no_space, io_error o
-    verification_failed (un codice per la pagina di ripristino), detail un
-    testo breve per il log e per migration-status.json."""
+    """Il backup non si è fatto: reason è no_space, io_error,
+    database_locked o verification_failed (un codice per la pagina di
+    ripristino), detail un testo breve per il log e per
+    migration-status.json."""
 
     def __init__(self, reason: str, detail: str):
         super().__init__(f"{reason}: {detail}")
@@ -74,12 +78,15 @@ class PendingChanges:
     missing_columns: tuple[str, ...] = ()  # "tabella.colonna"
     missing_indexes: tuple[str, ...] = ()
     unreadable: str | None = None  # il DB non si legge: meglio un backup (che dirà se si può fare)
+    # Un altro processo tiene il DB (SQLITE_BUSY): non è rovinato, e non si
+    # sa cosa cambierebbe. L'avvio non lo tocca (db_startup.LOCKED).
+    locked: str | None = None
 
     @property
     def needs_backup(self) -> bool:
         """Un DB nuovo o vuoto non ha niente da salvare; uno più nuovo di
         questo Nazgarr (un downgrade) non riceve nessun passo."""
-        if self.unreadable:
+        if self.unreadable or self.locked:
             return True
         if not self.has_tables or self.version > self.latest:
             return False
@@ -215,7 +222,7 @@ def pending_changes(db_path: str) -> PendingChanges:
     if not os.path.isfile(db_path) or os.path.getsize(db_path) == 0:
         return PendingChanges(version=0, latest=LATEST, has_tables=False)
     try:
-        conn = sqlite3.connect(db_path, timeout=30)
+        conn = sqlite3.connect(db_path, timeout=BUSY_TIMEOUT)
         try:
             version = conn.execute("PRAGMA user_version").fetchone()[0] or 0
             objects = set(conn.execute(
@@ -236,9 +243,22 @@ def pending_changes(db_path: str) -> PendingChanges:
         finally:
             conn.close()
     except sqlite3.Error as exc:
-        return PendingChanges(version=0, latest=LATEST, has_tables=True, unreadable=f"{type(exc).__name__}: {exc}")
+        detail = f"{type(exc).__name__}: {exc}"
+        if is_locked(exc):
+            return PendingChanges(version=0, latest=LATEST, has_tables=True, locked=detail)
+        return PendingChanges(version=0, latest=LATEST, has_tables=True, unreadable=detail)
     return PendingChanges(version=version, latest=LATEST, has_tables=True, missing_tables=tuple(missing_tables),
                           missing_columns=tuple(missing_columns), missing_indexes=tuple(missing_indexes))
+
+
+def is_locked(exc: BaseException) -> bool:
+    """SQLITE_BUSY o SQLITE_LOCKED: un altro processo tiene il database, che
+    però non è rovinato."""
+    code = getattr(exc, "sqlite_errorcode", None)
+    if isinstance(code, int):
+        return code & 0xFF in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED)
+    text = str(exc).lower()
+    return "database is locked" in text or "database table is locked" in text
 
 
 # --- il backup ----------------------------------------------------------------
@@ -289,8 +309,16 @@ def copy_database(source: str, target: Path) -> None:
     Scritta su disco prima di tornare."""
     _new_private_file(target)
     # mode=rw: un database che non c'è è un errore, non un file vuoto nuovo.
-    src = sqlite3.connect(f"{Path(source).resolve().as_uri()}?mode=rw", uri=True, timeout=30)
+    src = sqlite3.connect(f"{Path(source).resolve().as_uri()}?mode=rw", uri=True, timeout=BUSY_TIMEOUT)
     try:
+        # Prima una transazione di lettura, sotto il busy timeout: backup()
+        # di CPython riprova SQLITE_BUSY all'infinito, senza timeout, e un
+        # altro processo che tiene il database (locking_mode=EXCLUSIVE, i
+        # lock di un filesystem di rete) bloccava l'avvio per sempre. Così è
+        # un OperationalError dopo BUSY_TIMEOUT, e la copia legge dentro
+        # questa stessa transazione.
+        src.execute("BEGIN")
+        src.execute("SELECT count(*) FROM sqlite_master").fetchone()
         dst = sqlite3.connect(target)
         try:
             src.backup(dst)
@@ -310,7 +338,7 @@ def verify(path: Path) -> int:
     ok, ha delle tabelle. Restituisce la sua versione dello schema;
     BackupError(verification_failed) se non va."""
     try:
-        conn = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True, timeout=30)
+        conn = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True, timeout=BUSY_TIMEOUT)
         try:
             check = [row[0] for row in conn.execute("PRAGMA quick_check").fetchall()]
             tables = conn.execute("SELECT count(*) FROM sqlite_master WHERE type = 'table'").fetchone()[0]
@@ -368,7 +396,8 @@ def take_backup(db_path: str, folder: Path, from_version: int, to_version: int, 
         fsync_dir(folder)
     except (OSError, sqlite3.Error) as exc:
         partial.unlink(missing_ok=True)
-        raise BackupError("io_error", f"{type(exc).__name__}: {exc}") from exc
+        reason = "database_locked" if is_locked(exc) else "io_error"
+        raise BackupError(reason, f"{type(exc).__name__}: {exc}") from exc
     try:
         version = verify(target)
     except BackupError:

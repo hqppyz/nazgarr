@@ -7,8 +7,8 @@ traceback nei log. Ora prepare():
 
 1. guarda se l'aggiornamento cambierà qualcosa (db_backup.pending_changes)
    e in quel caso fa il backup (db_backup.take_backup). Se il backup non si
-   può fare (spazio, errore di I/O, copia che non passa il controllo) non si
-   aggiorna niente.
+   può fare (spazio, errore di I/O, database tenuto da un altro processo,
+   copia che non passa il controllo) non si aggiorna niente.
    NAZGARR_SKIP_MIGRATION_BACKUP=1 lo salta, con un avviso;
 2. scrive migration-status.json "in_progress" (su disco, prima di toccare
    il database) e aggiorna (migrations.upgrade);
@@ -58,6 +58,7 @@ IN_PROGRESS = "in_progress"  # scritto prima di aggiornare: se resta, il process
 MIGRATION_FAILED = "migration_failed"
 BACKUP_FAILED = "backup_failed"
 UNREADABLE = "database_unreadable"  # il motivo di un backup fallito perché il DB non si legge
+LOCKED = "database_locked"  # il motivo: un altro processo tiene il DB (SQLITE_BUSY)
 _ATTEMPTS = (IN_PROGRESS, MIGRATION_FAILED)
 _MAX_ERROR = 300
 
@@ -167,13 +168,16 @@ def _same_update(previous: dict | None, pending: db_backup.PendingChanges) -> di
     reset-password` o un PRAGMA optimize la cambiano senza che il database
     torni quello di prima."""
     attempt = _attempt(previous)
-    if attempt is None or pending.unreadable or attempt.get("from_version") != pending.version:
+    if attempt is None or pending.unreadable or pending.locked or attempt.get("from_version") != pending.version:
         return None
     return attempt
 
 
 def _restore_hint(status: dict) -> str:
     backup, reason = status.get("backup"), status.get("reason")
+    if status["status"] == BACKUP_FAILED and reason == LOCKED:
+        return ("Another program holds a lock on the database (a second Nazgarr on the same data folder, or a tool "
+                "that has it open): close it, then restart Nazgarr. The database was not touched.")
     if status["status"] == BACKUP_FAILED and reason == UNREADABLE and not backup:
         return ("The database cannot be read (it may be damaged) and was not touched. Restore a backup of it: "
                 "`nazgarr db backups` lists the ones taken before earlier updates, `nazgarr db restore <file>` puts "
@@ -232,7 +236,7 @@ def _backup_failed(settings: Settings, exc: db_backup.BackupError, pending: db_b
     # cosa da fare è ripristinare, non liberare spazio.
     reason = UNREADABLE if pending.unreadable and exc.reason == "io_error" else exc.reason
     attempt = _attempt(previous)
-    if attempt is not None and not pending.unreadable \
+    if attempt is not None and not (pending.unreadable or pending.locked) \
             and attempt.get("from_version") != pending.version:
         attempt = None  # un altro database (un altro backup ripristinato): un aggiornamento nuovo
     status = {
@@ -257,6 +261,10 @@ def prepare(settings: Settings) -> Outcome:
     current = fingerprint(db_path)  # prima di aprirlo
     pending = db_backup.pending_changes(db_path)
     start, latest = pending.version, migrations.LATEST
+    if pending.locked:
+        # Non si sa nemmeno cosa cambierebbe: non si tocca niente, e la
+        # pagina non parla di un database rovinato.
+        return _backup_failed(settings, db_backup.BackupError(LOCKED, pending.locked), pending, previous)
     backup = retry = None
     started_at = _now()
     if pending.needs_backup:

@@ -528,6 +528,40 @@ def test_the_new_backup_survives_older_backups_dated_in_the_future(tmp_path, sec
     assert _user_version(outcome.backup) == migrations.LATEST - 1
 
 
+def test_a_database_held_by_another_process_is_locked_not_damaged(tmp_path, secret_key, monkeypatch):
+    """Prima backup() di sqlite3 riprovava SQLITE_BUSY all'infinito e l'avvio
+    restava bloccato per sempre; e un database solo tenuto da un altro
+    processo era presentato come rovinato, da ripristinare."""
+    from nazgarr.web.recovery import render_page
+
+    settings = _settings(tmp_path)
+    _database(Path(settings.db_path), version=migrations.LATEST - 1)
+    monkeypatch.setattr(db_backup, "BUSY_TIMEOUT", 0.2)
+    other = sqlite3.connect(settings.db_path, isolation_level=None)
+    try:
+        other.execute("PRAGMA locking_mode=EXCLUSIVE")
+        other.execute("BEGIN EXCLUSIVE")
+        other.execute("INSERT INTO disk (label, root_path) VALUES ('held', '/held')")
+        other.execute("COMMIT")  # in modalità EXCLUSIVE il lock resta
+
+        assert db_backup.pending_changes(settings.db_path).locked
+        with pytest.raises(db_backup.BackupError) as failed:
+            db_backup.take_backup(settings.db_path, tmp_path / "copies", 1, 2, "1.0")
+        assert failed.value.reason == "database_locked"
+        assert list((tmp_path / "copies").iterdir()) == []
+
+        outcome = db_startup.prepare(settings)
+    finally:
+        other.close()
+
+    assert outcome.failed and (outcome.status["status"], outcome.status["reason"]) == (
+        "backup_failed", "database_locked")
+    page = render_page(outcome.status, "en")
+    assert "holds a lock" in page and "damaged" not in page and "restore" not in page.lower()
+    assert _user_version(Path(settings.db_path)) == migrations.LATEST - 1
+    assert not db_backup.backups_dir(settings.data_dir).exists()
+
+
 def test_the_last_backup_is_recorded_for_the_settings_page(tmp_path, secret_key):
     settings = _settings(tmp_path)
     _database(Path(settings.db_path), version=migrations.LATEST - 1)

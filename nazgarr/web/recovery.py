@@ -21,7 +21,7 @@ from pathlib import Path
 from starlette.responses import HTMLResponse, JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from nazgarr.core.db_startup import BACKUP_FAILED, STATUS_FILENAME, UNREADABLE
+from nazgarr.core.db_startup import BACKUP_FAILED, LOCKED, STATUS_FILENAME, UNREADABLE
 from nazgarr.core.errors import coded_detail
 from nazgarr.core.mounts import in_container
 from nazgarr.core.version import PROJECT_URL
@@ -51,6 +51,12 @@ _TEXT = {
         "unreadable_todo": "Restore a backup of the database: {list} lists the ones taken before earlier updates, "
                            "in {folder}, and {restore} puts one back (it works while this page is up). Or put back "
                            "your own backup of {db}.",
+        "heading_locked": "Nazgarr could not read its database",
+        "locked": "Another program holds a lock on the database of Nazgarr {version}: a second Nazgarr using the "
+                  "same data folder, or a tool that has the file open. To keep it safe Nazgarr did not update it and "
+                  "started nothing else.",
+        "locked_todo": "Close the program that has {db} open (only one Nazgarr may use a data folder), then restart "
+                       "Nazgarr.",
         "backup_is": "The backup taken right before the update is {file}, in {folder}.",
         "retry_is": "The database had changed since the first attempt of this update ({date}), so it was also copied "
                     "before trying again: {file}. Restore that one instead only if Nazgarr was used after the first "
@@ -92,6 +98,12 @@ _TEXT = {
         "unreadable_todo": "Ripristina un backup del database: {list} elenca quelli fatti prima degli aggiornamenti "
                            "precedenti, in {folder}, e {restore} ne rimette uno (funziona anche con questa pagina "
                            "aperta). Oppure rimetti un tuo backup di {db}.",
+        "heading_locked": "Nazgarr non è riuscito a leggere il suo database",
+        "locked": "Un altro programma tiene bloccato il database di Nazgarr {version}: un secondo Nazgarr sulla "
+                  "stessa cartella dei dati, o uno strumento che ha il file aperto. Per non rischiarlo Nazgarr non "
+                  "l'ha aggiornato e non ha avviato nient'altro.",
+        "locked_todo": "Chiudi il programma che ha aperto {db} (una cartella dei dati può usarla un solo Nazgarr), "
+                       "poi riavvia Nazgarr.",
         "backup_is": "Il backup fatto subito prima dell'aggiornamento è {file}, in {folder}.",
         "retry_is": "Dal primo tentativo di questo aggiornamento ({date}) il database era cambiato, quindi prima di "
                     "riprovare è stato copiato di nuovo: {file}. Ripristina quello invece solo se Nazgarr è stato "
@@ -207,7 +219,11 @@ def render_page(status: dict, language: str = "en") -> str:
     prefix = "docker exec -it nazgarr " if container else ""
     paragraphs: list[str] = []
     todo: list[str] = []
-    if status.get("status") == BACKUP_FAILED:
+    if status.get("status") == BACKUP_FAILED and status.get("reason") == LOCKED:
+        heading = text["heading_locked"]
+        paragraphs.append(text["locked"].format(version=version))
+        todo.append(text["locked_todo"].format(db=_code(db_name)))
+    elif status.get("status") == BACKUP_FAILED:
         heading = text["heading_backup"]
         reason = text.get(f"reason_{status.get('reason')}", text["reason_io_error"])
         paragraphs.append(text["backup_failed"].format(version=version, reason=escape(reason)))
