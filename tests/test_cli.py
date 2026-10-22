@@ -118,3 +118,209 @@ def test_reset_password_without_an_account_points_to_the_setup_code(tmp_path, mo
 
     assert asked == []  # niente password chiesta per niente
     assert "setup code" in capsys.readouterr().err
+
+
+# --- nazgarr db backups / restore (richiesta dell'utente, 2026-10-22) ------------
+
+
+def _db_with_disk(path: Path, label: str):
+    """Un DB vero all'ultima versione, con un disco: per riconoscerlo dopo."""
+    from nazgarr.core import db, migrations
+
+    engine = db.make_engine(str(path))
+    migrations.upgrade(engine)
+    with engine.begin() as conn:
+        conn.exec_driver_sql("INSERT INTO disk (label, root_path) VALUES (?, '/data/x')", (label,))
+    engine.dispose()
+
+
+def _labels(path: Path) -> list[str]:
+    import sqlite3
+
+    conn = sqlite3.connect(path)
+    try:
+        return [row[0] for row in conn.execute("SELECT label FROM disk ORDER BY id")]
+    finally:
+        conn.close()
+
+
+def _backed_up(tmp_path):
+    """config.yaml, un DB con il disco "after" e il backup di quando aveva "before"."""
+    from nazgarr.core import db_backup, migrations
+
+    data = tmp_path / "data"
+    data.mkdir()
+    config = tmp_path / "config.yaml"
+    config.write_text(f"data_dir: {data}\n")
+    db_path = data / "nazgarr.db"
+    _db_with_disk(db_path, "before")
+    backup = db_backup.take_backup(str(db_path), data / "backups", migrations.LATEST, migrations.LATEST, "1.2.3")
+    import sqlite3
+
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("UPDATE disk SET label = 'after'")
+    return config, data, db_path, backup
+
+
+def test_db_backups_lists_them_and_marks_the_one_before_a_failed_update(tmp_path, capsys):
+    import json
+
+    config, data, _db_path, backup = _backed_up(tmp_path)
+    (data / "backups" / "notes.txt").write_text("not a backup")
+    (data / "migration-status.json").write_text(json.dumps({
+        "status": "migration_failed", "step": 13, "step_name": "x", "backup": str(backup)}))
+
+    assert cli.main(["db", "backups", "--config", str(config)]) == 0
+    out = capsys.readouterr().out
+    assert backup.name in out and "before the update that did not finish" in out and "notes.txt" not in out
+    assert "could not update the database" in out
+
+    assert cli.main(["--json", "db", "backups", "--config", str(config)]) == 0
+    listed = json.loads(capsys.readouterr().out)
+    assert listed["folder"] == str(data / "backups")
+    assert [(b["file"], b["failed_update"], b["app_version"], b["kind"]) for b in listed["backups"]] == [
+        (backup.name, True, "1.2.3", "pre-migration")]
+
+
+def test_db_backups_after_an_interrupted_update_with_a_retry_copy(tmp_path, capsys):
+    """Il processo morto a metà (migration-status.json in_progress) e la
+    copia pre-retry di un avvio dopo: il backup da ripristinare resta il
+    pre-migration, e la lista lo dice."""
+    import json
+
+    from nazgarr.core import db_backup, migrations
+
+    config, data, db_path, backup = _backed_up(tmp_path)
+    retry = db_backup.take_backup(str(db_path), data / "backups", migrations.LATEST, migrations.LATEST, "1.2.3",
+                                  kind=db_backup.PRE_RETRY)
+    (data / "migration-status.json").write_text(json.dumps({
+        "status": "in_progress", "from_version": migrations.LATEST, "backup": str(backup),
+        "retry_backup": str(retry)}))
+
+    assert cli.main(["db", "backups", "--config", str(config)]) == 0
+    out = capsys.readouterr().out
+    assert "did not finish (Nazgarr stopped while updating it)" in out
+    marked = [line for line in out.splitlines() if "<- before the update that did not finish" in line]
+    assert len(marked) == 1 and backup.name in marked[0]
+    assert retry.name in out and "pre-retry copies" in out
+
+
+def test_db_backups_without_any(tmp_path, capsys):
+    config = tmp_path / "config.yaml"
+    config.write_text(f"data_dir: {tmp_path / 'data'}\n")
+    assert cli.main(["db", "backups", "--config", str(config)]) == 0
+    assert "No backups" in capsys.readouterr().out
+
+
+def test_db_restore_refuses_while_nazgarr_runs(tmp_path, capsys):
+    from nazgarr.core import instance_lock
+
+    config, data, db_path, backup = _backed_up(tmp_path)
+    lock = instance_lock.acquire(data)  # come il server acceso
+    try:
+        assert cli.main(["db", "restore", backup.name, "--config", str(config), "--yes"]) == 1
+    finally:
+        lock.release()
+    assert "running" in capsys.readouterr().err
+    assert _labels(db_path) == ["after"]
+    assert not list(data.glob("nazgarr.db.before-restore*"))
+
+
+def test_db_restore_puts_the_backup_back_and_keeps_the_current_database(tmp_path, capsys):
+    import sqlite3
+
+    config, data, db_path, backup = _backed_up(tmp_path)
+    # Un -wal con dentro l'ultima modifica, non ancora nel file .db.
+    writer = sqlite3.connect(db_path)
+    writer.execute("PRAGMA wal_autocheckpoint=0")
+    writer.execute("UPDATE disk SET label = 'only-in-the-wal'")
+    writer.commit()
+    holder = sqlite3.connect(db_path)
+    holder.execute("SELECT 1").fetchall()
+    try:
+        assert Path(f"{db_path}-wal").stat().st_size > 0
+        assert cli.main(["db", "restore", backup.name, "--config", str(config), "--yes"]) == 0
+    finally:
+        writer.close()
+        holder.close()
+
+    out = capsys.readouterr().out
+    assert "back to version" in out and "starting 1.2.3 again would run the same update again" in out
+    assert "migration-status.json" not in out  # non c'era
+    assert _labels(db_path) == ["before"]
+    assert not Path(f"{db_path}-wal").exists() and not Path(f"{db_path}-shm").exists()
+    assert stat.S_IMODE(db_path.stat().st_mode) == 0o600
+    kept = data / "nazgarr.db.before-restore"
+    assert _labels(kept) == ["only-in-the-wal"]  # anche quello che era solo nel -wal
+    assert stat.S_IMODE(kept.stat().st_mode) == 0o600
+    assert backup.exists()  # il backup resta dov'è
+
+    # Un secondo ripristino non sovrascrive la copia del primo.
+    assert cli.main(["db", "restore", str(backup), "--config", str(config), "--yes"]) == 0
+    assert kept.exists() and len(list(data.glob("nazgarr.db.before-restore*"))) == 2
+
+
+def test_db_restore_forgets_the_failed_update(tmp_path, capsys):
+    """Dopo un ripristino il database è un altro: il prossimo avvio è un
+    aggiornamento nuovo, con il suo backup, non il seguito di quello fallito
+    (nazgarr/core/db_startup.py)."""
+    import json
+
+    config, data, db_path, backup = _backed_up(tmp_path)
+    status = data / "migration-status.json"
+    status.write_text(json.dumps({"status": "migration_failed", "from_version": 1, "backup": str(backup)}))
+
+    assert cli.main(["db", "restore", backup.name, "--config", str(config), "--yes"]) == 0
+
+    assert "Removed migration-status.json" in capsys.readouterr().out
+    assert not status.exists() and _labels(db_path) == ["before"]
+
+
+def test_db_restore_checks_the_backup_and_asks_first(tmp_path, capsys):
+    config, data, db_path, backup = _backed_up(tmp_path)
+    broken = data / "backups" / "broken.db"
+    broken.write_bytes(b"this is not a database" * 50)
+
+    assert cli.main(["db", "restore", "broken.db", "--config", str(config), "--yes"]) == 1
+    assert "did not pass its check" in capsys.readouterr().err
+    assert cli.main(["db", "restore", "missing.db", "--config", str(config), "--yes"]) == 2
+    # Senza --yes e senza un terminale: niente conferma, niente ripristino.
+    assert cli.main(["db", "restore", backup.name, "--config", str(config)]) == 3
+
+    assert _labels(db_path) == ["after"]
+    assert not list(data.glob("nazgarr.db.before-restore*"))
+
+
+def test_db_restore_keeps_a_damaged_current_database_as_it_is(tmp_path):
+    """Un aggiornamento finito male può lasciare un file che SQLite non
+    legge: la copia si fa lo stesso, byte per byte, -wal compreso."""
+    config, data, db_path, backup = _backed_up(tmp_path)
+    damaged = os.urandom(8192)
+    db_path.write_bytes(damaged)
+    Path(f"{db_path}-wal").write_bytes(b"wal bytes")
+
+    assert cli.main(["db", "restore", backup.name, "--config", str(config), "--yes"]) == 0
+
+    assert (data / "nazgarr.db.before-restore").read_bytes() == damaged
+    assert (data / "nazgarr.db.before-restore-wal").read_bytes() == b"wal bytes"
+    assert _labels(db_path) == ["before"] and not Path(f"{db_path}-wal").exists()
+
+
+def test_db_restore_that_fails_midway_leaves_the_database_as_it_was(tmp_path, monkeypatch, capsys):
+    import errno
+
+    from nazgarr.core import db_backup
+
+    config, data, db_path, backup = _backed_up(tmp_path)
+
+    def full_disk(*_args, **_kwargs):
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+    monkeypatch.setattr(db_backup.shutil, "copyfile", full_disk)
+    (data / "migration-status.json").write_text("{}")
+    assert cli.main(["db", "restore", backup.name, "--config", str(config), "--yes"]) == 1
+
+    assert "was not replaced" in capsys.readouterr().err
+    assert (data / "migration-status.json").exists()  # il database è ancora quello: lo stato resta
+    assert _labels(db_path) == ["after"]
+    assert not (data / "nazgarr.db.restoring").exists()

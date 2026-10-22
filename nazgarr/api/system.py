@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, ValidationError
 from sqlalchemy.orm import Session
 
-from nazgarr.core import updates
+from nazgarr.core import db_backup, db_startup, updates
 from nazgarr.core.config import Settings
 from nazgarr.core.logs import redact
 from nazgarr.core.version import __commit__, __version__
@@ -27,12 +27,28 @@ router = APIRouter(prefix="/api/system", tags=["system"])
 
 
 
+class MigrationBackupInfo(BaseModel):
+    """Il backup fatto prima dell'ultimo aggiornamento del database
+    (nazgarr/core/db_startup.py): solo informativo."""
+    path: str
+    file: str
+    from_version: int | None = None  # la versione dello schema del backup
+    to_version: int | None = None
+    created_at: datetime | None = None
+    exists: bool  # l'utente può averlo spostato o cancellato
+
+
 class AppInfoResponse(BaseModel):
     version: str
     commit: str | None = None
     python_version: str
     platform: str
     started_at: datetime
+    # Dove finiscono i backup prima di un aggiornamento del database, come lo
+    # vede Nazgarr (in Docker, un percorso dentro il container).
+    backups_dir: str
+    backups_keep: int  # quanti ne restano (NAZGARR_MIGRATION_BACKUPS_KEEP)
+    migration_backup: MigrationBackupInfo | None = None
 
 
 class WhoAmIResponse(BaseModel):
@@ -55,14 +71,32 @@ def whoami(request: Request, session: Session = Depends(get_session)):
     return WhoAmIResponse(kind="api_key", name=key.name if key else None, level=key.level if key else "read")
 
 
+def _migration_backup(session: Session) -> MigrationBackupInfo | None:
+    recorded = db_startup.last_backup(session)
+    if recorded is None:
+        return None
+    path = Path(recorded["path"])
+    try:
+        return MigrationBackupInfo(
+            path=str(path), file=path.name, from_version=recorded.get("from_version"),
+            to_version=recorded.get("to_version"), created_at=recorded.get("created_at"), exists=path.is_file(),
+        )
+    except ValidationError:  # un valore salvato di un'altra forma: niente, invece di un 500
+        return None
+
+
 @router.get("/info", response_model=AppInfoResponse)
-def app_info(request: Request):
+def app_info(request: Request, session: Session = Depends(get_session),
+             settings: Settings = Depends(get_settings)):
     return AppInfoResponse(
         version=__version__,
         commit=__commit__,
         python_version=platform.python_version(),
         platform=f"{platform.system().lower()}/{platform.machine()}",
         started_at=request.app.state.started_at,
+        backups_dir=str(db_backup.backups_dir(settings.data_dir)),
+        backups_keep=db_backup.keep_count(),
+        migration_backup=_migration_backup(session),
     )
 
 

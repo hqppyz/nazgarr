@@ -24,7 +24,13 @@ Quindi, per percorso:
 
 Middleware ASGI puro, il più esterno di tutti (nazgarr/main.py): un
 Content-Length oltre il tetto è un 413 subito, senza leggere niente; un corpo
-a pezzi (chunked) si conta mentre arriva e si ferma appena lo supera."""
+a pezzi (chunked) si conta mentre arriva e si ferma appena lo supera.
+
+In modalità di ripristino (l'aggiornamento del database non è riuscito,
+nazgarr/web/recovery.py) le credenziali non si controllano: non c'è un
+database con cui farlo, e un 401 direbbe di rifare il login invece di cosa è
+successo. RecoveryMiddleware, più dentro, risponde il suo 503 senza leggere
+il corpo; il tetto resta."""
 
 from fastapi import HTTPException
 from starlette.concurrency import run_in_threadpool
@@ -92,7 +98,8 @@ class BodyLimitMiddleware:
         path = scope.get("path", "")
         login = path.startswith(_LOGIN_PREFIX)
         limit = self.login_bytes if login else self.max_bytes
-        must_check = not login and not path.startswith(_OWN_PASSWORD_PREFIX)
+        recovery = getattr(getattr(scope.get("app"), "state", None), "recovery", None) is not None
+        must_check = not login and not path.startswith(_OWN_PASSWORD_PREFIX) and not recovery
 
         declared = _declared_length(scope)
         refused = _too_large(limit) if declared is not None and declared > limit else None

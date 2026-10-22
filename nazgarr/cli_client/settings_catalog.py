@@ -97,6 +97,7 @@ MANAGED = {
     "update_check_last": "nothing: Nazgarr keeps it itself",
     "identity_rules_version": "nothing: Nazgarr keeps it itself",
     "not_imported_status": "nothing: Nazgarr keeps it itself",
+    "migration_backup_last": "nothing: Nazgarr keeps it itself (see `nazgarr db backups`)",
 }
 SECRET_WORDS = ("api_key", "token", "password", "secret", "cookie")
 

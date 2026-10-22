@@ -22,11 +22,18 @@ così un avvio interrotto a metà si ripete senza danni. Per cambiare solo
 le foreign key (un ON DELETE, una FK che manca) basta
 db.rebuild_tables_from_schema, che rifà la tabella com'è in schema.sql
 (passo 10).
+
+Un passo che fallisce esce da upgrade come MigrationFailed, col numero e
+il nome del passo (None per quelli di ogni avvio): l'avvio lo mostra
+all'utente e resta in modalità di ripristino invece di ripartire in loop,
+col backup fatto prima (nazgarr/core/db_startup.py, richiesta dell'utente
+2026-10-22).
 """
 
 import json
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 
 from sqlalchemy import text
@@ -201,6 +208,25 @@ LATEST = MIGRATIONS[-1].version
 assert [m.version for m in MIGRATIONS] == list(range(1, LATEST + 1)), "versioni in fila, senza buchi"
 
 
+class MigrationFailed(RuntimeError):
+    """Un passo dell'aggiornamento non è riuscito. step è il suo numero in
+    MIGRATIONS, None per quelli che girano a ogni avvio (name è allora la
+    funzione: migrate_schema, apply_schema...); start la versione da cui si
+    partiva (None se non si è nemmeno letta). L'errore vero è __cause__."""
+
+    def __init__(self, step: int | None, name: str, start: int | None):
+        super().__init__(f"passo {step} ({name})" if step is not None else name)
+        self.step, self.name, self.start = step, name, start
+
+
+@contextmanager
+def _step(step: int | None, name: str, start: int | None) -> Iterator[None]:
+    try:
+        yield
+    except Exception as exc:  # qualunque errore del passo: lo si dice all'utente con il suo nome
+        raise MigrationFailed(step, name, start) from exc
+
+
 def current_version(engine: Engine) -> int:
     with engine.connect() as conn:
         return conn.execute(text("PRAGMA user_version")).scalar() or 0
@@ -211,34 +237,42 @@ def _set_version(engine: Engine, version: int) -> None:
         conn.execute(text(f"PRAGMA user_version = {int(version)}"))
 
 
-def _run(engine: Engine, migrations: list[Migration]) -> None:
+def _run(engine: Engine, migrations: list[Migration], start: int) -> None:
     for migration in migrations:
         logger.info("Database: migrazione %d (%s)", migration.version, migration.name)
-        migration.run(engine)
+        with _step(migration.version, migration.name, start):
+            migration.run(engine)
 
 
 def upgrade(engine: Engine) -> int:
-    """Porta il DB all'ultima versione; restituisce la versione di partenza."""
-    start = current_version(engine)
+    """Porta il DB all'ultima versione; restituisce la versione di partenza.
+    Un passo che fallisce solleva MigrationFailed."""
+    with _step(None, "user_version", None):
+        start = current_version(engine)
     if start > LATEST:
         # Un DB di una versione più nuova di Nazgarr (un downgrade): lo schema
         # va comunque bene da leggere, ma nessun passo si riesegue.
         logger.warning("Database alla versione %d, più nuova di questo Nazgarr (%d)", start, LATEST)
     pending = [m for m in MIGRATIONS if m.version > start]
-    _run(engine, [m for m in pending if m.before_schema])
+    _run(engine, [m for m in pending if m.before_schema], start)
     # Le colonne nuove prima dello schema: un indice di schema.sql può usare
     # una colonna che un DB più vecchio riceve solo da migrate_schema (per
     # esempio upload_job.split_from_id), e la sua CREATE INDEX fallirebbe.
     # Le tabelle che mancano le crea poi apply_schema, già complete.
-    db.migrate_schema(engine)
-    db.apply_schema(engine)
+    with _step(None, "migrate_schema", start):
+        db.migrate_schema(engine)
+    with _step(None, "apply_schema", start):
+        db.apply_schema(engine)
     after = [m for m in pending if not m.before_schema]
-    _run(engine, after)
+    _run(engine, after, start)
     if after:
-        db.apply_schema(engine)  # una tabella rifatta perde i suoi indici: schema.sql li rimette
-    db.encrypt_plaintext_secrets(engine)
+        with _step(None, "apply_schema", start):
+            db.apply_schema(engine)  # una tabella rifatta perde i suoi indici: schema.sql li rimette
+    with _step(None, "encrypt_plaintext_secrets", start):
+        db.encrypt_plaintext_secrets(engine)
     if start < LATEST:
-        _set_version(engine, LATEST)
+        with _step(None, "user_version", start):
+            _set_version(engine, LATEST)
     db.refresh_planner_statistics(engine)  # solo con SQLite prima della 3.46
     # L'app parte con connessioni nuove, configurate da db._configure_sqlite
     # (foreign key accese), non con quelle passate per le migrazioni.

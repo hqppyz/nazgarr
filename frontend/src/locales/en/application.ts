@@ -20,6 +20,15 @@ export const application = {
   'application.channelStable': 'Stable channel (:stable / :latest image): only stable releases are offered.',
   'application.channelTest': 'Nightly channel (:nightly image): every new build is offered.',
   'application.updateAvailable': 'Update available: {version}',
+  'application.dbBackupTitle': 'Backup before the last database update',
+  'application.dbBackupNone':
+    'None yet. When an update is about to change the database, Nazgarr first copies it and checks the copy, and if the copy fails it stops instead of updating.',
+  'application.dbBackupDetails': '{date} · database version {from} → {to}',
+  'application.dbBackupMissing': 'The file is no longer there.',
+  'application.dbBackupFolder': 'Folder',
+  'application.dbBackupKeep': 'The last {keep} are kept; other files in that folder are never touched.',
+  'application.dbBackupRestore':
+    'To go back to one: “nazgarr db backups” lists them and “nazgarr db restore <file>” puts one back, with Nazgarr stopped.',
   'application.creditsTitle': 'Credits',
   'application.creditsDescription': 'Services and other people’s work Nazgarr builds on.',
   'application.creditTmdb': 'This product uses the TMDB API but is not endorsed or certified by TMDB.',

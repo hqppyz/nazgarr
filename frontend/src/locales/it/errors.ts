@@ -212,4 +212,7 @@ export const errors = {
   'errors.upload_source_missing': "La sorgente non c'è più: {path}",
   'errors.upload_resume_nothing_left': "Niente da riprendere: i tracker rimasti sono già stati fatti.",
   'errors.upload_episode_order_unknown': "L'ordinamento degli episodi {order} non c'è per questa serie.",
+  'errors.database_update_failed': "Nazgarr non è riuscito ad aggiornare il suo database (al passo {step_name}) ed è in modalità di ripristino: apri la sua pagina web o leggi il suo log per sapere quale backup ripristinare e come.",
+  'errors.database_backup_failed': "Nazgarr non ha aggiornato il suo database perché il backup che fa prima non si è potuto fare, quindi il database è rimasto com'era. È in modalità di ripristino: apri la sua pagina web o leggi il suo log per sapere perché e cosa fare.",
+  'errors.database_in_use': "Un altro processo di Nazgarr, o un ripristino del database, sta usando la cartella dei dati di questo Nazgarr: non ha aperto il suo database ed è in modalità di ripristino. Ferma l'altro (o aspetta che il ripristino finisca), poi riavvialo.",
 } as const

@@ -2,7 +2,7 @@
 
 The `nazgarr` command does two jobs:
 
-- **Server commands** (`init`, `serve`, `install-service`, `reset-password`, `version`) run Nazgarr on this machine. They are described in the README, under "Python package"; `reset-password` under "Forgot the password?" below.
+- **Server commands** (`init`, `serve`, `install-service`, `reset-password`, `db`, `version`) run Nazgarr on this machine. They are described in the README, under "Python package"; `reset-password` under "Forgot the password?" and `db` under "Backups before a database update" below.
 - **Client commands** (everything else) talk to a running Nazgarr through its JSON API, the same one the web UI uses. They work on the machine that runs Nazgarr, from another computer, and inside the Docker container.
 
 Every command has its own help: `nazgarr --help`, `nazgarr review --help`, `nazgarr review approve --help`.
@@ -95,6 +95,18 @@ nazgarr reset-password                           # Python package
 ```
 
 It asks the new password twice; `--password-stdin` reads it from stdin instead, and `--username NAME` changes the username too. The server can keep running. It works only where the database is: from another computer, nobody can reset it.
+
+### Backups before a database update
+
+When an update is about to change the database, Nazgarr first copies it to the `backups` folder of its data folder. On the machine that runs Nazgarr:
+
+```bash
+docker exec -it nazgarr nazgarr db backups                     # Docker
+nazgarr db backups                                             # Python package
+nazgarr db restore pre-migration-v12-to-v13-0.9.20-20261022T101500Z.db
+```
+
+`db backups` lists them, newest first, with the database version each holds (`--json` for scripts), and marks the one taken before an update that did not finish. A `pre-retry-...` file is a copy a later start made before trying that update again, because the database had changed in between: restore the `pre-migration-...` one unless Nazgarr was used after the failed attempt. `db restore` takes a name from that list or a path. It checks the backup first, asks before going on (`--yes` to skip the question), keeps the current database as `nazgarr.db.before-restore` (byte for byte, with its `-wal` if it had one), removes the leftover `nazgarr.db-wal` and `nazgarr.db-shm`, and removes `migration-status.json`, so the next start backs the restored database up again before updating it. It refuses while Nazgarr is running, except when Nazgarr is showing the page of a failed database update: then it has let go of the database, and `docker exec` works. A Nazgarr that starts while a restore is running waits a few seconds, then shows a page saying the data folder is in use instead of opening the database. Afterwards start the version you were using before the update, the one that matches the backup.
 
 ### Environment variables
 

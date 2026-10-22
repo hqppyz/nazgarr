@@ -124,6 +124,7 @@ MANAGED_KEYS = frozenset({
     "instance_name",  # PUT /api/instances/local
     "upload_file_naming_rules",  # PUT /api/uploads/file-naming
     "not_imported_status",  # nazgarr/library/not_imported.py
+    "migration_backup_last",  # il backup prima dell'ultimo aggiornamento del DB (nazgarr/core/db_startup.py)
 })
 
 _TRUE = ("true", "yes", "on", "1")

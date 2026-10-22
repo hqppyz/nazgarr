@@ -228,7 +228,9 @@ def test_one_time_steps_run_once_and_the_schema_sync_every_time(tmp_path, monkey
 
 
 def test_a_failed_step_does_not_move_the_version(tmp_path, monkeypatch):
-    """I passi sono idempotenti: un avvio interrotto li ripete tutti."""
+    """I passi sono idempotenti: un avvio interrotto li ripete tutti. Il
+    passo che fallisce dice il suo numero e il suo nome, per la modalità di
+    ripristino (nazgarr/core/db_startup.py)."""
     import pytest
 
     engine = db.make_engine(str(tmp_path / "db.db"))
@@ -238,9 +240,27 @@ def test_a_failed_step_does_not_move_the_version(tmp_path, monkeypatch):
 
     steps = (*migrations.MIGRATIONS[:-1], migrations.Migration(migrations.LATEST, "x", boom, False))
     monkeypatch.setattr(migrations, "MIGRATIONS", steps)
-    with pytest.raises(RuntimeError):
+    with pytest.raises(migrations.MigrationFailed) as failed:
         migrations.upgrade(engine)
+    assert (failed.value.step, failed.value.name, failed.value.start) == (migrations.LATEST, "x", 0)
+    assert isinstance(failed.value.__cause__, RuntimeError)
     assert migrations.current_version(engine) == 0
+
+
+def test_a_failure_outside_the_numbered_steps_names_its_function(tmp_path, monkeypatch):
+    import pytest
+
+    engine = db.make_engine(str(tmp_path / "db.db"))
+    migrations.upgrade(engine)
+
+    def boom(_engine):
+        raise ValueError("chiave sbagliata")
+
+    monkeypatch.setattr(db, "encrypt_plaintext_secrets", boom)
+    with pytest.raises(migrations.MigrationFailed) as failed:
+        migrations.upgrade(engine)
+    assert (failed.value.step, failed.value.name, failed.value.start) == (
+        None, "encrypt_plaintext_secrets", migrations.LATEST)
 
 
 def _ids(engine, table: str) -> list[int]:
