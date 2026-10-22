@@ -131,7 +131,8 @@ class MatchContext:
     """Stato di UN tracker per UNA run di matching, condiviso fra tutti gli
     orfani: indici dei file locali, .torrent già scaricati, torrent multi-
     video già valutati (un pack di 10 episodi orfani si valuta e scarica una
-    volta sola, non dieci)."""
+    volta sola, non dieci; si rivaluta solo finché lo tiene la proposta di
+    un altro file, _mark_evaluated)."""
 
     session: Session
     tracker_row: Tracker
@@ -173,6 +174,14 @@ class MatchContext:
         if self._queue is None:
             self._queue = review.ReviewQueue(self.session, self.hashes_in_clients())
         return self._queue
+
+    def held_elsewhere(self, anchor: MediaFile | SeedFile, torrent_id_remote: str) -> bool:
+        """Il torrent è già proposto (una review in coda o approvata) o in
+        esecuzione per un altro file: per questo file è occupato, non lo può
+        proporre (review._Exclusions)."""
+        media_file_id, seed_file_id = (anchor.id, None) if isinstance(anchor, MediaFile) else (None, anchor.id)
+        return self.review_queue().held_by_another(self.tracker_row.id, torrent_id_remote, media_file_id,
+                                                   seed_file_id)
 
     def local_files(self) -> LocalFiles:
         if self.local is None:
@@ -259,6 +268,20 @@ def _unrelated(ctx: MatchContext, layout: Layout, anchor: MediaFile | SeedFile) 
     if ctx.direction == "media_to_torrent":
         return other_episode(layout, anchor, ctx.local_files(), ctx.translate_episodes)
     return seed_root(layout, anchor) is None
+
+
+def _mark_evaluated(ctx: MatchContext, anchor: MediaFile | SeedFile, torrent_id_remote: str) -> None:
+    """Un pack valutato una volta per passaggio: gli altri suoi episodi lo
+    saltano. Non quando lo tiene già la proposta (o l'esecuzione) di un altro
+    file: questo file non lo poteva proporre, e quella proposta la conferma,
+    la aggiorna o la toglie solo il suo file, valutandolo anche lui. Segnato
+    lo stesso, il file della proposta lo saltava: col suo singolo al posto
+    del pack, e un singolo per ogni episodio cercato dopo di lui, ogni volta
+    che non era il primo orfano della stagione, perché gli orfani si cercano
+    per episodio (2026-10-22). Finché è occupato lo rivaluta ogni episodio
+    che lo incontra, coi .torrent e i piece già letti nel passaggio."""
+    if not ctx.held_elsewhere(anchor, torrent_id_remote):
+        ctx.evaluated_packs.add(torrent_id_remote)
 
 
 def _evaluate(ctx: MatchContext, layout: Layout, anchor, *, download_link: str | None,
@@ -466,7 +489,7 @@ def match_file(ctx: MatchContext, anchor: MediaFile | SeedFile, media_item_id: i
             # Un file solo senza .torrent resta come il catalogo lo descrive:
             # il controllo completo prima di eseguire ne corregge la cartella.
         if multi_video:
-            ctx.evaluated_packs.add(tc.torrent_id_remote)
+            _mark_evaluated(ctx, anchor, tc.torrent_id_remote)
         persisted.append(_persist(
             ctx, anchor, media_item_id=media_item_id, torrent_id_remote=tc.torrent_id_remote, name=tc.name,
             size_bytes=tc.size_bytes, layout=layout, evaluation=evaluation, download_link=tc.download_link,
@@ -510,7 +533,7 @@ def match_from_history(ctx: MatchContext, anchor: MediaFile | SeedFile, media_it
     evaluation = _evaluate(ctx, layout, anchor, download_link=download_link, unique_ids=None,
                            single_unique_id=None)
     if len(layout.videos) > 1 and evaluation.ambiguity_reason not in _UNRELATED_REASONS:
-        ctx.evaluated_packs.add(grab.torrent_id_remote)
+        _mark_evaluated(ctx, anchor, grab.torrent_id_remote)
     candidate = _persist(
         ctx, anchor, media_item_id=media_item_id, torrent_id_remote=grab.torrent_id_remote, name=parsed.name,
         size_bytes=parsed.total_length, layout=layout, evaluation=evaluation, download_link=download_link,
@@ -770,8 +793,10 @@ def _match_orphans(ctx: MatchContext, orphans: list[tuple], side: str, progress,
     attempts = _attempts_by_file(session, tracker_row, side)
     # Per serie, stagione ed episodio: gli episodi di una serie si cercano
     # vicini, mentre la ricerca è ancora nella cache dell'adapter (10 minuti),
-    # e il pack lo valuta per primo il suo primo episodio. Prima l'ordine era
-    # quello delle righe nel DB (audit 2026-10-18).
+    # e un pack nuovo lo valuta per primo il suo primo episodio. Prima l'ordine
+    # era quello delle righe nel DB (audit 2026-10-18). Le proposte non
+    # dipendono dall'ordine: un pack già proposto per un altro episodio lo
+    # rivaluta anche quello (_mark_evaluated, 2026-10-22).
     orphans = sorted(orphans, key=lambda entry: _series_order(entry[0], side))
     with keep_loaded_on_commit(session):
         for orphan, formats in orphans:

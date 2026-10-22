@@ -24,6 +24,7 @@ default, mai un bypass "perché il file esiste già"."""
 import logging
 from collections import Counter
 from datetime import UTC, datetime
+from itertools import chain
 from typing import NamedTuple
 
 from sqlalchemy import exists, func, select
@@ -169,9 +170,15 @@ def _user_rejected_torrents(
     return {(tracker_id, remote) for tracker_id, remote in [*own.all(), *inside.all()]}
 
 
-def _covered_by_pack(session: Session, media_file_id: int, tracker_id: int) -> bool:
+def _covered_by_pack(session: Session, media_file_id: int, tracker_id: int,
+                     implausible: frozenset[str] | set[str] = frozenset()) -> bool:
     """Un pack di questo tracker già in coda o approvato per un altro
-    episodio contiene anche questo file: il singolo non serve (pack preferito)."""
+    episodio contiene anche questo file: il singolo non serve (pack preferito).
+    Non lo copre un pack che la ricerca appena fatta per questo file dà per
+    non plausibile (implausible, id sul tracker): la sua proposta cade quando
+    la rivaluta il suo episodio, e prima un episodio cercato prima di lui
+    restava senza proposta, uno cercato dopo riceveva il suo singolo
+    (2026-10-22)."""
     rows = (
         session.query(Candidate)
         .join(MatchReview, MatchReview.candidate_id == Candidate.id)
@@ -181,7 +188,7 @@ def _covered_by_pack(session: Session, media_file_id: int, tracker_id: int) -> b
                 MatchReview.status.in_((*READY_FOR_DECISION_STATUSES, "approved")))
         .all()
     )
-    return any(candidate_format(c) == PACK for c in rows)
+    return any(candidate_format(c) == PACK and c.torrent_id_remote not in implausible for c in rows)
 
 
 def _supersede_singles_in_pack(session: Session, pack: Candidate, queue: "ReviewQueue | None" = None) -> int:
@@ -320,6 +327,15 @@ class ReviewQueue:
     def busy_for(self, media_file_id: int | None, seed_file_id: int | None) -> set[tuple[int, str]]:
         return _busy_for([*self._active.values(), *self._running], media_file_id, seed_file_id)
 
+    def held_by_another(self, tracker_id: int, torrent_id_remote: str, media_file_id: int | None,
+                        seed_file_id: int | None) -> bool:
+        """(tracker_id, torrent_id_remote) in busy_for(...), senza costruire
+        l'insieme: il matching lo chiede per ogni pack che valuta."""
+        return any(
+            (tracker, remote) == (tracker_id, torrent_id_remote) and (mf_id, sf_id) != (media_file_id, seed_file_id)
+            for tracker, remote, mf_id, sf_id in chain(self._active.values(), self._running)
+        )
+
     def has_reviews(self, tracker_id: int, media_file_id: int | None, seed_file_id: int | None) -> bool:
         return self._by_file[(tracker_id, media_file_id, seed_file_id)] > 0
 
@@ -439,6 +455,11 @@ class _Exclusions:
         self.hashes = queue.in_client | queue.uploaded_hashes
 
 
+def _implausible(evaluated: list[Candidate]) -> set[str]:
+    """Gli id sul tracker dei torrent che questa valutazione dà per non plausibili."""
+    return {c.torrent_id_remote for c in evaluated} - {c.torrent_id_remote for c in evaluated if c.confidence > 0.0}
+
+
 def _drop_unavailable(
     session: Session, *, media_file_id: int | None, seed_file_id: int | None, tracker_id: int,
     formats: frozenset[str], queue: ReviewQueue | None, exclusions: _Exclusions | None = None,
@@ -462,9 +483,7 @@ def _drop_unavailable(
     if exclusions is None:
         exclusions = _Exclusions(session, media_file_id=media_file_id, seed_file_id=seed_file_id,
                                  in_client=in_client, queue=queue)
-    evaluated = evaluated or []
-    implausible = ({c.torrent_id_remote for c in evaluated}
-                   - {c.torrent_id_remote for c in evaluated if c.confidence > 0.0})
+    implausible = _implausible(evaluated or [])
     gone = [
         r for r in active
         if exclusions.impossible(r.candidate) or r.candidate.torrent_id_remote in implausible
@@ -529,7 +548,7 @@ def _create_review(
                           formats=formats, queue=queue, exclusions=exclusions, returned=returned,
                           evaluated=candidates)
         return None
-    if prefer_pack and _covered_by_pack(session, media_file_id, tracker_id):
+    if prefer_pack and _covered_by_pack(session, media_file_id, tracker_id, _implausible(candidates)):
         plausible = [c for c in plausible if candidate_format(c) == PACK]
         if not plausible:
             _supersede_active_reviews(session, media_file_id=media_file_id, seed_file_id=seed_file_id,
