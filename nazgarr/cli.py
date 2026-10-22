@@ -381,7 +381,7 @@ def cmd_db_restore(args) -> int:
             return 1
     finally:
         lock.release()
-    newer = f" ({parsed.app_version} or newer would run the same update again)" if parsed else ""
+    newer = f" (starting {parsed.app_version} again would run the same update again)" if parsed else ""
     print(f"Restored: the database is back to version {version}. Start the Nazgarr version you were using before "
           f"the update{newer}, or report the issue with the log: https://github.com/lktorrentz/nazgarr/issues")
     return 0

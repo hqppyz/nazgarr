@@ -222,7 +222,7 @@ def test_db_restore_puts_the_backup_back_and_keeps_the_current_database(tmp_path
         holder.close()
 
     out = capsys.readouterr().out
-    assert "back to version" in out and "1.2.3 or newer would run the same update again" in out
+    assert "back to version" in out and "starting 1.2.3 again would run the same update again" in out
     assert _labels(db_path) == ["before"]
     assert not Path(f"{db_path}-wal").exists() and not Path(f"{db_path}-shm").exists()
     assert stat.S_IMODE(db_path.stat().st_mode) == 0o600
