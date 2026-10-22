@@ -21,7 +21,7 @@ from pathlib import Path
 from starlette.responses import HTMLResponse, JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from nazgarr.core.db_startup import BACKUP_FAILED, UNREADABLE
+from nazgarr.core.db_startup import BACKUP_FAILED, STATUS_FILENAME, UNREADABLE
 from nazgarr.core.errors import coded_detail
 from nazgarr.core.mounts import in_container
 from nazgarr.core.version import PROJECT_URL
@@ -52,6 +52,9 @@ _TEXT = {
                            "in {folder}, and {restore} puts one back (it works while this page is up). Or put back "
                            "your own backup of {db}.",
         "backup_is": "The backup taken right before the update is {file}, in {folder}.",
+        "retry_is": "The database had changed since the first attempt of this update ({date}), so it was also copied "
+                    "before trying again: {file}. Restore that one instead only if Nazgarr was used after the first "
+                    "attempt, for example with the previous version.",
         "no_backup": "No backup was taken before this attempt (nothing in the database structure was due to change, "
                      "or NAZGARR_SKIP_MIGRATION_BACKUP was set). Restore your own backup if you have one.",
         "host_path": "The paths on this page are inside the container: on the host they are in the folder you "
@@ -60,7 +63,7 @@ _TEXT = {
         "restore_cli": "Restore the backup with {command}. It works while this page is up, keeps a copy of the "
                        "current database and checks the backup first.",
         "restore_hand": "Or by hand: stop Nazgarr, replace {db} in {folder} with the backup (renamed {db}) and "
-                        "delete {wal} and {shm} if they are there.",
+                        "delete {wal}, {shm} and {status} if they are there.",
         "start_previous": "Then start the version you were using before the update (the backup has database "
                           "version {version}), or report the issue with the log on {link}.",
         "backup_todo": "Free some space on the disk of the data folder ({folder}) or fix the error in the log, "
@@ -90,6 +93,9 @@ _TEXT = {
                            "precedenti, in {folder}, e {restore} ne rimette uno (funziona anche con questa pagina "
                            "aperta). Oppure rimetti un tuo backup di {db}.",
         "backup_is": "Il backup fatto subito prima dell'aggiornamento è {file}, in {folder}.",
+        "retry_is": "Dal primo tentativo di questo aggiornamento ({date}) il database era cambiato, quindi prima di "
+                    "riprovare è stato copiato di nuovo: {file}. Ripristina quello invece solo se Nazgarr è stato "
+                    "usato dopo il primo tentativo, per esempio con la versione di prima.",
         "no_backup": "Prima di questo tentativo non è stato fatto nessun backup (la struttura del database non "
                      "doveva cambiare, o era impostato NAZGARR_SKIP_MIGRATION_BACKUP). Ripristina un tuo backup, se "
                      "ce l'hai.",
@@ -99,7 +105,7 @@ _TEXT = {
         "restore_cli": "Ripristina il backup con {command}. Funziona anche con questa pagina aperta, tiene una "
                        "copia del database di adesso e prima controlla il backup.",
         "restore_hand": "Oppure a mano: ferma Nazgarr, sostituisci {db} in {folder} con il backup (rinominato {db}) "
-                        "e cancella {wal} e {shm} se ci sono.",
+                        "e cancella {wal}, {shm} e {status} se ci sono.",
         "start_previous": "Poi avvia la versione che usavi prima dell'aggiornamento (il backup ha il database alla "
                           "versione {version}), oppure segnala il problema con il log su {link}.",
         "backup_todo": "Libera spazio sul disco della cartella dei dati ({folder}) o correggi l'errore che trovi "
@@ -163,6 +169,29 @@ def _error_class(status: dict) -> str:
     return str(status.get("error") or "").split(":", 1)[0].strip()
 
 
+def _backup_paragraphs(text: dict, status: dict, folder: str, data_dir: str, db_name: str, container: bool,
+                       link: str) -> tuple[list[str], list[str]]:
+    """Il backup di prima dell'aggiornamento (e la copia pre-retry, se c'è)
+    e come ripristinarlo."""
+    paragraphs: list[str] = []
+    todo: list[str] = []
+    backup, retry = status.get("backup"), status.get("retry_backup")
+    prefix = "docker exec -it nazgarr " if container else ""
+    if backup:
+        backup_name = Path(str(backup)).name
+        paragraphs.append(text["backup_is"].format(file=_code(backup_name), folder=_code(folder)))
+        todo.append(text["restore_cli"].format(command=_code(f"{prefix}nazgarr db restore {backup_name}")))
+        todo.append(text["restore_hand"].format(db=_code(db_name), folder=_code(data_dir), wal=_code(f"{db_name}-wal"),
+                                                shm=_code(f"{db_name}-shm"), status=_code(STATUS_FILENAME)))
+    else:
+        paragraphs.append(text["no_backup"])
+    if retry:
+        paragraphs.append(text["retry_is"].format(file=_code(Path(str(retry)).name),
+                                                  date=escape(str(status.get("started_at") or "?"))))
+    todo.append(text["start_previous"].format(version=escape(str(status.get("from_version"))), link=link))
+    return paragraphs, todo
+
+
 def render_page(status: dict, language: str = "en") -> str:
     text = _TEXT.get(language, _TEXT["en"])
     database = Path(str(status.get("database") or "nazgarr.db"))
@@ -175,14 +204,18 @@ def render_page(status: dict, language: str = "en") -> str:
     if container and data_dir.startswith(_CONTAINER_CONFIG):
         host_note = f'<p class="muted">{text["host_path"].format(config=_code(_CONTAINER_CONFIG))}</p>'
     link = f'<a href="{escape(PROJECT_URL)}/issues">{text["report"]}</a>'
+    prefix = "docker exec -it nazgarr " if container else ""
     paragraphs: list[str] = []
     todo: list[str] = []
     if status.get("status") == BACKUP_FAILED:
         heading = text["heading_backup"]
         reason = text.get(f"reason_{status.get('reason')}", text["reason_io_error"])
         paragraphs.append(text["backup_failed"].format(version=version, reason=escape(reason)))
-        if status.get("reason") == UNREADABLE:
-            prefix = "docker exec -it nazgarr " if container else ""
+        if status.get("reason") == UNREADABLE and status.get("backup"):
+            # Il database lasciato da un aggiornamento interrotto: il backup è quello di prima.
+            more, todo = _backup_paragraphs(text, status, folder, data_dir, db_name, container, link)
+            paragraphs += more
+        elif status.get("reason") == UNREADABLE:
             todo.append(text["unreadable_todo"].format(
                 list=_code(f"{prefix}nazgarr db backups"), restore=_code(f"{prefix}nazgarr db restore <file>"),
                 folder=_code(folder), db=_code(db_name)))
@@ -197,21 +230,10 @@ def render_page(status: dict, language: str = "en") -> str:
         paragraphs.append(text["failed"].format(version=version, step=step))
         if _error_class(status):
             paragraphs.append(text["error"].format(error=_code(_error_class(status))))
-        backup = status.get("backup")
-        if backup:
-            backup_name = Path(str(backup)).name
-            paragraphs.append(text["backup_is"].format(file=_code(backup_name), folder=_code(folder)))
-            command = (f"docker exec -it nazgarr nazgarr db restore {backup_name}" if container
-                       else f"nazgarr db restore {backup_name}")
-            todo.append(text["restore_cli"].format(command=_code(command)))
-            todo.append(text["restore_hand"].format(db=_code(db_name), folder=_code(data_dir),
-                                                    wal=_code(f"{db_name}-wal"), shm=_code(f"{db_name}-shm")))
-            todo.append(text["start_previous"].format(version=escape(str(status.get("from_version"))), link=link))
-        else:
-            paragraphs.append(text["no_backup"])
-            todo.append(text["start_previous"].format(version=escape(str(status.get("from_version"))), link=link))
+        more, todo = _backup_paragraphs(text, status, folder, data_dir, db_name, container, link)
+        paragraphs += more
     logs = "docker logs nazgarr" if container else str(Path(data_dir) / "logs")
-    details = text["details"].format(logs=_code(logs), status=_code(Path(data_dir) / "migration-status.json"))
+    details = text["details"].format(logs=_code(logs), status=_code(Path(data_dir) / STATUS_FILENAME))
     body = "".join(f"<p>{p}</p>" for p in paragraphs)
     steps = "".join(f"<li>{item}</li>" for item in todo)
     return (

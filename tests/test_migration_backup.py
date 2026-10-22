@@ -8,6 +8,8 @@ import logging
 import os
 import sqlite3
 import stat
+import subprocess
+import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -201,6 +203,34 @@ def test_verify_refuses_what_is_not_a_good_database(tmp_path):
         db_backup.verify(empty)
 
 
+def test_retention_always_keeps_the_backup_just_taken_and_anything_written_after_it(tmp_path):
+    """Un orologio che era avanti (un NAS o un Raspberry senza RTC, prima
+    della sincronizzazione NTP) dà ai backup vecchi un'ora nel nome più
+    avanti di quello appena fatto."""
+    folder = tmp_path / "backups"
+    folder.mkdir()
+    future = datetime.now(UTC) + timedelta(days=30)
+    ahead = [folder / db_backup.backup_name(4, 5, "0.9.0", future + timedelta(days=d)) for d in range(2)]
+    old = folder / db_backup.backup_name(3, 4, "0.8.0", datetime(2026, 1, 1, tzinfo=UTC))
+    for path in (*ahead, old):
+        path.write_bytes(b"x")
+    later = future.timestamp()
+    for path in ahead:
+        os.utime(path, (later, later))
+    os.utime(old, (1, 1))
+    new = folder / db_backup.backup_name(5, 6, "0.9.1", datetime.now(UTC))
+    new.write_bytes(b"x")
+    retry = folder / db_backup.backup_name(5, 6, "0.9.1", datetime.now(UTC), kind=db_backup.PRE_RETRY)
+    retry.write_bytes(b"x")
+
+    removed = db_backup.prune(folder, 1, newest=new)
+
+    assert removed == [old]  # il più vecchio sì, quelli "dal futuro" no, quello nuovo mai
+    assert new.exists() and all(path.exists() for path in ahead)
+    assert retry.exists()  # un altro tipo: la sua retention è un'altra
+    assert [b.kind for b in db_backup.list_backups(folder, db_backup.PRE_RETRY)] == [db_backup.PRE_RETRY]
+
+
 def test_retention_keeps_the_newest_and_never_touches_other_files(tmp_path, monkeypatch):
     folder = tmp_path / "backups"
     folder.mkdir()
@@ -334,10 +364,13 @@ def test_a_failed_step_writes_the_status_and_a_restart_keeps_the_first_backup(tm
     assert _user_version(Path(settings.db_path)) == migrations.LATEST
 
 
-def test_a_database_changed_after_the_failure_gets_a_new_backup(tmp_path, secret_key, monkeypatch):
-    """Il backup del tentativo fallito vale solo per il DB di allora: dopo un
-    ripristino, o giorni con la versione di prima, ne serve uno nuovo. Quello
-    vecchio resta, finché migration-status.json lo indica."""
+def test_a_database_changed_after_the_failure_keeps_the_first_backup_and_gets_a_retry_copy(
+        tmp_path, secret_key, monkeypatch):
+    """Il database cambiato dopo il tentativo fallito (scritto a metà da un
+    passo, `nazgarr reset-password`, o ripristinato a mano e usato con la
+    versione di prima): è ancora lo stesso aggiornamento, il backup da
+    ripristinare resta quello di prima del primo tentativo. La copia di
+    adesso si chiama pre-retry e non lo scalza mai, nemmeno con KEEP=1."""
     settings = _settings(tmp_path)
     _database(Path(settings.db_path), version=migrations.LATEST - 1)
     _failing_last_step(monkeypatch)
@@ -348,9 +381,151 @@ def test_a_database_changed_after_the_failure_gets_a_new_backup(tmp_path, secret
 
     second = db_startup.prepare(settings)
 
-    assert second.failed and second.backup != first.backup
+    assert second.failed and second.backup == first.backup and first.backup.is_file()
     folder = db_backup.backups_dir(settings.data_dir)
-    assert {b.path for b in db_backup.list_backups(folder)} == {first.backup, second.backup}
+    assert [b.path for b in db_backup.list_backups(folder, db_backup.PRE_MIGRATION)] == [first.backup]
+    assert second.retry is not None and second.retry.name.startswith("pre-retry-v")
+    status = db_startup.read_status(settings.data_dir)
+    assert (status["backup"], status["retry_backup"]) == (str(first.backup), str(second.retry))
+    copy = sqlite3.connect(second.retry)
+    try:
+        assert copy.execute("SELECT label FROM disk").fetchall() == [("new",)]
+    finally:
+        copy.close()
+
+    # Un altro riavvio, senza cambiare niente: nessuna copia nuova, e lo
+    # stato indica ancora la copia pre-retry di prima.
+    third = db_startup.prepare(settings)
+    assert third.backup == first.backup and third.retry == second.retry
+    assert len(db_backup.list_backups(folder)) == 2
+    assert db_startup.read_status(settings.data_dir)["retry_backup"] == str(second.retry)
+
+
+_KILLED_IN_A_STEP = """
+import os, sys
+from sqlalchemy import text
+from nazgarr.core import db_startup, migrations
+from nazgarr.core.config import Settings
+
+def step(engine):
+    with engine.begin() as conn:  # la prima metà del passo, già scritta
+        conn.execute(text("INSERT INTO disk (label, root_path) "
+                          "VALUES ('half-' || abs(random()), '/half/' || abs(random()))"))
+    os._exit(137)  # un OOM, il SIGKILL dopo il timeout di docker stop: niente except, niente finally
+
+last = migrations.MIGRATIONS[-1]
+migrations.MIGRATIONS = (*migrations.MIGRATIONS[:-1],
+                         migrations.Migration(last.version, last.name, step, last.before_schema))
+db_startup.prepare(Settings(data_dir=sys.argv[1]))
+"""
+
+
+def test_a_process_killed_in_the_middle_of_a_step_keeps_the_original_backup(tmp_path, secret_key, monkeypatch):
+    """Revisione del 2026-10-22: senza lo stato in_progress, ogni riavvio
+    dopo un kill copiava il database a metà come pre-migration-v<da>-...
+    e dopo KEEP riavvii il backup buono era sparito."""
+    settings = _settings(tmp_path)
+    _database(Path(settings.db_path), version=migrations.LATEST - 1)
+    folder = db_backup.backups_dir(settings.data_dir)
+    env = {**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1]), db_backup.KEEP_ENV: "1"}
+    original = None
+    for attempt in range(3):
+        run = subprocess.run([sys.executable, "-c", _KILLED_IN_A_STEP, settings.data_dir], env=env,
+                             capture_output=True, text=True, timeout=120, check=False)
+        assert run.returncode == 137, run.stderr[-2000:]
+        status = db_startup.read_status(settings.data_dir)
+        assert status["status"] == "in_progress" and status["from_version"] == migrations.LATEST - 1
+        if original is None:
+            original = Path(status["backup"])
+        assert status["backup"] == str(original), attempt  # sempre quello del primo tentativo
+        assert [b.path for b in db_backup.list_backups(folder, db_backup.PRE_MIGRATION)] == [original]
+    copy = sqlite3.connect(original)
+    try:
+        assert copy.execute("SELECT count(*) FROM disk WHERE label LIKE 'half-%'").fetchone() == (0,)
+    finally:
+        copy.close()
+    # Le copie di prima di ogni nuovo tentativo hanno un altro nome e la
+    # loro retention: KEEP più quella che lo stato indica.
+    retries = db_backup.list_backups(folder, db_backup.PRE_RETRY)
+    assert 1 <= len(retries) <= 2 and str(retries[0].path) == status["retry_backup"]
+
+    # Arriva la versione che non si interrompe: il backup registrato è
+    # quello di prima del primo tentativo, e lo stato si toglie.
+    fixed = db_startup.prepare(settings)
+    fixed.engine.dispose()
+    assert not fixed.failed and fixed.backup == original
+    assert not db_startup.status_path(settings.data_dir).exists()
+
+
+def test_a_backup_failure_after_an_interrupted_update_still_remembers_it(tmp_path, secret_key, monkeypatch):
+    """Un database che dopo il kill non si legge più: il motivo è quello, e
+    il backup da ripristinare resta quello di prima dell'aggiornamento,
+    anche al riavvio dopo."""
+    settings = _settings(tmp_path)
+    _database(Path(settings.db_path), version=migrations.LATEST - 1)
+    _failing_last_step(monkeypatch)
+    first = db_startup.prepare(settings)
+    Path(settings.db_path).write_bytes(os.urandom(20_000))
+    for name in ("-wal", "-shm"):
+        Path(settings.db_path + name).unlink(missing_ok=True)
+
+    for _ in range(2):
+        outcome = db_startup.prepare(settings)
+        status = db_startup.read_status(settings.data_dir)
+        assert outcome.failed and (status["status"], status["reason"]) == ("backup_failed", "database_unreadable")
+        assert status["interrupted_update"] is True and status["backup"] == str(first.backup)
+        assert status["from_version"] == migrations.LATEST - 1
+
+    from nazgarr.web.recovery import render_page
+
+    page = render_page(status, "en")
+    assert first.backup.name in page and "cannot be read" in page
+    assert len(db_backup.list_backups(db_backup.backups_dir(settings.data_dir))) == 1
+
+
+def test_a_missing_retry_copy_without_any_backup_means_no_update(tmp_path, secret_key, monkeypatch):
+    """Il backup del primo tentativo non c'è più (cancellato a mano): la
+    copia pre-retry è l'unica, e se non si può fare non si aggiorna, ma lo
+    stato ricorda ancora l'aggiornamento interrotto."""
+    settings = _settings(tmp_path)
+    _database(Path(settings.db_path), version=migrations.LATEST - 1)
+    _failing_last_step(monkeypatch)
+    first = db_startup.prepare(settings)
+    first.backup.unlink()
+    monkeypatch.setattr(db_backup, "_free_bytes", lambda folder: 0)
+    ran = []
+    monkeypatch.setattr(migrations, "upgrade", lambda engine: ran.append(engine))
+
+    second = db_startup.prepare(settings)
+
+    status = db_startup.read_status(settings.data_dir)
+    assert second.failed and ran == []
+    assert (status["status"], status["reason"], status["interrupted_update"]) == ("backup_failed", "no_space", True)
+    assert not list(db_backup.backups_dir(settings.data_dir).iterdir())
+
+
+def test_the_new_backup_survives_older_backups_dated_in_the_future(tmp_path, secret_key, monkeypatch, caplog):
+    """Revisione del 2026-10-22: con KEEP=1 e un backup che l'orologio
+    sbagliato ha datato più avanti, prepare() cancellava quello appena fatto
+    e aggiornava senza backup."""
+    settings = _settings(tmp_path)
+    _database(Path(settings.db_path), version=migrations.LATEST - 1)
+    folder = db_backup.backups_dir(settings.data_dir)
+    folder.mkdir()
+    future = datetime.now(UTC) + timedelta(days=30)
+    ahead = folder / db_backup.backup_name(migrations.LATEST - 2, migrations.LATEST - 1, "0.9.0", future)
+    _database(ahead)
+    os.utime(ahead, (future.timestamp(), future.timestamp()))
+    monkeypatch.setenv(db_backup.KEEP_ENV, "1")
+
+    with caplog.at_level(logging.INFO, logger="nazgarr.core.db_startup"):
+        outcome = db_startup.prepare(settings)
+    outcome.engine.dispose()
+
+    assert not outcome.failed and outcome.backup.is_file() and ahead.exists()
+    assert f"Backup before the database update: {outcome.backup}" in caplog.text
+    assert _user_version(Path(settings.db_path)) == migrations.LATEST
+    assert _user_version(outcome.backup) == migrations.LATEST - 1
 
 
 def test_the_last_backup_is_recorded_for_the_settings_page(tmp_path, secret_key):
@@ -422,12 +597,13 @@ def test_a_failed_update_keeps_the_app_up_in_recovery_mode(app_env, monkeypatch)
         health = client.get("/api/health")
         assert health.status_code == 503 and health.json()["status"] == "database_update_failed"
 
+        expected = {"code": "database_update_failed", "params": {
+            "step": migrations.LATEST, "step_name": migrations.MIGRATIONS[-1].name, "backup": backup_name}}
         for method, path in (("get", "/api/disks"), ("post", "/api/auth/setup"), ("get", "/api/system/info"),
                              ("get", "/api/nothing-here")):
             response = getattr(client, method)(path)
             assert response.status_code == 503, path
-            assert response.json()["detail"] == {"code": "database_update_failed", "params": {
-                "step": migrations.LATEST, "step_name": migrations.MIGRATIONS[-1].name, "backup": backup_name}}
+            assert response.json()["detail"] == expected
 
         for path in ("/", "/library", "/assets/app.js", "/openapi.json"):
             page = client.get(path)

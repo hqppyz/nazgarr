@@ -16,9 +16,14 @@ database si copia in <data_dir>/backups:
 
 Il nome dice tutto quello che serve per ripristinarlo:
 pre-migration-v<da>-to-v<a>-<versione di Nazgarr>-<ora UTC>.db, dove <da> è
-la versione dello schema (PRAGMA user_version) del backup. Restano gli
-ultimi KEEP backup con questo nome (NAZGARR_MIGRATION_BACKUPS_KEEP, 3 di
-default); gli altri file della cartella non si toccano mai.
+la versione dello schema (PRAGMA user_version) del backup. Un nuovo
+tentativo dello stesso aggiornamento (dopo un processo ucciso a metà o un
+passo fallito) non fa mai un altro pre-migration: il database è quello
+lasciato a metà, e quella copia scalzerebbe il backup buono. Se il database
+è cambiato dal tentativo prima, la copia si chiama pre-retry-v<da>-...
+(nazgarr/core/db_startup.py). Restano gli ultimi KEEP backup di ciascun
+tipo (NAZGARR_MIGRATION_BACKUPS_KEEP, 3 di default), sempre quello appena
+fatto; gli altri file della cartella non si toccano mai.
 
 Lo usano l'avvio (nazgarr/core/db_startup.py) e il CLI locale
 (`nazgarr db backups`, `nazgarr db restore`, nazgarr/cli.py)."""
@@ -39,12 +44,14 @@ BACKUPS_DIRNAME = "backups"
 KEEP_ENV = "NAZGARR_MIGRATION_BACKUPS_KEEP"
 SKIP_ENV = "NAZGARR_SKIP_MIGRATION_BACKUP"
 DEFAULT_KEEP = 3
+PRE_MIGRATION = "pre-migration"  # il database prima del primo tentativo di un aggiornamento
+PRE_RETRY = "pre-retry"  # il database prima di un nuovo tentativo, se è cambiato da quello prima
 # Oltre al database e al suo -wal: il file temporaneo del journal di SQLite
 # mentre scrive la copia, e un po' di respiro per il resto del sistema.
 MARGIN_BYTES = 32 * 1024 * 1024
 _STAMP = "%Y%m%dT%H%M%SZ"
-_NAME = re.compile(r"^pre-migration-v(?P<start>\d+)-to-v(?P<end>\d+)-(?P<version>[A-Za-z0-9._-]+)"
-                   r"-(?P<stamp>\d{8}T\d{6}Z)\.db$")
+_NAME = re.compile(r"^(?P<kind>pre-migration|pre-retry)-v(?P<start>\d+)-to-v(?P<end>\d+)"
+                   r"-(?P<version>[A-Za-z0-9._-]+)-(?P<stamp>\d{8}T\d{6}Z)\.db$")
 
 
 class BackupError(Exception):
@@ -88,6 +95,7 @@ class BackupFile:
     app_version: str
     created_at: datetime
     size: int
+    kind: str = PRE_MIGRATION
 
     @property
     def name(self) -> str:
@@ -114,9 +122,10 @@ def skip_requested() -> bool:
     return os.environ.get(SKIP_ENV, "").strip().lower() in ("1", "true", "yes", "on")
 
 
-def backup_name(from_version: int, to_version: int, app_version: str, when: datetime) -> str:
+def backup_name(from_version: int, to_version: int, app_version: str, when: datetime,
+                kind: str = PRE_MIGRATION) -> str:
     version = re.sub(r"[^A-Za-z0-9._-]+", "_", app_version).strip("._-") or "unknown"
-    return f"pre-migration-v{from_version}-to-v{to_version}-{version}-{when.astimezone(UTC).strftime(_STAMP)}.db"
+    return f"{kind}-v{from_version}-to-v{to_version}-{version}-{when.astimezone(UTC).strftime(_STAMP)}.db"
 
 
 def parse_name(path: Path) -> BackupFile | None:
@@ -130,26 +139,44 @@ def parse_name(path: Path) -> BackupFile | None:
         return None
     return BackupFile(
         path=path, from_version=int(match["start"]), to_version=int(match["end"]), app_version=match["version"],
-        created_at=datetime.strptime(match["stamp"], _STAMP).replace(tzinfo=UTC), size=size,
+        created_at=datetime.strptime(match["stamp"], _STAMP).replace(tzinfo=UTC), size=size, kind=match["kind"],
     )
 
 
-def list_backups(folder: Path) -> list[BackupFile]:
-    """I backup prima di un aggiornamento, dal più recente."""
+def list_backups(folder: Path, kind: str | None = None) -> list[BackupFile]:
+    """I backup prima di un aggiornamento (di un tipo, o tutti), dal più
+    recente."""
     if not folder.is_dir():
         return []
-    found = [b for b in (parse_name(p) for p in folder.iterdir() if p.is_file()) if b is not None]
+    found = [b for b in (parse_name(p) for p in folder.iterdir() if p.is_file())
+             if b is not None and kind in (None, b.kind)]
     return sorted(found, key=lambda b: (b.created_at, b.name), reverse=True)
 
 
-def prune(folder: Path, keep: int, protected: tuple[Path, ...] = ()) -> list[Path]:
-    """Tiene i keep più recenti, più quelli in protected (il backup che la
-    pagina di ripristino indica ancora). Solo file con il nome di questo
-    modulo: nient'altro della cartella si tocca."""
-    keep_paths = {p.resolve() for p in protected}
+def _mtime(path: Path) -> float | None:
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return None
+
+
+def prune(folder: Path, keep: int, protected: tuple[Path, ...] = (), *, kind: str = PRE_MIGRATION,
+          newest: Path | None = None) -> list[Path]:
+    """Tiene i keep più recenti di un tipo, più quelli in protected (il
+    backup che la pagina di ripristino indica ancora) e newest, quello
+    appena fatto. L'ordine è l'ora nel nome, e un orologio che era avanti (un
+    NAS o un Raspberry senza RTC, prima della sincronizzazione NTP) può
+    mettere dei backup vecchi davanti a quello appena fatto: quello resta
+    comunque, e non si cancella niente scritto dopo di lui (mtime). Solo
+    file con il nome di questo modulo: nient'altro della cartella si tocca."""
+    keep_paths = {p.resolve() for p in (*protected, *((newest,) if newest else ()))}
+    limit = _mtime(newest) if newest else None
     removed = []
-    for backup in list_backups(folder)[keep:]:
+    for backup in list_backups(folder, kind)[keep:]:
         if backup.path.resolve() in keep_paths:
+            continue
+        written = _mtime(backup.path)
+        if limit is not None and written is not None and written >= limit:
             continue
         try:
             backup.path.unlink()
@@ -241,7 +268,7 @@ def _fsync(path: Path) -> None:
         os.close(fd)
 
 
-def _fsync_dir(folder: Path) -> None:
+def fsync_dir(folder: Path) -> None:
     """Il rename resta anche dopo un'interruzione di corrente. Non su Windows,
     dove una cartella non si apre."""
     if os.name == "nt":
@@ -304,7 +331,7 @@ def _remove_stale_partials(folder: Path, now: datetime) -> None:
     nome di questo modulo più .partial), vecchia di più di un'ora (mai quella
     di un altro avvio in corso), e non serve a niente. Il resto della
     cartella non si tocca."""
-    for path in folder.glob("pre-migration-*.db.partial"):
+    for path in folder.glob("pre-*.db.partial"):
         try:
             if _NAME.match(path.name.removesuffix(".partial")) and \
                     now.timestamp() - path.stat().st_mtime > 3600:
@@ -314,7 +341,7 @@ def _remove_stale_partials(folder: Path, now: datetime) -> None:
 
 
 def take_backup(db_path: str, folder: Path, from_version: int, to_version: int, app_version: str,
-                now: datetime | None = None) -> Path:
+                now: datetime | None = None, kind: str = PRE_MIGRATION) -> Path:
     """Il backup prima dell'aggiornamento, controllato. BackupError se non si
     può fare: allora non si aggiorna niente (nazgarr/core/db_startup.py)."""
     when = now or datetime.now(UTC)
@@ -328,17 +355,17 @@ def take_backup(db_path: str, folder: Path, from_version: int, to_version: int, 
         raise BackupError("no_space", f"{free} bytes free in {folder}, {needed} needed")
     _remove_stale_partials(folder, when)
     # Due backup nello stesso secondo (un riavvio veloce): il secondo dopo.
-    target = folder / backup_name(from_version, to_version, app_version, when)
+    target = folder / backup_name(from_version, to_version, app_version, when, kind)
     for _ in range(60):
         if not target.exists():
             break
         when += timedelta(seconds=1)
-        target = folder / backup_name(from_version, to_version, app_version, when)
+        target = folder / backup_name(from_version, to_version, app_version, when, kind)
     partial = target.with_name(target.name + ".partial")
     try:
         copy_database(db_path, partial)
         os.replace(partial, target)
-        _fsync_dir(folder)
+        fsync_dir(folder)
     except (OSError, sqlite3.Error) as exc:
         partial.unlink(missing_ok=True)
         raise BackupError("io_error", f"{type(exc).__name__}: {exc}") from exc
@@ -405,4 +432,4 @@ def restore(backup: Path, db_path: str) -> None:
     for sidecar in sidecars(db_path):
         sidecar.unlink(missing_ok=True)
     os.replace(staging, target)
-    _fsync_dir(target.parent)
+    fsync_dir(target.parent)

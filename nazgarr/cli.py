@@ -290,19 +290,27 @@ def cmd_db_backups(args) -> int:
     folder = db_backup.backups_dir(settings.data_dir)
     backups = db_backup.list_backups(folder)
     status = db_startup.read_status(settings.data_dir) or {}
-    failed_with = status.get("backup") if status.get("status") == db_startup.MIGRATION_FAILED else None
+    # Il backup di prima dell'aggiornamento che non è finito (fallito,
+    # interrotto, o ricordato da un backup non riuscito dopo).
+    failed_with = status.get("backup") if status.get("status") in (
+        db_startup.MIGRATION_FAILED, db_startup.IN_PROGRESS) or status.get("interrupted_update") else None
     if args.json:
         print(json.dumps({"folder": str(folder), "backups": [{
-            "file": b.name, "path": str(b.path), "size": b.size, "from_version": b.from_version,
+            "file": b.name, "path": str(b.path), "kind": b.kind, "size": b.size, "from_version": b.from_version,
             "to_version": b.to_version, "app_version": b.app_version, "created_at": b.created_at.isoformat(),
             "failed_update": str(b.path) == failed_with,
         } for b in backups]}, indent=2))
         return 0
-    if status:
-        where = (f"step {status['step']}, {status.get('step_name')}" if status.get("step") is not None
-                 else status.get("step_name"))
-        print(f"The last start could not update the database ({where}): details in "
-              f"{db_startup.status_path(settings.data_dir)}.")
+    where = db_startup.status_path(settings.data_dir)
+    if status.get("status") == db_startup.IN_PROGRESS:
+        print(f"An update of the database did not finish (Nazgarr stopped while updating it): details in {where}.")
+    elif status.get("status") == db_startup.BACKUP_FAILED:
+        print(f"The last start did not update the database: the backup before it could not be made "
+              f"({status.get('reason')}). Details in {where}.")
+    elif status:
+        step = (f"step {status['step']}, {status.get('step_name')}" if status.get("step") is not None
+                else status.get("step_name"))
+        print(f"The last start could not update the database ({step}): details in {where}.")
     if not backups:
         print(f"No backups taken before a database update in {folder} yet: Nazgarr takes one when an update "
               "is about to change the database.")
@@ -314,9 +322,12 @@ def cmd_db_backups(args) -> int:
     print(f"Backups taken before a database update, in {folder} (newest first):")
     width = max(len(b.name) for b in backups)
     for b in backups:
-        note = "  <- before the failed update" if str(b.path) == failed_with else ""
+        note = "  <- before the update that did not finish" if str(b.path) == failed_with else ""
         print(f"  {b.name:<{width}}  {size(b.size):>9}  database v{b.from_version} -> v{b.to_version}  "
               f"{b.created_at:%Y-%m-%d %H:%M} UTC{note}")
+    if any(b.kind == db_backup.PRE_RETRY for b in backups):
+        print("pre-retry copies hold the database as a later start found it, after an update that did not finish: "
+              "restore the pre-migration backup unless Nazgarr was used in between.")
     print("Restore one with `nazgarr db restore <file>`, with Nazgarr stopped (or while it shows the page of a "
           "failed update).")
     return 0
@@ -339,7 +350,7 @@ def cmd_db_restore(args) -> int:
     settings = _local_settings(args.config)
     if settings is None:
         return 2
-    from nazgarr.core import db_backup, instance_lock
+    from nazgarr.core import db_backup, db_startup, instance_lock
 
     folder = db_backup.backups_dir(settings.data_dir)
     wanted = Path(args.file).expanduser()
@@ -379,6 +390,16 @@ def cmd_db_restore(args) -> int:
             # restore() rinomina solo alla fine: fin lì il database resta quello di prima.
             print(f"Restore failed ({type(exc).__name__}: {exc}): the database was not replaced.", file=sys.stderr)
             return 1
+        # Il database è un altro: il prossimo avvio è un aggiornamento nuovo,
+        # con il suo backup, non il seguito di quello fallito
+        # (nazgarr/core/db_startup.py).
+        status_file = db_startup.status_path(settings.data_dir)
+        if status_file.exists():
+            try:
+                status_file.unlink()
+                print(f"Removed {status_file.name}: the next start backs the database up again before updating it.")
+            except OSError as exc:
+                print(f"{status_file} not removed ({exc}): delete it before starting Nazgarr again.", file=sys.stderr)
     finally:
         lock.release()
     newer = f" (starting {parsed.app_version} again would run the same update again)" if parsed else ""
