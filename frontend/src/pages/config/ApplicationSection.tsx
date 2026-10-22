@@ -11,6 +11,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { ReleaseNotesList } from '@/components/updates/ReleaseNotesList'
+import { MigrationBackupBox } from '@/pages/config/MigrationBackupBox'
 import { RestartTourCard } from '@/onboarding/RestartTourCard'
 import { autosaveFeedback } from '@/lib/autosave'
 import { t } from '@/lib/i18n'
@@ -203,6 +204,7 @@ export function ApplicationSection() {
               </div>
             )}
             <AutoUpdateCheck />
+            {info && <MigrationBackupBox info={info} />}
           </CardContent>
         </Card>
         <RestartTourCard />

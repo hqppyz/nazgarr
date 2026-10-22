@@ -2797,6 +2797,11 @@ export interface components {
              * Format: date-time
              */
             started_at: string;
+            /** Backups Dir */
+            backups_dir: string;
+            /** Backups Keep */
+            backups_keep: number;
+            migration_backup?: components["schemas"]["MigrationBackupInfo"] | null;
         };
         /** ArrHookResponse */
         ArrHookResponse: {
@@ -4066,6 +4071,25 @@ export interface components {
             episode_count: number;
             /** Air Date */
             air_date: string | null;
+        };
+        /**
+         * MigrationBackupInfo
+         * @description Il backup fatto prima dell'ultimo aggiornamento del database
+         *     (nazgarr/core/db_startup.py): solo informativo.
+         */
+        MigrationBackupInfo: {
+            /** Path */
+            path: string;
+            /** File */
+            file: string;
+            /** From Version */
+            from_version?: number | null;
+            /** To Version */
+            to_version?: number | null;
+            /** Created At */
+            created_at?: string | null;
+            /** Exists */
+            exists: boolean;
         };
         /** MkdirRequest */
         MkdirRequest: {
