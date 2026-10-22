@@ -6,19 +6,33 @@ l'episodio con l'id più basso lo valutava prima un episodio precedente, che
 non poteva proporlo (occupato da quella proposta) ma lo segnava come già
 valutato. L'episodio della proposta lo saltava, il suo singolo prendeva il
 posto del pack e gli episodi dopo di lui avevano ognuno il suo singolo.
+Lo stesso per un pack che la proposta sta per perdere (non più nel catalogo,
+ora in un client, non più plausibile): lo davano per buono gli episodi
+cercati prima di quello della proposta, non quelli dopo.
 Stagione di quattro episodi, filesystem vero in tmp_path, nessuna rete."""
 
 import hashlib
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from nazgarr.adapters.tracker.base import TorrentCandidate
+from nazgarr.adapters.tracker.base import TorrentCandidate, UploadError
 from nazgarr.core import settings_repo
-from nazgarr.core.models import Disk, MatchReview, MediaFile, MediaItem, SeedFile, Tracker
+from nazgarr.core.models import (
+    ClientTorrent,
+    Disk,
+    MatchAttempt,
+    MatchReview,
+    MediaItem,
+    SeedFile,
+    TorrentClient,
+    Tracker,
+)
 from nazgarr.integrations.arr import ArrGrab, ArrIndex
 from nazgarr.library.seeding import PACK_AND_SINGLES_SETTING
 from nazgarr.reseed import matching, pipeline, review
+from nazgarr.torrents.metainfo import compute_info_hash
+from tests.fakes import make_media_file
 from tests.test_season_pack import _bencode, _no_mediainfo
 
 PIECE = 16
@@ -77,6 +91,23 @@ class Catalog:
         return _pack_torrent() if torrent_id == PACK_ID else _single_torrent(int(torrent_id) - 900)
 
 
+class WithoutPack(Catalog):
+    """Il pack non c'è più sul tracker (sostituito da un'altra release, o tolto)."""
+
+    def __init__(self):
+        super().__init__()
+        self.candidates = [c for c in self.candidates if c.torrent_id_remote != PACK_ID]
+
+
+class PackUnreadable(Catalog):
+    """Il .torrent del pack non si scarica (un errore passeggero del tracker)."""
+
+    def download_torrent(self, url):
+        if url == _link(PACK_ID):
+            raise UploadError("timeout")
+        return super().download_torrent(url)
+
+
 def _season(db_session, tmp_path, rows=SHUFFLED):
     """La stagione in libreria, coi media_file inseriti nell'ordine degli
     episodi `rows`: il loro id, quindi l'ordine delle righe."""
@@ -95,12 +126,8 @@ def _season(db_session, tmp_path, rows=SHUFFLED):
         item = MediaItem(content_type="tv", tmdb_id=1399, season_number=1, episode_number=ep)
         db_session.add(item)
         db_session.commit()
-        files[ep] = MediaFile(
-            disk_id=disk.id, relative_path=f"media/tv/Show/Season 01/{name}", size_bytes=len(CONTENT[ep]),
-            st_dev=1, inode=ep, media_item_id=item.id, last_scan_id=run.id, last_seen_at=datetime.now(UTC),
-        )
-        db_session.add(files[ep])
-        db_session.commit()
+        files[ep] = make_media_file(db_session, disk, f"media/tv/Show/Season 01/{name}", run,
+                                    size_bytes=len(CONTENT[ep]), inode=ep, media_item_id=item.id)
     return disk, tracker, files
 
 
@@ -119,9 +146,36 @@ def _in_order(monkeypatch, order: str) -> None:
     monkeypatch.setattr(matching, "_series_order", ORDERS[order])
 
 
-def _search(db_session, tracker, monkeypatch, order: str, **kwargs) -> None:
+def _search(db_session, tracker, monkeypatch, order: str, catalog=None, **kwargs) -> None:
     _in_order(monkeypatch, order)
-    matching.run_media_to_torrent_matching(db_session, tracker, Catalog(), **kwargs)
+    matching.run_media_to_torrent_matching(db_session, tracker, catalog or Catalog(), **kwargs)
+
+
+def _pack_evaluators(monkeypatch) -> set[int]:
+    """Gli anchor (id) che valutano il pack, da qui in poi."""
+    anchors: set[int] = set()
+    evaluate = matching._evaluate
+
+    def counting(ctx, layout, anchor, **kwargs):
+        if len(layout.videos) > 1:
+            anchors.add(anchor.id)
+        return evaluate(ctx, layout, anchor, **kwargs)
+
+    monkeypatch.setattr(matching, "_evaluate", counting)
+    return anchors
+
+
+def _searched_long_ago(db_session, files, episodes) -> None:
+    """La ricerca di questi episodi è scaduta (rematch_interval_days), quella
+    degli altri no."""
+    for ep in episodes:
+        attempt = db_session.query(MatchAttempt).filter_by(media_file_id=files[ep].id).one()
+        attempt.attempted_at = datetime.now(UTC) - timedelta(days=30)
+    db_session.commit()
+
+
+def _singles(episodes) -> dict[tuple[int, str], str]:
+    return {(ep, SINGLE[ep]): "auto_approved" for ep in episodes}
 
 
 def _active(db_session) -> dict[tuple[int, str], str]:
@@ -204,16 +258,136 @@ def test_a_pack_that_no_longer_matches_gives_way_to_the_singles_in_any_order(
 
     _search(db_session, tracker, monkeypatch, order, force=True)
 
-    assert _active(db_session) == {(ep, SINGLE[ep]): "auto_approved" for ep in (1, 2, 3)}
+    assert _active(db_session) == _singles((1, 2, 3))
 
 
 @pytest.mark.parametrize("order", list(ORDERS))
-def test_torrent_to_client_the_pack_proposal_of_a_seed_file_stays(db_session, tmp_path, monkeypatch, order):
-    """Lato torrent: la cartella del pack è ancora sotto torrents/ e nessun
-    client la segue, coi seed_file inseriti in ordine sparso."""
+def test_a_pack_gone_from_the_catalog_gives_way_to_the_singles_in_any_order(
+        db_session, tmp_path, monkeypatch, order):
+    """Il tracker non ha più il pack: ogni episodio riceve il suo singolo,
+    anche quelli cercati prima dell'episodio della proposta (che la toglie).
+    Prima restavano senza fino alla ricerca dopo."""
     _no_mediainfo(monkeypatch)
-    disk, tracker, files = _season(db_session, tmp_path, EPISODES)
-    settings_repo.set_setting(db_session, "rematch_interval_days", "0")  # questa direzione non ha force
+    _disk, tracker, _files = _season(db_session, tmp_path)
+    _search(db_session, tracker, monkeypatch, "rows")
+    assert _active(db_session) == {(3, PACK_ID): "auto_approved"}
+
+    _search(db_session, tracker, monkeypatch, order, WithoutPack(), force=True)
+
+    assert _active(db_session) == _singles(EPISODES)
+
+
+@pytest.mark.parametrize("order", list(ORDERS))
+def test_a_pack_now_in_a_client_gives_way_to_the_singles_in_any_order(db_session, tmp_path, monkeypatch, order):
+    """Il pack è ora in un client (un'altra copia dei file): non si può più
+    aggiungere, non copre più nessun episodio."""
+    _no_mediainfo(monkeypatch)
+    _disk, tracker, _files = _season(db_session, tmp_path)
+    _search(db_session, tracker, monkeypatch, "rows")
+    assert _active(db_session) == {(3, PACK_ID): "auto_approved"}
+    client = TorrentClient(label="c", adapter_type="qbittorrent", base_url="http://c")
+    db_session.add(client)
+    db_session.commit()
+    db_session.add(ClientTorrent(torrent_client_id=client.id, info_hash=compute_info_hash(_pack_torrent()),
+                                 name="Show S01", save_path="/elsewhere", state="uploading",
+                                 last_polled_at=datetime.now(UTC)))
+    db_session.commit()
+
+    _search(db_session, tracker, monkeypatch, order, force=True)
+
+    assert _active(db_session) == _singles(EPISODES)
+
+
+@pytest.mark.parametrize("order", list(ORDERS))
+def test_a_pack_that_cannot_be_read_in_a_full_search_gives_way_in_any_order(
+        db_session, tmp_path, monkeypatch, order):
+    """Il .torrent del pack non si scarica in tutto il passaggio (un link
+    fallito non si riprova): l'episodio della proposta la toglie, come
+    sempre, e ogni episodio riceve il suo singolo, qualunque sia l'ordine."""
+    _no_mediainfo(monkeypatch)
+    _disk, tracker, _files = _season(db_session, tmp_path)
+    _search(db_session, tracker, monkeypatch, "rows")
+
+    _search(db_session, tracker, monkeypatch, order, PackUnreadable(), force=True)
+
+    assert _active(db_session) == _singles(EPISODES)
+
+
+@pytest.mark.parametrize("target", [1, 4], ids=["before-the-owner", "after-the-owner"])
+def test_a_pack_that_cannot_be_read_still_covers_in_a_targeted_search(db_session, tmp_path, monkeypatch, target):
+    """"Cerca ora" su un episodio (o la ricerca dopo un import) mentre il
+    .torrent del pack non si scarica: l'episodio della proposta non si cerca
+    e la proposta resta, quindi il pack copre ancora l'episodio cercato.
+    Prima riceveva il suo singolo accanto al pack che lo contiene."""
+    _no_mediainfo(monkeypatch)
+    _disk, tracker, files = _season(db_session, tmp_path)
+    _search(db_session, tracker, monkeypatch, "rows")
+
+    matching.run_media_to_torrent_matching(db_session, tracker, PackUnreadable(),
+                                           only_media_file_ids={files[target].id}, force=True)
+
+    assert _active(db_session) == {(3, PACK_ID): "auto_approved"}
+
+
+@pytest.mark.parametrize("order", list(ORDERS))
+def test_a_pack_whose_owner_is_not_searched_is_evaluated_once(db_session, tmp_path, monkeypatch, order):
+    """La ricerca dell'episodio della proposta è ancora valida ("Cerca ora"
+    di pochi giorni fa), quella degli altri no: il pack lo valuta uno solo
+    degli altri, che lo saltano. Prima lo rivalutava ognuno, salvando ogni
+    volta tutti i suoi file."""
+    _no_mediainfo(monkeypatch)
+    _disk, tracker, files = _season(db_session, tmp_path)
+    _search(db_session, tracker, monkeypatch, "rows")
+    _searched_long_ago(db_session, files, (1, 2, 4))
+    evaluators = _pack_evaluators(monkeypatch)
+
+    _search(db_session, tracker, monkeypatch, order)
+
+    assert len(evaluators) == 1 and files[3].id not in evaluators
+    assert _active(db_session) == {(3, PACK_ID): "auto_approved"}
+
+
+@pytest.mark.parametrize("order", list(ORDERS))
+def test_a_pack_evaluated_once_still_uncovers_every_episode_it_no_longer_matches(
+        db_session, tmp_path, monkeypatch, order):
+    """Come sopra, col quarto episodio sostituito da un upgrade: chi salta il
+    pack usa l'esito di chi l'ha valutato, e ogni episodio che ha ancora il
+    suo singolo lo riceve, non solo il primo cercato. La proposta del pack
+    resta finché non si cerca il suo episodio."""
+    _no_mediainfo(monkeypatch)
+    _disk, tracker, files = _season(db_session, tmp_path)
+    _search(db_session, tracker, monkeypatch, "rows")
+    _searched_long_ago(db_session, files, (1, 2, 4))
+    upgrade = b"a-better-episode" * 7
+    (tmp_path / files[4].relative_path).write_bytes(upgrade)
+    files[4].size_bytes = len(upgrade)
+    db_session.commit()
+
+    _search(db_session, tracker, monkeypatch, order)
+
+    assert _active(db_session) == {(3, PACK_ID): "auto_approved", **_singles((1, 2))}
+
+
+@pytest.mark.parametrize("order", list(ORDERS))
+def test_the_owner_of_the_pack_proposal_and_one_other_episode_evaluate_it(db_session, tmp_path, monkeypatch, order):
+    """In una ricerca di tutta la stagione il pack lo valuta il primo
+    episodio cercato e, se non è lui, quello della proposta: gli altri lo
+    saltano."""
+    _no_mediainfo(monkeypatch)
+    _disk, tracker, files = _season(db_session, tmp_path)
+    _search(db_session, tracker, monkeypatch, "rows")
+    evaluators = _pack_evaluators(monkeypatch)
+
+    _search(db_session, tracker, monkeypatch, order, force=True)
+
+    assert files[3].id in evaluators and len(evaluators) <= 2
+    assert _active(db_session) == {(3, PACK_ID): "auto_approved"}
+
+
+def _seed_folder(db_session, tmp_path, disk, files) -> dict[int, SeedFile]:
+    """La cartella del pack ancora sotto torrents/, che nessun client segue,
+    coi seed_file inseriti in ordine sparso (copie, non hardlink: anche gli
+    episodi in libreria restano orfani)."""
     pack_dir = tmp_path / "torrents" / "tv" / FOLDER
     pack_dir.mkdir(parents=True)
     run = pipeline.start_run(db_session, "manual")
@@ -226,6 +400,16 @@ def test_torrent_to_client_the_pack_proposal_of_a_seed_file_stays(db_session, tm
         )
         db_session.add(seeds[ep])
         db_session.commit()
+    return seeds
+
+
+@pytest.mark.parametrize("order", list(ORDERS))
+def test_torrent_to_client_the_pack_proposal_of_a_seed_file_stays(db_session, tmp_path, monkeypatch, order):
+    """Lato torrent: la proposta del pack è del seed_file del terzo episodio."""
+    _no_mediainfo(monkeypatch)
+    disk, tracker, files = _season(db_session, tmp_path, EPISODES)
+    settings_repo.set_setting(db_session, "rematch_interval_days", "0")  # questa direzione non ha force
+    seeds = _seed_folder(db_session, tmp_path, disk, files)
     episode_of = {sf.id: ep for ep, sf in seeds.items()}
 
     def active():
@@ -245,3 +429,22 @@ def test_torrent_to_client_the_pack_proposal_of_a_seed_file_stays(db_session, tm
 
     assert active() == expected
     assert db_session.query(MatchReview).filter_by(seed_file_id=seeds[3].id).one().id == proposal.id
+
+
+@pytest.mark.parametrize("order", list(ORDERS))
+def test_a_pack_proposed_on_the_torrent_side_is_evaluated_once_on_the_library_side(
+        db_session, tmp_path, monkeypatch, order):
+    """La proposta del pack è di un seed_file (l'altra direzione): nessun
+    episodio in libreria la può confermare, il pack si valuta una volta."""
+    _no_mediainfo(monkeypatch)
+    disk, tracker, files = _season(db_session, tmp_path, EPISODES)
+    seeds = _seed_folder(db_session, tmp_path, disk, files)
+    _in_order(monkeypatch, "rows")
+    matching.run_torrent_to_client_matching(db_session, tracker, Catalog())
+    assert db_session.query(MatchReview).filter_by(seed_file_id=seeds[3].id).one().candidate.torrent_id_remote \
+        == PACK_ID
+    evaluators = _pack_evaluators(monkeypatch)
+
+    _search(db_session, tracker, monkeypatch, order, force=True)
+
+    assert len(evaluators) == 1
