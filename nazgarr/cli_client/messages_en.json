@@ -27,6 +27,7 @@
  "client_mapping_needs_client_root": "Also set how the client sees that folder.",
  "client_root_not_absolute": "How the client sees the folder must be an absolute path, e.g. /downloads (not {path})",
  "cross_site_request": "Request refused: it came from another website",
+ "database_update_failed": "Nazgarr could not update its database (step {step}, {step_name}) and is in recovery mode: open its web page or read its log to see how to restore the backup taken before the update.",
  "disk_busy": "A reseed or an upload is working on the files of {label}: wait for it to finish (or cancel the upload), then delete it",
  "disk_delete_conflict": "{label} is still referenced by other data and cannot be deleted right now: try again",
  "disk_not_found": "Disk {id} not found.",

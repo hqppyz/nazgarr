@@ -36,7 +36,7 @@ from nazgarr.api.torrents import router as torrents_router
 from nazgarr.api.trackers import router as trackers_router
 from nazgarr.api.uploads import router as uploads_router
 from nazgarr.api.webhooks import router as webhooks_router
-from nazgarr.core import db, migrations, startup_checks, updates
+from nazgarr.core import db, db_startup, instance_lock, startup_checks, updates
 from nazgarr.core.config import load_settings
 from nazgarr.core.logs import add_file_handler, configure_logging
 from nazgarr.core.version import __commit__, __version__
@@ -49,6 +49,7 @@ from nazgarr.web import auth
 from nazgarr.web.body_limit import BodyLimitMiddleware
 from nazgarr.web.deps import get_session
 from nazgarr.web.frontend import mount_frontend
+from nazgarr.web.recovery import RecoveryMiddleware
 from nazgarr.web.security_headers import SecurityMiddleware
 
 configure_logging()
@@ -74,21 +75,15 @@ def _keep_private(*paths_and_modes: tuple[str, int]) -> None:
             logger.warning("Impossibile rendere %s privato (%o): %s", path, mode, exc)
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    settings = load_settings()
-    os.makedirs(settings.data_dir, mode=0o700, exist_ok=True)
-    _keep_private((settings.data_dir, 0o700))
-    add_file_handler(Path(settings.data_dir) / "logs")
-    # Prima di tutto il resto: gli adapter dei plugin servono già allo startup.
-    plugin_loader.load(settings.data_dir)
-    db.migrate_legacy_db_filename(settings.data_dir)
-    engine = db.make_engine(settings.db_path)
-    migrations.upgrade(engine)  # schema, colonne nuove e passi una tantum (nazgarr/core/migrations.py)
+def _start(app: FastAPI, settings, outcome: db_startup.Outcome) -> None:
+    """Il database è aggiornato: i controlli dell'avvio, poi scheduler e
+    worker degli upload."""
+    engine = outcome.engine
     # SQLite dà a -wal e -shm i permessi del database quando li ricrea.
     _keep_private(*((settings.db_path + suffix, 0o600) for suffix in ("", "-wal", "-shm")))
     session_factory = db.make_session_factory(engine)
     with session_factory() as session:
+        db_startup.record_backup(session, outcome)  # per Impostazioni › Applicazione
         plugin_switch.apply_disabled(session)  # i plugin spenti dall'utente, inclusi o installati
         updates.init_seen(session)  # un'installazione nuova non mostra note di versioni mai usate
         startup_checks.verify_secret_key(session)
@@ -106,21 +101,58 @@ async def lifespan(app: FastAPI):
         upload_profiles.sync_tracker_languages(session)
         upload_profiles.sync_naming_rules(session)
         upload_profiles.sync_description_templates(session)
-    app.state.settings = settings
     app.state.engine = engine
     app.state.session_factory = session_factory
-    app.state.started_at = datetime.now(UTC)
 
     app.state.scheduler = scheduler.build_scheduler(session_factory, settings.data_dir)
     app.state.scheduler.start()
     app.state.upload_worker = UploadWorker(session_factory, settings.data_dir)
     app.state.upload_worker.resume()
     scheduler.add_watch_job(app.state.scheduler, session_factory, app.state.upload_worker)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    settings = load_settings()
+    os.makedirs(settings.data_dir, mode=0o700, exist_ok=True)
+    _keep_private((settings.data_dir, 0o700))
+    add_file_handler(Path(settings.data_dir) / "logs")
+    # Prima di tutto il resto: gli adapter dei plugin servono già allo startup.
+    plugin_loader.load(settings.data_dir)
+    app.state.settings = settings
+    app.state.started_at = datetime.now(UTC)
+    app.state.recovery = None
+    # Il lucchetto di chi usa il DB: `nazgarr db restore` non lo sostituisce
+    # sotto i piedi del server (nazgarr/core/instance_lock.py).
+    lock = instance_lock.acquire(settings.data_dir)
+    if lock is None:
+        logger.warning("Another Nazgarr process seems to use %s: run only one per data folder", settings.data_dir)
     try:
-        yield
+        # Backup se l'aggiornamento cambierà qualcosa, poi schema, colonne
+        # nuove e passi una tantum (nazgarr/core/db_startup.py, migrations.py).
+        outcome = db_startup.prepare(settings)
+        if outcome.failed:
+            # Modalità di ripristino: niente scheduler, worker, plugin o route
+            # che toccano il DB, solo la pagina che dice cosa fare
+            # (nazgarr/web/recovery.py). Il lucchetto si lascia: il DB è
+            # libero per `nazgarr db restore`, anche con il container acceso.
+            app.state.recovery = outcome.status
+            if lock is not None:
+                lock.release()
+            try:
+                yield
+            finally:
+                app.state.recovery = None
+            return
+        _start(app, settings, outcome)
+        try:
+            yield
+        finally:
+            app.state.scheduler.shutdown(wait=False)
+            app.state.upload_worker.shutdown()
     finally:
-        app.state.scheduler.shutdown(wait=False)
-        app.state.upload_worker.shutdown()
+        if lock is not None:
+            lock.release()
 
 
 # Niente /docs e /redoc: caricano Swagger UI e ReDoc da un CDN con uno script
@@ -155,6 +187,10 @@ async def _validation_error(request: Request, exc: RequestValidationError) -> JS
 # migliaia di file): compressi in gzip pesano una frazione in rete. Livello 6,
 # non il 9 di Starlette: su 3,7 MB 15 ms invece di 54, per un file appena più
 # grande (audit 2026-10-18).
+# La modalità di ripristino (l'aggiornamento del DB non è riuscito) per
+# prima, cioè la più interna: le richieste si fermano lì prima di qualunque
+# route, con gli header di sicurezza delle altre (nazgarr/web/recovery.py).
+app.add_middleware(RecoveryMiddleware)
 app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=6)
 app.add_middleware(SecurityMiddleware)
 # Per ultimo, quindi il più esterno: un corpo troppo grande si ferma prima di

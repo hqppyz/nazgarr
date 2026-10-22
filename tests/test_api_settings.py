@@ -63,7 +63,7 @@ def test_keys_with_their_own_endpoint_are_never_written_from_here(client):
 def test_the_managed_keys_are_the_ones_their_modules_use():
     from nazgarr import scheduler
     from nazgarr.api import instances as instances_api
-    from nazgarr.core import settings_registry, startup_checks, updates
+    from nazgarr.core import db_startup, settings_registry, startup_checks, updates
     from nazgarr.library import not_imported, resolution
     from nazgarr.plugins import switch
     from nazgarr.upload import file_names
@@ -71,7 +71,7 @@ def test_the_managed_keys_are_the_ones_their_modules_use():
     assert settings_registry.MANAGED_KEYS == {
         scheduler.SETTING_KEY, scheduler.LAST_SLOT_KEY, startup_checks._CANARY_KEY, switch.SETTING,
         updates.SEEN_KEY, updates.LAST_CHECK_KEY, resolution.IDENTITY_RULES_KEY, instances_api.LOCAL_NAME_SETTING,
-        file_names.SETTING, not_imported.STATUS_SETTING,
+        file_names.SETTING, not_imported.STATUS_SETTING, db_startup.LAST_BACKUP_KEY,
     }
     assert not settings_registry.MANAGED_KEYS & set(settings_registry.REGISTRY)
 

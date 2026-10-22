@@ -212,4 +212,5 @@ export const errors = {
   'errors.upload_source_missing': "The source is no longer there: {path}",
   'errors.upload_resume_nothing_left': "Nothing to resume: the remaining trackers are already done.",
   'errors.upload_episode_order_unknown': "The episode ordering {order} is not available for this series.",
+  'errors.database_update_failed': "Nazgarr could not update its database (step {step}, {step_name}) and is in recovery mode: open its web page or read its log to see how to restore the backup taken before the update.",
 } as const

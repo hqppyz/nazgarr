@@ -1,6 +1,10 @@
-"""Il backup prima dell'aggiornamento del database (nazgarr/core/db_backup.py,
-richiesta dell'utente 2026-10-22)."""
+"""Il backup prima dell'aggiornamento del database e la modalità di
+ripristino (nazgarr/core/db_backup.py, nazgarr/core/db_startup.py,
+nazgarr/web/recovery.py; richiesta dell'utente 2026-10-22)."""
 
+import base64
+import json
+import logging
 import os
 import sqlite3
 import stat
@@ -8,9 +12,11 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
+from fastapi.testclient import TestClient
 from sqlalchemy import text
 
-from nazgarr.core import db, db_backup, migrations
+from nazgarr.core import crypto, db, db_backup, db_startup, instance_lock, migrations
+from nazgarr.core.config import Settings
 
 
 def _database(path: Path, version: int | None = None) -> Path:
@@ -31,6 +37,15 @@ def _user_version(path: Path) -> int:
         return conn.execute("PRAGMA user_version").fetchone()[0]
     finally:
         conn.close()
+
+
+def _failing_last_step(monkeypatch, message: str = "disco pieno") -> None:
+    def boom(_engine):
+        raise RuntimeError(message)
+
+    last = migrations.MIGRATIONS[-1]
+    steps = (*migrations.MIGRATIONS[:-1], migrations.Migration(last.version, last.name, boom, last.before_schema))
+    monkeypatch.setattr(migrations, "MIGRATIONS", steps)
 
 
 # --- cosa cambierebbe -----------------------------------------------------------
@@ -193,3 +208,284 @@ def test_the_number_of_backups_to_keep(monkeypatch):
     for raw, expected in (("5", 5), ("0", 1), ("-2", 1), ("many", 3)):
         monkeypatch.setenv(db_backup.KEEP_ENV, raw)
         assert db_backup.keep_count() == expected
+
+
+# --- all'avvio (senza l'app) --------------------------------------------------------
+
+
+def _settings(tmp_path) -> Settings:
+    data = tmp_path / "data"
+    data.mkdir(exist_ok=True)
+    return Settings(data_dir=str(data))
+
+
+@pytest.fixture
+def secret_key(monkeypatch):
+    monkeypatch.setenv("APP_SECRET_KEY", base64.urlsafe_b64encode(os.urandom(32)).decode())
+    crypto._fernet.cache_clear()
+    yield
+    crypto._fernet.cache_clear()
+
+
+def test_prepare_backs_up_only_when_something_changes(tmp_path, secret_key, caplog):
+    settings = _settings(tmp_path)
+    folder = db_backup.backups_dir(settings.data_dir)
+
+    fresh = db_startup.prepare(settings)  # installazione nuova
+    assert not fresh.failed and fresh.backup is None and not folder.exists()
+    fresh.engine.dispose()
+    again = db_startup.prepare(settings)  # niente da cambiare
+    assert again.backup is None and not folder.exists()
+    again.engine.dispose()
+
+    with sqlite3.connect(settings.db_path) as conn:
+        conn.execute(f"PRAGMA user_version = {migrations.LATEST - 1}")
+    with caplog.at_level(logging.INFO, logger="nazgarr.core.db_startup"):
+        updated = db_startup.prepare(settings)
+    updated.engine.dispose()
+    assert updated.backup is not None and updated.backup.parent == folder
+    assert updated.from_version == migrations.LATEST - 1
+    assert f"Backup before the database update: {updated.backup}" in caplog.text
+    assert _user_version(Path(settings.db_path)) == migrations.LATEST
+    assert _user_version(updated.backup) == migrations.LATEST - 1
+
+
+def test_no_space_for_the_backup_leaves_the_database_alone(tmp_path, secret_key, monkeypatch, caplog):
+    settings = _settings(tmp_path)
+    _database(Path(settings.db_path), version=migrations.LATEST - 1)
+    monkeypatch.setattr(db_backup, "_free_bytes", lambda folder: 0)
+    ran = []
+    monkeypatch.setattr(migrations, "upgrade", lambda engine: ran.append(engine))
+
+    with caplog.at_level(logging.ERROR, logger="nazgarr.core.db_startup"):
+        outcome = db_startup.prepare(settings)
+
+    assert outcome.failed and outcome.engine is None and ran == []
+    assert _user_version(Path(settings.db_path)) == migrations.LATEST - 1
+    status = json.loads(db_startup.status_path(settings.data_dir).read_text())
+    assert status["status"] == "backup_failed" and status["reason"] == "no_space"
+    assert status["backup"] is None and status["from_version"] == migrations.LATEST - 1
+    assert "NAZGARR_SKIP_MIGRATION_BACKUP=1" in caplog.text
+
+
+def test_skipping_the_backup_on_request(tmp_path, secret_key, monkeypatch, caplog):
+    settings = _settings(tmp_path)
+    _database(Path(settings.db_path), version=migrations.LATEST - 1)
+    monkeypatch.setenv(db_backup.SKIP_ENV, "1")
+    with caplog.at_level(logging.WARNING, logger="nazgarr.core.db_startup"):
+        outcome = db_startup.prepare(settings)
+    outcome.engine.dispose()
+    assert not outcome.failed and outcome.backup is None
+    assert "WITHOUT a backup" in caplog.text
+    assert not db_backup.backups_dir(settings.data_dir).exists()
+
+
+def test_a_failed_step_writes_the_status_and_a_restart_keeps_the_first_backup(tmp_path, secret_key, monkeypatch,
+                                                                                caplog):
+    settings = _settings(tmp_path)
+    _database(Path(settings.db_path), version=migrations.LATEST - 1)
+    original = migrations.MIGRATIONS
+    _failing_last_step(monkeypatch, "boom https://t.example/announce/abcdefghijklmnopqrstuvwxyz")
+
+    with caplog.at_level(logging.ERROR, logger="nazgarr.core.db_startup"):
+        first = db_startup.prepare(settings)
+
+    assert first.failed and first.engine is None
+    status = json.loads(db_startup.status_path(settings.data_dir).read_text())
+    assert stat.S_IMODE(db_startup.status_path(settings.data_dir).stat().st_mode) == 0o600
+    assert status["status"] == "migration_failed"
+    assert (status["from_version"], status["to_version"]) == (migrations.LATEST - 1, migrations.LATEST)
+    assert (status["step"], status["step_name"]) == (migrations.LATEST, migrations.MIGRATIONS[-1].name)
+    assert status["error"] == "RuntimeError: boom https://t.example/announce/<redacted>"
+    assert status["backup"] == str(first.backup) and Path(status["backup"]).is_file()
+    assert datetime.fromisoformat(status["failed_at"]).tzinfo is not None
+    assert "Traceback" in caplog.text and f"nazgarr db restore {first.backup.name}" in caplog.text
+    assert _user_version(Path(settings.db_path)) == migrations.LATEST - 1  # la versione non sale
+
+    # Riavvio senza toccare niente: stesso backup, nessuna copia del DB a metà.
+    second = db_startup.prepare(settings)
+    assert second.failed and second.backup == first.backup
+    assert [b.path for b in db_backup.list_backups(db_backup.backups_dir(settings.data_dir))] == [first.backup]
+
+    # Arriva la versione corretta: aggiorna, toglie lo stato, il backup resta quello.
+    monkeypatch.setattr(migrations, "MIGRATIONS", original)
+    fixed = db_startup.prepare(settings)
+    fixed.engine.dispose()
+    assert not fixed.failed and fixed.backup == first.backup
+    assert not db_startup.status_path(settings.data_dir).exists()
+    assert _user_version(Path(settings.db_path)) == migrations.LATEST
+
+
+def test_a_database_changed_after_the_failure_gets_a_new_backup(tmp_path, secret_key, monkeypatch):
+    """Il backup del tentativo fallito vale solo per il DB di allora: dopo un
+    ripristino, o giorni con la versione di prima, ne serve uno nuovo. Quello
+    vecchio resta, finché migration-status.json lo indica."""
+    settings = _settings(tmp_path)
+    _database(Path(settings.db_path), version=migrations.LATEST - 1)
+    _failing_last_step(monkeypatch)
+    first = db_startup.prepare(settings)
+    with sqlite3.connect(settings.db_path) as conn:
+        conn.execute("INSERT INTO disk (label, root_path) VALUES ('new', '/data/new')")
+    monkeypatch.setenv(db_backup.KEEP_ENV, "1")
+
+    second = db_startup.prepare(settings)
+
+    assert second.failed and second.backup != first.backup
+    folder = db_backup.backups_dir(settings.data_dir)
+    assert {b.path for b in db_backup.list_backups(folder)} == {first.backup, second.backup}
+
+
+def test_the_last_backup_is_recorded_for_the_settings_page(tmp_path, secret_key):
+    settings = _settings(tmp_path)
+    _database(Path(settings.db_path), version=migrations.LATEST - 1)
+    outcome = db_startup.prepare(settings)
+    session = db.make_session_factory(outcome.engine)()
+    try:
+        db_startup.record_backup(session, outcome)
+        recorded = db_startup.last_backup(session)
+    finally:
+        session.close()
+        outcome.engine.dispose()
+    assert recorded["path"] == str(outcome.backup)
+    assert (recorded["from_version"], recorded["to_version"]) == (migrations.LATEST - 1, migrations.LATEST)
+    assert datetime.fromisoformat(recorded["created_at"]).tzinfo is not None
+
+
+def test_the_error_shown_has_no_query_and_no_parameters():
+    from sqlalchemy.exc import IntegrityError
+
+    exc = IntegrityError("INSERT INTO tracker VALUES (?)", ("secret-value",),
+                         sqlite3.IntegrityError("UNIQUE constraint failed: tracker.label"))
+    assert db_startup.short_error(exc) == "IntegrityError: UNIQUE constraint failed: tracker.label"
+    assert db_startup.short_error(ValueError("x" * 1000)).startswith("ValueError: xxx")
+    assert len(db_startup.short_error(ValueError("x" * 1000))) == 300
+
+
+# --- l'app in modalità di ripristino -------------------------------------------------
+
+
+@pytest.fixture
+def app_env(tmp_path, monkeypatch, _quiet_background, secret_key):
+    """Un config.yaml con un DB che ha un passo in sospeso; scheduler e
+    worker contati, per vedere che non partono."""
+    from nazgarr import main, scheduler
+
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    config = tmp_path / "config.yaml"
+    config.write_text(f"data_dir: {data_dir}\n")
+    monkeypatch.setenv("CONFIG_PATH", str(config))
+    _database(data_dir / "nazgarr.db", version=migrations.LATEST - 1)
+    started = []
+    build = scheduler.build_scheduler
+    monkeypatch.setattr(scheduler, "build_scheduler", lambda *a, **k: started.append("scheduler") or build(*a, **k))
+    worker = main.UploadWorker
+
+    class CountedWorker(worker):
+        def __init__(self, *args, **kwargs):
+            started.append("worker")
+            super().__init__(*args, **kwargs)
+
+    monkeypatch.setattr(main, "UploadWorker", CountedWorker)
+    return data_dir, started
+
+
+def test_a_failed_update_keeps_the_app_up_in_recovery_mode(app_env, monkeypatch):
+    from nazgarr.main import app
+
+    data_dir, started = app_env
+    _failing_last_step(monkeypatch, "secret detail token=abc123")
+
+    with TestClient(app) as client:
+        status = json.loads((data_dir / "migration-status.json").read_text())
+        backup_name = Path(status["backup"]).name
+        assert started == []  # niente scheduler, niente worker
+
+        health = client.get("/api/health")
+        assert health.status_code == 503 and health.json()["status"] == "database_update_failed"
+
+        for method, path in (("get", "/api/disks"), ("post", "/api/auth/setup"), ("get", "/api/system/info"),
+                             ("get", "/api/nothing-here")):
+            response = getattr(client, method)(path)
+            assert response.status_code == 503, path
+            assert response.json()["detail"] == {"code": "database_update_failed", "params": {
+                "step": migrations.LATEST, "step_name": migrations.MIGRATIONS[-1].name, "backup": backup_name}}
+
+        for path in ("/", "/library", "/assets/app.js", "/openapi.json"):
+            page = client.get(path)
+            assert page.status_code == 503, path
+            assert page.headers["content-type"].startswith("text/html")
+            assert page.headers["cache-control"] == "no-store"
+            assert page.headers["content-security-policy"]  # gli header di sicurezza valgono anche qui
+            assert backup_name in page.text and f"step {migrations.LATEST}" in page.text
+            assert "RuntimeError" in page.text
+            assert "secret detail" not in page.text and "abc123" not in page.text and "Traceback" not in page.text
+            assert "<script" not in page.text
+
+        italian = client.get("/", headers={"Accept-Language": "it-IT,it;q=0.9,en;q=0.8"})
+        assert '<html lang="it">' in italian.text and "passo" in italian.text
+        english = client.get("/", headers={"Accept-Language": "de-DE,en;q=0.5,it;q=0.3"})
+        assert '<html lang="en">' in english.text
+
+        # Il DB è libero: `nazgarr db restore` può lavorare anche adesso.
+        lock = instance_lock.acquire(data_dir)
+        assert lock is not None
+        lock.release()
+    assert app.state.recovery is None
+
+
+def test_a_failed_backup_keeps_the_app_up_and_explains_why(app_env, monkeypatch):
+    from nazgarr.main import app
+
+    data_dir, started = app_env
+    monkeypatch.setattr(db_backup, "_free_bytes", lambda folder: 0)
+
+    with TestClient(app) as client:
+        page = client.get("/", headers={"Accept-Language": "en"})
+        assert page.status_code == 503 and "not enough free space" in page.text
+        assert "NAZGARR_SKIP_MIGRATION_BACKUP=1" in page.text
+        assert client.get("/api/health").status_code == 503
+        assert started == []
+    assert _user_version(data_dir / "nazgarr.db") == migrations.LATEST - 1
+
+
+def test_after_a_successful_update_the_status_is_cleared_and_the_backup_shown(app_env, monkeypatch):
+    from nazgarr.main import app
+
+    data_dir, started = app_env
+    _failing_last_step(monkeypatch)
+    with TestClient(app):
+        pass
+    failed_backup = json.loads((data_dir / "migration-status.json").read_text())["backup"]
+    monkeypatch.setattr(migrations, "MIGRATIONS", (
+        *migrations.MIGRATIONS[:-1], migrations.Migration(migrations.LATEST, "ok", lambda engine: None, False)))
+
+    with TestClient(app) as client:
+        assert not (data_dir / "migration-status.json").exists()
+        assert started == ["scheduler", "worker"]
+        token = client.post("/api/auth/setup", json={
+            "username": "admin", "password": "supersecret1", "setup_code": app.state.setup_code,
+        }).json()["access_token"]
+        info = client.get("/api/system/info", headers={"Authorization": f"Bearer {token}"}).json()
+        assert client.get("/api/health").status_code == 200
+
+    assert info["backups_dir"] == str(data_dir / "backups") and info["backups_keep"] == 3
+    backup = info["migration_backup"]
+    assert backup["path"] == failed_backup and backup["file"] == Path(failed_backup).name
+    assert (backup["from_version"], backup["to_version"], backup["exists"]) == (
+        migrations.LATEST - 1, migrations.LATEST, True)
+
+
+def test_a_database_that_cannot_be_read_says_so_and_points_to_the_backups(app_env):
+    from nazgarr.main import app
+
+    data_dir, started = app_env
+    (data_dir / "nazgarr.db").write_bytes(os.urandom(20_000))
+
+    with TestClient(app) as client:
+        page = client.get("/", headers={"Accept-Language": "en"})
+    assert page.status_code == 503 and "cannot be read" in page.text and "nazgarr db restore" in page.text
+    assert "NAZGARR_SKIP_MIGRATION_BACKUP" not in page.text
+    status = json.loads((data_dir / "migration-status.json").read_text())
+    assert (status["status"], status["reason"]) == ("backup_failed", "database_unreadable")
+    assert started == []
