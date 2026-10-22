@@ -152,9 +152,9 @@ Configuration › Application › Check for updates follows the channel you're o
 
 ### Updating and backups
 
-When an update is about to change the database, Nazgarr first copies it to `backups/` in its data folder (`config/data/backups` next to `config.yaml` in Docker, `~/.local/share/nazgarr/backups` with the Python package) and checks the copy. The file name says the database version it holds, for example `pre-migration-v12-to-v13-0.9.20-20261022T101500Z.db`. The last 3 are kept, and Configuration › Application shows the latest one. If the copy cannot be made (say, the disk is full), Nazgarr does not update the database.
+When an update is about to change the database, Nazgarr first copies it to `backups/` in its data folder and checks the copy. In Docker that is `config/data/backups` next to `config.yaml`. With the Python package it is `backups` inside the `data_dir` of `config.yaml`: by default `~/.local/share/nazgarr/backups` on Linux and `~/Library/Application Support/Nazgarr/data/backups` on macOS. Configuration › Application and `nazgarr db backups` show the folder. The file name says the database version it holds, for example `pre-migration-v12-to-v13-0.9.20-20261022T101500Z.db`. The last 3 are kept, and Configuration › Application shows the latest one. If the copy cannot be made (say, the disk is full), Nazgarr does not update the database.
 
-If the update fails, Nazgarr does not restart in a loop: it stays up without starting anything else, and its web page (and the log) says which step failed, which backup to use and how to restore it. To go back:
+If the update fails, Nazgarr does not restart in a loop: it stays up without starting anything else, and its web page (and the log) says which step failed, which backup to use and how to restore it. If the process is stopped in the middle of the update (out of memory, a forced stop, a power cut), the next start tries again and keeps pointing to the backup taken before the first attempt, never to a copy of the half-updated database. To go back:
 
 ```bash
 docker exec -it nazgarr nazgarr db backups                  # Docker: list the backups
@@ -162,7 +162,7 @@ docker exec -it nazgarr nazgarr db restore <file>           # put one back (work
 nazgarr db backups && nazgarr db restore <file>             # Python package, with Nazgarr stopped
 ```
 
-`db restore` checks the backup first and keeps the current database as `nazgarr.db.before-restore`. Then start the version you were using before (an image tag such as `:0.9.19`, or `pipx install nazgarr==0.9.19 --force`), and [report the issue](https://github.com/lktorrentz/nazgarr/issues) with the log. By hand, with Nazgarr stopped, it is the same: replace `nazgarr.db` with the backup and delete `nazgarr.db-wal` and `nazgarr.db-shm`.
+`db restore` checks the backup first and keeps the current database as `nazgarr.db.before-restore`. Then start the version you were using before (an image tag such as `:0.9.19`, or `pipx install nazgarr==0.9.19 --force`), and [report the issue](https://github.com/lktorrentz/nazgarr/issues) with the log. By hand, with Nazgarr stopped, it is the same: replace `nazgarr.db` with the backup and delete `nazgarr.db-wal`, `nazgarr.db-shm` and `migration-status.json` (the record of the failed update).
 
 These backups are a safety net for updates, not a backup plan: back up the whole `config` folder (with your `APP_SECRET_KEY`) as you would any other app data.
 
