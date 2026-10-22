@@ -5,19 +5,22 @@ Prima un passo di migrations.upgrade che falliva usciva dalla lifespan:
 supervisord riavviava il processo in loop e l'utente vedeva solo un
 traceback nei log. Ora prepare():
 
-1. guarda se l'aggiornamento cambierà qualcosa (db_backup.pending_changes)
+1. controlla APP_SECRET_KEY: una chiave che manca o non valida è un errore
+   di configurazione, e l'avvio fallisce come prima, senza backup né pagina
+   (ripristinare un backup lì butterebbe via dati e basta);
+2. guarda se l'aggiornamento cambierà qualcosa (db_backup.pending_changes)
    e in quel caso fa il backup (db_backup.take_backup). Se il backup non si
    può fare (spazio, errore di I/O, database tenuto da un altro processo,
    copia che non passa il controllo) non si aggiorna niente.
    NAZGARR_SKIP_MIGRATION_BACKUP=1 lo salta, con un avviso;
-2. scrive migration-status.json "in_progress" (su disco, prima di toccare
+3. scrive migration-status.json "in_progress" (su disco, prima di toccare
    il database) e aggiorna (migrations.upgrade);
-3. se 1 o 2 falliscono scrive migration-status.json con l'errore e un ERROR
+4. se 2 o 3 falliscono scrive migration-status.json con l'errore e un ERROR
    nel log (cosa è successo, dov'è il backup, come ripristinarlo; il
    traceback solo nel log) e restituisce lo stato: l'app resta su in
    modalità di ripristino (nazgarr/web/recovery.py), senza scheduler, worker
    né route che toccano il DB;
-4. se va tutto bene toglie migration-status.json.
+5. se va tutto bene toglie migration-status.json.
 
 Lo stesso aggiornamento ritentato non rifà il backup pre-migration. Lo si
 riconosce da migration-status.json (in_progress: il processo è morto a metà,
@@ -43,7 +46,7 @@ from pathlib import Path
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
-from nazgarr.core import db, db_backup, migrations, settings_repo
+from nazgarr.core import crypto, db, db_backup, migrations, settings_repo
 from nazgarr.core.config import DB_FILENAME, Settings
 from nazgarr.core.logs import redact
 from nazgarr.core.version import PROJECT_URL, __version__
@@ -254,7 +257,9 @@ def _backup_failed(settings: Settings, exc: db_backup.BackupError, pending: db_b
 
 
 def prepare(settings: Settings) -> Outcome:
-    """Backup e aggiornamento, prima di qualunque altra cosa che usa il DB."""
+    """Backup e aggiornamento, prima di qualunque altra cosa che usa il DB.
+    crypto.SecretKeyMissingError se APP_SECRET_KEY manca o non è valida."""
+    crypto.check_key()
     db.migrate_legacy_db_filename(settings.data_dir)
     db_path = settings.db_path
     previous = read_status(settings.data_dir)

@@ -562,6 +562,30 @@ def test_a_database_held_by_another_process_is_locked_not_damaged(tmp_path, secr
     assert not db_backup.backups_dir(settings.data_dir).exists()
 
 
+@pytest.mark.parametrize("key", [None, "not-a-fernet-key"])
+def test_a_missing_or_bad_secret_key_is_a_configuration_error_not_a_failed_update(tmp_path, monkeypatch, key):
+    """Con APP_SECRET_KEY che manca, encrypt_plaintext_secrets falliva dentro
+    l'aggiornamento e la pagina consigliava di ripristinare un backup, cioè
+    di buttare via dati: la cosa da fare è impostare la chiave."""
+    settings = _settings(tmp_path)
+    monkeypatch.setenv("APP_SECRET_KEY", base64.urlsafe_b64encode(os.urandom(32)).decode())
+    crypto._fernet.cache_clear()
+    _database(Path(settings.db_path), version=migrations.LATEST - 1)
+    if key is None:
+        monkeypatch.delenv("APP_SECRET_KEY")
+    else:
+        monkeypatch.setenv("APP_SECRET_KEY", key)
+    crypto._fernet.cache_clear()
+    try:
+        with pytest.raises(crypto.SecretKeyMissingError, match="APP_SECRET_KEY"):
+            db_startup.prepare(settings)
+    finally:
+        crypto._fernet.cache_clear()
+    assert _user_version(Path(settings.db_path)) == migrations.LATEST - 1
+    assert not db_backup.backups_dir(settings.data_dir).exists()
+    assert not db_startup.status_path(settings.data_dir).exists()
+
+
 def test_the_last_backup_is_recorded_for_the_settings_page(tmp_path, secret_key):
     settings = _settings(tmp_path)
     _database(Path(settings.db_path), version=migrations.LATEST - 1)
