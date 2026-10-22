@@ -1,5 +1,5 @@
 """L'albero dei comandi di `nazgarr` (Typer): quelli del server (init,
-serve, install-service, reset-password, version, nazgarr/cli.py) e quelli
+serve, install-service, reset-password, db, version, nazgarr/cli.py) e quelli
 client, che parlano con un'istanza in esecuzione attraverso le API
 (docs/CLI.md)."""
 
@@ -25,12 +25,20 @@ from nazgarr.cli_client.commands import (
     uploads,
 )
 from nazgarr.cli_client.http import ApiError
-from nazgarr.cli_client.output import EXIT_DECLINED, EXIT_ERROR, EXIT_UNAUTHORIZED, EXIT_USAGE, State, err_console
+from nazgarr.cli_client.output import (
+    EXIT_DECLINED,
+    EXIT_ERROR,
+    EXIT_UNAUTHORIZED,
+    EXIT_USAGE,
+    State,
+    confirm,
+    err_console,
+)
 
 HELP = """Nazgarr from the command line.
 
-Server commands (init, serve, install-service, reset-password) run Nazgarr on
-this machine.
+Server commands (init, serve, install-service, reset-password, db) run Nazgarr
+on this machine.
 Every other command talks to a running instance through its API: log in once
 with `nazgarr login --url http://HOST:3019`, then use it like the web UI.
 
@@ -104,6 +112,31 @@ def build() -> typer.Typer:
             return typer.prompt("New password", hide_input=True, confirmation_prompt=True)
 
         return server.cmd_reset_password(SimpleNamespace(config=config, username=username, ask=ask))
+
+    db_app = typer.Typer(help="The database on this machine: the backups taken before an update, and restoring "
+                              "one. Run it where Nazgarr runs.", no_args_is_help=True)
+
+    @db_app.command("backups")
+    def db_backups(
+        ctx: typer.Context,
+        config: str = typer.Option(None, "--config", help="Path of config.yaml (default: the one in use)."),
+    ):
+        """List the backups Nazgarr took before updating its database, newest first."""
+        state = ctx.find_root().obj
+        return server.cmd_db_backups(SimpleNamespace(config=config, json=bool(state and state.json)))
+
+    @db_app.command("restore")
+    def db_restore(
+        file: str = typer.Argument(..., help="A file listed by `nazgarr db backups`, or the path of a backup."),
+        config: str = typer.Option(None, "--config", help="Path of config.yaml (default: the one in use)."),
+        yes: bool = typer.Option(False, "--yes", "-y", help="Do not ask for confirmation."),
+    ):
+        """Put a backup back in place of the database, keeping a copy of the current one. Nazgarr must be stopped
+        (or showing the page of a failed database update)."""
+        return server.cmd_db_restore(SimpleNamespace(config=config, file=file,
+                                                     confirm=lambda question: confirm(question, yes)))
+
+    app.add_typer(db_app, name="db", rich_help_panel="Server")
 
     @app.command(rich_help_panel="Server")
     def version():

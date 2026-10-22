@@ -476,6 +476,23 @@ def test_after_a_successful_update_the_status_is_cleared_and_the_backup_shown(ap
         migrations.LATEST - 1, migrations.LATEST, True)
 
 
+def test_the_backup_can_be_restored_while_the_recovery_page_is_up(app_env, monkeypatch, capsys):
+    """Il caso del container: `docker exec ... nazgarr db restore` con il
+    server acceso in modalità di ripristino, che ha lasciato il DB."""
+    from nazgarr import cli
+    from nazgarr.main import app
+
+    data_dir, _started = app_env
+    _failing_last_step(monkeypatch)
+    with TestClient(app) as client:
+        backup = Path(json.loads((data_dir / "migration-status.json").read_text())["backup"])
+        assert cli.main(["db", "restore", backup.name, "--config", os.environ["CONFIG_PATH"], "--yes"]) == 0
+        assert client.get("/").status_code == 503  # resta la pagina fino al riavvio
+    assert "back to version" in capsys.readouterr().out
+    assert (data_dir / "nazgarr.db.before-restore").is_file()
+    assert _user_version(data_dir / "nazgarr.db") == migrations.LATEST - 1
+
+
 def test_a_database_that_cannot_be_read_says_so_and_points_to_the_backups(app_env):
     from nazgarr.main import app
 
