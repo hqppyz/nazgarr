@@ -249,3 +249,36 @@ def test_db_restore_checks_the_backup_and_asks_first(tmp_path, capsys):
 
     assert _labels(db_path) == ["after"]
     assert not list(data.glob("nazgarr.db.before-restore*"))
+
+
+def test_db_restore_keeps_a_damaged_current_database_as_it_is(tmp_path):
+    """Un aggiornamento finito male può lasciare un file che SQLite non
+    legge: la copia si fa lo stesso, byte per byte, -wal compreso."""
+    config, data, db_path, backup = _backed_up(tmp_path)
+    damaged = os.urandom(8192)
+    db_path.write_bytes(damaged)
+    Path(f"{db_path}-wal").write_bytes(b"wal bytes")
+
+    assert cli.main(["db", "restore", backup.name, "--config", str(config), "--yes"]) == 0
+
+    assert (data / "nazgarr.db.before-restore").read_bytes() == damaged
+    assert (data / "nazgarr.db.before-restore-wal").read_bytes() == b"wal bytes"
+    assert _labels(db_path) == ["before"] and not Path(f"{db_path}-wal").exists()
+
+
+def test_db_restore_that_fails_midway_leaves_the_database_as_it_was(tmp_path, monkeypatch, capsys):
+    import errno
+
+    from nazgarr.core import db_backup
+
+    config, data, db_path, backup = _backed_up(tmp_path)
+
+    def full_disk(*_args, **_kwargs):
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+    monkeypatch.setattr(db_backup.shutil, "copyfile", full_disk)
+    assert cli.main(["db", "restore", backup.name, "--config", str(config), "--yes"]) == 1
+
+    assert "was not replaced" in capsys.readouterr().err
+    assert _labels(db_path) == ["after"]
+    assert not (data / "nazgarr.db.restoring").exists()

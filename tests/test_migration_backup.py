@@ -150,6 +150,24 @@ def test_two_backups_in_the_same_second_do_not_collide(tmp_path):
     assert first != second and first.exists() and second.exists()
 
 
+def test_a_copy_left_half_done_by_a_power_cut_is_cleaned_but_not_one_in_progress(tmp_path):
+    path = _database(tmp_path / "nazgarr.db")
+    folder = tmp_path / "backups"
+    folder.mkdir()
+    old = folder / (db_backup.backup_name(1, 2, "1.0", datetime(2026, 10, 1, tzinfo=UTC)) + ".partial")
+    recent = folder / (db_backup.backup_name(1, 2, "1.0", datetime(2026, 10, 2, tzinfo=UTC)) + ".partial")
+    mine = folder / "pre-migration-mine.db.partial"
+    for partial in (old, recent, mine):
+        partial.write_bytes(b"half")
+    two_hours_ago = datetime.now(UTC).timestamp() - 7200
+    os.utime(old, (two_hours_ago, two_hours_ago))
+    os.utime(mine, (two_hours_ago, two_hours_ago))
+
+    db_backup.take_backup(str(path), folder, migrations.LATEST, migrations.LATEST, "1.0")
+
+    assert not old.exists() and recent.exists() and mine.exists()
+
+
 def test_no_space_means_no_backup_and_a_reason(tmp_path, monkeypatch):
     path = _database(tmp_path / "nazgarr.db")
     monkeypatch.setattr(db_backup, "_free_bytes", lambda folder: 1024)

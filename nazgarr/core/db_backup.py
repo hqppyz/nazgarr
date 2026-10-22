@@ -299,6 +299,20 @@ def verify(path: Path) -> int:
     return version
 
 
+def _remove_stale_partials(folder: Path, now: datetime) -> None:
+    """Una copia rimasta a metà da un'interruzione di corrente: nostra (il
+    nome di questo modulo più .partial), vecchia di più di un'ora (mai quella
+    di un altro avvio in corso), e non serve a niente. Il resto della
+    cartella non si tocca."""
+    for path in folder.glob("pre-migration-*.db.partial"):
+        try:
+            if _NAME.match(path.name.removesuffix(".partial")) and \
+                    now.timestamp() - path.stat().st_mtime > 3600:
+                path.unlink()
+        except OSError:
+            pass
+
+
 def take_backup(db_path: str, folder: Path, from_version: int, to_version: int, app_version: str,
                 now: datetime | None = None) -> Path:
     """Il backup prima dell'aggiornamento, controllato. BackupError se non si
@@ -312,6 +326,7 @@ def take_backup(db_path: str, folder: Path, from_version: int, to_version: int, 
         raise BackupError("io_error", f"{type(exc).__name__}: {exc}") from exc
     if free < needed:
         raise BackupError("no_space", f"{free} bytes free in {folder}, {needed} needed")
+    _remove_stale_partials(folder, when)
     # Due backup nello stesso secondo (un riavvio veloce): il secondo dopo.
     target = folder / backup_name(from_version, to_version, app_version, when)
     for _ in range(60):
@@ -347,26 +362,28 @@ def sidecars(db_path: str) -> tuple[Path, Path]:
 
 def keep_current(db_path: str, now: datetime | None = None) -> Path:
     """Prima di un ripristino: il database di adesso come <nome>.before-restore
-    (con l'ora, se ce n'è già uno), con quello che ha ancora nel -wal. Se
-    SQLite non lo legge (un aggiornamento finito a metà può lasciarlo
-    rovinato) si copiano i file così come sono, -wal compreso, con lo stesso
-    nome: SQLite li riapre insieme."""
+    (con l'ora, se ce n'è già uno), byte per byte, col suo -wal accanto
+    (<nome>.before-restore-wal: SQLite li riapre insieme). Non con l'API di
+    backup: chi ripristina tiene il lucchetto, nessuno scrive, e un file che
+    SQLite non legge (un aggiornamento finito male) va tenuto com'è; una
+    prima prova con SQLite su un file così può già togliergli il -wal."""
     target = Path(db_path + ".before-restore")
     if target.exists() or Path(f"{target}-wal").exists():
         stamp = (now or datetime.now(UTC)).astimezone(UTC).strftime(_STAMP)
         target = Path(f"{db_path}.before-restore-{stamp}")
+    wal, copied_wal = sidecars(db_path)[0], Path(f"{target}-wal")
     try:
-        copy_database(db_path, target)
-        return target
-    except (OSError, sqlite3.Error):
+        _new_private_file(target)
+        shutil.copyfile(db_path, target)
+        _fsync(target)
+        if wal.exists() and wal.stat().st_size:
+            _new_private_file(copied_wal)
+            shutil.copyfile(wal, copied_wal)
+            _fsync(copied_wal)
+    except OSError:
         target.unlink(missing_ok=True)
-    _new_private_file(target)
-    shutil.copyfile(db_path, target)
-    wal = sidecars(db_path)[0]
-    if wal.exists():
-        shutil.copyfile(wal, f"{target}-wal")
-        os.chmod(f"{target}-wal", 0o600)
-    _fsync(target)
+        copied_wal.unlink(missing_ok=True)
+        raise
     return target
 
 
@@ -377,10 +394,14 @@ def restore(backup: Path, db_path: str) -> None:
     target = Path(db_path)
     staging = target.with_name(target.name + ".restoring")
     staging.unlink(missing_ok=True)
-    _new_private_file(staging)
-    shutil.copyfile(backup, staging)
-    os.chmod(staging, 0o600)
-    _fsync(staging)
+    try:
+        _new_private_file(staging)
+        shutil.copyfile(backup, staging)
+        os.chmod(staging, 0o600)
+        _fsync(staging)
+    except OSError:
+        staging.unlink(missing_ok=True)  # il database non è ancora stato toccato
+        raise
     for sidecar in sidecars(db_path):
         sidecar.unlink(missing_ok=True)
     os.replace(staging, target)

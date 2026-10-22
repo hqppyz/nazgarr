@@ -21,6 +21,7 @@ import json
 import os
 import platform
 import shutil
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -298,8 +299,10 @@ def cmd_db_backups(args) -> int:
         } for b in backups]}, indent=2))
         return 0
     if status:
-        print(f"The last start could not update the database ({status.get('step_name')}, step "
-              f"{status.get('step')}): details in {db_startup.status_path(settings.data_dir)}.")
+        where = (f"step {status['step']}, {status.get('step_name')}" if status.get("step") is not None
+                 else status.get("step_name"))
+        print(f"The last start could not update the database ({where}): details in "
+              f"{db_startup.status_path(settings.data_dir)}.")
     if not backups:
         print(f"No backups taken before a database update in {folder} yet: Nazgarr takes one when an update "
               "is about to change the database.")
@@ -367,10 +370,15 @@ def cmd_db_restore(args) -> int:
         if replaced:
             print(f"It replaces {db_path}; the current database is kept next to it first.")
         args.confirm("Restore this backup?")
-        if replaced:
-            kept = db_backup.keep_current(db_path)
-            print(f"Current database kept as {kept}")
-        db_backup.restore(backup, db_path)
+        try:
+            if replaced:
+                kept = db_backup.keep_current(db_path)
+                print(f"Current database kept as {kept}")
+            db_backup.restore(backup, db_path)
+        except (OSError, sqlite3.Error) as exc:
+            # restore() rinomina solo alla fine: fin lì il database resta quello di prima.
+            print(f"Restore failed ({type(exc).__name__}: {exc}): the database was not replaced.", file=sys.stderr)
+            return 1
     finally:
         lock.release()
     newer = f" ({parsed.app_version} or newer would run the same update again)" if parsed else ""

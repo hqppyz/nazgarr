@@ -37,7 +37,7 @@ from nazgarr.api.trackers import router as trackers_router
 from nazgarr.api.uploads import router as uploads_router
 from nazgarr.api.webhooks import router as webhooks_router
 from nazgarr.core import db, db_startup, instance_lock, startup_checks, updates
-from nazgarr.core.config import load_settings
+from nazgarr.core.config import Settings, load_settings
 from nazgarr.core.logs import add_file_handler, configure_logging
 from nazgarr.core.version import __commit__, __version__
 from nazgarr.plugins import loader as plugin_loader
@@ -75,7 +75,7 @@ def _keep_private(*paths_and_modes: tuple[str, int]) -> None:
             logger.warning("Impossibile rendere %s privato (%o): %s", path, mode, exc)
 
 
-def _start(app: FastAPI, settings, outcome: db_startup.Outcome) -> None:
+def _start(app: FastAPI, settings: Settings, outcome: db_startup.Outcome) -> None:
     """Il database è aggiornato: i controlli dell'avvio, poi scheduler e
     worker degli upload."""
     engine = outcome.engine

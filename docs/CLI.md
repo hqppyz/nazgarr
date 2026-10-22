@@ -106,7 +106,7 @@ nazgarr db backups                                             # Python package
 nazgarr db restore pre-migration-v12-to-v13-0.9.20-20261022T101500Z.db
 ```
 
-`db backups` lists them, newest first, with the database version each holds (`--json` for scripts), and marks the one taken before an update that failed. `db restore` takes a name from that list or a path. It checks the backup first, asks before going on (`--yes` to skip the question), keeps the current database as `nazgarr.db.before-restore`, and removes the leftover `nazgarr.db-wal` and `nazgarr.db-shm`. It refuses while Nazgarr is running, except when Nazgarr is showing the page of a failed database update: then it has let go of the database, and `docker exec` works. Afterwards start the version you were using before the update, the one that matches the backup.
+`db backups` lists them, newest first, with the database version each holds (`--json` for scripts), and marks the one taken before an update that failed. `db restore` takes a name from that list or a path. It checks the backup first, asks before going on (`--yes` to skip the question), keeps the current database as `nazgarr.db.before-restore` (byte for byte, with its `-wal` if it had one), and removes the leftover `nazgarr.db-wal` and `nazgarr.db-shm`. It refuses while Nazgarr is running, except when Nazgarr is showing the page of a failed database update: then it has let go of the database, and `docker exec` works. Afterwards start the version you were using before the update, the one that matches the backup.
 
 ### Environment variables
 
