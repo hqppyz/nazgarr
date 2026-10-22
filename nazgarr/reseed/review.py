@@ -22,8 +22,10 @@ sbagliati), ma trattato con la stessa severità — soglia più alta di
 default, mai un bypass "perché il file esiste già"."""
 
 import logging
-from collections import Counter
+from collections import Counter, defaultdict
+from collections.abc import Callable
 from datetime import UTC, datetime
+from itertools import chain
 from typing import NamedTuple
 
 from sqlalchemy import exists, func, select
@@ -84,6 +86,10 @@ logger = logging.getLogger(__name__)
 
 
 READY_FOR_DECISION_STATUSES = ("pending", "auto_approved")
+
+# Un candidato a più file il cui .torrent il matching non ha potuto leggere
+# (nazgarr/reseed/matching.py::match_file): confidence 0, ma non valutato davvero.
+UNREAD_TORRENT = "torrent_structure_unknown"
 
 
 def get_confidence_threshold(session: Session, direction: str) -> float:
@@ -169,19 +175,21 @@ def _user_rejected_torrents(
     return {(tracker_id, remote) for tracker_id, remote in [*own.all(), *inside.all()]}
 
 
-def _covered_by_pack(session: Session, media_file_id: int, tracker_id: int) -> bool:
+def _covered_by_pack(session: Session, media_file_id: int, tracker_id: int,
+                     lost: Callable[[MatchReview], bool] | None = None) -> bool:
     """Un pack di questo tracker già in coda o approvato per un altro
-    episodio contiene anche questo file: il singolo non serve (pack preferito)."""
-    rows = (
-        session.query(Candidate)
-        .join(MatchReview, MatchReview.candidate_id == Candidate.id)
+    episodio contiene anche questo file: il singolo non serve (pack preferito).
+    lost: le proposte che non lo coprono più (_cover_lost)."""
+    proposals = (
+        session.query(MatchReview)
+        .join(Candidate, Candidate.id == MatchReview.candidate_id)
         .join(CandidateFile, CandidateFile.candidate_id == Candidate.id)
         .filter(Candidate.tracker_id == tracker_id, CandidateFile.media_file_id == media_file_id,
                 MatchReview.media_file_id != media_file_id,
                 MatchReview.status.in_((*READY_FOR_DECISION_STATUSES, "approved")))
         .all()
     )
-    return any(candidate_format(c) == PACK for c in rows)
+    return any(candidate_format(r.candidate) == PACK and not (lost is not None and lost(r)) for r in proposals)
 
 
 def _supersede_singles_in_pack(session: Session, pack: Candidate, queue: "ReviewQueue | None" = None) -> int:
@@ -316,9 +324,21 @@ class ReviewQueue:
         # Quante review attive o approvate ha ogni file su ogni tracker: per
         # non interrogare il DB per i file che non ne hanno (quasi tutti).
         self._by_file: Counter[tuple] = Counter((t, mf, sf) for t, _r, mf, sf in self._active.values())
+        # (tracker_id, torrent_id_remote) -> i file che lo occupano: il
+        # matching lo chiede per ogni pack già valutato che un file incontra
+        # (holders), senza scorrere tutta la coda.
+        self._holders: defaultdict[tuple[int, str], Counter[tuple]] = defaultdict(Counter)
+        for tracker_id, remote, mf_id, sf_id in chain(self._active.values(), self._running):
+            self._holders[(tracker_id, remote)][(mf_id, sf_id)] += 1
 
     def busy_for(self, media_file_id: int | None, seed_file_id: int | None) -> set[tuple[int, str]]:
         return _busy_for([*self._active.values(), *self._running], media_file_id, seed_file_id)
+
+    def holders(self, tracker_id: int, torrent_id_remote: str) -> list[tuple[int | None, int | None]]:
+        """I file, come (media_file_id, seed_file_id), che hanno questo
+        torrent in una review in coda o approvata, o in esecuzione."""
+        held = self._holders.get((tracker_id, torrent_id_remote))
+        return [key for key, count in held.items() if count > 0] if held else []
 
     def has_reviews(self, tracker_id: int, media_file_id: int | None, seed_file_id: int | None) -> bool:
         return self._by_file[(tracker_id, media_file_id, seed_file_id)] > 0
@@ -327,13 +347,16 @@ class ReviewQueue:
         self._active[review.id] = (candidate.tracker_id, candidate.torrent_id_remote, review.media_file_id,
                                    review.seed_file_id)
         self._by_file[(candidate.tracker_id, review.media_file_id, review.seed_file_id)] += 1
+        self._holders[(candidate.tracker_id, candidate.torrent_id_remote)][
+            (review.media_file_id, review.seed_file_id)] += 1
 
     def closed(self, reviews: list[MatchReview]) -> None:
         for review in reviews:
             entry = self._active.pop(review.id, None)
             if entry is not None:
-                tracker_id, _remote, mf_id, sf_id = entry
+                tracker_id, remote, mf_id, sf_id = entry
                 self._by_file[(tracker_id, mf_id, sf_id)] -= 1
+                self._holders[(tracker_id, remote)][(mf_id, sf_id)] -= 1
 
     def refresh_uploads(self, session: Session, candidates: list[Candidate]) -> None:
         """Gli upload di Nazgarr e, fra gli info hash di questi candidati,
@@ -439,6 +462,43 @@ class _Exclusions:
         self.hashes = queue.in_client | queue.uploaded_hashes
 
 
+def _implausible(evaluated: list[Candidate], *, unread: bool = True) -> set[str]:
+    """Gli id sul tracker dei torrent che questa valutazione dà per non
+    plausibili. unread=False: non quelli di cui non ha potuto leggere il
+    .torrent (UNREAD_TORRENT), che non ha valutato davvero."""
+    plausible = {c.torrent_id_remote for c in evaluated if c.confidence > 0.0}
+    return {c.torrent_id_remote for c in evaluated
+            if c.torrent_id_remote not in plausible and (unread or c.ambiguity_reason != UNREAD_TORRENT)}
+
+
+def _cover_lost(exclusions: _Exclusions, returned: frozenset[str] | None, evaluated: list[Candidate],
+                pack_gone: Callable[[MatchReview], bool] | None) -> Callable[[MatchReview], bool]:
+    """Le proposte di pack di altri episodi che non coprono più il file
+    (_covered_by_pack): non si possono eseguire, o le toglie il loro episodio
+    quando rivaluta il pack. Un pack ora impossibile per il file (in un
+    client, un upload di Nazgarr, rifiutato dall'utente), che il catalogo
+    appena cercato non restituisce più (sostituito o tolto dal tracker), o
+    che la ricerca del file dà per non plausibile; pack_gone, dal matching,
+    lo stesso per i pack che il file ha saltato perché già valutati nel
+    passaggio, e per un pack di cui il passaggio non ha potuto leggere il
+    .torrent quando il suo episodio si cercherà ancora
+    (matching.MatchContext.pack_gone). Prima lo copriva finché il suo
+    episodio non toglieva la proposta: un episodio cercato prima di lui
+    restava senza, uno cercato dopo riceveva il suo singolo (2026-10-22). Un
+    .torrent che non si è potuto leggere da solo non scopre il file: nella
+    ricerca mirata di un episodio ("Cerca ora", quella dopo un import) quello
+    della proposta non si cerca, e la proposta resta."""
+    implausible = _implausible(evaluated, unread=False)
+
+    def lost(proposal: MatchReview) -> bool:
+        pack = proposal.candidate
+        return (exclusions.impossible(pack) or pack.torrent_id_remote in implausible
+                or (returned is not None and pack.torrent_id_remote not in returned)
+                or (pack_gone is not None and pack_gone(proposal)))
+
+    return lost
+
+
 def _drop_unavailable(
     session: Session, *, media_file_id: int | None, seed_file_id: int | None, tracker_id: int,
     formats: frozenset[str], queue: ReviewQueue | None, exclusions: _Exclusions | None = None,
@@ -462,9 +522,7 @@ def _drop_unavailable(
     if exclusions is None:
         exclusions = _Exclusions(session, media_file_id=media_file_id, seed_file_id=seed_file_id,
                                  in_client=in_client, queue=queue)
-    evaluated = evaluated or []
-    implausible = ({c.torrent_id_remote for c in evaluated}
-                   - {c.torrent_id_remote for c in evaluated if c.confidence > 0.0})
+    implausible = _implausible(evaluated or [])
     gone = [
         r for r in active
         if exclusions.impossible(r.candidate) or r.candidate.torrent_id_remote in implausible
@@ -477,6 +535,7 @@ def _create_review(
     session: Session, candidates: list[Candidate], *, media_file_id: int | None, seed_file_id: int | None,
     in_client: set[str] | None = None, formats: frozenset[str] = FORMATS, both_formats: bool = False,
     prefer_pack: bool = False, queue: ReviewQueue | None = None, searched: CatalogSearch | None = None,
+    pack_gone: Callable[[MatchReview], bool] | None = None,
 ) -> MatchReview | None:
     """in_client: gli info hash nei client, se il chiamante li ha già letti;
     queue: la coda del passaggio di matching (ReviewQueue), che li ha già
@@ -485,8 +544,9 @@ def _create_review(
     both_formats ("pack e singoli dello stesso tracker") fa una review per
     formato, prefer_pack una sola, col pack se ce n'è uno plausibile.
     searched: la ricerca sul catalogo appena fatta (CatalogSearch), None se
-    il catalogo non è stato cercato (solo la history). Restituisce la prima
-    review (il pack, se c'è).
+    il catalogo non è stato cercato (solo la history). pack_gone: dal
+    matching, le proposte di pack di altri episodi che il passaggio ha visto
+    cadere (_cover_lost). Restituisce la prima review (il pack, se c'è).
 
     Una review già in coda che propone lo stesso torrent con lo stesso esito
     resta com'è, invece di essere rifiutata dal sistema e rifatta uguale a
@@ -529,7 +589,8 @@ def _create_review(
                           formats=formats, queue=queue, exclusions=exclusions, returned=returned,
                           evaluated=candidates)
         return None
-    if prefer_pack and _covered_by_pack(session, media_file_id, tracker_id):
+    if prefer_pack and _covered_by_pack(session, media_file_id, tracker_id,
+                                        _cover_lost(exclusions, returned, candidates, pack_gone)):
         plausible = [c for c in plausible if candidate_format(c) == PACK]
         if not plausible:
             _supersede_active_reviews(session, media_file_id=media_file_id, seed_file_id=seed_file_id,
@@ -574,13 +635,14 @@ def _create_review(
 def create_review_for_media_file(
     session: Session, media_file: MediaFile, candidates: list[Candidate], in_client: set[str] | None = None,
     formats: frozenset[str] = FORMATS, both_formats: bool = False, queue: ReviewQueue | None = None,
-    searched: CatalogSearch | None = None,
+    searched: CatalogSearch | None = None, pack_gone: Callable[[MatchReview], bool] | None = None,
 ) -> MatchReview | None:
     # Un film con dei contenuti extra in video non è un pack: formati solo per gli episodi.
     episode = is_episode(media_file.media_item)
     return _create_review(session, candidates, media_file_id=media_file.id, seed_file_id=None, in_client=in_client,
                           formats=formats, both_formats=both_formats and episode,
-                          prefer_pack=episode and not both_formats, queue=queue, searched=searched)
+                          prefer_pack=episode and not both_formats, queue=queue, searched=searched,
+                          pack_gone=pack_gone)
 
 
 def create_review_for_seed_file(

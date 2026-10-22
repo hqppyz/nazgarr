@@ -22,6 +22,7 @@ import logging
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from functools import partial
 
 from sqlalchemy import exists
 from sqlalchemy.orm import Session, selectinload
@@ -98,6 +99,10 @@ logger = logging.getLogger(__name__)
 # si scartano già prima di valutarli (_unrelated).
 _UNRELATED_REASONS = {"anchor_not_in_torrent"}
 
+# L'esito dell'ultima valutazione di un pack in un passaggio
+# (MatchContext.pack_verdicts): plausibile, non plausibile, o .torrent non letto.
+_PLAUSIBLE, _IMPLAUSIBLE, _UNREAD = "plausible", "implausible", "unread"
+
 
 class SharedLocalFiles:
     """Gli indici dei file locali (LocalFiles) costruiti al più una volta per
@@ -131,7 +136,8 @@ class MatchContext:
     """Stato di UN tracker per UNA run di matching, condiviso fra tutti gli
     orfani: indici dei file locali, .torrent già scaricati, torrent multi-
     video già valutati (un pack di 10 episodi orfani si valuta e scarica una
-    volta sola, non dieci)."""
+    volta sola, non dieci; lo rivaluta solo il file che lo propone già,
+    _record_pack)."""
 
     session: Session
     tracker_row: Tracker
@@ -142,6 +148,12 @@ class MatchContext:
     shared_local: SharedLocalFiles | None = None
     translator: object | None = None  # nazgarr/library/episode_orders.py Translator, creato alla prima serie
     evaluated_packs: set[str] = field(default_factory=set)
+    # (id sul tracker, disco dell'anchor) -> esito dell'ultima valutazione del
+    # pack nel passaggio (_record_pack, pack_gone).
+    pack_verdicts: dict[tuple[str, int], str] = field(default_factory=dict)
+    # I file che il passaggio cercherà ancora, come (media_file_id,
+    # seed_file_id) (_match_orphans, pack_gone): vuoto fuori da un passaggio.
+    to_search: set[tuple[int | None, int | None]] = field(default_factory=set)
     both_formats: bool = False  # "pack e singoli dello stesso tracker" acceso
     # Piece già verificati in questa run (nazgarr/torrents/layout.py::_check_pieces).
     piece_checks: dict = field(default_factory=dict)
@@ -173,6 +185,28 @@ class MatchContext:
         if self._queue is None:
             self._queue = review.ReviewQueue(self.session, self.hashes_in_clients())
         return self._queue
+
+    def holds(self, anchor: MediaFile | SeedFile, torrent_id_remote: str) -> bool:
+        """L'anchor ha già questo torrent in una review in coda o approvata
+        (o in esecuzione): la sua proposta."""
+        return _file_key(anchor) in self.review_queue().holders(self.tracker_row.id, torrent_id_remote)
+
+    def skips(self, anchor: MediaFile | SeedFile, torrent_id_remote: str) -> bool:
+        """Un pack già valutato in questo passaggio si salta, tranne dal file
+        che lo propone già (_record_pack)."""
+        return torrent_id_remote in self.evaluated_packs and not self.holds(anchor, torrent_id_remote)
+
+    def pack_gone(self, anchor: MediaFile, proposal: MatchReview) -> bool:
+        """La proposta di pack di un altro episodio non copre più l'anchor
+        (review._cover_lost) per quello che il passaggio ha visto del pack sul
+        suo disco: non plausibile, o il .torrent non letto mentre il file della
+        proposta si cercherà ancora; lui riproverà, non lo leggerà (il link
+        fallito non si riprova, fetch_torrent) e toglierà la proposta. Vale
+        anche per un pack che l'anchor ha saltato perché già valutato."""
+        verdict = self.pack_verdicts.get((proposal.candidate.torrent_id_remote, anchor.disk_id))
+        return verdict == _IMPLAUSIBLE or (
+            verdict == _UNREAD and proposal.status in review.READY_FOR_DECISION_STATUSES
+            and (proposal.media_file_id, proposal.seed_file_id) in self.to_search)
 
     def local_files(self) -> LocalFiles:
         if self.local is None:
@@ -259,6 +293,29 @@ def _unrelated(ctx: MatchContext, layout: Layout, anchor: MediaFile | SeedFile) 
     if ctx.direction == "media_to_torrent":
         return other_episode(layout, anchor, ctx.local_files(), ctx.translate_episodes)
     return seed_root(layout, anchor) is None
+
+
+def _file_key(anchor: MediaFile | SeedFile) -> tuple[int | None, int | None]:
+    return (anchor.id, None) if isinstance(anchor, MediaFile) else (None, anchor.id)
+
+
+def _record_pack(ctx: MatchContext, anchor: MediaFile | SeedFile, torrent_id_remote: str,
+                 evaluation: LayoutEvaluation) -> None:
+    """Un pack valutato in questo passaggio: gli altri suoi episodi lo
+    saltano (MatchContext.skips) e ne usano l'esito per sapere se li copre
+    ancora (MatchContext.pack_gone). Non il file che lo propone già: quella
+    proposta la conferma, la aggiorna o la toglie solo lui, valutandolo
+    anche lui (coi .torrent e i piece già letti nel passaggio). Prima lo
+    saltava se un episodio cercato prima l'aveva già valutato: col suo
+    singolo al posto del pack, e un singolo per ogni episodio cercato dopo
+    di lui, ogni volta che non era il primo orfano della stagione, perché
+    gli orfani si cercano per episodio (2026-10-22)."""
+    if evaluation.confidence > CONFIDENCE_NO_MATCH:
+        verdict = _PLAUSIBLE
+    else:
+        verdict = _UNREAD if evaluation.ambiguity_reason == review.UNREAD_TORRENT else _IMPLAUSIBLE
+    ctx.pack_verdicts[(torrent_id_remote, anchor.disk_id)] = verdict
+    ctx.evaluated_packs.add(torrent_id_remote)
 
 
 def _evaluate(ctx: MatchContext, layout: Layout, anchor, *, download_link: str | None,
@@ -432,7 +489,7 @@ def match_file(ctx: MatchContext, anchor: MediaFile | SeedFile, media_item_id: i
             continue
         layout = layout_from_catalog(tc.file_list, tc.file_sizes, tc.folder, tc.size_bytes, tc.name)
         multi_video = len(layout.videos) > 1
-        if multi_video and tc.torrent_id_remote in ctx.evaluated_packs:
+        if multi_video and ctx.skips(anchor, tc.torrent_id_remote):
             continue  # già valutato in questa run per un altro episodio dello stesso pack
         if torrent_format(len(layout.videos)) not in formats:
             continue
@@ -462,11 +519,11 @@ def match_file(ctx: MatchContext, anchor: MediaFile | SeedFile, media_item_id: i
                 )
             elif len(layout.files) > 1:
                 evaluation.confidence = CONFIDENCE_NO_MATCH
-                evaluation.ambiguity_reason = "torrent_structure_unknown"
+                evaluation.ambiguity_reason = review.UNREAD_TORRENT
             # Un file solo senza .torrent resta come il catalogo lo descrive:
             # il controllo completo prima di eseguire ne corregge la cartella.
         if multi_video:
-            ctx.evaluated_packs.add(tc.torrent_id_remote)
+            _record_pack(ctx, anchor, tc.torrent_id_remote, evaluation)
         persisted.append(_persist(
             ctx, anchor, media_item_id=media_item_id, torrent_id_remote=tc.torrent_id_remote, name=tc.name,
             size_bytes=tc.size_bytes, layout=layout, evaluation=evaluation, download_link=tc.download_link,
@@ -486,8 +543,8 @@ def match_from_history(ctx: MatchContext, anchor: MediaFile | SeedFile, media_it
     l'import, sono size e piece hash a dirlo. None se il .torrent non è
     scaricabile/leggibile o non è di uno dei formati cercati: il chiamante
     decide se ripiegare sulla ricerca. [] se è un pack già valutato in
-    questa run."""
-    if grab.torrent_id_remote in ctx.evaluated_packs:
+    questa run, e non è la proposta di questo file (MatchContext.skips)."""
+    if ctx.skips(anchor, grab.torrent_id_remote):
         return []
     # Prima il link della history con la chiave attuale (se il tracker la
     # conosce: nessuna chiamata in più), poi, se rifiutato, il dettaglio.
@@ -510,7 +567,7 @@ def match_from_history(ctx: MatchContext, anchor: MediaFile | SeedFile, media_it
     evaluation = _evaluate(ctx, layout, anchor, download_link=download_link, unique_ids=None,
                            single_unique_id=None)
     if len(layout.videos) > 1 and evaluation.ambiguity_reason not in _UNRELATED_REASONS:
-        ctx.evaluated_packs.add(grab.torrent_id_remote)
+        _record_pack(ctx, anchor, grab.torrent_id_remote, evaluation)
     candidate = _persist(
         ctx, anchor, media_item_id=media_item_id, torrent_id_remote=grab.torrent_id_remote, name=parsed.name,
         size_bytes=parsed.total_length, layout=layout, evaluation=evaluation, download_link=download_link,
@@ -754,8 +811,13 @@ def run_torrent_to_client_matching(
     return _match_orphans(ctx, orphans, "seed", progress)
 
 
+def _identity(orphan, side: str):
+    """Il media_item dell'orfano: il suo, o lato torrent quello del media_file collegato."""
+    return orphan.media_item if side == "media" else orphan.media_file.media_item
+
+
 def _series_order(orphan, side: str) -> tuple:
-    item = orphan.media_item if side == "media" else orphan.media_file.media_item
+    item = _identity(orphan, side)
     return (item.tmdb_id, item.season_number or 0, item.episode_number or 0, orphan.id)
 
 
@@ -770,23 +832,33 @@ def _match_orphans(ctx: MatchContext, orphans: list[tuple], side: str, progress,
     attempts = _attempts_by_file(session, tracker_row, side)
     # Per serie, stagione ed episodio: gli episodi di una serie si cercano
     # vicini, mentre la ricerca è ancora nella cache dell'adapter (10 minuti),
-    # e il pack lo valuta per primo il suo primo episodio. Prima l'ordine era
-    # quello delle righe nel DB (audit 2026-10-18).
+    # e un pack nuovo lo valuta per primo il suo primo episodio. Prima l'ordine
+    # era quello delle righe nel DB (audit 2026-10-18). Le proposte non
+    # dipendono dall'ordine: un pack già proposto per un episodio lo rivaluta
+    # anche lui (_record_pack, 2026-10-22).
     orphans = sorted(orphans, key=lambda entry: _series_order(entry[0], side))
+    # Quali si cercano lo si decide all'inizio: to_search deve dire il vero
+    # per tutto il passaggio (MatchContext.pack_gone).
+    fresh = set() if force else {
+        orphan.id for orphan, _formats in orphans
+        if _is_fresh(attempts.get(orphan.id), orphan.size_bytes, _identity(orphan, side).tmdb_id, interval)
+    }
+    ctx.to_search = {_file_key(orphan) for orphan, _formats in orphans if orphan.id not in fresh}
     with keep_loaded_on_commit(session):
         for orphan, formats in orphans:
-            item = orphan.media_item if side == "media" else orphan.media_file.media_item
+            item = _identity(orphan, side)
             attempt = attempts.get(orphan.id)
-            if not force and _is_fresh(attempt, orphan.size_bytes, item.tmdb_id, interval):
+            if orphan.id in fresh:
                 totals["skipped_fresh"] += 1
                 progress.advance(skipped=1)
                 continue
+            ctx.to_search.discard(_file_key(orphan))
             try:
                 candidates, from_history, searched = find_candidates(ctx, orphan, item.id, item.tmdb_id, formats)
                 if side == "media":
                     review.create_review_for_media_file(session, orphan, candidates, formats=formats,
                                                         both_formats=ctx.both_formats, queue=ctx.review_queue(),
-                                                        searched=searched)
+                                                        searched=searched, pack_gone=partial(ctx.pack_gone, orphan))
                 else:
                     review.create_review_for_seed_file(session, orphan, candidates, queue=ctx.review_queue(),
                                                        searched=searched)
