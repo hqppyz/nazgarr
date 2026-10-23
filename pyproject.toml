@@ -98,3 +98,8 @@ ignore = [
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
+# Un test fermo oltre 5 minuti stampa lo stack di ogni thread e chiude la
+# suite, invece di tenerla appesa: due run locali del 2026-10-23 si sono
+# fermate su un test che da solo passa in 3 s, e non si è più ripresentato.
+faulthandler_timeout = 300
+faulthandler_exit_on_timeout = true

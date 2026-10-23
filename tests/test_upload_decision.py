@@ -431,3 +431,59 @@ def test_a_split_keeps_the_corrections_but_not_the_written_name():
 
     job = SimpleNamespace(overrides_json=json.dumps({"cleared": ["group"], "content_name": "Show S01 [ITA]"}))
     assert upload_split._child_overrides(job) == {"cleared": ["group"]}
+
+
+def _generated_files(job):
+    return json.loads(job.analysis_json)["file_names"]["previews"]["generated"]["files"]
+
+
+def test_the_files_of_a_pack_take_the_season_chosen_at_the_match(db_session, decision_job):
+    # Segnalato (2026-10-23): rifatto il match su un'altra stagione, i file
+    # restavano col numero del loro nome. Conta la stagione scelta al match.
+    _with_layout(db_session, decision_job)  # i file dicono S02E01, S02E02
+    decision_job.seasons_json = "[3]"
+    db_session.commit()
+
+    upload_decision.propose(db_session, decision_job)
+
+    files = _generated_files(decision_job)
+    assert [f.split("/")[-1].split(".1080p")[0] for f in files] == ["Severance.S03E01", "Severance.S03E02"]
+    assert all(f.startswith("Severance.S03.") for f in files)  # la cartella: il nome della release
+    assert decision_job.targets[1].proposed_name.startswith("Severance (2022) S03 ")
+
+
+def test_an_episode_in_a_folder_takes_the_season_and_episode_chosen_at_the_match(db_session, tmp_path):
+    folder = tmp_path / "Show.S01E05.1080p.WEB-DL.H.264-GRP"
+    write_video(folder / "Show.S01E05.1080p.WEB-DL.H.264-GRP.mkv")
+    (folder / "Show.S01E05.1080p.WEB-DL.H.264-GRP.en.srt").write_text("1\n")
+    disk = make_disk(db_session, tmp_path)
+    make_tracker(db_session, "custom")
+    job = upload_jobs.create_job(db_session, disk, folder.name)
+    upload_jobs.transition(db_session, job, "identifying", "awaiting_decision", kind="episode", content_type="tv",
+                           title="Show", year=2020, tmdb_id=1, seasons_json="[2]", episode=7)
+    for target in job.targets:
+        target.status = "awaiting_decision"
+    db_session.commit()
+    _with_layout(db_session, job)
+
+    upload_decision.propose(db_session, job)
+
+    files = sorted(f.split("/")[-1] for f in _generated_files(job))
+    assert files[0].startswith("Show.S02E07.") and files[0].endswith(".en.srt")  # il sottotitolo segue il video
+    assert files[1].startswith("Show.S02E07.") and files[1].endswith(".mkv")
+    assert "S01E05" not in " ".join(files)
+
+
+def test_a_complete_pack_follows_the_seasons_chosen_at_the_match_in_order():
+    from types import SimpleNamespace
+
+    from nazgarr.upload.file_names import season_mapping
+
+    pack = SimpleNamespace(content_type="tv", kind="complete_pack", seasons_json="[2, 3]")
+    assert season_mapping(pack, [1, 2]) == {1: 2, 2: 3}  # spostate di uno: si abbinano in ordine
+    assert season_mapping(pack, [2, 3]) == {}  # già quelle scelte
+    assert season_mapping(pack, [1]) == {}  # numeri diversi: restano quelle dei file
+    one = SimpleNamespace(content_type="tv", kind="season_pack", seasons_json="[4]")
+    assert season_mapping(one, [1]) == {1: 4}
+    movie = SimpleNamespace(content_type="movie", kind="movie", seasons_json="[]")
+    assert season_mapping(movie, [1]) == {}
