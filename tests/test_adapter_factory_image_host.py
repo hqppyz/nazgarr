@@ -80,9 +80,11 @@ def test_the_migration_moves_the_kept_keys_and_reports_the_removed_hosts_in_use(
     left = db_session.execute(text("SELECT key FROM app_settings WHERE key LIKE 'image_host_%_api_key'")).all()
     assert left == []
     assert adapter_factory.image_host_status(db_session)["usable"] == ["imgbb", "ptscreens"]  # spento all'avvio
-    # La chiave nel DB è cifrata, come quella di ogni plugin.
+    # La chiave nel DB è cifrata, come quella di ogni plugin: nessun JSON in
+    # chiaro. Le virgolette, perché un token Fernet (base64) può contenere
+    # "bb" per caso (un fallimento in CI, 2026-10-23), mai un apice doppio.
     raw = db_session.execute(text("SELECT config_json FROM adapter_config WHERE adapter_type = 'imgbb'")).scalar()
-    assert "bb" not in raw
+    assert '"api_key"' not in raw and '"bb"' not in raw
 
 
 def test_the_anonymous_hosts_are_reported_only_to_who_uploaded_with_them(db_session):
