@@ -124,6 +124,26 @@ def _source_files(job: UploadJob) -> list[tuple[str, str]]:
     return [(f.path, f.relative) for f in upload_inventory.job_files(job)]
 
 
+def season_mapping(job, file_seasons) -> dict[int, int]:
+    """Stagione dei file -> stagione scelta al match, per i nomi generati
+    (segnalato il 2026-10-23: rifatto il match su un'altra serie e su
+    un'altra stagione, i file restavano "S01" come nel loro nome; conta la
+    stagione scelta al match, non quella del nome del file). Un episodio o
+    un season pack hanno una stagione sola: tutti i video la prendono. Un
+    complete pack la tiene se è tra quelle scelte; altrimenti, con lo stesso
+    numero di stagioni, si abbinano in ordine (S01, S02 scelti come S02,
+    S03); se non tornano, restano quelle dei file."""
+    seasons = {s for s in file_seasons if isinstance(s, int)}
+    chosen = sorted(set(json.loads(getattr(job, "seasons_json", None) or "[]")))
+    if getattr(job, "content_type", None) != "tv" or not seasons or not chosen:
+        return {}
+    if getattr(job, "kind", None) in ("episode", "season_pack"):
+        return {s: chosen[0] for s in seasons if s != chosen[0]}
+    if seasons <= set(chosen) or len(seasons) != len(chosen):
+        return {}
+    return {s: c for s, c in zip(sorted(seasons), chosen, strict=True) if s != c}
+
+
 def _season_dirs(job: UploadJob, files: list[tuple[str, str]]) -> dict[str, str]:
     """Per un complete pack di file scelti a mano (nazgarr/upload/pack.py),
     la sottocartella di ogni file ("Season 01/"), decisione dell'utente del
@@ -133,6 +153,8 @@ def _season_dirs(job: UploadJob, files: list[tuple[str, str]]) -> dict[str, str]
         return {}
     layout = json.loads(job.layout_json or "{}")
     seasons = {v.get("relative_path"): v.get("season") for v in layout.get("videos", [])}
+    mapping = season_mapping(job, seasons.values())
+    seasons = {name: mapping.get(season, season) for name, season in seasons.items()}
     stems = {os.path.splitext(name)[0]: season for name, season in seasons.items()}
     out = {}
     for _path, relative in files:
@@ -231,6 +253,7 @@ def _generated(session: Session, job: UploadJob, files: list[tuple[str, str]], m
         rules_ = {**rules_, "title": title_mode}
     base_values = release_values(job, detected, mediainfo, overrides, rules_, local_title)
     base = sanitize(build_name(rules_, base_values))
+    release_name = base  # quello della release (stagione ed episodio del match), anche con un nome scritto a mano
     if not job.title or not base:
         # Senza un titolo (nessun match TMDB) non c'è un nome da costruire:
         # meglio i nomi della sorgente che un ".mkv".
@@ -251,13 +274,28 @@ def _generated(session: Session, job: UploadJob, files: list[tuple[str, str]], m
     planned = []
     renamed: dict[str, str] = {}  # stem del video originale -> stem nuovo, per i suoi sottotitoli
     videos = [(p, r) for p, r in files if is_video(r)]
+    ones: dict[str, _EpisodeJob | None] = {}
+    for _path, relative in videos:
+        season, numbers = episodes.get(relative, (None, []))
+        ones[relative] = _EpisodeJob(job, season, numbers) if job.content_type == "tv" and numbers else None
+    # Le stagioni dei file (già nell'ordinamento scelto) -> quelle scelte al match.
+    mapping = season_mapping(job, [json.loads(one.seasons_json)[0] for one in ones.values()
+                                   if one is not None and not one.untranslated])
+    for one in ones.values():
+        if one is not None and not one.untranslated:
+            season = json.loads(one.seasons_json)[0]
+            one.seasons_json = json.dumps([mapping.get(season, season)])
+    lone_episode = job.content_type == "tv" and job.kind == "episode" and len(videos) == 1
     for path, relative in files:
         if not is_video(relative):
             continue
         ext = os.path.splitext(relative)[1].lower()
-        season, numbers = episodes.get(relative, (None, []))
-        one = _EpisodeJob(job, season, numbers) if job.content_type == "tv" and numbers else None
-        if one is not None and one.untranslated:
+        one = ones.get(relative)
+        if lone_episode:
+            # L'episodio confermato al match, come il nome della release:
+            # stagione ed episodio scelti, non quelli scritti nel nome del file.
+            name = release_name
+        elif one is not None and one.untranslated:
             # Un episodio che l'ordinamento scelto non ha (evento
             # episode_order_untranslated): il suo nome, non un numero dei
             # file sotto l'etichetta dell'altro ordinamento (audit 2026-10-18).
