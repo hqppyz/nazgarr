@@ -13,6 +13,9 @@ export const trackers = {
   'trackers.torznabUrlHelp':
     'The endpoint URL as Prowlarr or Jackett shows it (Prowlarr: one indexer’s Torznab URL, e.g. http://prowlarr:9696/1/api). Used to search, match, reseed and cross-seed — not to upload.',
   'trackers.torznabApiKey': 'API key',
+  'trackers.torznabAnnounceUrl': 'Announce URL (optional)',
+  'trackers.torznabAnnounceUrlHelp':
+    'The announce URL of the tracker behind this indexer: Nazgarr uses it to recognize that tracker’s torrents already in your clients. Without it, everything is searched anyway and duplicates are skipped by info hash.',
   'trackers.apiUrl': 'API URL',
   'trackers.apiToken': 'API token',
   'trackers.announceUrl': 'Announce URL (upload only)',

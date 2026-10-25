@@ -155,7 +155,8 @@ function AddTrackerDialog() {
   const pluginSpec = pluginTypes.find((a) => a.adapter_type === adapterType)
   const [config, setConfig] = useState<ConfigValues>({})
   // Torznab: un endpoint (Prowlarr, Jackett...) solo per cercare e
-  // reseedare, senza preset, announce, chiave RSS né profilo di upload.
+  // reseedare, senza preset, chiave RSS né profilo di upload. L'announce è
+  // facoltativo: riconosce nei client i torrent dell'indexer.
   const isTorznab = adapterType === 'torznab'
   const typeOptions = [
     { value: 'unit3d', label: 'UNIT3D' },
@@ -211,7 +212,7 @@ function AddTrackerDialog() {
         adapter_type: adapterType,
         base_url: baseUrl,
         api_token: apiToken,
-        announce_url: (!isTorznab && announceUrl) || undefined,
+        announce_url: announceUrl || undefined,
         rss_key: (!isTorznab && rssKey) || undefined,
         // Il preset scelto porta il suo profilo di upload; senza, il server
         // usa quello dell'indirizzo se lo conosce (es. ITT).
@@ -300,16 +301,16 @@ function AddTrackerDialog() {
             <Label htmlFor="t-api-token">{isTorznab ? t('trackers.torznabApiKey') : t('trackers.apiToken')}</Label>
             <Input id="t-api-token" value={apiToken} onChange={(e) => setApiToken(e.target.value)} />
           </div>
-          {!isTorznab && (
           <div className="grid gap-1.5" data-tour="trackers.dialog.announce">
-            <Label htmlFor="t-announce-url">{t('trackers.announceUrl')}</Label>
+            <Label htmlFor="t-announce-url">{isTorznab ? t('trackers.torznabAnnounceUrl') : t('trackers.announceUrl')}</Label>
             <Input
               id="t-announce-url"
               value={announceUrl}
               onChange={(e) => setAnnounceUrl(e.target.value)}
               placeholder="https://mytracker.example/announce/passkey"
             />
-            {announcePage && (
+            {isTorznab && <p className="text-xs text-muted-foreground">{t('trackers.torznabAnnounceUrlHelp')}</p>}
+            {!isTorznab && announcePage && (
               <p className="text-xs text-muted-foreground">
                 {t('trackers.announceUrlWhere')}{' '}
                 {announceHref
@@ -318,7 +319,6 @@ function AddTrackerDialog() {
               </p>
             )}
           </div>
-          )}
           {!isTorznab && (
             <RssKeyField id="t-rss-key" value={rssKey} onChange={setRssKey} placeholder={t('trackers.rssKeyPlaceholder')} />
           )}
